@@ -12,6 +12,12 @@ echo "==> 输入 IPA: $IPA_IN"
 echo "==> 注入库:   $DYLIB"
 echo "==> 输出:     $OUT"
 
+if [[ ! -f "$IPA_IN" ]]; then
+  echo "WARN: IPA 不存在，跳过重打包: $IPA_IN"
+  echo "      将 IPA 放入 ipa/ 目录后重新运行"
+  exit 0
+fi
+
 rm -rf "$WORK"
 mkdir -p "$WORK" "$ROOT/dist"
 

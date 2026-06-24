@@ -18,9 +18,16 @@ jobs:
         with:
           xcode-version: '15.4'
 
+      - name: 同步 legado-ios 引擎
+        run: |
+          git clone --depth 1 https://github.com/chrn11/legado-ios.git /tmp/legado-ios
+          chmod +x tools/sync_legado_vendor.sh
+          LEGADO_IOS_ROOT=/tmp/legado-ios bash tools/sync_legado_vendor.sh
+
       - name: 编译 LegadoBridge（SPM）
         working-directory: LegadoBridge
         run: |
+          set -euo pipefail
           swift package resolve
           swift build -c release -v 2>&1 | tee spm-build.log
 
@@ -43,7 +50,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: StandarReader-legado-bridge
+          name: LegadoBridge-build
           path: |
-            dist/*
+            LegadoBridge/.build/**/*
             LegadoBridge/spm-build.log
+            dist/*

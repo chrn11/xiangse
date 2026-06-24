@@ -13,7 +13,7 @@ $paths = @(
     'Core\Network\DecompressInterceptor.swift',
     'Core\Network\BackstageWebView.swift',
     'Core\Network\ConcurrentRateLimiter.swift',
-    'Core\Network\CookieStore.swift',
+    'Core\Network\CookieManager.swift',
     'Core\Network\StrResponse.swift',
     'Core\Model\WebBook.swift',
     'Core\Model\BookSourcePart.swift',
