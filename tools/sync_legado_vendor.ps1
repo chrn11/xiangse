@@ -2,7 +2,7 @@
 
 param(
     [string]$LegadoIosRoot = 'D:\soft\legado-ios',
-    [string]$VendorRoot = 'D:\soft\xiangse\LegadoBridge\Vendor'
+    [string]$VendorRoot = 'D:\soft\xiangse\LegadoBridge\Sources\LegadoBridge\Vendor'
 )
 
 $ErrorActionPreference = 'Stop'

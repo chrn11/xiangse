@@ -20,7 +20,7 @@ jobs:
 
       - name: 同步 legado-ios 引擎（本地已 vendor 则跳过）
         run: |
-          if [[ ! -d LegadoBridge/Vendor/Core/RuleEngine ]]; then
+          if [[ ! -d LegadoBridge/Sources/LegadoBridge/Vendor/Core/RuleEngine ]]; then
             if [[ -n "${{ secrets.LEGADO_IOS_PAT }}" ]]; then
               git clone --depth 1 "https://x-access-token:${{ secrets.LEGADO_IOS_PAT }}@github.com/chrn11/legado-ios.git" /tmp/legado-ios
               chmod +x tools/sync_legado_vendor.sh
@@ -29,7 +29,7 @@ jobs:
               echo "Vendor 未提交且无 LEGADO_IOS_PAT，尝试直接编译"
             fi
           else
-            echo "已存在 LegadoBridge/Vendor，跳过同步"
+            echo "已存在 LegadoBridge/Sources/LegadoBridge/Vendor，跳过同步"
           fi
 
       - name: 编译 LegadoBridge（SPM）

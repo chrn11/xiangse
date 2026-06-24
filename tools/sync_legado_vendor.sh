@@ -3,7 +3,7 @@
 set -euo pipefail
 
 LEGADO_IOS_ROOT="${LEGADO_IOS_ROOT:-../legado-ios}"
-VENDOR_ROOT="$(cd "$(dirname "$0")/.." && pwd)/LegadoBridge/Vendor"
+VENDOR_ROOT="$(cd "$(dirname "$0")/.." && pwd)/LegadoBridge/Sources/LegadoBridge/Vendor"
 
 paths=(
   "Core/RuleEngine"
