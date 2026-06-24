@@ -3,7 +3,7 @@ import Foundation
 /// LegadoBridge 对外门面 — Swift 与 ObjC Hook 层统一入口
 @objc public final class LegadoBridgeCore: NSObject {
     @objc public static let shared = LegadoBridgeCore()
-    @objc public static let version = "1.0.0-mvp"
+    @objc public static let bridgeVersion = "1.0.0-mvp"
 
     private var bookCache: [String: BridgeBook] = [:]
     private let queue = DispatchQueue(label: "com.xiangse.legado-bridge", qos: .userInitiated)

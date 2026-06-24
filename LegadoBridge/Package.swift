@@ -38,6 +38,7 @@ let package = Package(
                 "Vendor/Core/Cache/ImageCacheManager.swift",
                 "Vendor/Core/Network/CookieManager.swift",
                 "Vendor/Core/RuleEngine/RuleDebugger.swift",
+                "Vendor/Core/RuleEngine/ReplaceAnalyzer.swift",
                 "Vendor/Core/RuleEngine/ReplaceEngine.swift",
                 "Vendor/Core/RuleEngine/ReplaceEngineEnhanced.swift"
             ],
