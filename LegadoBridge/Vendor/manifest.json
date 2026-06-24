@@ -1,0 +1,18 @@
+﻿{
+    "syncedAt":  "2026-06-24T21:57:51.6978365+08:00",
+    "paths":  [
+                  "Core\\RuleEngine",
+                  "Core\\Network\\AnalyzeUrl.swift",
+                  "Core\\Network\\DecompressInterceptor.swift",
+                  "Core\\Network\\BackstageWebView.swift",
+                  "Core\\Network\\ConcurrentRateLimiter.swift",
+                  "Core\\Network\\CookieManager.swift",
+                  "Core\\Network\\StrResponse.swift",
+                  "Core\\Model\\WebBook.swift",
+                  "Core\\Model\\BookSourcePart.swift",
+                  "Core\\Utils\\LegadoExceptions.swift",
+                  "Core\\Utils\\ChineseUtils.swift",
+                  "Core\\Cache\\ImageCacheManager.swift"
+              ],
+    "legadoIosRoot":  "D:\\soft\\legado-ios"
+}

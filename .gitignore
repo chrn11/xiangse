@@ -6,6 +6,5 @@ analysis/payload.zip
 DerivedData/
 .build/
 LegadoBridge/.build/
-LegadoBridge/Vendor/
 *.ipa
 !ipa/.gitkeep
