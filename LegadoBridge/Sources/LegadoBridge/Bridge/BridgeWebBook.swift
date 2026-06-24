@@ -23,10 +23,8 @@ enum BridgeWebBook {
             source: source
         )
 
-        var response = try await AnalyzeUrl.getResponseBody(analyzedUrl: analyzedUrl)
-        response = applyLoginCheckIfNeeded(source: source, response: response)
-        let body = response.body
-        let redirectUrl = response.url
+        var (body, redirectUrl) = try await AnalyzeUrl.getResponseBody(analyzedUrl: analyzedUrl)
+        (body, redirectUrl) = applyLoginCheckIfNeeded(source: source, body: body, url: redirectUrl)
         guard !body.isEmpty else { throw WebBookError.emptyResponse }
 
         guard let searchRule = source.getSearchRule() else {
@@ -70,10 +68,10 @@ enum BridgeWebBook {
                 baseUrl: source.bookSourceUrl,
                 source: source
             )
-            var response = try await AnalyzeUrl.getResponseBody(analyzedUrl: analyzedUrl)
-            response = applyLoginCheckIfNeeded(source: source, response: response)
-            body = response.body
-            redirectUrl = response.url
+            var (fetchedBody, fetchedUrl) = try await AnalyzeUrl.getResponseBody(analyzedUrl: analyzedUrl)
+            (fetchedBody, fetchedUrl) = applyLoginCheckIfNeeded(source: source, body: fetchedBody, url: fetchedUrl)
+            body = fetchedBody
+            redirectUrl = fetchedUrl
         }
 
         guard !body.isEmpty else { throw WebBookError.emptyResponse }
@@ -107,15 +105,13 @@ enum BridgeWebBook {
             baseUrl: source.bookSourceUrl,
             source: source
         )
-        var response = try await AnalyzeUrl.getResponseBody(
+        var (body, redirectUrl) = try await AnalyzeUrl.getResponseBody(
             analyzedUrl: analyzedUrl,
             javaScript: contentRule.webJs,
             sourceRegex: contentRule.sourceRegex,
             forceWebView: !(contentRule.webJs?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         )
-        response = applyLoginCheckIfNeeded(source: source, response: response)
-        let body = response.body
-        let redirectUrl = response.url
+        (body, redirectUrl) = applyLoginCheckIfNeeded(source: source, body: body, url: redirectUrl)
         guard !body.isEmpty else { throw WebBookError.emptyResponse }
 
         let elementCtx = try makeElementContext(body: body, baseUrl: redirectUrl)
@@ -126,12 +122,12 @@ enum BridgeWebBook {
 
     private static func applyLoginCheckIfNeeded(
         source: MemoryBridgeBookSource,
-        response: StrResponse
-    ) -> StrResponse {
+        body: String,
+        url: String
+    ) -> (body: String, url: String) {
         guard let js = source.loginCheckJs?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !js.isEmpty else { return response }
-        // MVP：登录检查由 RuleEngine JS 环境处理，完整逻辑回流 legado-ios
-        return response
+              !js.isEmpty else { return (body, url) }
+        return (body, url)
     }
 
     private static func makeElementContext(body: String, baseUrl: String) throws -> ElementContext {
@@ -194,7 +190,7 @@ enum BridgeWebBook {
 }
 
 /// 与 legado-ios WebBook 兼容的搜索结果
-struct SearchBookResult {
+public struct SearchBookResult {
     var name: String = ""
     var author: String = ""
     var kind: String?

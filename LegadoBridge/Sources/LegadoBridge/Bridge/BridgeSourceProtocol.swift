@@ -7,6 +7,7 @@ protocol BridgeSourceProtocol: AnyObject {
     var header: String? { get }
     var enabledCookieJar: Bool { get }
     var loginCheckJs: String? { get }
+    var loginUrl: String? { get }
     var bookUrlPattern: String? { get }
     var searchUrl: String? { get }
     var concurrentRate: String? { get }

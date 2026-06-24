@@ -8,6 +8,7 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
     var header: String?
     var enabledCookieJar: Bool
     var loginCheckJs: String?
+    var loginUrl: String?
     var bookUrlPattern: String?
     var searchUrl: String?
     var concurrentRate: String?
@@ -27,6 +28,7 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
         header = part.header
         enabledCookieJar = part.enabledCookieJar ?? false
         loginCheckJs = part.loginCheckJs
+        loginUrl = part.loginUrl
         bookUrlPattern = part.bookUrlPattern
         searchUrl = part.searchUrl
         concurrentRate = part.concurrentRate
@@ -39,7 +41,7 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
         ruleContent = part.ruleContent.map(Self.mapContent)
     }
 
-    init(json: [String: Any]) throws {
+    convenience init(json: [String: Any]) throws {
         let data = try JSONSerialization.data(withJSONObject: json)
         let part = try JSONDecoder().decode(BookSourcePart.self, from: data)
         self.init(part: part)

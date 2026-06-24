@@ -33,8 +33,10 @@ let package = Package(
             ],
             path: "Sources/LegadoBridge",
             exclude: [
+                "Vendor/manifest.json",
                 "Vendor/Core/Model/WebBook.swift",
                 "Vendor/Core/Cache/ImageCacheManager.swift",
+                "Vendor/Core/Network/CookieManager.swift",
                 "Vendor/Core/RuleEngine/RuleDebugger.swift",
                 "Vendor/Core/RuleEngine/ReplaceEngine.swift",
                 "Vendor/Core/RuleEngine/ReplaceEngineEnhanced.swift"
