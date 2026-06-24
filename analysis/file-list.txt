@@ -1,0 +1,38 @@
+﻿
+Name                      Length
+----                      ------
+StandarReader            3270496
+Assets.car                 24808
+embedded.mobileprovision   19869
+SearchWebView.js            5797
+LCR_Alert@2x.png            4654
+LCR_Alert.png               4654
+AppIcon76x76@2x~ipad.png    4647
+LCR_Alert_White@2x.png      4529
+AppIcon60x60@2x.png         4326
+icon@2x.png                 4326
+icon.png                    4326
+icon@3x.png                 4326
+tool_txt_simplifiedcode     4098
+tool_txt_traditionalcode    4098
+lcweb_forword@2x.png        3185
+Info.plist                  3046
+lpnet_modelInfo             1708
+LCR_back@2x.png              571
+lcweb_back@2x.png            571
+LCR_Checkmark@3x.png         448
+
+
+
+Name            
+----            
+Base.lproj      
+dir_res         
+en.lproj        
+MJRefresh.bundle
+SC_Info         
+zh-Hans.lproj   
+zh-Hant.lproj   
+_CodeSignature  
+
+

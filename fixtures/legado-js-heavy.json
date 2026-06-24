@@ -1,0 +1,22 @@
+{
+  "bookSourceUrl": "https://example-legado-js.test",
+  "bookSourceName": "JS重度测试源",
+  "enabled": true,
+  "searchUrl": "@js:\njava.put('key', key);\n'https://example-legado-js.test/search?q=' + key",
+  "ruleSearch": {
+    "bookList": "@js:\njava.ajax('https://example-legado-js.test/api/list')",
+    "name": "title",
+    "author": "author",
+    "bookUrl": "url"
+  },
+  "ruleToc": {
+    "chapterList": "@js:\nJSON.parse(result).chapters",
+    "chapterName": "name",
+    "chapterUrl": "url"
+  },
+  "ruleContent": {
+    "content": "@js:\njava.ajax(chapterUrl)",
+    "webJs": "document.body.innerText"
+  },
+  "jsLib": "function hello(){ return 'world'; }"
+}

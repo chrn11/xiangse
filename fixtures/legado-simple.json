@@ -1,0 +1,32 @@
+{
+  "bookSourceUrl": "https://m.bqg.fun",
+  "bookSourceName": "笔趣阁测试源",
+  "bookSourceType": 0,
+  "enabled": true,
+  "enabledExplore": true,
+  "enabledCookieJar": false,
+  "searchUrl": "https://m.bqg.fun/s?q={{key}}",
+  "ruleSearch": {
+    "bookList": ".bookbox",
+    "name": "h4@text",
+    "author": ".author@text",
+    "bookUrl": "a@href",
+    "coverUrl": "img@src",
+    "intro": ".intro@text"
+  },
+  "ruleBookInfo": {
+    "name": "h1@text",
+    "author": ".author@text",
+    "intro": "#intro@text",
+    "coverUrl": ".cover@src",
+    "tocUrl": "text.目录@href"
+  },
+  "ruleToc": {
+    "chapterList": "#list dd",
+    "chapterName": "a@text",
+    "chapterUrl": "a@href"
+  },
+  "ruleContent": {
+    "content": "#chaptercontent@html"
+  }
+}

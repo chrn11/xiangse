@@ -1,0 +1,22 @@
+{
+  "CFBundleIdentifier": "com.appbox.StandarReader",
+  "CFBundleShortVersionString": "2.56.1",
+  "CFBundleVersion": "2.56.1",
+  "CFBundleExecutable": "StandarReader",
+  "MinimumOSVersion": "13.0",
+  "CFBundleURLTypes": [
+    {
+      "CFBundleTypeRole": "Editor",
+      "CFBundleURLIconFile": "",
+      "CFBundleURLSchemes": [
+        "com.appbox.StandarReader"
+      ],
+      "CFBundleURLName": "com.appbox.StandarReader"
+    }
+  ],
+  "UISupportedInterfaceOrientations": [
+    "UIInterfaceOrientationPortrait"
+  ],
+  "UIFileSharingEnabled": null,
+  "LSSupportsOpeningDocumentsInPlace": false
+}

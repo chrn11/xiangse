@@ -1,0 +1,11 @@
+.test_tools/
+analysis/unpacked/
+analysis/repack-work/
+analysis/payload.zip
+*.xcuserstate
+DerivedData/
+.build/
+LegadoBridge/.build/
+LegadoBridge/Vendor/
+*.ipa
+!ipa/.gitkeep
