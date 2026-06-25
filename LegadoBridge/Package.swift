@@ -4,8 +4,7 @@ import PackageDescription
 let package = Package(
     name: "LegadoBridge",
     platforms: [
-        .iOS(.v13),
-        .macOS(.v13)
+        .iOS(.v13)
     ],
     products: [
         .library(name: "LegadoBridge", type: .dynamic, targets: ["LegadoBridge"])
@@ -20,8 +19,7 @@ let package = Package(
             path: "Sources/LegadoBridgeHooks",
             publicHeadersPath: "include",
             linkerSettings: [
-                .linkedFramework("Foundation"),
-                .linkedFramework("UIKit")
+                .linkedFramework("Foundation")
             ]
         ),
         .target(
@@ -48,11 +46,9 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedFramework("Foundation"),
-                .linkedFramework("UIKit"),
                 .linkedFramework("WebKit"),
                 .linkedFramework("JavaScriptCore"),
-                .linkedFramework("Security"),
-                .linkedFramework("CoreGraphics")
+                .linkedFramework("Security")
             ]
         )
     ]
