@@ -37,15 +37,17 @@ jobs:
         run: |
           set -euo pipefail
           swift package resolve
-          swift package generate-xcodeproj --output generated.xcodeproj 2>&1 | tee -a spm-build.log || true
+          echo "==> 可用 scheme:"
+          xcodebuild -list -packagePath . 2>&1 | tee -a spm-build.log || true
           xcodebuild \
-            -project generated.xcodeproj \
+            -packagePath . \
             -scheme LegadoBridge \
             -destination 'generic/platform=iOS' \
             -configuration Release \
             -derivedDataPath .build \
             CODE_SIGNING_ALLOWED=NO \
             BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
+            -skipPackagePluginValidation \
             2>&1 | tee -a spm-build.log
           echo "==> 产物:"
           find .build -name 'LegadoBridge' -type f -path '*Release-iphoneos*' | head -5
