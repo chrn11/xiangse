@@ -37,10 +37,9 @@ jobs:
         run: |
           set -euo pipefail
           swift package resolve
-          echo "==> 可用 scheme:"
-          xcodebuild -list -packagePath . 2>&1 | tee -a spm-build.log || true
+          echo "==> xcodebuild -list:"
+          xcodebuild -list 2>&1 | tee -a spm-build.log || true
           xcodebuild \
-            -packagePath . \
             -scheme LegadoBridge \
             -destination 'generic/platform=iOS' \
             -configuration Release \
