@@ -17,78 +17,58 @@ void LBInstallHooks(void) {
     });
 }
 
-static void LBSwizzleClassMethod(Class cls, SEL original, SEL swizzled) {
-    Method origMethod = class_getClassMethod(cls, original);
-    Method newMethod = class_getClassMethod(cls, swizzled);
-    if (origMethod && newMethod) {
-        method_exchangeImplementations(origMethod, newMethod);
-    }
-}
+// 保存 NSJSONSerialization +JSONObjectWithData:options:error: 的原始实现指针。
+// 采用「保存原 IMP + method_setImplementation」而非 selector 交换，
+// 避免 hook 内部调原实现时因 swizzled selector 未注册到目标类表而触发
+// unrecognized selector（曾导致冷启动 SIGABRT）。
+static id (*LBOrig_NSJSONSerialization_JSONObjectWithData)(Class, SEL, NSData *, NSJSONReadingOptions, NSError **) = NULL;
 
-static void LBSwizzleInstanceMethod(Class cls, SEL original, SEL swizzled) {
-    Method origMethod = class_getInstanceMethod(cls, original);
-    Method newMethod = class_getInstanceMethod(cls, swizzled);
-    if (origMethod && newMethod) {
-        method_exchangeImplementations(origMethod, newMethod);
-    }
-}
-
-#pragma mark - Import Hook
-
-@interface LBJSONSerializationHook : NSObject
-@end
-
-@implementation LBJSONSerializationHook
-
-+ (id)lb_JSONObjectWithData:(NSData *)data
-                    options:(NSJSONReadingOptions)opt
-                      error:(NSError **)error {
-    id result = [self lb_JSONObjectWithData:data options:opt error:error];
-    if (data.length > 0) {
-        @try {
-            Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
-            if (coreClass) {
-                id core = [coreClass performSelector:@selector(shared)];
-                if ([core respondsToSelector:@selector(isLegadoJSONData:)]) {
-                    BOOL isLegado = ((BOOL (*)(id, SEL, NSData *))objc_msgSend)(core, @selector(isLegadoJSONData:), data);
-                    if (isLegado) {
-                        NSError *importError = nil;
-                        ((NSInteger (*)(id, SEL, NSData *, NSError **))objc_msgSend)(
-                            core, @selector(importLegadoJSONData:error:), data, &importError
-                        );
-                        if (importError) {
-                            NSLog(@"[LegadoBridge] import error: %@", importError);
-                        } else {
-                            NSLog(@"[LegadoBridge] Legado JSON imported");
-                        }
-                    }
-                }
-            }
-        } @catch (NSException *e) {
-            NSLog(@"[LegadoBridge] import hook exception: %@", e);
+static id LBLegadoDetectAndImport(NSData *data) {
+    if (data.length == 0) return nil;
+    @try {
+        Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+        if (!coreClass) return nil;
+        id core = [coreClass performSelector:@selector(shared)];
+        if (![core respondsToSelector:@selector(isLegadoJSONData:)]) return nil;
+        BOOL isLegado = ((BOOL (*)(id, SEL, NSData *))objc_msgSend)(core, @selector(isLegadoJSONData:), data);
+        if (!isLegado) return nil;
+        NSError *importError = nil;
+        ((NSInteger (*)(id, SEL, NSData *, NSError **))objc_msgSend)(
+            core, @selector(importLegadoJSONData:error:), data, &importError
+        );
+        if (importError) {
+            NSLog(@"[LegadoBridge] import error: %@", importError);
+        } else {
+            NSLog(@"[LegadoBridge] Legado JSON imported");
         }
+    } @catch (NSException *e) {
+        NSLog(@"[LegadoBridge] import hook exception: %@", e);
     }
+    return nil;
+}
+
+// 替换 +[NSJSONSerialization JSONObjectWithData:options:error:] 的新 IMP。
+// 不依赖任何「self 上存在 lb_JSONObjectWithData:」selector，直接调用保存的原 IMP。
+static id LBNSJSONSerialization_JSONObjectWithData_IMP(Class self, SEL _cmd, NSData *data, NSJSONReadingOptions opt, NSError **error) {
+    id result = NULL;
+    if (LBOrig_NSJSONSerialization_JSONObjectWithData) {
+        result = LBOrig_NSJSONSerialization_JSONObjectWithData(self, @selector(JSONObjectWithData:options:error:), data, opt, error);
+    }
+    LBLegadoDetectAndImport(data);
     return result;
 }
-
-@end
 
 void LBInstallImportHooks(void) {
     Class jsonClass = objc_getClass("NSJSONSerialization");
     if (!jsonClass) return;
 
     SEL original = @selector(JSONObjectWithData:options:error:);
-    SEL swizzled = @selector(lb_JSONObjectWithData:options:error:);
-
     Method origMethod = class_getClassMethod(jsonClass, original);
-    Method newMethod = class_getClassMethod([LBJSONSerializationHook class], swizzled);
-    if (origMethod && newMethod) {
-        method_exchangeImplementations(origMethod, newMethod);
-    }
+    if (!origMethod) return;
 
-    // 拦截 openURL / 文档导入：检测 .json 扩展名走 Legado 路径
-    Class appDelegateMeta = objc_getMetaClass("UIApplication.class");
-    (void)appDelegateMeta;
+    LBOrig_NSJSONSerialization_JSONObjectWithData = (id (*)(Class, SEL, NSData *, NSJSONReadingOptions, NSError **))method_getImplementation(origMethod);
+    method_setImplementation(origMethod, (IMP)LBNSJSONSerialization_JSONObjectWithData_IMP);
+    NSLog(@"[LegadoBridge] hooked +[NSJSONSerialization JSONObjectWithData:options:error:]");
 }
 
 #pragma mark - Search / Catalog / Content Hooks

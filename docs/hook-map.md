@@ -56,9 +56,17 @@ sequenceDiagram
 
 或数组 `[{ ... }, { ... }]`。必须含 `bookSourceUrl` + (`searchUrl` 或 `ruleSearch`)。
 
+### 实现方式
+
+`+[NSJSONSerialization JSONObjectWithData:options:error:]` 类方法 Hook 采用「保存原 IMP + `method_setImplementation`」模式，**不使用 selector 交换**。
+
+> 历史教训：早期版本用 `method_exchangeImplementations` 交换 `JSONObjectWithData:options:error:` 与 `lb_JSONObjectWithData:options:error:`，但 `lb_JSONObjectWithData:` 这个 selector 从未通过 `class_addMethod` 注册到 `NSJSONSerialization` 元类。交换后 hook 内部 `[self lb_JSONObjectWithData:...]`（`self` 为 `NSJSONSerialization`）在目标类表找不到该 selector，触发 `___forwarding___` → `doesNotRecognizeSelector` → `NSInvalidArgumentException` → `abort()`，导致冷启动 `SIGABRT`（11:18 连续 5 次秒级崩溃，异常 reason：`+[NSJSONSerialization lb_JSONObjectWithData:options:error:]: unrecognized selector sent to class`）。
+
+当前实现：`method_getImplementation` 取出原 IMP 存入 `LBOrig_NSJSONSerialization_JSONObjectWithData`，`method_setImplementation` 替换为新 C 函数 `LBNSJSONSerialization_JSONObjectWithData_IMP`；hook 内直接调用原 IMP 指针，不依赖任何 selector 在目标类表中的存在性。
+
 ### 实现文件
 
-- `LegadoBridge/Sources/LegadoBridgeHook/LBImportHook.m`
+- `LegadoBridge/Sources/LegadoBridgeHooks/LBSwizzle.m`（`LBInstallImportHooks`）
 - `LegadoBridge/Sources/LegadoBridge/SourceRegistry.swift`
 
 ## Hook #2 — 搜索
@@ -93,9 +101,9 @@ sequenceDiagram
 
 ### 实现文件
 
-- `LegadoBridge/Sources/LegadoBridgeHook/LBSearchHook.m`
+- `LegadoBridge/Sources/LegadoBridgeHooks/LBSwizzle.m`（`LBInstallSearchHooks`）
 - `LegadoBridge/Sources/LegadoBridge/XiangseAdapter.swift`
-- `LegadoBridge/Sources/LegadoBridge/BridgeEngine.swift`
+- `LegadoBridge/Sources/LegadoBridge/Bridge/LegadoBridgeCore.swift`
 
 ## Hook #3 — 目录
 
@@ -134,16 +142,12 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[dylib constructor] --> B[LBSwizzleInstallAll]
-    B --> C[LBImportHook]
-    B --> D[LBSearchHook]
-    B --> E[LBCatalogHook]
-    B --> F[LBContentHook]
+    A[dylib constructor] --> B[LBInstallHooks]
+    B --> C[LBInstallImportHooks]
+    B --> D[LBInstallSearchHooks]
     C --> G[SourceRegistry.shared]
     D --> G
-    E --> G
-    F --> G
-    G --> H[BridgeEngine Swift]
+    G --> H[LegadoBridgeCore Swift]
 ```
 
 ## 风险与 Fallback
