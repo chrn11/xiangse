@@ -32,16 +32,21 @@ jobs:
             echo "已存在 LegadoBridge/Sources/LegadoBridge/Vendor，跳过同步"
           fi
 
-      - name: 编译 LegadoBridge（SPM, iOS arm64）
+      - name: 编译 LegadoBridge（iOS arm64）
         working-directory: LegadoBridge
         run: |
           set -euo pipefail
           swift package resolve
-          swift build -c release \
-            --arch arm64 \
-            --sdk iphoneos \
-            -Xswiftc -target -Xswiftc arm64-apple-ios13.0 \
-            -v 2>&1 | tee spm-build.log
+          xcodebuild \
+            -scheme LegadoBridge \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            -derivedDataPath .build \
+            CODE_SIGNING_ALLOWED=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
+            2>&1 | tee spm-build.log
+          echo "==> 产物:"
+          find .build -name 'LegadoBridge' -type f -path '*Release-iphoneos*' | head -5
 
       - name: 准备 insert_dylib
         run: |
