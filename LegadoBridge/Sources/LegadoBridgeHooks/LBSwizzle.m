@@ -23,6 +23,11 @@ void LBInstallHooks(void) {
 // unrecognized selector（曾导致冷启动 SIGABRT）。
 static id (*LBOrig_NSJSONSerialization_JSONObjectWithData)(Class, SEL, NSData *, NSJSONReadingOptions, NSError **) = NULL;
 
+// 重入保护：isLegadoJSONData / importLegadoJSONData 内部会再次调用
+// +[NSJSONSerialization JSONObjectWithData:]，若不拦截会无限递归直至栈溢出
+// （KERN_PROTECTION_FAILURE / SIGSEGV）。用线程局部标志守卫，重入期间只走原 IMP。
+static void *LBReentryKey = &LBReentryKey;
+
 static id LBLegadoDetectAndImport(NSData *data) {
     if (data.length == 0) return nil;
     @try {
@@ -49,12 +54,23 @@ static id LBLegadoDetectAndImport(NSData *data) {
 
 // 替换 +[NSJSONSerialization JSONObjectWithData:options:error:] 的新 IMP。
 // 不依赖任何「self 上存在 lb_JSONObjectWithData:」selector，直接调用保存的原 IMP。
+// 重入保护：检测/导入分支（内部会再次调用本 hook）用线程局部标志守卫，避免无限递归。
 static id LBNSJSONSerialization_JSONObjectWithData_IMP(Class self, SEL _cmd, NSData *data, NSJSONReadingOptions opt, NSError **error) {
     id result = NULL;
     if (LBOrig_NSJSONSerialization_JSONObjectWithData) {
         result = LBOrig_NSJSONSerialization_JSONObjectWithData(self, @selector(JSONObjectWithData:options:error:), data, opt, error);
     }
-    LBLegadoDetectAndImport(data);
+
+    NSMutableDictionary *td = [NSThread currentThread].threadDictionary;
+    if ([td objectForKey:LBReentryKey]) {
+        return result;
+    }
+    [td setObject:@YES forKey:LBReentryKey];
+    @try {
+        LBLegadoDetectAndImport(data);
+    } @finally {
+        [td removeObjectForKey:LBReentryKey];
+    }
     return result;
 }
 
