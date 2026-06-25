@@ -62,7 +62,15 @@ jobs:
       - name: 重打包 IPA
         run: |
           chmod +x tools/repack/repack.sh
-          DYLIB=$(find LegadoBridge/.build -name 'LegadoBridge' -type f 2>/dev/null | head -1 || true)
+          # 优先找真正的动态库（排除 dSYM/DWARF），再退而求其次找 framework
+          DYLIB=$(find LegadoBridge/.build -type f -name 'LegadoBridge' \
+            -path '*Release-iphoneos*' -not -path '*dSYM*' 2>/dev/null | head -1 || true)
+          if [[ -z "$DYLIB" ]]; then
+            DYLIB=$(find LegadoBridge/.build -type f -name 'libLegadoBridge.dylib' \
+              -path '*Release-iphoneos*' 2>/dev/null | head -1 || true)
+          fi
+          echo "==> 选用 dylib: ${DYLIB:-（无，将仅写 manifest）}"
+          mkdir -p dist
           bash tools/repack/repack.sh \
             "ipa/香色闺阁2.56.1_未加密.ipa" \
             "${DYLIB:-}" \

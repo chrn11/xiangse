@@ -3,9 +3,16 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-IPA_IN="${1:-$ROOT/ipa/香色闺阁2.56.1_未加密.ipa}"
-DYLIB="${2:-$ROOT/LegadoBridge/.build/Build/Products/Release-iphoneos/LegadoBridge.framework/LegadoBridge}"
-OUT="${3:-$ROOT/dist/StandarReader-legado-bridge.ipa}"
+IPA_IN_RAW="${1:-$ROOT/ipa/香色闺阁2.56.1_未加密.ipa}"
+DYLIB_RAW="${2:-$ROOT/LegadoBridge/.build/Build/Products/Release-iphoneos/LegadoBridge.framework/LegadoBridge}"
+OUT_RAW="${3:-$ROOT/dist/StandarReader-legado-bridge.ipa}"
+
+# 解析为绝对路径，避免 pushd 后相对路径失效
+IPA_IN="$(cd "$(dirname "$IPA_IN_RAW")" 2>/dev/null && echo "$(pwd)/$(basename "$IPA_IN_RAW")")"
+[[ -z "$IPA_IN" ]] && IPA_IN="$IPA_IN_RAW"
+DYLIB="$DYLIB_RAW"
+OUT="$(cd "$(dirname "$OUT_RAW")" 2>/dev/null && echo "$(pwd)/$(basename "$OUT_RAW")")"
+[[ -z "$OUT" ]] && OUT="$OUT_RAW"
 WORK="$ROOT/analysis/repack-work"
 
 echo "==> 输入 IPA: $IPA_IN"
