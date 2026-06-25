@@ -26,7 +26,7 @@ static id (*LBOrig_NSJSONSerialization_JSONObjectWithData)(Class, SEL, NSData *,
 // 重入保护：isLegadoJSONData / importLegadoJSONData 内部会再次调用
 // +[NSJSONSerialization JSONObjectWithData:]，若不拦截会无限递归直至栈溢出
 // （KERN_PROTECTION_FAILURE / SIGSEGV）。用线程局部标志守卫，重入期间只走原 IMP。
-static void *LBReentryKey = &LBReentryKey;
+static NSString *const LBReentryKey = @"LegadoBridge.JSONHook.Reentry";
 
 static id LBLegadoDetectAndImport(NSData *data) {
     if (data.length == 0) return nil;
