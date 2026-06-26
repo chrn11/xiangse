@@ -250,5 +250,9 @@ void LBInstallSearchHooks(void) {
 
 __attribute__((constructor))
 static void LBBridgeAutoInit(void) {
+    // 调试标记：dylib constructor 执行（确认 LegadoBridge 已加载）
+    [@"dylib loaded" writeToFile:@"/var/mobile/Documents/legado_dylib_loaded.txt" atomically:NO encoding:NSUTF8StringEncoding error:NULL];
     LBInstallHooks();
+    // 调试标记：hooks 安装完成
+    [@"hooks installed" writeToFile:@"/var/mobile/Documents/legado_hooks_installed.txt" atomically:NO encoding:NSUTF8StringEncoding error:NULL];
 }
