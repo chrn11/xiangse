@@ -343,7 +343,7 @@ static NSString *LBBSM_sourceTypeTitleBySourceName_IMP(id self, SEL _cmd, NSStri
     return @"";
 }
 
-static NSString * (*LBOrig_Config_getUseSourceNames)(id, SEL) = NULL;
+static NSArray * (*LBOrig_Config_getUseSourceNames)(id, SEL) = NULL;
 
 static NSArray *LBConfig_getUseSourceNames_IMP(id self, SEL _cmd) {
     NSArray *orig = LBOrig_Config_getUseSourceNames ? LBOrig_Config_getUseSourceNames(self, _cmd) : @[];
