@@ -69,8 +69,9 @@ enum NativeSourceInjector {
 
     private static func mergeModelsIntoManager(_ manager: NSObject, models: [[String: Any]]) {
         let listSel = NSSelectorFromString("dicModelList")
-        guard manager.responds(to: listSel),
-              let current = manager.perform(listSel)?.takeUnretainedValue() as? NSDictionary else { return }
+        guard manager.responds(to: listSel) else { return }
+        let raw = manager.perform(listSel)?.takeUnretainedValue()
+        let current = (raw as? NSDictionary) ?? [:]
         let merged = NSMutableDictionary(dictionary: current)
         for model in models {
             guard let name = model["sourceName"] as? String else { continue }
@@ -82,6 +83,9 @@ enum NativeSourceInjector {
         } else {
             manager.setValue(merged, forKey: "dicModelList")
         }
+        let msg = "merged=\(merged.count)"
+        let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_native_merge.txt")
+        try? msg.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     private static func invokeSave(on manager: NSObject) {

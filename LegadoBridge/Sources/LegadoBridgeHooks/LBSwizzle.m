@@ -343,6 +343,29 @@ static NSString *LBBSM_sourceTypeTitleBySourceName_IMP(id self, SEL _cmd, NSStri
     return @"";
 }
 
+static id (*LBOrig_Config_getGroupData)(id, SEL) = NULL;
+
+static id LBConfig_getGroupData_IMP(id self, SEL _cmd) {
+    id orig = LBOrig_Config_getGroupData ? LBOrig_Config_getGroupData(self, _cmd) : nil;
+    NSArray *legadoNames = LBLegadoGetSourceNames();
+    NSString *dbg = [NSString stringWithFormat:@"orig=%@ legado=%lu", orig ?: @"(nil)", (unsigned long)legadoNames.count];
+    [dbg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_getgroupdata_hook.txt"]
+          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    if (legadoNames.count == 0) return orig;
+    // 将 Legado 源名追加到分组数据（NSArray of NSDictionary 分组）
+    if ([orig isKindOfClass:[NSArray class]]) {
+        NSMutableArray *groups = [orig mutableCopy];
+        NSMutableDictionary *legadoGroup = [@{
+            @"title": @"Legado",
+            @"items": legadoNames,
+            @"arrSourceName": legadoNames
+        } mutableCopy];
+        [groups addObject:legadoGroup];
+        return groups;
+    }
+    return orig;
+}
+
 static NSArray * (*LBOrig_Config_getUseSourceNames)(id, SEL) = NULL;
 
 static NSArray *LBConfig_getUseSourceNames_IMP(id self, SEL _cmd) {
@@ -400,6 +423,16 @@ void LBInstallSourceListHooks(void) {
     }
 
     Class listConClass = NSClassFromString(@"ConfigSourceModelListCon");
+    Class listBaseClass = NSClassFromString(@"ConfigSourceListBase");
+    if (listBaseClass) {
+        SEL groupSel = @selector(getGroupData);
+        Method groupMethod = class_getInstanceMethod(listBaseClass, groupSel);
+        if (groupMethod) {
+            LBOrig_Config_getGroupData = (id (*)(id, SEL))method_getImplementation(groupMethod);
+            method_setImplementation(groupMethod, (IMP)LBConfig_getGroupData_IMP);
+            NSLog(@"[LegadoBridge] hooked ConfigSourceListBase getGroupData");
+        }
+    }
     if (listConClass) {
         SEL useSel = @selector(getUseSourceNames);
         Method useMethod = class_getInstanceMethod(listConClass, useSel);
