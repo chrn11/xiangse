@@ -149,17 +149,20 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
 void LBInstallOpenURLHook(void) {
     Class appDelegateClass = objc_getClass("AppDelegate");
     if (!appDelegateClass) {
+        [@"FAIL: AppDelegate class not found" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_openurl_install.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
         NSLog(@"[LegadoBridge] AppDelegate class not found, skip openURL hook");
         return;
     }
     SEL sel = @selector(application:openURL:options:);
     Method m = class_getInstanceMethod(appDelegateClass, sel);
     if (!m) {
+        [[NSString stringWithFormat:@"FAIL: method not found on %@", NSStringFromClass(appDelegateClass)] writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_openurl_install.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
         NSLog(@"[LegadoBridge] application:openURL:options: not found, skip");
         return;
     }
     LBOrig_AppDelegate_application_openURL_options = (BOOL (*)(id, SEL, id, NSURL *, NSDictionary *))method_getImplementation(m);
     method_setImplementation(m, (IMP)LBAppDelegate_openURL_options_IMP);
+    [[NSString stringWithFormat:@"OK: hooked on %@", NSStringFromClass(appDelegateClass)] writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_openurl_install.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
     NSLog(@"[LegadoBridge] hooked AppDelegate application:openURL:options:");
 }
 
