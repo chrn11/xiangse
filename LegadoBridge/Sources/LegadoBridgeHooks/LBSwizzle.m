@@ -13,6 +13,7 @@ static void LBLegadoShowResult(NSString *msg);
 void LBInstallImportHooks(void);
 void LBInstallSearchHooks(void);
 void LBInstallOpenURLHook(void);
+void LBInstallSourceListHooks(void);
 
 void LBInstallHooks(void) {
     static dispatch_once_t onceToken;
@@ -20,6 +21,7 @@ void LBInstallHooks(void) {
         LBInstallImportHooks();
         LBInstallOpenURLHook();
         LBInstallSearchHooks();
+        LBInstallSourceListHooks();
         NSLog(@"[LegadoBridge] hooks installed, version=%@", LBBridgeVersion());
     });
 }
@@ -262,6 +264,122 @@ void LBInstallOpenURLHook(void) {
         LBOrig_AppDelegate_didFinishLaunching = (BOOL (*)(id, SEL, id, NSDictionary *))method_getImplementation(lm);
         method_setImplementation(lm, (IMP)LBAppDelegate_didFinishLaunching_IMP);
         NSLog(@"[LegadoBridge] hooked application:didFinishLaunchingWithOptions:");
+    }
+}
+
+#pragma mark - Source List Hooks (站点管理列表)
+
+static id LBLegadoCore(void) {
+    Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+    if (!coreClass) return nil;
+    return [coreClass performSelector:@selector(shared)];
+}
+
+static NSArray *LBLegadoGetSourceNames(void) {
+    id core = LBLegadoCore();
+    if (!core || ![core respondsToSelector:@selector(allLegadoSourceNames)]) return @[];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+    NSArray *names = [core performSelector:@selector(allLegadoSourceNames)];
+#pragma clang diagnostic pop
+    return names ?: @[];
+}
+
+static BOOL LBLegadoIsSourceName(NSString *name) {
+    if (name.length == 0) return NO;
+    id core = LBLegadoCore();
+    if (!core || ![core respondsToSelector:@selector(isLegadoSourceName:)]) return NO;
+    return ((BOOL (*)(id, SEL, NSString *))objc_msgSend)(core, @selector(isLegadoSourceName:), name);
+}
+
+static NSDictionary *LBLegadoNativeModel(NSString *name) {
+    id core = LBLegadoCore();
+    if (!core || ![core respondsToSelector:@selector(legadoNativeModelForSourceName:)]) return nil;
+    return ((NSDictionary * (*)(id, SEL, NSString *))objc_msgSend)(core, @selector(legadoNativeModelForSourceName:), name);
+}
+
+static NSArray * (*LBOrig_BSM_getSortedSourceNames)(id, SEL) = NULL;
+static NSDictionary * (*LBOrig_BSM_dicModelList)(id, SEL) = NULL;
+static NSString * (*LBOrig_BSM_sourceTypeBySourceName)(id, SEL, NSString *) = NULL;
+static NSString * (*LBOrig_BSM_sourceTypeTitleBySourceName)(id, SEL, NSString *) = NULL;
+
+static NSArray *LBBSM_getSortedSourceNames_IMP(id self, SEL _cmd) {
+    NSArray *orig = LBOrig_BSM_getSortedSourceNames ? LBOrig_BSM_getSortedSourceNames(self, _cmd) : @[];
+    NSArray *legadoNames = LBLegadoGetSourceNames();
+    if (legadoNames.count == 0) return orig ?: @[];
+    NSMutableOrderedSet *merged = [NSMutableOrderedSet orderedSetWithArray:orig ?: @[]];
+    for (NSString *name in legadoNames) {
+        [merged addObject:name];
+    }
+    return merged.array;
+}
+
+static NSDictionary *LBBSM_dicModelList_IMP(id self, SEL _cmd) {
+    NSDictionary *orig = LBOrig_BSM_dicModelList ? LBOrig_BSM_dicModelList(self, _cmd) : @{};
+    NSArray *legadoNames = LBLegadoGetSourceNames();
+    if (legadoNames.count == 0) return orig ?: @{};
+    NSMutableDictionary *merged = [orig mutableCopy];
+    if (!merged) merged = [NSMutableDictionary dictionary];
+    for (NSString *name in legadoNames) {
+        NSDictionary *model = LBLegadoNativeModel(name);
+        if (model) merged[name] = model;
+    }
+    return merged;
+}
+
+static NSString *LBBSM_sourceTypeBySourceName_IMP(id self, SEL _cmd, NSString *name) {
+    if (LBLegadoIsSourceName(name)) return @"LEGADO";
+    if (LBOrig_BSM_sourceTypeBySourceName) {
+        return LBOrig_BSM_sourceTypeBySourceName(self, _cmd, name);
+    }
+    return @"DOM";
+}
+
+static NSString *LBBSM_sourceTypeTitleBySourceName_IMP(id self, SEL _cmd, NSString *name) {
+    if (LBLegadoIsSourceName(name)) return @"Legado";
+    if (LBOrig_BSM_sourceTypeTitleBySourceName) {
+        return LBOrig_BSM_sourceTypeTitleBySourceName(self, _cmd, name);
+    }
+    return @"";
+}
+
+void LBInstallSourceListHooks(void) {
+    Class managerClass = NSClassFromString(@"BookSourceModelManager");
+    if (!managerClass) {
+        NSLog(@"[LegadoBridge] BookSourceModelManager not found, skip source list hooks");
+        return;
+    }
+
+    SEL sortedSel = @selector(getSortedSourceNames);
+    Method sortedMethod = class_getInstanceMethod(managerClass, sortedSel);
+    if (sortedMethod) {
+        LBOrig_BSM_getSortedSourceNames = (NSArray * (*)(id, SEL))method_getImplementation(sortedMethod);
+        method_setImplementation(sortedMethod, (IMP)LBBSM_getSortedSourceNames_IMP);
+        NSLog(@"[LegadoBridge] hooked BookSourceModelManager getSortedSourceNames");
+    }
+
+    SEL listSel = @selector(dicModelList);
+    Method listMethod = class_getInstanceMethod(managerClass, listSel);
+    if (listMethod) {
+        LBOrig_BSM_dicModelList = (NSDictionary * (*)(id, SEL))method_getImplementation(listMethod);
+        method_setImplementation(listMethod, (IMP)LBBSM_dicModelList_IMP);
+        NSLog(@"[LegadoBridge] hooked BookSourceModelManager dicModelList");
+    }
+
+    SEL typeSel = @selector(sourceTypeBySourceName:);
+    Method typeMethod = class_getInstanceMethod(managerClass, typeSel);
+    if (typeMethod) {
+        LBOrig_BSM_sourceTypeBySourceName = (NSString * (*)(id, SEL, NSString *))method_getImplementation(typeMethod);
+        method_setImplementation(typeMethod, (IMP)LBBSM_sourceTypeBySourceName_IMP);
+        NSLog(@"[LegadoBridge] hooked BookSourceModelManager sourceTypeBySourceName:");
+    }
+
+    SEL titleSel = @selector(sourceTypeTitleBySourceName:);
+    Method titleMethod = class_getInstanceMethod(managerClass, titleSel);
+    if (titleMethod) {
+        LBOrig_BSM_sourceTypeTitleBySourceName = (NSString * (*)(id, SEL, NSString *))method_getImplementation(titleMethod);
+        method_setImplementation(titleMethod, (IMP)LBBSM_sourceTypeTitleBySourceName_IMP);
+        NSLog(@"[LegadoBridge] hooked BookSourceModelManager sourceTypeTitleBySourceName:");
     }
 }
 

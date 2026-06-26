@@ -33,11 +33,31 @@ import Foundation
     @discardableResult
     public func importLegadoJSONDataThrowing(_ data: Data) throws -> Int {
         let count = try SourceRegistry.shared.importJSONData(data)
+        let sources = SourceRegistry.shared.allSources()
+        NativeSourceInjector.syncToNativeManager(sources: sources)
         postNotification(
             XiangseAdapter.notifyUpdateSourceList,
-            userInfo: XiangseAdapter.sourceListPayload(sources: SourceRegistry.shared.allSources())
+            userInfo: XiangseAdapter.sourceListPayload(sources: sources)
         )
         return count
+    }
+
+    // MARK: - 原生站点列表桥接（供 ObjC Hook 查询）
+
+    @objc(allLegadoSourceNames)
+    public func allLegadoSourceNames() -> [String] {
+        NativeSourceInjector.allLegadoSourceNames()
+    }
+
+    @objc(isLegadoSourceName:)
+    public func isLegadoSourceName(_ name: String) -> Bool {
+        NativeSourceInjector.isLegadoSourceName(name)
+    }
+
+    @objc(legadoNativeModelForSourceName:)
+    public func legadoNativeModel(forSourceName name: String) -> NSDictionary? {
+        guard let model = NativeSourceInjector.nativeModel(forSourceName: name) else { return nil }
+        return model as NSDictionary
     }
 
     // MARK: - 搜索
