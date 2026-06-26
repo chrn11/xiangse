@@ -348,19 +348,20 @@ static id (*LBOrig_Config_getGroupData)(id, SEL) = NULL;
 static id LBConfig_getGroupData_IMP(id self, SEL _cmd) {
     id orig = LBOrig_Config_getGroupData ? LBOrig_Config_getGroupData(self, _cmd) : nil;
     NSArray *legadoNames = LBLegadoGetSourceNames();
-    NSString *dbg = [NSString stringWithFormat:@"orig=%@ legado=%lu", orig ?: @"(nil)", (unsigned long)legadoNames.count];
-    [dbg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_getgroupdata_hook.txt"]
-          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     if (legadoNames.count == 0) return orig;
-    // 将 Legado 源名追加到分组数据（NSArray of NSDictionary 分组）
+    // getGroupData 返回 5 段 NSArray（TOP/文本/图片/音频/视频），Legado DOM 源归入「文本/小说」段（index 1）
     if ([orig isKindOfClass:[NSArray class]]) {
         NSMutableArray *groups = [orig mutableCopy];
-        NSMutableDictionary *legadoGroup = [@{
-            @"title": @"Legado",
-            @"items": legadoNames,
-            @"arrSourceName": legadoNames
-        } mutableCopy];
-        [groups addObject:legadoGroup];
+        if (groups.count > 1) {
+            id section = groups[1];
+            NSMutableArray *names = [section isKindOfClass:[NSArray class]] ? [section mutableCopy] : [NSMutableArray array];
+            for (NSString *name in legadoNames) {
+                if (name.length > 0 && ![names containsObject:name]) {
+                    [names addObject:name];
+                }
+            }
+            groups[1] = names;
+        }
         return groups;
     }
     return orig;
