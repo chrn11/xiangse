@@ -328,7 +328,7 @@ static NSDictionary *LBBSM_dicModelList_IMP(id self, SEL _cmd) {
 }
 
 static NSString *LBBSM_sourceTypeBySourceName_IMP(id self, SEL _cmd, NSString *name) {
-    if (LBLegadoIsSourceName(name)) return @"LEGADO";
+    if (LBLegadoIsSourceName(name)) return @"DOM";
     if (LBOrig_BSM_sourceTypeBySourceName) {
         return LBOrig_BSM_sourceTypeBySourceName(self, _cmd, name);
     }
@@ -341,6 +341,19 @@ static NSString *LBBSM_sourceTypeTitleBySourceName_IMP(id self, SEL _cmd, NSStri
         return LBOrig_BSM_sourceTypeTitleBySourceName(self, _cmd, name);
     }
     return @"";
+}
+
+static NSString * (*LBOrig_Config_getUseSourceNames)(id, SEL) = NULL;
+
+static NSArray *LBConfig_getUseSourceNames_IMP(id self, SEL _cmd) {
+    NSArray *orig = LBOrig_Config_getUseSourceNames ? LBOrig_Config_getUseSourceNames(self, _cmd) : @[];
+    NSArray *legadoNames = LBLegadoGetSourceNames();
+    if (legadoNames.count == 0) return orig ?: @[];
+    NSMutableOrderedSet *merged = [NSMutableOrderedSet orderedSetWithArray:orig ?: @[]];
+    for (NSString *name in legadoNames) {
+        [merged addObject:name];
+    }
+    return merged.array;
 }
 
 void LBInstallSourceListHooks(void) {
@@ -380,6 +393,17 @@ void LBInstallSourceListHooks(void) {
         LBOrig_BSM_sourceTypeTitleBySourceName = (NSString * (*)(id, SEL, NSString *))method_getImplementation(titleMethod);
         method_setImplementation(titleMethod, (IMP)LBBSM_sourceTypeTitleBySourceName_IMP);
         NSLog(@"[LegadoBridge] hooked BookSourceModelManager sourceTypeTitleBySourceName:");
+    }
+
+    Class listConClass = NSClassFromString(@"ConfigSourceModelListCon");
+    if (listConClass) {
+        SEL useSel = @selector(getUseSourceNames);
+        Method useMethod = class_getInstanceMethod(listConClass, useSel);
+        if (useMethod) {
+            LBOrig_Config_getUseSourceNames = (NSArray * (*)(id, SEL))method_getImplementation(useMethod);
+            method_setImplementation(useMethod, (IMP)LBConfig_getUseSourceNames_IMP);
+            NSLog(@"[LegadoBridge] hooked ConfigSourceModelListCon getUseSourceNames");
+        }
     }
 }
 

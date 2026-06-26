@@ -3,7 +3,7 @@ import Foundation
 /// 将 Legado 书源同步到香色闺阁原生 BookSourceModelManager，使「站点管理」可见
 enum NativeSourceInjector {
     private static let managerClassName = "BookSourceModelManager"
-    private static let legadoSourceType = "LEGADO"
+    private static let legadoSourceType = "DOM"
 
     static func syncToNativeManager(sources: [MemoryBridgeBookSource]) {
         guard !sources.isEmpty,
