@@ -7,11 +7,13 @@
 
 void LBInstallImportHooks(void);
 void LBInstallSearchHooks(void);
+void LBInstallOpenURLHook(void);
 
 void LBInstallHooks(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         LBInstallImportHooks();
+        LBInstallOpenURLHook();
         LBInstallSearchHooks();
         NSLog(@"[LegadoBridge] hooks installed, version=%@", LBBridgeVersion());
     });
@@ -85,6 +87,69 @@ void LBInstallImportHooks(void) {
     LBOrig_NSJSONSerialization_JSONObjectWithData = (id (*)(Class, SEL, NSData *, NSJSONReadingOptions, NSError **))method_getImplementation(origMethod);
     method_setImplementation(origMethod, (IMP)LBNSJSONSerialization_JSONObjectWithData_IMP);
     NSLog(@"[LegadoBridge] hooked +[NSJSONSerialization JSONObjectWithData:options:error:]");
+}
+
+#pragma mark - openURL Hook (文件/URL 接收入口)
+
+// 保存 AppDelegate -application:openURL:options: 的原始实现。
+// App 接收「打开方式」分享文件时经此入口（NSURL 指向 Documents/Inbox/<file>）。
+// 在此拦截：若文件是 Legado JSON 书源，注册到 SourceRegistry 并返回 YES（已处理），
+// 不走 App 原生 xbs/txt 分流（原生不识别 public.json 会丢弃）。
+static BOOL (*LBOrig_AppDelegate_application_openURL_options)(id, SEL, id, NSURL *, NSDictionary *) = NULL;
+
+static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application, NSURL *url, NSDictionary *options) {
+    if (url && [url isFileURL]) {
+        NSError *readErr = nil;
+        NSData *fileData = [NSData dataWithContentsOfURL:url options:0 error:&readErr];
+        if (fileData.length > 0) {
+            @try {
+                Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+                if (coreClass) {
+                    id core = [coreClass performSelector:@selector(shared)];
+                    if ([core respondsToSelector:@selector(isLegadoJSONData:)]) {
+                        BOOL isLegado = ((BOOL (*)(id, SEL, NSData *))objc_msgSend)(core, @selector(isLegadoJSONData:), fileData);
+                        if (isLegado) {
+                            NSError *importError = nil;
+                            ((NSInteger (*)(id, SEL, NSData *, NSError **))objc_msgSend)(
+                                core, @selector(importLegadoJSONData:error:), fileData, &importError
+                            );
+                            if (importError) {
+                                NSLog(@"[LegadoBridge] openURL import error: %@", importError);
+                            } else {
+                                NSLog(@"[LegadoBridge] openURL Legado JSON imported: %@", url.lastPathComponent);
+                            }
+                            // 已作为 Legado 书源处理，短路原生流程
+                            return YES;
+                        }
+                    }
+                }
+            } @catch (NSException *e) {
+                NSLog(@"[LegadoBridge] openURL hook exception: %@", e);
+            }
+        }
+    }
+    // 非 Legado 文件 / 非 file URL：走 App 原生处理
+    if (LBOrig_AppDelegate_application_openURL_options) {
+        return LBOrig_AppDelegate_application_openURL_options(self, @selector(application:openURL:options:), application, url, options);
+    }
+    return NO;
+}
+
+void LBInstallOpenURLHook(void) {
+    Class appDelegateClass = objc_getClass("AppDelegate");
+    if (!appDelegateClass) {
+        NSLog(@"[LegadoBridge] AppDelegate class not found, skip openURL hook");
+        return;
+    }
+    SEL sel = @selector(application:openURL:options:);
+    Method m = class_getInstanceMethod(appDelegateClass, sel);
+    if (!m) {
+        NSLog(@"[LegadoBridge] application:openURL:options: not found, skip");
+        return;
+    }
+    LBOrig_AppDelegate_application_openURL_options = (BOOL (*)(id, SEL, id, NSURL *, NSDictionary *))method_getImplementation(m);
+    method_setImplementation(m, (IMP)LBAppDelegate_openURL_options_IMP);
+    NSLog(@"[LegadoBridge] hooked AppDelegate application:openURL:options:");
 }
 
 #pragma mark - Search / Catalog / Content Hooks

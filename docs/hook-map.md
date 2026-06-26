@@ -38,11 +38,12 @@ sequenceDiagram
 
 | 类型 | 符号 | 策略 |
 |------|------|------|
-| 方法 | `queryXbsFile` | fishhook / 运行时符号查找，Legado JSON 时短路返回 |
-| 方法 | `findXbsLink` | 同上，识别 `.json` URL |
-| 类方法 | `+[NSJSONSerialization JSONObjectWithData:options:error:]` | **主 Hook**：解析后检测 Legado schema |
+| 方法 | `-[AppDelegate application:openURL:options:]` | **主 Hook**：文件/URL 接收总入口，Legado JSON 时注册并短路原生流程 |
+| 类方法 | `+[NSJSONSerialization JSONObjectWithData:options:error:]` | 备用 Hook：进程内任意 JSON 解析时检测 Legado schema（重入保护） |
 | 类 | `BookSourceModelManager` | 导入完成后注入 Legado 源到并行注册表 |
 | 通知 | `dNotifyName_UpdateBookSourceModelList` | 导入后刷新 UI 列表 |
+
+> 逆向校正：初版锚点表写的 `queryXbsFile` / `findXbsLink` 经 ios-mcp `class_dump`（8579 个 selector）+ `find_class_for_selector` 实测**不是 ObjC selector**（字符串常量或 C 函数，无法 runtime hook）。App 接收「打开方式」分享文件的真正入口是 `AppDelegate application:openURL:options:`（继承 UIResponder，签名 `B40@0:8@16@24@32` = `(BOOL)application:(UIApplication*)openURL:(NSURL*)options:(NSDictionary*)`）。`open_file_with_app` 把文件复制到 App `Documents/Inbox/` 并经此入口投递。
 
 ### Legado 识别规则
 
@@ -58,15 +59,19 @@ sequenceDiagram
 
 ### 实现方式
 
-`+[NSJSONSerialization JSONObjectWithData:options:error:]` 类方法 Hook 采用「保存原 IMP + `method_setImplementation`」模式，**不使用 selector 交换**。
+**主 Hook（openURL 入口）**：`-[AppDelegate application:openURL:options:]` 采用「保存原 IMP + `method_setImplementation`」。新 IMP 收到 `file://` URL 时读取文件 bytes，调 `LegadoBridgeCore.isLegadoJSONData:` 检测；是 Legado 则调 `importLegadoJSONData:error:` 注册到 SourceRegistry 并返回 YES 短路原生流程（App 原生不识别 `public.json` 会丢弃）；否则调原 IMP 走原生 xbs/txt 分流。
+
+**备用 Hook（NSJSONSerialization）**：`+[NSJSONSerialization JSONObjectWithData:options:error:]` 类方法 Hook 同样采用「保存原 IMP + `method_setImplementation`」，**不使用 selector 交换**。
 
 > 历史教训：早期版本用 `method_exchangeImplementations` 交换 `JSONObjectWithData:options:error:` 与 `lb_JSONObjectWithData:options:error:`，但 `lb_JSONObjectWithData:` 这个 selector 从未通过 `class_addMethod` 注册到 `NSJSONSerialization` 元类。交换后 hook 内部 `[self lb_JSONObjectWithData:...]`（`self` 为 `NSJSONSerialization`）在目标类表找不到该 selector，触发 `___forwarding___` → `doesNotRecognizeSelector` → `NSInvalidArgumentException` → `abort()`，导致冷启动 `SIGABRT`（11:18 连续 5 次秒级崩溃，异常 reason：`+[NSJSONSerialization lb_JSONObjectWithData:options:error:]: unrecognized selector sent to class`）。
 
-当前实现：`method_getImplementation` 取出原 IMP 存入 `LBOrig_NSJSONSerialization_JSONObjectWithData`，`method_setImplementation` 替换为新 C 函数 `LBNSJSONSerialization_JSONObjectWithData_IMP`；hook 内直接调用原 IMP 指针，不依赖任何 selector 在目标类表中的存在性。
+> 重入教训：`SourceRegistry.isLegadoJSONData` / `importJSONData` 内部调用 `JSONSerialization.jsonObject(with:)` 会重入备用 Hook，无限递归直至栈溢出（`KERN_PROTECTION_FAILURE` / SIGSEGV，511 帧栈）。用 `[NSThread currentThread].threadDictionary` 线程局部标志守卫，重入期间只走原 IMP。
+
+当前实现：`method_getImplementation` 取出原 IMP 存入对应静态指针，`method_setImplementation` 替换为新 C 函数 IMP；hook 内直接调用原 IMP 指针，不依赖任何 selector 在目标类表中的存在性。
 
 ### 实现文件
 
-- `LegadoBridge/Sources/LegadoBridgeHooks/LBSwizzle.m`（`LBInstallImportHooks`）
+- `LegadoBridge/Sources/LegadoBridgeHooks/LBSwizzle.m`（`LBInstallOpenURLHook` 主入口 + `LBInstallImportHooks` 备用）
 - `LegadoBridge/Sources/LegadoBridge/SourceRegistry.swift`
 
 ## Hook #2 — 搜索
