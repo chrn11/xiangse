@@ -96,6 +96,16 @@ void LBInstallImportHooks(void) {
 // 在此拦截：若文件是 Legado JSON 书源，注册到 SourceRegistry 并返回 YES（已处理），
 // 不走 App 原生 xbs/txt 分流（原生不识别 public.json 会丢弃）。
 static BOOL (*LBOrig_AppDelegate_application_openURL_options)(id, SEL, id, NSURL *, NSDictionary *) = NULL;
+// 判别用：didFinishLaunching 启动必调，确认 IMP 替换机制工作
+static BOOL (*LBOrig_AppDelegate_didFinishLaunching)(id, SEL, id, NSDictionary *) = NULL;
+
+static BOOL LBAppDelegate_didFinishLaunching_IMP(id self, SEL _cmd, id application, NSDictionary *options) {
+    [@"didFinishLaunching hit" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_didfinishlaunch_hit.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+    if (LBOrig_AppDelegate_didFinishLaunching) {
+        return LBOrig_AppDelegate_didFinishLaunching(self, @selector(application:didFinishLaunchingWithOptions:), application, options);
+    }
+    return YES;
+}
 
 static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application, NSURL *url, NSDictionary *options) {
     // 调试标记 0：openURL hook 被调用（记录 URL）
@@ -164,6 +174,15 @@ void LBInstallOpenURLHook(void) {
     method_setImplementation(m, (IMP)LBAppDelegate_openURL_options_IMP);
     [[NSString stringWithFormat:@"OK: hooked on %@", NSStringFromClass(appDelegateClass)] writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_openurl_install.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
     NSLog(@"[LegadoBridge] hooked AppDelegate application:openURL:options:");
+
+    // 判别：同时 hook didFinishLaunchingWithOptions（启动必调）
+    SEL launchSel = @selector(application:didFinishLaunchingWithOptions:);
+    Method lm = class_getInstanceMethod(appDelegateClass, launchSel);
+    if (lm) {
+        LBOrig_AppDelegate_didFinishLaunching = (BOOL (*)(id, SEL, id, NSDictionary *))method_getImplementation(lm);
+        method_setImplementation(lm, (IMP)LBAppDelegate_didFinishLaunching_IMP);
+        NSLog(@"[LegadoBridge] hooked application:didFinishLaunchingWithOptions:");
+    }
 }
 
 #pragma mark - Search / Catalog / Content Hooks
