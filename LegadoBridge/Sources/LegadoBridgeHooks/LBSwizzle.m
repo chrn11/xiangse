@@ -1,9 +1,14 @@
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import "LegadoBridge.h"
 
 @class LegadoBridgeCore;
+
+static void LBLegadoShowImportAlert(void);
+static void LBLegadoImportData(NSData *data);
+static void LBLegadoShowResult(NSString *msg);
 
 void LBInstallImportHooks(void);
 void LBInstallSearchHooks(void);
@@ -101,10 +106,85 @@ static BOOL (*LBOrig_AppDelegate_didFinishLaunching)(id, SEL, id, NSDictionary *
 
 static BOOL LBAppDelegate_didFinishLaunching_IMP(id self, SEL _cmd, id application, NSDictionary *options) {
     [@"didFinishLaunching hit" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_didfinishlaunch_hit.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+    BOOL ret = YES;
     if (LBOrig_AppDelegate_didFinishLaunching) {
-        return LBOrig_AppDelegate_didFinishLaunching(self, @selector(application:didFinishLaunchingWithOptions:), application, options);
+        ret = LBOrig_AppDelegate_didFinishLaunching(self, @selector(application:didFinishLaunchingWithOptions:), application, options);
     }
-    return YES;
+    // 启动后延迟弹 Legado 书源导入 alert（主线程异步，不阻塞启动）
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        LBLegadoShowImportAlert();
+    });
+    return ret;
+}
+
+// 弹 UIAlertController 让用户粘贴 Legado JSON 的 URL，拉取后注册到 SourceRegistry
+static void LBLegadoShowImportAlert(void) {
+    UIWindow *window = [UIApplication sharedApplication].keyWindow;
+    if (!window) return;
+    UIViewController *rootVC = window.rootViewController;
+    if (!rootVC) return;
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Legado 书源导入"
+                                                                   message:@"粘贴 Legado 书源 JSON 的 URL（http/https）"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"https://example.com/source.json";
+        textField.keyboardType = UIKeyboardTypeURL;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"导入" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSString *input = alert.textFields.firstObject.text;
+        if (input.length == 0) return;
+        NSURL *url = [NSURL URLWithString:input];
+        if (!url) return;
+        NSData *data = [NSData dataWithContentsOfURL:url];
+        if (data.length == 0) {
+            LBLegadoShowResult(@"拉取失败：无数据");
+            return;
+        }
+        LBLegadoImportData(data);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [rootVC presentViewController:alert animated:YES completion:nil];
+}
+
+static void LBLegadoImportData(NSData *data) {
+    @try {
+        Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+        if (!coreClass) { LBLegadoShowResult(@"无 LegadoBridgeCore"); return; }
+        id core = [coreClass performSelector:@selector(shared)];
+        if (![core respondsToSelector:@selector(isLegadoJSONData:)]) { LBLegadoShowResult(@"无 isLegadoJSONData:"); return; }
+        BOOL isLegado = ((BOOL (*)(id, SEL, NSData *))objc_msgSend)(core, @selector(isLegadoJSONData:), data);
+        if (!isLegado) { LBLegadoShowResult(@"不是 Legado JSON 格式"); return; }
+        NSError *importError = nil;
+        ((NSInteger (*)(id, SEL, NSData *, NSError **))objc_msgSend)(
+            core, @selector(importLegadoJSONData:error:), data, &importError
+        );
+        if (importError) {
+            LBLegadoShowResult([NSString stringWithFormat:@"导入失败: %@", importError.localizedDescription]);
+        } else {
+            // 写成功标记
+            [@"imported OK" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_import_result.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+            LBLegadoShowResult(@"Legado 书源导入成功");
+        }
+    } @catch (NSException *e) {
+        LBLegadoShowResult([NSString stringWithFormat:@"异常: %@", e]);
+    }
+}
+
+static void LBLegadoShowResult(NSString *msg) {
+    UIWindow *window = [UIApplication sharedApplication].keyWindow;
+    UIViewController *rootVC = window.rootViewController;
+    if (!rootVC) return;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:nil message:msg preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    // 如果当前有 presented controller，先 dismiss 再 present
+    if (rootVC.presentedViewController) {
+        [rootVC dismissViewControllerAnimated:NO completion:^{
+            [rootVC presentViewController:alert animated:YES completion:nil];
+        }];
+    } else {
+        [rootVC presentViewController:alert animated:YES completion:nil];
+    }
 }
 
 static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application, NSURL *url, NSDictionary *options) {
