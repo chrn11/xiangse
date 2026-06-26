@@ -348,6 +348,10 @@ static NSArray * (*LBOrig_Config_getUseSourceNames)(id, SEL) = NULL;
 static NSArray *LBConfig_getUseSourceNames_IMP(id self, SEL _cmd) {
     NSArray *orig = LBOrig_Config_getUseSourceNames ? LBOrig_Config_getUseSourceNames(self, _cmd) : @[];
     NSArray *legadoNames = LBLegadoGetSourceNames();
+    // 调试：记录 Hook 命中
+    NSString *dbg = [NSString stringWithFormat:@"orig=%lu legado=%lu", (unsigned long)orig.count, (unsigned long)legadoNames.count];
+    [dbg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_getusesources_hook.txt"]
+          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     if (legadoNames.count == 0) return orig ?: @[];
     NSMutableOrderedSet *merged = [NSMutableOrderedSet orderedSetWithArray:orig ?: @[]];
     for (NSString *name in legadoNames) {

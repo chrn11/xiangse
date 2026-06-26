@@ -10,10 +10,11 @@ enum NativeSourceInjector {
               let manager = sharedManager() else { return }
 
         let models = sources.map { nativeModel(for: $0) }
-        let ok = invokeAddModels(on: manager, models: models)
-        if ok {
-            postNativeListUpdate()
-        }
+        let added = invokeAddModels(on: manager, models: models)
+        mergeModelsIntoManager(manager, models: models)
+        invokeSave(on: manager)
+        writeDebugMarker(count: sources.count, added: added)
+        postNativeListUpdate()
     }
 
     static func allLegadoSourceNames() -> [String] {
@@ -64,6 +65,36 @@ enum NativeSourceInjector {
             model["bookSourceUrl"] = source.bookSourceUrl
         }
         return model
+    }
+
+    private static func mergeModelsIntoManager(_ manager: NSObject, models: [[String: Any]]) {
+        let listSel = NSSelectorFromString("dicModelList")
+        guard manager.responds(to: listSel),
+              let current = manager.perform(listSel)?.takeUnretainedValue() as? NSDictionary else { return }
+        let merged = NSMutableDictionary(dictionary: current)
+        for model in models {
+            guard let name = model["sourceName"] as? String else { continue }
+            merged[name] = model
+        }
+        let setSel = NSSelectorFromString("setDicModelList:")
+        if manager.responds(to: setSel) {
+            _ = manager.perform(setSel, with: merged)
+        } else {
+            manager.setValue(merged, forKey: "dicModelList")
+        }
+    }
+
+    private static func invokeSave(on manager: NSObject) {
+        let sel = NSSelectorFromString("save")
+        if manager.responds(to: sel) {
+            _ = manager.perform(sel)
+        }
+    }
+
+    private static func writeDebugMarker(count: Int, added: Bool) {
+        let msg = "sources=\(count) addModels=\(added ? "OK" : "FAIL")"
+        let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_native_sync.txt")
+        try? msg.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     private static func invokeAddModels(on manager: NSObject, models: [[String: Any]]) -> Bool {
