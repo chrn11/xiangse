@@ -99,7 +99,7 @@ static BOOL (*LBOrig_AppDelegate_application_openURL_options)(id, SEL, id, NSURL
 
 static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application, NSURL *url, NSDictionary *options) {
     // 调试标记 0：openURL hook 被调用（记录 URL）
-    [url.absoluteString writeToFile:@"/var/mobile/Documents/legado_openurl_hit.txt" atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+    [url.absoluteString writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_openurl_hit.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
     if (url && [url isFileURL]) {
         NSError *readErr = nil;
         NSData *fileData = [NSData dataWithContentsOfURL:url options:0 error:&readErr];
@@ -111,14 +111,14 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                     if ([core respondsToSelector:@selector(isLegadoJSONData:)]) {
                         BOOL isLegado = ((BOOL (*)(id, SEL, NSData *))objc_msgSend)(core, @selector(isLegadoJSONData:), fileData);
                         // 调试标记 1：isLegado 检测结果
-                        [(isLegado ? @"YES" : @"NO") writeToFile:@"/var/mobile/Documents/legado_islegado_result.txt" atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+                        [(isLegado ? @"YES" : @"NO") writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_islegado_result.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
                         if (isLegado) {
                             NSError *importError = nil;
                             ((NSInteger (*)(id, SEL, NSData *, NSError **))objc_msgSend)(
                                 core, @selector(importLegadoJSONData:error:), fileData, &importError
                             );
                             // 调试标记 2：导入结果
-                            [(importError ? importError.localizedDescription : @"OK") writeToFile:@"/var/mobile/Documents/legado_import_result.txt" atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+                            [(importError ? importError.localizedDescription : @"OK") writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_import_result.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
                             if (importError) {
                                 NSLog(@"[LegadoBridge] openURL import error: %@", importError);
                             } else {
@@ -128,13 +128,13 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                             return YES;
                         }
                     } else {
-                        [@"no isLegadoJSONData:" writeToFile:@"/var/mobile/Documents/legado_islegado_result.txt" atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+                        [@"no isLegadoJSONData:" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_islegado_result.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
                     }
                 } else {
-                    [@"no LegadoBridgeCore" writeToFile:@"/var/mobile/Documents/legado_islegado_result.txt" atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+                    [@"no LegadoBridgeCore" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_islegado_result.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
                 }
             } @catch (NSException *e) {
-                [[NSString stringWithFormat:@"exception: %@", e] writeToFile:@"/var/mobile/Documents/legado_import_result.txt" atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+                [[NSString stringWithFormat:@"exception: %@", e] writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_import_result.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
                 NSLog(@"[LegadoBridge] openURL hook exception: %@", e);
             }
         }
@@ -250,9 +250,9 @@ void LBInstallSearchHooks(void) {
 
 __attribute__((constructor))
 static void LBBridgeAutoInit(void) {
-    // 调试标记：dylib constructor 执行（确认 LegadoBridge 已加载）
-    [@"dylib loaded" writeToFile:@"/var/mobile/Documents/legado_dylib_loaded.txt" atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+    // 调试标记：dylib constructor 执行（写到 App 沙盒 Home，constructor 时已挂载）
+    [@"dylib loaded" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_dylib_loaded.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
     LBInstallHooks();
     // 调试标记：hooks 安装完成
-    [@"hooks installed" writeToFile:@"/var/mobile/Documents/legado_hooks_installed.txt" atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+    [@"hooks installed" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_hooks_installed.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
 }
