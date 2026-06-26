@@ -34,10 +34,10 @@ enum NativeSourceInjector {
     // MARK: - Private
 
     private static func sharedManager() -> NSObject? {
-        guard let cls = NSClassFromString(managerClassName) else { return nil }
+        guard let cls = NSClassFromString(managerClassName) as? NSObject.Type else { return nil }
         let sel = NSSelectorFromString("sharedInstance")
         guard cls.responds(to: sel) else { return nil }
-        return cls.perform(sel).takeUnretainedValue() as? NSObject
+        return cls.perform(sel)?.takeUnretainedValue() as? NSObject
     }
 
     private static func nativeModel(for source: MemoryBridgeBookSource) -> [String: Any] {
