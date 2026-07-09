@@ -1257,6 +1257,88 @@ void LBInstallSearchHooks(void) {
         }
     }
 
+    // BookSearchVCBase1.searchWord: — 书架点搜索后真正判「无可用站点」的入口（未必先调 canSearch）
+    NSArray *searchVCNames = @[@"BookSearchVCBase1", @"BookSearchVCBase2", @"BookSearchController"];
+    for (NSString *cn in searchVCNames) {
+        Class vcCls = NSClassFromString(cn);
+        if (!vcCls) continue;
+        Method own = class_getInstanceMethod(vcCls, @selector(searchWord:));
+        if (!own) continue;
+        // 只改本类实现，避免 Base1/Controller 互相覆盖
+        Method base = class_getInstanceMethod(class_getSuperclass(vcCls), @selector(searchWord:));
+        if (base && method_getImplementation(own) == method_getImplementation(base) && ![cn isEqualToString:@"BookSearchVCBase1"]) {
+            continue;
+        }
+        IMP swOrig = method_getImplementation(own);
+        IMP swHook = imp_implementationWithBlock(^BOOL(id self, NSString *word) {
+            NSArray *legadoNames = LBLegadoGetSourceNames();
+            NSString *dbg = [NSString stringWithFormat:@"searchWord cls=%@ word=%@ legado=%lu",
+                             NSStringFromClass([self class]), word ?: @"", (unsigned long)legadoNames.count];
+            [dbg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_searchword_hook.txt"]
+                  atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            if (legadoNames.count > 0) {
+                // 有 Legado 源：强制放行；若原实现仍弹窗，后续 Alert Hook 再挡一次
+                BOOL ok = ((BOOL (*)(id, SEL, NSString *))swOrig)(self, @selector(searchWord:), word);
+                if (!ok) {
+                    [@"searchWord forcedYES" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_searchword_hook.txt"]
+                                              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                }
+                return YES;
+            }
+            return ((BOOL (*)(id, SEL, NSString *))swOrig)(self, @selector(searchWord:), word);
+        });
+        method_setImplementation(own, swHook);
+        NSLog(@"[LegadoBridge] hooked %@ searchWord:", cn);
+    }
+
+    // 兜底：有 Legado 源时吞掉「无可用站点」Alert（标题匹配）
+    Class alertCls = NSClassFromString(@"UIAlertController");
+    if (alertCls) {
+        SEL alertSel = @selector(alertControllerWithTitle:message:preferredStyle:);
+        Method alertMethod = class_getClassMethod(alertCls, alertSel);
+        if (alertMethod) {
+            IMP alertOrig = method_getImplementation(alertMethod);
+            IMP alertHook = imp_implementationWithBlock(^id(Class cls, NSString *title, NSString *message, NSInteger style) {
+                NSString *t = title ?: @"";
+                NSString *m = message ?: @"";
+                BOOL isNoSite = [t containsString:@"无可用站点"] || [m containsString:@"无可用站点"] || [m containsString:@"修改筛选类型"];
+                if (isNoSite && LBLegadoGetSourceNames().count > 0) {
+                    [@"suppressed no-site alert" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_alert_suppress.txt"]
+                                                  atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                    // 返回一个不会展示的空 alert 仍可能被 present；改为返回原 alert 但调用方若检查 canSearch 已 YES 则不应走到这里。
+                    // 更稳：返回 nil 让 present 失败（部分路径会崩），故仍构造原 alert，由 present Hook 拦截。
+                }
+                return ((id (*)(Class, SEL, NSString *, NSString *, NSInteger))alertOrig)(cls, alertSel, title, message, style);
+            });
+            method_setImplementation(alertMethod, alertHook);
+        }
+        SEL presentSel = @selector(presentViewController:animated:completion:);
+        Method presentMethod = class_getInstanceMethod([UIViewController class], presentSel);
+        if (presentMethod) {
+            IMP presentOrig = method_getImplementation(presentMethod);
+            IMP presentHook = imp_implementationWithBlock(^void(id self, UIViewController *vc, BOOL animated, id completion) {
+                if ([vc isKindOfClass:[UIAlertController class]]) {
+                    UIAlertController *alert = (UIAlertController *)vc;
+                    NSString *t = alert.title ?: @"";
+                    NSString *m = alert.message ?: @"";
+                    BOOL isNoSite = [t containsString:@"无可用站点"] || [m containsString:@"无可用站点"] || [m containsString:@"修改筛选类型"];
+                    if (isNoSite && LBLegadoGetSourceNames().count > 0) {
+                        [@"blocked present no-site" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_alert_suppress.txt"]
+                                                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                        if (completion) {
+                            void (^comp)(void) = completion;
+                            comp();
+                        }
+                        return;
+                    }
+                }
+                ((void (*)(id, SEL, UIViewController *, BOOL, id))presentOrig)(self, presentSel, vc, animated, completion);
+            });
+            method_setImplementation(presentMethod, presentHook);
+            NSLog(@"[LegadoBridge] hooked UIViewController presentViewController for no-site alert");
+        }
+    }
+
     // 目录查询通知拦截 — 当 userInfo 含 legadoBridge 标记时由引擎驱动
     [[NSNotificationCenter defaultCenter] addObserverForName:@"dNotifyName_QueryCatalogResponse"
                                                       object:nil
