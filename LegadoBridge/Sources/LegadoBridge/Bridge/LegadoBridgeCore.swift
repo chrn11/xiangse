@@ -28,7 +28,10 @@ import Foundation
     public func restorePersistedSources() -> Int {
         let count = SourceRegistry.shared.restoreFromDiskIfNeeded()
         if count > 0 {
-            NativeSourceInjector.syncToNativeManager(sources: SourceRegistry.shared.allSources())
+            let enabled = SourceRegistry.shared.allSources().filter {
+                SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl)
+            }
+            NativeSourceInjector.syncToNativeManager(sources: enabled)
         }
         return count
     }
@@ -54,11 +57,13 @@ import Foundation
     @discardableResult
     public func importLegadoJSONDataThrowing(_ data: Data) throws -> Int {
         let count = try SourceRegistry.shared.importJSONData(data)
-        let sources = SourceRegistry.shared.allSources()
-        NativeSourceInjector.syncToNativeManager(sources: sources)
+        let enabled = SourceRegistry.shared.allSources().filter {
+            SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl)
+        }
+        NativeSourceInjector.syncToNativeManager(sources: enabled)
         postNotification(
             XiangseAdapter.notifyUpdateSourceList,
-            userInfo: XiangseAdapter.sourceListPayload(sources: sources)
+            userInfo: XiangseAdapter.sourceListPayload(sources: enabled)
         )
         return count
     }
@@ -81,6 +86,53 @@ import Foundation
         return model as NSDictionary
     }
 
+    // MARK: - 书源管理（增删改）
+
+    @objc(removeSource:)
+    public func removeSource(_ url: String) {
+        let names = SourceRegistry.shared.allSources()
+            .filter { $0.bookSourceUrl == url }
+            .map(\.bookSourceName)
+        SourceRegistry.shared.removeSource(url: url)
+        NativeSourceInjector.removeFromNativeManager(names: names)
+    }
+
+    @objc(setSourceEnabled:enabled:)
+    public func setSourceEnabled(_ url: String, enabled: Bool) {
+        let wasEnabled = SourceRegistry.shared.isEnabled(url: url)
+        SourceRegistry.shared.setEnabled(url: url, enabled: enabled)
+        if wasEnabled != enabled {
+            if enabled {
+                let enabledSources = SourceRegistry.shared.allSources().filter {
+                    SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl)
+                }
+                NativeSourceInjector.syncToNativeManager(sources: enabledSources)
+            } else {
+                let names = SourceRegistry.shared.allSources()
+                    .filter { $0.bookSourceUrl == url }
+                    .map(\.bookSourceName)
+                NativeSourceInjector.removeFromNativeManager(names: names)
+            }
+        }
+    }
+
+    @objc(sourceJSON:)
+    public func sourceJSON(_ url: String) -> String? {
+        SourceRegistry.shared.sourceJSON(url: url)
+    }
+
+    /// 所有已注册书源摘要（bookSourceName/bookSourceUrl/enabled），供管理 VC 列表展示
+    @objc public var allSourcesInfo: NSArray {
+        let sources = SourceRegistry.shared.allSources()
+        return sources.map { source -> NSDictionary in
+            [
+                "bookSourceName": source.bookSourceName,
+                "bookSourceUrl": source.bookSourceUrl,
+                "enabled": SourceRegistry.shared.isEnabled(url: source.bookSourceUrl)
+            ] as NSDictionary
+        } as NSArray
+    }
+
     // MARK: - 搜索
 
     public func search(keyword: String, sourceUrl: String?) async throws -> [SearchBookResult] {
@@ -97,7 +149,8 @@ import Foundation
         Task {
             do {
                 let activeSource = SourceRegistry.shared.source(forUrl: sourceUrl)
-                guard activeSource != nil else {
+                guard let activeSource,
+                      SourceRegistry.shared.isEnabled(url: activeSource.bookSourceUrl) else {
                     throw LegadoBridgeError.sourceNotFound
                 }
                 let results = try await self.search(keyword: keyword, sourceUrl: sourceUrl)

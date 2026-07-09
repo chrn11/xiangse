@@ -18,8 +18,11 @@ enum NativeSourceInjector {
         postNativeListUpdate()
     }
 
+    /// 仅返回已启用的书源名（供搜索/原生列表 Hook 合并，禁用源不进入可用站点）
     static func allLegadoSourceNames() -> [String] {
-        SourceRegistry.shared.allSources().map(\.bookSourceName)
+        SourceRegistry.shared.allSources()
+            .filter { SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl) }
+            .map(\.bookSourceName)
     }
 
     static func isLegadoSourceName(_ name: String) -> Bool {
@@ -31,6 +34,34 @@ enum NativeSourceInjector {
             return nil
         }
         return nativeModel(for: source, manager: sharedManager())
+    }
+
+    /// 从原生 dicModelList 移除指定 legadoBridge=1 条目，save 后通知刷新
+    static func removeFromNativeManager(names: [String]) {
+        guard !names.isEmpty,
+              let manager = sharedManager() else { return }
+        let listSel = NSSelectorFromString("dicModelList")
+        guard manager.responds(to: listSel) else { return }
+        let raw = manager.perform(listSel)?.takeUnretainedValue()
+        let current = (raw as? NSDictionary) ?? [:]
+        let merged = NSMutableDictionary(dictionary: current)
+        let nameSet = Set(names)
+        for key in merged.allKeys {
+            guard let name = key as? String, nameSet.contains(name) else { continue }
+            if let model = merged[name] as? NSDictionary,
+               let marker = model[XiangseAdapter.legadoMarkerKey] as? String,
+               marker == XiangseAdapter.legadoMarkerValue {
+                merged.removeObject(forKey: name)
+            }
+        }
+        let setSel = NSSelectorFromString("setDicModelList:")
+        if manager.responds(to: setSel) {
+            _ = manager.perform(setSel, with: merged)
+        } else {
+            manager.setValue(merged, forKey: "dicModelList")
+        }
+        invokeSave(on: manager)
+        postNativeListUpdate()
     }
 
     // MARK: - Private

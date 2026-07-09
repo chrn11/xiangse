@@ -8,8 +8,16 @@
 @class LegadoBridgeCore;
 
 static void LBLegadoShowImportAlert(void);
+
+void LBShowLegadoImportAlert(void) {
+    LBLegadoShowImportAlert();
+}
 static void LBLegadoImportData(NSData *data);
+static void LBLegadoFetchAndImport(NSURL *url);
 static void LBLegadoShowResult(NSString *msg);
+static void LBLegadoPresentManagerVC(void);
+
+@class LBLegadoSourceManagerVC;
 
 void LBInstallImportHooks(void);
 void LBInstallSearchHooks(void);
@@ -270,12 +278,7 @@ static void LBLegadoShowImportAlert(void) {
             LBLegadoShowResult(@"URL 无效");
             return;
         }
-        NSData *data = [NSData dataWithContentsOfURL:url];
-        if (data.length == 0) {
-            LBLegadoShowResult(@"拉取失败：无数据");
-            return;
-        }
-        LBLegadoImportData(data);
+        LBLegadoFetchAndImport(url);
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"粘贴 JSON 导入" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         NSString *jsonText = alert.textFields.count > 1 ? alert.textFields[1].text : nil;
@@ -293,6 +296,9 @@ static void LBLegadoShowImportAlert(void) {
             return;
         }
         LBLegadoImportData(data);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"管理已有" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        LBLegadoPresentManagerVC();
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [rootVC presentViewController:alert animated:YES completion:^{
@@ -348,9 +354,101 @@ static void LBLegadoShowResult(NSString *msg) {
     }
 }
 
+/// 异步下载并导入 Legado 书源 JSON（超时 15 秒，主线程回调提示）
+static void LBLegadoFetchAndImport(NSURL *url) {
+    if (!url) { LBLegadoShowResult(@"URL 为空"); return; }
+    NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+    config.timeoutIntervalForRequest = 15.0;
+    config.timeoutIntervalForResource = 15.0;
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:config];
+    [[session dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (error) {
+                LBLegadoShowResult([NSString stringWithFormat:@"下载失败: %@", error.localizedDescription]);
+                return;
+            }
+            NSHTTPURLResponse *httpResp = nil;
+            if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+                httpResp = (NSHTTPURLResponse *)response;
+            }
+            if (httpResp && httpResp.statusCode != 200) {
+                LBLegadoShowResult([NSString stringWithFormat:@"HTTP 错误: %ld", (long)httpResp.statusCode]);
+                return;
+            }
+            if (!data || data.length == 0) {
+                LBLegadoShowResult(@"下载成功但数据为空");
+                return;
+            }
+            // 验证是否为合法 JSON
+            NSError *jsonErr = nil;
+            id jsonObj = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonErr];
+            if (jsonErr || !jsonObj) {
+                LBLegadoShowResult(@"非 JSON 格式，无法解析");
+                return;
+            }
+            // 验证是否为 Legado 书源格式
+            Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+            if (!coreClass) { LBLegadoShowResult(@"无 LegadoBridgeCore"); return; }
+            BOOL isLegado = NO;
+            SEL probeSel = @selector(probeLegadoJSONData:);
+            if ([coreClass respondsToSelector:probeSel]) {
+                isLegado = ((BOOL (*)(Class, SEL, NSData *))objc_msgSend)(coreClass, probeSel, data);
+            }
+            if (!isLegado) {
+                LBLegadoShowResult(@"JSON 格式正确，但不是 Legado 书源格式");
+                return;
+            }
+            // 导入
+            id core = LBLegadoCoreIfReady();
+            if (!core || ![core respondsToSelector:@selector(importLegadoJSONData:error:)]) {
+                LBLegadoShowResult(@"LegadoBridgeCore 未就绪");
+                return;
+            }
+            NSError *importError = nil;
+            NSInteger count = ((NSInteger (*)(id, SEL, NSData *, NSError **))objc_msgSend)(
+                core, @selector(importLegadoJSONData:error:), data, &importError
+            );
+            if (importError) {
+                LBLegadoShowResult([NSString stringWithFormat:@"导入失败: %@", importError.localizedDescription]);
+            } else {
+                LBLegadoShowResult([NSString stringWithFormat:@"导入 %ld 个书源", (long)count]);
+            }
+        });
+    }] resume];
+}
+
+/// 从 URL 的 query 中提取指定参数值
+static NSString *LBQueryParameterFromURL(NSURL *url, NSString *key) {
+    NSURLComponents *comp = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+    for (NSURLQueryItem *item in comp.queryItems) {
+        if ([item.name isEqualToString:key]) return item.value;
+    }
+    return nil;
+}
+
 static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application, NSURL *url, NSDictionary *options) {
     // 调试标记 0：openURL hook 被调用（记录 URL）
     [url.absoluteString writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_openurl_hit.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+
+    // legado://import/bookSource?src=<url> 或 yuedu://booksource/importonline?src=<url>
+    if (url) {
+        NSString *scheme = url.scheme.lowercaseString;
+        if ([scheme isEqualToString:@"legado"] || [scheme isEqualToString:@"yuedu"]) {
+            NSString *src = LBQueryParameterFromURL(url, @"src");
+            if (src.length > 0) {
+                NSURL *srcURL = [NSURL URLWithString:src];
+                if (srcURL && srcURL.scheme.length > 0) {
+                    LBLegadoFetchAndImport(srcURL);
+                } else {
+                    LBLegadoShowResult([NSString stringWithFormat:@"src 参数无效: %@", src]);
+                }
+            } else {
+                LBLegadoShowResult(@"缺少 src 参数");
+            }
+            return YES;
+        }
+    }
+
     if (url && [url isFileURL]) {
         NSError *readErr = nil;
         NSData *fileData = [NSData dataWithContentsOfURL:url options:0 error:&readErr];
@@ -425,6 +523,41 @@ void LBInstallOpenURLHook(void) {
         LBOrig_AppDelegate_didFinishLaunching = (BOOL (*)(id, SEL, id, NSDictionary *))method_getImplementation(lm);
         method_setImplementation(lm, (IMP)LBAppDelegate_didFinishLaunching_IMP);
         NSLog(@"[LegadoBridge] hooked application:didFinishLaunchingWithOptions:");
+    }
+}
+
+#pragma mark - Manager VC 入口
+
+/// 从当前 keyWindow 展示管理 VC（优先 push，无 nav 则 present）
+static void LBLegadoPresentManagerVC(void) {
+    UIWindow *window = LBLegadoKeyWindow();
+    if (!window) return;
+    UIViewController *rootVC = window.rootViewController;
+    while (rootVC.presentedViewController) {
+        rootVC = rootVC.presentedViewController;
+    }
+    Class managerVCClass = NSClassFromString(@"LBLegadoSourceManagerVC");
+    if (!managerVCClass) {
+        LBLegadoShowResult(@"管理页未加载（LBLegadoSourceManagerVC 不存在）");
+        return;
+    }
+    UIViewController *managerVC = [[managerVCClass alloc] init];
+    UINavigationController *nav = rootVC.navigationController;
+    if (!nav && [rootVC isKindOfClass:[UINavigationController class]]) {
+        nav = (UINavigationController *)rootVC;
+    }
+    if (!nav && [rootVC isKindOfClass:[UITabBarController class]]) {
+        UIViewController *selected = [(UITabBarController *)rootVC selectedViewController];
+        if ([selected isKindOfClass:[UINavigationController class]]) {
+            nav = (UINavigationController *)selected;
+        }
+    }
+    if (nav) {
+        [nav pushViewController:managerVC animated:YES];
+    } else {
+        UINavigationController *wrapNav = [[UINavigationController alloc] initWithRootViewController:managerVC];
+        wrapNav.modalPresentationStyle = UIModalPresentationFullScreen;
+        [rootVC presentViewController:wrapNav animated:YES completion:nil];
     }
 }
 
@@ -575,9 +708,12 @@ static NSArray *LBConfig_getUseSourceNames_IMP(id self, SEL _cmd) {
 static void LBLegadoShowTapBlockedAlert(UIViewController *vc) {
     if (!vc) return;
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Legado 书源"
-                                                                   message:@"该源由 LegadoBridge 管理，请通过「搜索」使用，暂不支持在站点管理内编辑。"
+                                                                   message:@"该源由 LegadoBridge 管理。原生「站点编辑」改的是香色字段，不能改 Legado 的 searchUrl/ruleSearch 等规则。\n\n请通过「搜索」使用；若要修改书源，请重新粘贴/导入 Legado JSON 覆盖。"
                                                             preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"管理书源" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        LBLegadoPresentManagerVC();
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleCancel handler:nil]];
     [vc presentViewController:alert animated:YES completion:nil];
 }
 

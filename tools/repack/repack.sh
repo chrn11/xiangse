@@ -60,6 +60,27 @@ cat > "$MANIFEST" <<EOF
 </dict></plist>
 EOF
 
+# 注入 URL scheme：legado:// 和 yuedu://（用于远程一键导入书源）
+PLIST="$APP/Info.plist"
+if command -v /usr/libexec/PlistBuddy &>/dev/null && [[ -f "$PLIST" ]]; then
+  PB=/usr/libexec/PlistBuddy
+  # 如果 CFBundleURLTypes 不存在则创建
+  "$PB" -c "Add :CFBundleURLTypes array" "$PLIST" 2>/dev/null || true
+  # legado scheme
+  "$PB" -c "Add :CFBundleURLTypes:0 dict" "$PLIST"
+  "$PB" -c "Add :CFBundleURLTypes:0:CFBundleURLName string com.legado.import" "$PLIST"
+  "$PB" -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$PLIST"
+  "$PB" -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string legado" "$PLIST"
+  # yuedu scheme（兼容旧格式）
+  "$PB" -c "Add :CFBundleURLTypes:1 dict" "$PLIST"
+  "$PB" -c "Add :CFBundleURLTypes:1:CFBundleURLName string com.yuedu.import" "$PLIST"
+  "$PB" -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes array" "$PLIST"
+  "$PB" -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes:0 string yuedu" "$PLIST"
+  echo "==> PlistBuddy: 注入 legado/yuedu URL scheme 完成"
+else
+  echo "==> 跳过 URL scheme 注入（PlistBuddy 不可用或 Info.plist 不存在）"
+fi
+
 if command -v insert_dylib &>/dev/null && [[ -f "$FRAMEWORKS/LegadoBridge" || -f "$FRAMEWORKS/LegadoBridge.framework/LegadoBridge" ]]; then
   INSERT_DYLIB="$(command -v insert_dylib)"
   BACKUP="$BIN.backup"

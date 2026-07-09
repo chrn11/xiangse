@@ -13,4 +13,7 @@ FOUNDATION_EXPORT void LBHandleContentRequest(NSString *chapterUrl, NSString *bo
 
 FOUNDATION_EXPORT NSString *LBBridgeVersion(void);
 
+/// 弹出 Legado 书源导入 alert（URL / 粘贴 JSON）
+FOUNDATION_EXPORT void LBShowLegadoImportAlert(void);
+
 #endif /* LegadoBridge_h */

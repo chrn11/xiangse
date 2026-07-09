@@ -8,6 +8,8 @@ final class SourceRegistry {
     private var sourcesByUrl: [String: MemoryBridgeBookSource] = [:]
     /// 原始 Legado JSON，用于落盘与重启恢复
     private var rawJsonByUrl: [String: [String: Any]] = [:]
+    /// 启用/禁用状态（默认 true），同步持久化到 rawJsonByUrl["enabled"]
+    private var enabledByUrl: [String: Bool] = [:]
     private var activeSourceUrl: String?
     private let lock = NSLock()
     private var didRestoreFromDisk = false
@@ -83,8 +85,12 @@ final class SourceRegistry {
         let source = try! MemoryBridgeBookSource(json: json)
         lock.lock()
         sourcesByUrl[source.bookSourceUrl] = source
-        rawJsonByUrl[source.bookSourceUrl] = json
-        // 新导入的源设为当前激活，避免仍指向已失效的旧源
+        var mutableJson = json
+        if mutableJson["enabled"] == nil {
+            mutableJson["enabled"] = true
+        }
+        rawJsonByUrl[source.bookSourceUrl] = mutableJson
+        enabledByUrl[source.bookSourceUrl] = (mutableJson["enabled"] as? Bool) ?? true
         activeSourceUrl = source.bookSourceUrl
         lock.unlock()
         return source
@@ -116,8 +122,12 @@ final class SourceRegistry {
         lock.lock()
         defer { lock.unlock() }
         if let url, let s = sourcesByUrl[url] { return s }
-        if let active = activeSourceUrl { return sourcesByUrl[active] }
-        return sourcesByUrl.values.first
+        if let active = activeSourceUrl,
+           let s = sourcesByUrl[active],
+           enabledByUrl[active] ?? true {
+            return s
+        }
+        return sourcesByUrl.values.first { enabledByUrl[$0.bookSourceUrl] ?? true }
     }
 
     func setActiveSourceUrl(_ url: String) {
@@ -136,6 +146,56 @@ final class SourceRegistry {
         lock.lock()
         defer { lock.unlock() }
         return sourcesByUrl[url] != nil
+    }
+
+    // MARK: - 增删改（管理 VC 调用）
+
+    func removeSource(url: String) {
+        lock.lock()
+        sourcesByUrl.removeValue(forKey: url)
+        rawJsonByUrl.removeValue(forKey: url)
+        enabledByUrl.removeValue(forKey: url)
+        if activeSourceUrl == url {
+            activeSourceUrl = sourcesByUrl.keys.first
+        }
+        lock.unlock()
+        persistToDisk()
+    }
+
+    func setEnabled(url: String, enabled: Bool) {
+        lock.lock()
+        guard sourcesByUrl[url] != nil else {
+            lock.unlock()
+            return
+        }
+        enabledByUrl[url] = enabled
+        rawJsonByUrl[url]?["enabled"] = enabled
+        lock.unlock()
+        persistToDisk()
+    }
+
+    func isEnabled(url: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return enabledByUrl[url] ?? true
+    }
+
+    /// 返回指定源的原始 JSON（格式化），供管理 VC 查看
+    func sourceJSON(url: String) -> String? {
+        lock.lock()
+        guard let dict = rawJsonByUrl[url] else {
+            lock.unlock()
+            return nil
+        }
+        lock.unlock()
+        guard JSONSerialization.isValidJSONObject(dict),
+              let data = try? JSONSerialization.data(
+                  withJSONObject: dict,
+                  options: [.prettyPrinted, .sortedKeys]
+              ) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
     }
 
     static func isLegadoSource(_ dict: [String: Any]) -> Bool {
