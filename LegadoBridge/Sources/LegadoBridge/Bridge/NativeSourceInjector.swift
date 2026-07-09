@@ -9,7 +9,8 @@ enum NativeSourceInjector {
         guard !sources.isEmpty,
               let manager = sharedManager() else { return }
 
-        let models = sources.map { nativeModel(for: $0) }
+        let models = sources.map { nativeModel(for: $0, manager: manager) }
+        // replace=true：同名源覆盖；addModels 仍可能因内部校验返回 NO，merge 兜底保证 enable 等字段落盘
         let added = invokeAddModels(on: manager, models: models)
         mergeModelsIntoManager(manager, models: models)
         invokeSave(on: manager)
@@ -29,7 +30,7 @@ enum NativeSourceInjector {
         guard let source = SourceRegistry.shared.allSources().first(where: { $0.bookSourceName == name }) else {
             return nil
         }
-        return nativeModel(for: source)
+        return nativeModel(for: source, manager: sharedManager())
     }
 
     // MARK: - Private
@@ -41,17 +42,36 @@ enum NativeSourceInjector {
         return cls.perform(sel)?.takeUnretainedValue() as? NSObject
     }
 
-    private static func nativeModel(for source: MemoryBridgeBookSource) -> [String: Any] {
-        // 仅保留列表展示所需字段，不合并 DOM 模板（模板字段不全会导致点击进编辑页崩溃）。
-        // 必须始终带 legadoBridge=1：openModel / didSelect 依赖此标记拦截，即使 Registry 尚未恢复也能挡住编辑页。
-        // 本轮不接入 XiangseNativeModelConverter。
+    private static func nativeModel(for source: MemoryBridgeBookSource, manager: NSObject?) -> [String: Any] {
+        // 接入 Converter：基于 dicBaseModelTemplateDom 深拷贝，并强制 enable="1"。
+        // 点击仍由 didSelect/openModel Hook 拦截，避免进原生编辑页。
+        if let manager {
+            let converted = XiangseNativeModelConverter.nativeModel(for: source, manager: manager)
+            var result: [String: Any] = [:]
+            converted.enumerateKeysAndObjects { key, value, _ in
+                if let k = key as? String {
+                    result[k] = value
+                }
+            }
+            return result
+        }
+        return minimalShellModel(for: source)
+    }
+
+    /// Manager 尚未就绪时的最小壳（仍带原生启用键 enable）
+    private static func minimalShellModel(for source: MemoryBridgeBookSource) -> [String: Any] {
         [
             "sourceName": source.bookSourceName,
             "sourceType": legadoSourceType,
             "sourceUrl": source.bookSourceUrl,
             "title": source.bookSourceName,
+            "enable": "1",
             "enabled": true,
             "weight": 50,
+            "searchBook": [
+                "actionID": "searchBook",
+                "parserID": legadoSourceType
+            ],
             XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue,
             "bookSourceUrl": source.bookSourceUrl
         ]
@@ -65,7 +85,8 @@ enum NativeSourceInjector {
         let merged = NSMutableDictionary(dictionary: current)
         for model in models {
             guard let name = model["sourceName"] as? String else { continue }
-            merged[name] = model
+            // 存 NSMutableDictionary，避免 Swift Dictionary 桥接成不可变 Deferred 字典后原生改写失败
+            merged[name] = NSMutableDictionary(dictionary: model)
         }
         let setSel = NSSelectorFromString("setDicModelList:")
         if manager.responds(to: setSel) {
@@ -73,7 +94,12 @@ enum NativeSourceInjector {
         } else {
             manager.setValue(merged, forKey: "dicModelList")
         }
-        let msg = "merged=\(merged.count)"
+        let enableFlags = models.map { m -> String in
+            let name = m["sourceName"] as? String ?? "?"
+            let en = m["enable"] as? String ?? "nil"
+            return "\(name):enable=\(en)"
+        }.joined(separator: ",")
+        let msg = "merged=\(merged.count) \(enableFlags)"
         let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_native_merge.txt")
         try? msg.write(toFile: path, atomically: true, encoding: .utf8)
     }
@@ -94,10 +120,12 @@ enum NativeSourceInjector {
     private static func invokeAddModels(on manager: NSObject, models: [[String: Any]]) -> Bool {
         let sel = NSSelectorFromString("addModels:replace:showTip:autoSave:updateOnly:fromCloud:")
         guard manager.responds(to: sel) else { return false }
-        let arr = models as NSArray
+        // 转为 NSMutableDictionary 数组，贴近原生入库形态
+        let arr = models.map { NSMutableDictionary(dictionary: $0) } as NSArray
         typealias Fn = @convention(c) (AnyObject, Selector, NSArray, Bool, Bool, Bool, Bool, Bool) -> Bool
         let fn = unsafeBitCast(manager.method(for: sel), to: Fn.self)
-        return fn(manager, sel, arr, false, false, true, false, false)
+        // replace=true：允许覆盖已存在的同名壳模型
+        return fn(manager, sel, arr, true, false, true, false, false)
     }
 
     private static func postNativeListUpdate() {

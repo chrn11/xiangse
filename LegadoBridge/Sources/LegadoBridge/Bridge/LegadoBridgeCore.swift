@@ -92,10 +92,12 @@ import Foundation
 
     @objc(handleSearchRequestWithKeyword:sourceUrl:)
     public func handleSearchRequest(keyword: String, sourceUrl: String?) {
+        // 入口即写标记，便于验收区分「UI 未进 Hook」与「引擎失败」
+        writeSearchMarker("enter key=\(keyword) url=\(sourceUrl ?? "nil")")
         Task {
             do {
                 let activeSource = SourceRegistry.shared.source(forUrl: sourceUrl)
-                guard activeSource != nil || sourceUrl != nil else {
+                guard activeSource != nil else {
                     throw LegadoBridgeError.sourceNotFound
                 }
                 let results = try await self.search(keyword: keyword, sourceUrl: sourceUrl)

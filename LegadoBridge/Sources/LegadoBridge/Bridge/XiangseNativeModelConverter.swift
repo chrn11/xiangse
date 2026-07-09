@@ -35,23 +35,31 @@ enum XiangseNativeModelConverter {
         return raw
     }
 
-    /// 模板不可读时的最小 DOM 骨架（仍比 7 字段假模型完整）
+    /// 模板不可读时的最小 DOM 骨架（须含原生启用键 enable="1"，否则 canSearch 判无可用站点）
     private static func fallbackTemplate() -> [String: Any] {
         [
             "sourceType": sourceType,
+            "enable": "1",
             "enabled": true,
             "weight": 50,
+            "searchBook": [
+                "actionID": "searchBook",
+                "parserID": sourceType
+            ],
             "cf_title": "Legado",
             "cf_opentype": "0"
         ]
     }
 
     private static func overlayFields(for source: MemoryBridgeBookSource) -> [String: Any] {
+        // 真机 Frida：dicBaseModelTemplateDom / 可用源均用字符串 enable="1"；
+        // 仅写 Bool enabled 会被 canSearch / 启用筛选忽略 →「无可用站点」。
         [
             "sourceName": source.bookSourceName,
             "sourceType": sourceType,
             "sourceUrl": source.bookSourceUrl,
             "title": source.bookSourceName,
+            "enable": "1",
             "enabled": true,
             "weight": 50,
             XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue,

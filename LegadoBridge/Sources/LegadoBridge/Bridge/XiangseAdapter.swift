@@ -89,6 +89,7 @@ enum XiangseAdapter {
             "bookSourceName": s.bookSourceName,
             "sourceUrl": s.bookSourceUrl,
             "sourceName": s.bookSourceName,
+            "enable": "1",
             "enabled": true,
             legadoMarkerKey: legadoMarkerValue
         ]

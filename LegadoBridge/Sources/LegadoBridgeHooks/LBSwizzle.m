@@ -222,12 +222,29 @@ static UIWindow *LBLegadoKeyWindow(void) {
     return nil;
 }
 
-// 弹 UIAlertController：支持 URL 拉取，或粘贴 JSON 正文后走 LBLegadoImportData
 static void LBLegadoShowImportAlert(void) {
     UIWindow *window = LBLegadoKeyWindow();
-    if (!window) return;
+    if (!window) {
+        // 冷启动窗口未就绪时短暂重试，避免弹窗静默失败
+        static int retryCount = 0;
+        if (retryCount < 5) {
+            retryCount += 1;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                LBLegadoShowImportAlert();
+            });
+        }
+        return;
+    }
     UIViewController *rootVC = window.rootViewController;
     if (!rootVC) return;
+    // 已有 presented 时挂到最顶层，避免被盖住或 present 失败
+    while (rootVC.presentedViewController) {
+        rootVC = rootVC.presentedViewController;
+    }
+    if ([rootVC isKindOfClass:[UIAlertController class]]) {
+        // 已在展示 alert，不重复弹
+        return;
+    }
 
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Legado 书源导入"
                                                                    message:@"可填 URL（http/https），或在第二框粘贴 JSON 正文"
@@ -278,7 +295,10 @@ static void LBLegadoShowImportAlert(void) {
         LBLegadoImportData(data);
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [rootVC presentViewController:alert animated:YES completion:nil];
+    [rootVC presentViewController:alert animated:YES completion:^{
+        [@"import_alert_shown" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_import_alert.txt"]
+                                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    }];
 }
 
 static void LBLegadoImportData(NSData *data) {
@@ -968,6 +988,31 @@ void LBInstallSearchHooks(void) {
     }
 
     if (managerClass) {
+        // canSearch:fromShuping: — UI 在 startSearch 前据此弹「无可用站点」；
+        // 有 Legado 源时强制 YES，避免壳模型缺 enable 时被原生拦死。
+        SEL canSel = NSSelectorFromString(@"canSearch:fromShuping:");
+        Method canMethod = class_getInstanceMethod(managerClass, canSel);
+        if (canMethod) {
+            IMP canOrigIMP = method_getImplementation(canMethod);
+            IMP canHookIMP = imp_implementationWithBlock(^BOOL(id self, NSInteger type, BOOL shuping) {
+                id core = LBLegadoCoreIfReady();
+                if ([core respondsToSelector:@selector(allLegadoSourceNames)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                    NSArray *names = [core performSelector:@selector(allLegadoSourceNames)];
+#pragma clang diagnostic pop
+                    if (names.count > 0) {
+                        [@"canSearch=YES legado" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_cansearch.txt"]
+                                                  atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                        return YES;
+                    }
+                }
+                return ((BOOL (*)(id, SEL, NSInteger, BOOL))canOrigIMP)(self, canSel, type, shuping);
+            });
+            method_setImplementation(canMethod, canHookIMP);
+            NSLog(@"[LegadoBridge] hooked canSearch:fromShuping: on %@", NSStringFromClass(managerClass));
+        }
+
         SEL searchSel = NSSelectorFromString(@"startSearch:prioritySourceType:fromShuping:quick:");
         Method searchMethod = class_getInstanceMethod(managerClass, searchSel);
         if (searchMethod) {
@@ -986,6 +1031,8 @@ void LBInstallSearchHooks(void) {
                     hasLegado = names.count > 0;
                 }
                 if (hasLegado && [core respondsToSelector:@selector(handleSearchRequestWithKeyword:sourceUrl:)]) {
+                    [@"startSearch legado" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_hook.txt"]
+                                            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                     ((void (*)(id, SEL, NSString *, NSString *))objc_msgSend)(
                         core, @selector(handleSearchRequestWithKeyword:sourceUrl:), keyword ?: @"", nil
                     );
