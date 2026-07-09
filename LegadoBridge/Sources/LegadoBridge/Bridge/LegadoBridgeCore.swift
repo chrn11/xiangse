@@ -169,7 +169,7 @@ import Foundation
                 let payload = XiangseAdapter.searchResultsPayload(
                     results: results,
                     keyword: keyword,
-                    sourceUrl: sourceUrl ?? activeSource?.bookSourceUrl ?? ""
+                    sourceUrl: sourceUrl ?? activeSource.bookSourceUrl ?? ""
                 )
                 self.writeSearchMarker("ok count=\(results.count) key=\(keyword)")
                 self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
