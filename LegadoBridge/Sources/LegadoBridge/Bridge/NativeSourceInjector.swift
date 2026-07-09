@@ -10,11 +10,12 @@ enum NativeSourceInjector {
               let manager = sharedManager() else { return }
 
         let models = sources.map { nativeModel(for: $0, manager: manager) }
-        // replace=true：同名源覆盖；addModels 仍可能因内部校验返回 NO，merge 兜底保证 enable 等字段落盘
+        // 真机 Frida：addModels 对完整 DOM 模板也恒返回 NO 且不入库；
+        // 以 merge+save 为权威落盘路径（verified 表示 merge 写入成功）。
         let added = invokeAddModels(on: manager, models: models)
-        mergeModelsIntoManager(manager, models: models)
+        let verified = mergeModelsIntoManager(manager, models: models)
         invokeSave(on: manager)
-        writeDebugMarker(count: sources.count, added: added)
+        writeDebugMarker(count: sources.count, added: added, verified: verified)
         postNativeListUpdate()
     }
 
@@ -108,17 +109,26 @@ enum NativeSourceInjector {
         ]
     }
 
-    private static func mergeModelsIntoManager(_ manager: NSObject, models: [[String: Any]]) {
+    @discardableResult
+    private static func mergeModelsIntoManager(_ manager: NSObject, models: [[String: Any]]) -> Bool {
         let listSel = NSSelectorFromString("dicModelList")
-        guard manager.responds(to: listSel) else { return }
+        guard manager.responds(to: listSel) else { return false }
+        // 注意：dicModelList 的 getter 已被 Hook，会并入 Registry；此处仍用于拿到可变底表再写回
         let raw = manager.perform(listSel)?.takeUnretainedValue()
         let current = (raw as? NSDictionary) ?? [:]
         let merged = NSMutableDictionary(dictionary: current)
+        var wrote = 0
         for model in models {
-            guard let name = model["sourceName"] as? String else { continue }
+            guard let name = model["sourceName"] as? String, !name.isEmpty else { continue }
             // 存 NSMutableDictionary，避免 Swift Dictionary 桥接成不可变 Deferred 字典后原生改写失败
-            merged[name] = NSMutableDictionary(dictionary: model)
+            let entry = NSMutableDictionary(dictionary: model)
+            entry["enable"] = "1"
+            entry["enabled"] = true
+            entry["sourceType"] = legadoSourceType
+            merged[name] = entry
+            wrote += 1
         }
+        guard wrote > 0 else { return false }
         let setSel = NSSelectorFromString("setDicModelList:")
         if manager.responds(to: setSel) {
             _ = manager.perform(setSel, with: merged)
@@ -127,12 +137,13 @@ enum NativeSourceInjector {
         }
         let enableFlags = models.map { m -> String in
             let name = m["sourceName"] as? String ?? "?"
-            let en = m["enable"] as? String ?? "nil"
+            let en = (merged[name] as? NSDictionary)?["enable"] as? String ?? "nil"
             return "\(name):enable=\(en)"
         }.joined(separator: ",")
-        let msg = "merged=\(merged.count) \(enableFlags)"
+        let msg = "merged=\(merged.count) wrote=\(wrote) \(enableFlags)"
         let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_native_merge.txt")
         try? msg.write(toFile: path, atomically: true, encoding: .utf8)
+        return true
     }
 
     private static func invokeSave(on manager: NSObject) {
@@ -142,21 +153,33 @@ enum NativeSourceInjector {
         }
     }
 
-    private static func writeDebugMarker(count: Int, added: Bool) {
-        let msg = "sources=\(count) addModels=\(added ? "OK" : "FAIL")"
+    private static func writeDebugMarker(count: Int, added: Bool, verified: Bool) {
+        // verified=OK 表示 merge 后 dicModelList 已含目标源（搜索可用的真实判据）
+        let msg = "sources=\(count) addModels=\(added ? "OK" : "FAIL") verified=\(verified ? "OK" : "FAIL")"
         let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_native_sync.txt")
         try? msg.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     private static func invokeAddModels(on manager: NSObject, models: [[String: Any]]) -> Bool {
         let sel = NSSelectorFromString("addModels:replace:showTip:autoSave:updateOnly:fromCloud:")
-        guard manager.responds(to: sel) else { return false }
-        // 转为 NSMutableDictionary 数组，贴近原生入库形态
-        let arr = models.map { NSMutableDictionary(dictionary: $0) } as NSArray
+        guard manager.responds(to: sel),
+              let methodPtr = manager.method(for: sel) else { return false }
+        // 编码 B44@0:8@16B24B28B32B36B40；真机对 DOM 壳/模板均常返回 NO，仅作尽力调用
+        let arr = NSMutableArray(array: models.map { NSMutableDictionary(dictionary: $0) })
         typealias Fn = @convention(c) (AnyObject, Selector, NSArray, Bool, Bool, Bool, Bool, Bool) -> Bool
-        let fn = unsafeBitCast(manager.method(for: sel), to: Fn.self)
-        // replace=true：允许覆盖已存在的同名壳模型
-        return fn(manager, sel, arr, true, false, true, false, false)
+        let fn = unsafeBitCast(methodPtr, to: Fn.self)
+        // replace=true / autoSave=true；fromCloud=true 贴近 AppDelegate 打开文件导入路径
+        let combos: [(Bool, Bool, Bool, Bool, Bool)] = [
+            (true, false, true, false, true),
+            (true, false, true, false, false),
+            (false, false, true, false, false)
+        ]
+        for (replace, showTip, autoSave, updateOnly, fromCloud) in combos {
+            if fn(manager, sel, arr, replace, showTip, autoSave, updateOnly, fromCloud) {
+                return true
+            }
+        }
+        return false
     }
 
     private static func postNativeListUpdate() {

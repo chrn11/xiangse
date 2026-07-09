@@ -78,6 +78,10 @@ enum XiangseNativeModelConverter {
         if model["cf_title"] == nil {
             model["cf_title"] = source.bookSourceName
         }
+        // 模板本身无 sourceType/sourceName；强制补齐，避免筛选按 typeTitle 丢弃
+        model["sourceType"] = sourceType
+        model["enable"] = "1"
+        model["enabled"] = true
     }
 
     private static func deepMerge(base: [String: Any], overlay: [String: Any]) -> NSMutableDictionary {

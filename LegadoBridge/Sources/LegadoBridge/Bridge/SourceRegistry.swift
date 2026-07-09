@@ -90,10 +90,23 @@ final class SourceRegistry {
             mutableJson["enabled"] = true
         }
         rawJsonByUrl[source.bookSourceUrl] = mutableJson
-        enabledByUrl[source.bookSourceUrl] = (mutableJson["enabled"] as? Bool) ?? true
+        enabledByUrl[source.bookSourceUrl] = Self.isTruthy(mutableJson["enabled"], default: true)
         activeSourceUrl = source.bookSourceUrl
         lock.unlock()
         return source
+    }
+
+    /// 兼容 Bool / NSNumber / "1"/"0"/"true" 等落盘形态
+    private static func isTruthy(_ value: Any?, default defaultValue: Bool) -> Bool {
+        guard let value else { return defaultValue }
+        if let b = value as? Bool { return b }
+        if let n = value as? NSNumber { return n.boolValue }
+        if let s = value as? String {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if ["1", "true", "yes", "y", "on"].contains(t) { return true }
+            if ["0", "false", "no", "n", "off"].contains(t) { return false }
+        }
+        return defaultValue
     }
 
     private func persistToDisk() {
