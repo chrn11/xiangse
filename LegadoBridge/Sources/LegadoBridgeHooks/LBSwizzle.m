@@ -497,7 +497,9 @@ static NSString *LBBSM_sourceTypeBySourceName_IMP(id self, SEL _cmd, NSString *n
 }
 
 static NSString *LBBSM_sourceTypeTitleBySourceName_IMP(id self, SEL _cmd, NSString *name) {
-    if (LBLegadoIsSourceName(name)) return @"Legado";
+    // 真机：可用 DOM 源的 typeTitle 为空；返回 @"Legado" 会被 BookSearchController
+    // 的 filterSourceType=text 筛掉，UI 弹「无可用站点 / 或修改筛选类型」。
+    if (LBLegadoIsSourceName(name)) return @"";
     if (LBOrig_BSM_sourceTypeTitleBySourceName) {
         return LBOrig_BSM_sourceTypeTitleBySourceName(self, _cmd, name);
     }
@@ -988,13 +990,13 @@ void LBInstallSearchHooks(void) {
     }
 
     if (managerClass) {
-        // canSearch:fromShuping: — UI 在 startSearch 前据此弹「无可用站点」；
-        // 有 Legado 源时强制 YES，避免壳模型缺 enable 时被原生拦死。
+        // canSearch:fromShuping: — 编码 B24@0:8B16B20（两参数均为 BOOL，非 NSInteger）；
+        // UI 据此弹「无可用站点」。有 Legado 源时强制 YES。
         SEL canSel = NSSelectorFromString(@"canSearch:fromShuping:");
         Method canMethod = class_getInstanceMethod(managerClass, canSel);
         if (canMethod) {
             IMP canOrigIMP = method_getImplementation(canMethod);
-            IMP canHookIMP = imp_implementationWithBlock(^BOOL(id self, NSInteger type, BOOL shuping) {
+            IMP canHookIMP = imp_implementationWithBlock(^BOOL(id self, BOOL typeOrFlag, BOOL shuping) {
                 id core = LBLegadoCoreIfReady();
                 if ([core respondsToSelector:@selector(allLegadoSourceNames)]) {
 #pragma clang diagnostic push
@@ -1007,7 +1009,7 @@ void LBInstallSearchHooks(void) {
                         return YES;
                     }
                 }
-                return ((BOOL (*)(id, SEL, NSInteger, BOOL))canOrigIMP)(self, canSel, type, shuping);
+                return ((BOOL (*)(id, SEL, BOOL, BOOL))canOrigIMP)(self, canSel, typeOrFlag, shuping);
             });
             method_setImplementation(canMethod, canHookIMP);
             NSLog(@"[LegadoBridge] hooked canSearch:fromShuping: on %@", NSStringFromClass(managerClass));
