@@ -10,11 +10,16 @@ import Foundation
 
     private override init() {
         super.init()
-        // 冷启动先从磁盘恢复，避免原生列表有壳条目而引擎 SourceRegistry 为空
-        let restored = SourceRegistry.shared.restoreFromDiskIfNeeded()
-        if restored > 0 {
-            NativeSourceInjector.syncToNativeManager(sources: SourceRegistry.shared.allSources())
-        }
+        // 禁止在 init 内 restore / sync：
+        // 1) restore → JSONSerialization → JSON Hook → 再取 shared，重入 static let 的 dispatch_once → SIGTRAP
+        // 2) sync → dicModelList Hook → 再取 shared，同上
+        // 磁盘恢复改由 didFinishLaunching 的 restorePersistedSources（shared 已就绪后）触发。
+    }
+
+    /// 供 ObjC 在触发 shared 前做轻量探测，避免无关键 JSON 解析路径拉起 Core
+    @objc(probeLegadoJSONData:)
+    public class func probeLegadoJSONData(_ data: Data) -> Bool {
+        SourceRegistry.isLegadoJSONData(data)
     }
 
     /// 供 ObjC Hook 在 didFinishLaunching 显式触发恢复（与 init 幂等）

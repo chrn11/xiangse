@@ -2,6 +2,7 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
+#import <stdatomic.h>
 #import "LegadoBridge.h"
 
 @class LegadoBridgeCore;
@@ -37,15 +38,73 @@ static id (*LBOrig_NSJSONSerialization_JSONObjectWithData)(Class, SEL, NSData *,
 // （KERN_PROTECTION_FAILURE / SIGSEGV）。用线程局部标志守卫，重入期间只走原 IMP。
 static NSString *const LBReentryKey = @"LegadoBridge.JSONHook.Reentry";
 
+// Core.shared 初始化重入守卫：static let shared 底层是 dispatch_once，
+// 若在 once 回调内再次取 shared（JSON Hook / dicModelList Hook）会 SIGTRAP。
+// 仅在「首次初始化进行中」返回 nil；shared 就绪后的正常访问不受影响。
+static _Atomic(bool) LBCoreReady = false;
+static _Atomic(bool) LBCoreInitializing = false;
+
+static id LBLegadoCoreIfReady(void) {
+    Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+    if (!coreClass) return nil;
+
+    if (atomic_load(&LBCoreReady)) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        return [coreClass performSelector:@selector(shared)];
+#pragma clang diagnostic pop
+    }
+    // 同线程重入或其它线程正在 init：禁止再次进入 shared getter
+    if (atomic_exchange(&LBCoreInitializing, true)) {
+        return nil;
+    }
+    id core = nil;
+    @try {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        core = [coreClass performSelector:@selector(shared)];
+#pragma clang diagnostic pop
+        if (core) {
+            atomic_store(&LBCoreReady, true);
+        }
+    } @finally {
+        atomic_store(&LBCoreInitializing, false);
+    }
+    return core;
+}
+
+/// 轻量启发式：无 bookSourceUrl 的 JSON（如 AXCodeLoader 包映射）绝不触碰 Core.shared
+static BOOL LBDataMightBeLegadoJSON(NSData *data) {
+    if (data.length < 24 || data.length > 16 * 1024 * 1024) return NO;
+    if (!data.bytes) return NO;
+    NSData *needle = [@"bookSourceUrl" dataUsingEncoding:NSUTF8StringEncoding];
+    if (!needle.length) return NO;
+    if ([data rangeOfData:needle options:0 range:NSMakeRange(0, data.length)].location == NSNotFound) {
+        return NO;
+    }
+    NSData *n2 = [@"searchUrl" dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *n3 = [@"ruleSearch" dataUsingEncoding:NSUTF8StringEncoding];
+    BOOL hasSearch = n2.length && [data rangeOfData:n2 options:0 range:NSMakeRange(0, data.length)].location != NSNotFound;
+    BOOL hasRule = n3.length && [data rangeOfData:n3 options:0 range:NSMakeRange(0, data.length)].location != NSNotFound;
+    return hasSearch || hasRule;
+}
+
 static id LBLegadoDetectAndImport(NSData *data) {
     if (data.length == 0) return nil;
+    // 先挡掉绝大多数系统/无障碍 JSON，避免在任意后台队列上拉起 LegadoBridgeCore.shared
+    if (!LBDataMightBeLegadoJSON(data)) return nil;
     @try {
         Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
         if (!coreClass) return nil;
-        id core = [coreClass performSelector:@selector(shared)];
-        if (![core respondsToSelector:@selector(isLegadoJSONData:)]) return nil;
-        BOOL isLegado = ((BOOL (*)(id, SEL, NSData *))objc_msgSend)(core, @selector(isLegadoJSONData:), data);
+        // 类方法探测，不经过 instance shared 的 dispatch_once
+        BOOL isLegado = NO;
+        SEL probeSel = @selector(probeLegadoJSONData:);
+        if ([coreClass respondsToSelector:probeSel]) {
+            isLegado = ((BOOL (*)(Class, SEL, NSData *))objc_msgSend)(coreClass, probeSel, data);
+        }
         if (!isLegado) return nil;
+        id core = LBLegadoCoreIfReady();
+        if (!core || ![core respondsToSelector:@selector(importLegadoJSONData:error:)]) return nil;
         NSError *importError = nil;
         ((NSInteger (*)(id, SEL, NSData *, NSError **))objc_msgSend)(
             core, @selector(importLegadoJSONData:error:), data, &importError
@@ -112,15 +171,12 @@ static BOOL LBAppDelegate_didFinishLaunching_IMP(id self, SEL _cmd, id applicati
     if (LBOrig_AppDelegate_didFinishLaunching) {
         ret = LBOrig_AppDelegate_didFinishLaunching(self, @selector(application:didFinishLaunchingWithOptions:), application, options);
     }
-    // 先恢复磁盘上的 Legado 书源到 SourceRegistry（与 Core.init 幂等）
+    // shared 就绪后再恢复磁盘书源（禁止在 Core.init 内 restore，避免 dispatch_once 重入）
     @try {
-        Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
-        if (coreClass) {
-            id core = [coreClass performSelector:@selector(shared)];
-            if ([core respondsToSelector:@selector(restorePersistedSources)]) {
-                NSInteger n = ((NSInteger (*)(id, SEL))objc_msgSend)(core, @selector(restorePersistedSources));
-                NSLog(@"[LegadoBridge] restored persisted sources: %ld", (long)n);
-            }
+        id core = LBLegadoCoreIfReady();
+        if ([core respondsToSelector:@selector(restorePersistedSources)]) {
+            NSInteger n = ((NSInteger (*)(id, SEL))objc_msgSend)(core, @selector(restorePersistedSources));
+            NSLog(@"[LegadoBridge] restored persisted sources: %ld", (long)n);
         }
     } @catch (NSException *e) {
         NSLog(@"[LegadoBridge] restorePersistedSources exception: %@", e);
@@ -229,10 +285,17 @@ static void LBLegadoImportData(NSData *data) {
     @try {
         Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
         if (!coreClass) { LBLegadoShowResult(@"无 LegadoBridgeCore"); return; }
-        id core = [coreClass performSelector:@selector(shared)];
-        if (![core respondsToSelector:@selector(isLegadoJSONData:)]) { LBLegadoShowResult(@"无 isLegadoJSONData:"); return; }
-        BOOL isLegado = ((BOOL (*)(id, SEL, NSData *))objc_msgSend)(core, @selector(isLegadoJSONData:), data);
+        BOOL isLegado = NO;
+        SEL probeSel = @selector(probeLegadoJSONData:);
+        if ([coreClass respondsToSelector:probeSel]) {
+            isLegado = ((BOOL (*)(Class, SEL, NSData *))objc_msgSend)(coreClass, probeSel, data);
+        }
         if (!isLegado) { LBLegadoShowResult(@"不是 Legado JSON 格式"); return; }
+        id core = LBLegadoCoreIfReady();
+        if (!core || ![core respondsToSelector:@selector(importLegadoJSONData:error:)]) {
+            LBLegadoShowResult(@"LegadoBridgeCore 未就绪");
+            return;
+        }
         NSError *importError = nil;
         ((NSInteger (*)(id, SEL, NSData *, NSError **))objc_msgSend)(
             core, @selector(importLegadoJSONData:error:), data, &importError
@@ -275,12 +338,16 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
             @try {
                 Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
                 if (coreClass) {
-                    id core = [coreClass performSelector:@selector(shared)];
-                    if ([core respondsToSelector:@selector(isLegadoJSONData:)]) {
-                        BOOL isLegado = ((BOOL (*)(id, SEL, NSData *))objc_msgSend)(core, @selector(isLegadoJSONData:), fileData);
-                        // 调试标记 1：isLegado 检测结果
-                        [(isLegado ? @"YES" : @"NO") writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_islegado_result.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
-                        if (isLegado) {
+                    BOOL isLegado = NO;
+                    SEL probeSel = @selector(probeLegadoJSONData:);
+                    if ([coreClass respondsToSelector:probeSel]) {
+                        isLegado = ((BOOL (*)(Class, SEL, NSData *))objc_msgSend)(coreClass, probeSel, fileData);
+                    }
+                    // 调试标记 1：isLegado 检测结果
+                    [(isLegado ? @"YES" : @"NO") writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_islegado_result.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+                    if (isLegado) {
+                        id core = LBLegadoCoreIfReady();
+                        if (core && [core respondsToSelector:@selector(importLegadoJSONData:error:)]) {
                             NSError *importError = nil;
                             ((NSInteger (*)(id, SEL, NSData *, NSError **))objc_msgSend)(
                                 core, @selector(importLegadoJSONData:error:), fileData, &importError
@@ -292,11 +359,9 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                             } else {
                                 NSLog(@"[LegadoBridge] openURL Legado JSON imported: %@", url.lastPathComponent);
                             }
-                            // 已作为 Legado 书源处理，短路原生流程
-                            return YES;
                         }
-                    } else {
-                        [@"no isLegadoJSONData:" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_islegado_result.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+                        // 已作为 Legado 书源处理，短路原生流程
+                        return YES;
                     }
                 } else {
                     [@"no LegadoBridgeCore" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_islegado_result.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
@@ -346,9 +411,9 @@ void LBInstallOpenURLHook(void) {
 #pragma mark - Source List Hooks (站点管理列表)
 
 static id LBLegadoCore(void) {
-    Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
-    if (!coreClass) return nil;
-    return [coreClass performSelector:@selector(shared)];
+    // 列表 Hook 可能在 Core.init → sync → dicModelList 路径上被同步调用；
+    // 必须用 IfReady，避免 dispatch_once 同线程重入 SIGTRAP。
+    return LBLegadoCoreIfReady();
 }
 
 static NSArray *LBLegadoGetSourceNames(void) {
@@ -875,14 +940,11 @@ void LBInstallSourceListHooks(void) {
             fromShuping:(BOOL)shuping
                  quick:(BOOL)quick {
     // 转发给 LegadoBridge
-    Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
-    if (coreClass) {
-        id core = [coreClass performSelector:@selector(shared)];
-        if ([core respondsToSelector:@selector(handleSearchRequestWithKeyword:sourceUrl:)]) {
-            ((void (*)(id, SEL, NSString *, NSString *))objc_msgSend)(
-                core, @selector(handleSearchRequestWithKeyword:sourceUrl:), keyword, nil
-            );
-        }
+    id core = LBLegadoCoreIfReady();
+    if ([core respondsToSelector:@selector(handleSearchRequestWithKeyword:sourceUrl:)]) {
+        ((void (*)(id, SEL, NSString *, NSString *))objc_msgSend)(
+            core, @selector(handleSearchRequestWithKeyword:sourceUrl:), keyword, nil
+        );
     }
 }
 
@@ -914,20 +976,20 @@ void LBInstallSearchHooks(void) {
 
             IMP hookIMP = imp_implementationWithBlock(^void(id self, NSString *keyword, NSInteger type, BOOL shuping, BOOL quick) {
                 // 仅当 SourceRegistry 已有 Legado 源时拦截；否则走原生 XBS 搜索
-                Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
-                if (coreClass) {
-                    id core = [coreClass performSelector:@selector(shared)];
-                    BOOL hasLegado = NO;
-                    if ([core respondsToSelector:@selector(allLegadoSourceNames)]) {
-                        NSArray *names = [core performSelector:@selector(allLegadoSourceNames)];
-                        hasLegado = names.count > 0;
-                    }
-                    if (hasLegado && [core respondsToSelector:@selector(handleSearchRequestWithKeyword:sourceUrl:)]) {
-                        ((void (*)(id, SEL, NSString *, NSString *))objc_msgSend)(
-                            core, @selector(handleSearchRequestWithKeyword:sourceUrl:), keyword ?: @"", nil
-                        );
-                        return;
-                    }
+                id core = LBLegadoCoreIfReady();
+                BOOL hasLegado = NO;
+                if ([core respondsToSelector:@selector(allLegadoSourceNames)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                    NSArray *names = [core performSelector:@selector(allLegadoSourceNames)];
+#pragma clang diagnostic pop
+                    hasLegado = names.count > 0;
+                }
+                if (hasLegado && [core respondsToSelector:@selector(handleSearchRequestWithKeyword:sourceUrl:)]) {
+                    ((void (*)(id, SEL, NSString *, NSString *))objc_msgSend)(
+                        core, @selector(handleSearchRequestWithKeyword:sourceUrl:), keyword ?: @"", nil
+                    );
+                    return;
                 }
                 ((void (*)(id, SEL, NSString *, NSInteger, BOOL, BOOL))originalIMP)(
                     self, searchSel, keyword, type, shuping, quick
