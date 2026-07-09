@@ -1,14 +1,51 @@
 import Foundation
 
 /// Legado 书源注册表 — 与香色闺阁 XBS 源并行存储
+/// 内存表 + Documents/legado_bridge_sources.json 持久化，避免重启后引擎空、原生列表仍有壳条目。
 final class SourceRegistry {
     static let shared = SourceRegistry()
 
     private var sourcesByUrl: [String: MemoryBridgeBookSource] = [:]
+    /// 原始 Legado JSON，用于落盘与重启恢复
+    private var rawJsonByUrl: [String: [String: Any]] = [:]
     private var activeSourceUrl: String?
     private let lock = NSLock()
+    private var didRestoreFromDisk = false
+
+    private static var persistFileURL: URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents")
+        return docs.appendingPathComponent("legado_bridge_sources.json")
+    }
 
     private init() {}
+
+    /// 启动时从磁盘恢复；可重复调用，仅首次生效。
+    @discardableResult
+    func restoreFromDiskIfNeeded() -> Int {
+        lock.lock()
+        if didRestoreFromDisk {
+            let n = sourcesByUrl.count
+            lock.unlock()
+            return n
+        }
+        didRestoreFromDisk = true
+        lock.unlock()
+
+        let url = Self.persistFileURL
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else {
+            writeDebugMarker("restore=0 missing")
+            return 0
+        }
+        do {
+            let count = try importJSONData(data, persist: false)
+            writeDebugMarker("restore=\(count) ok")
+            return count
+        } catch {
+            writeDebugMarker("restore=0 err=\(error.localizedDescription)")
+            return 0
+        }
+    }
 
     @discardableResult
     func register(part: BookSourcePart) -> MemoryBridgeBookSource {
@@ -21,7 +58,7 @@ final class SourceRegistry {
     }
 
     @discardableResult
-    func importJSONData(_ data: Data) throws -> Int {
+    func importJSONData(_ data: Data, persist: Bool = true) throws -> Int {
         let object = try JSONSerialization.jsonObject(with: data)
         var count = 0
         if let dict = object as? [String: Any], Self.isLegadoSource(dict) {
@@ -36,6 +73,9 @@ final class SourceRegistry {
         if count == 0 {
             throw LegadoBridgeError.notLegadoFormat
         }
+        if persist {
+            persistToDisk()
+        }
         return count
     }
 
@@ -43,9 +83,33 @@ final class SourceRegistry {
         let source = try! MemoryBridgeBookSource(json: json)
         lock.lock()
         sourcesByUrl[source.bookSourceUrl] = source
-        if activeSourceUrl == nil { activeSourceUrl = source.bookSourceUrl }
+        rawJsonByUrl[source.bookSourceUrl] = json
+        // 新导入的源设为当前激活，避免仍指向已失效的旧源
+        activeSourceUrl = source.bookSourceUrl
         lock.unlock()
         return source
+    }
+
+    private func persistToDisk() {
+        lock.lock()
+        let values = Array(rawJsonByUrl.values)
+        lock.unlock()
+        guard JSONSerialization.isValidJSONObject(values),
+              let data = try? JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted]) else {
+            writeDebugMarker("persist=fail encode")
+            return
+        }
+        do {
+            try data.write(to: Self.persistFileURL, options: .atomic)
+            writeDebugMarker("persist=\(values.count) ok")
+        } catch {
+            writeDebugMarker("persist=fail \(error.localizedDescription)")
+        }
+    }
+
+    private func writeDebugMarker(_ msg: String) {
+        let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_registry_persist.txt")
+        try? msg.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     func source(forUrl url: String?) -> MemoryBridgeBookSource? {

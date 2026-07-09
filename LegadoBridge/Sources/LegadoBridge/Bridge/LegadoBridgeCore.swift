@@ -10,6 +10,22 @@ import Foundation
 
     private override init() {
         super.init()
+        // 冷启动先从磁盘恢复，避免原生列表有壳条目而引擎 SourceRegistry 为空
+        let restored = SourceRegistry.shared.restoreFromDiskIfNeeded()
+        if restored > 0 {
+            NativeSourceInjector.syncToNativeManager(sources: SourceRegistry.shared.allSources())
+        }
+    }
+
+    /// 供 ObjC Hook 在 didFinishLaunching 显式触发恢复（与 init 幂等）
+    @objc(restorePersistedSources)
+    @discardableResult
+    public func restorePersistedSources() -> Int {
+        let count = SourceRegistry.shared.restoreFromDiskIfNeeded()
+        if count > 0 {
+            NativeSourceInjector.syncToNativeManager(sources: SourceRegistry.shared.allSources())
+        }
+        return count
     }
 
     // MARK: - 导入
@@ -74,9 +90,12 @@ import Foundation
         Task {
             do {
                 let activeSource = SourceRegistry.shared.source(forUrl: sourceUrl)
+                guard activeSource != nil || sourceUrl != nil else {
+                    throw LegadoBridgeError.sourceNotFound
+                }
                 let results = try await self.search(keyword: keyword, sourceUrl: sourceUrl)
                 for r in results {
-                    var book = BridgeBook(
+                    let book = BridgeBook(
                         name: r.name,
                         author: r.author,
                         bookUrl: r.bookUrl,
@@ -92,14 +111,26 @@ import Foundation
                     keyword: keyword,
                     sourceUrl: sourceUrl ?? activeSource?.bookSourceUrl ?? ""
                 )
+                self.writeSearchMarker("ok count=\(results.count) key=\(keyword)")
                 self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
             } catch {
+                self.writeSearchMarker("err \(error.localizedDescription) key=\(keyword)")
                 self.postNotification(
                     XiangseAdapter.notifySearchResponse,
-                    userInfo: ["error": error.localizedDescription, "fromLegadoBridge": true]
+                    userInfo: [
+                        "error": error.localizedDescription,
+                        "keyword": keyword,
+                        "fromLegadoBridge": true,
+                        XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
+                    ]
                 )
             }
         }
+    }
+
+    private func writeSearchMarker(_ msg: String) {
+        let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_search_last.txt")
+        try? msg.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     // MARK: - 目录

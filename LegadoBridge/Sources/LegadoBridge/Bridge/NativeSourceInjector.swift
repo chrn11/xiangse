@@ -42,7 +42,8 @@ enum NativeSourceInjector {
     }
 
     private static func nativeModel(for source: MemoryBridgeBookSource) -> [String: Any] {
-        var model: [String: Any] = [
+        // 仅保留列表展示所需字段，不合并 DOM 模板（模板字段不全会导致点击进编辑页崩溃）
+        [
             "sourceName": source.bookSourceName,
             "sourceType": legadoSourceType,
             "sourceUrl": source.bookSourceUrl,
@@ -52,19 +53,6 @@ enum NativeSourceInjector {
             XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue,
             "bookSourceUrl": source.bookSourceUrl
         ]
-        if let manager = sharedManager(),
-           let template = manager.perform(NSSelectorFromString("dicBaseModelTemplateDom"))?
-            .takeUnretainedValue() as? [String: Any] {
-            model.merge(template) { _, new in new }
-            model["sourceName"] = source.bookSourceName
-            model["sourceType"] = legadoSourceType
-            model["sourceUrl"] = source.bookSourceUrl
-            model["title"] = source.bookSourceName
-            model["enabled"] = true
-            model[XiangseAdapter.legadoMarkerKey] = XiangseAdapter.legadoMarkerValue
-            model["bookSourceUrl"] = source.bookSourceUrl
-        }
-        return model
     }
 
     private static func mergeModelsIntoManager(_ manager: NSObject, models: [[String: Any]]) {

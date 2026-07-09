@@ -112,6 +112,19 @@ static BOOL LBAppDelegate_didFinishLaunching_IMP(id self, SEL _cmd, id applicati
     if (LBOrig_AppDelegate_didFinishLaunching) {
         ret = LBOrig_AppDelegate_didFinishLaunching(self, @selector(application:didFinishLaunchingWithOptions:), application, options);
     }
+    // 先恢复磁盘上的 Legado 书源到 SourceRegistry（与 Core.init 幂等）
+    @try {
+        Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+        if (coreClass) {
+            id core = [coreClass performSelector:@selector(shared)];
+            if ([core respondsToSelector:@selector(restorePersistedSources)]) {
+                NSInteger n = ((NSInteger (*)(id, SEL))objc_msgSend)(core, @selector(restorePersistedSources));
+                NSLog(@"[LegadoBridge] restored persisted sources: %ld", (long)n);
+            }
+        }
+    } @catch (NSException *e) {
+        NSLog(@"[LegadoBridge] restorePersistedSources exception: %@", e);
+    }
     // 启动后延迟弹 Legado 书源导入 alert（主线程异步，不阻塞启动）
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         LBLegadoShowImportAlert();
@@ -384,6 +397,62 @@ static NSArray *LBConfig_getUseSourceNames_IMP(id self, SEL _cmd) {
     return merged.array;
 }
 
+static void LBLegadoShowTapBlockedAlert(UIViewController *vc) {
+    if (!vc) return;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Legado 书源"
+                                                                   message:@"该源由 LegadoBridge 管理，请通过「搜索」使用，暂不支持在站点管理内编辑。"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [vc presentViewController:alert animated:YES completion:nil];
+}
+
+static NSString *LBLegadoSourceNameAtIndexPath(id self, NSIndexPath *indexPath) {
+    SEL textSel = @selector(textByIndexPath:);
+    if ([self respondsToSelector:textSel]) {
+        id text = ((id (*)(id, SEL, NSIndexPath *))objc_msgSend)(self, textSel, indexPath);
+        if ([text isKindOfClass:[NSString class]]) {
+            NSString *name = (NSString *)text;
+            // textByIndexPath 可能返回 "笔趣阁测试源(57年前)"，剥掉后缀
+            NSRange r = [name rangeOfString:@"(" options:NSBackwardsSearch];
+            if (r.location != NSNotFound) {
+                return [name substringToIndex:r.location];
+            }
+            return name;
+        }
+    }
+    return nil;
+}
+
+static void (*LBOrig_Config_tableView_didSelect)(id, SEL, id, NSIndexPath *) = NULL;
+
+static void LBConfig_tableView_didSelect_IMP(id self, SEL _cmd, id tableView, NSIndexPath *indexPath) {
+    NSString *name = LBLegadoSourceNameAtIndexPath(self, indexPath);
+    if (name.length > 0 && LBLegadoIsSourceName(name)) {
+        LBLegadoShowTapBlockedAlert((UIViewController *)self);
+        return;
+    }
+    if (LBOrig_Config_tableView_didSelect) {
+        LBOrig_Config_tableView_didSelect(self, _cmd, tableView, indexPath);
+    }
+}
+
+static void (*LBOrig_Config_openModel)(id, SEL, id, BOOL) = NULL;
+
+static void LBConfig_openModel_IMP(id self, SEL _cmd, id model, BOOL createNew) {
+    if ([model isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dict = (NSDictionary *)model;
+        NSString *name = dict[@"sourceName"];
+        if (name.length == 0) name = dict[@"title"];
+        if (LBLegadoIsSourceName(name) || [dict[@"legadoBridge"] isEqual:@"1"]) {
+            LBLegadoShowTapBlockedAlert((UIViewController *)self);
+            return;
+        }
+    }
+    if (LBOrig_Config_openModel) {
+        LBOrig_Config_openModel(self, _cmd, model, createNew);
+    }
+}
+
 void LBInstallSourceListHooks(void) {
     Class managerClass = NSClassFromString(@"BookSourceModelManager");
     if (!managerClass) {
@@ -441,6 +510,20 @@ void LBInstallSourceListHooks(void) {
             LBOrig_Config_getUseSourceNames = (NSArray * (*)(id, SEL))method_getImplementation(useMethod);
             method_setImplementation(useMethod, (IMP)LBConfig_getUseSourceNames_IMP);
             NSLog(@"[LegadoBridge] hooked ConfigSourceModelListCon getUseSourceNames");
+        }
+        SEL selectSel = @selector(tableView:didSelectRowAtIndexPath:);
+        Method selectMethod = class_getInstanceMethod(listConClass, selectSel);
+        if (selectMethod) {
+            LBOrig_Config_tableView_didSelect = (void (*)(id, SEL, id, NSIndexPath *))method_getImplementation(selectMethod);
+            method_setImplementation(selectMethod, (IMP)LBConfig_tableView_didSelect_IMP);
+            NSLog(@"[LegadoBridge] hooked ConfigSourceModelListCon tableView:didSelectRowAtIndexPath:");
+        }
+        SEL openSel = @selector(openModel:createNew:);
+        Method openMethod = class_getInstanceMethod(listConClass, openSel);
+        if (openMethod) {
+            LBOrig_Config_openModel = (void (*)(id, SEL, id, BOOL))method_getImplementation(openMethod);
+            method_setImplementation(openMethod, (IMP)LBConfig_openModel_IMP);
+            NSLog(@"[LegadoBridge] hooked ConfigSourceModelListCon openModel:createNew:");
         }
     }
 }
@@ -502,10 +585,16 @@ void LBInstallSearchHooks(void) {
             (void)originalIMP;
 
             IMP hookIMP = imp_implementationWithBlock(^void(id self, NSString *keyword, NSInteger type, BOOL shuping, BOOL quick) {
+                // 仅当 SourceRegistry 已有 Legado 源时拦截；否则走原生 XBS 搜索
                 Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
                 if (coreClass) {
                     id core = [coreClass performSelector:@selector(shared)];
-                    if ([core respondsToSelector:@selector(handleSearchRequestWithKeyword:sourceUrl:)]) {
+                    BOOL hasLegado = NO;
+                    if ([core respondsToSelector:@selector(allLegadoSourceNames)]) {
+                        NSArray *names = [core performSelector:@selector(allLegadoSourceNames)];
+                        hasLegado = names.count > 0;
+                    }
+                    if (hasLegado && [core respondsToSelector:@selector(handleSearchRequestWithKeyword:sourceUrl:)]) {
                         ((void (*)(id, SEL, NSString *, NSString *))objc_msgSend)(
                             core, @selector(handleSearchRequestWithKeyword:sourceUrl:), keyword ?: @"", nil
                         );
