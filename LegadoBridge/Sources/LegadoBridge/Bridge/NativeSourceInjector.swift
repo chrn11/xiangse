@@ -42,7 +42,9 @@ enum NativeSourceInjector {
     }
 
     private static func nativeModel(for source: MemoryBridgeBookSource) -> [String: Any] {
-        // 仅保留列表展示所需字段，不合并 DOM 模板（模板字段不全会导致点击进编辑页崩溃）
+        // 仅保留列表展示所需字段，不合并 DOM 模板（模板字段不全会导致点击进编辑页崩溃）。
+        // 必须始终带 legadoBridge=1：openModel / didSelect 依赖此标记拦截，即使 Registry 尚未恢复也能挡住编辑页。
+        // 本轮不接入 XiangseNativeModelConverter。
         [
             "sourceName": source.bookSourceName,
             "sourceType": legadoSourceType,

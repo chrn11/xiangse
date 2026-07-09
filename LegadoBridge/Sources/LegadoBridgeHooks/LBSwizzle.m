@@ -132,28 +132,91 @@ static BOOL LBAppDelegate_didFinishLaunching_IMP(id self, SEL _cmd, id applicati
     return ret;
 }
 
-// 弹 UIAlertController 让用户粘贴 Legado JSON 的 URL，拉取后注册到 SourceRegistry
+/// Scene 安全取 keyWindow：优先 foreground scene 的 isKeyWindow，再 fallback 可见 window。
+/// iOS 13+ 上 `[UIApplication sharedApplication].keyWindow` 常为 nil，会导致导入弹窗静默失败。
+static UIWindow *LBLegadoKeyWindow(void) {
+    UIWindow *fallback = nil;
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            UISceneActivationState state = scene.activationState;
+            if (state != UISceneActivationStateForegroundActive &&
+                state != UISceneActivationStateForegroundInactive) {
+                continue;
+            }
+            UIWindowScene *windowScene = (UIWindowScene *)scene;
+            for (UIWindow *window in windowScene.windows) {
+                if (window.isHidden || window.alpha <= 0.01 || !window.rootViewController) continue;
+                if (window.isKeyWindow) return window;
+                if (!fallback) fallback = window;
+            }
+        }
+    }
+    if (fallback) return fallback;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    UIWindow *legacyKey = UIApplication.sharedApplication.keyWindow;
+#pragma clang diagnostic pop
+    if (legacyKey.rootViewController) return legacyKey;
+    for (UIWindow *window in UIApplication.sharedApplication.windows) {
+        if (!window.isHidden && window.alpha > 0.01 && window.rootViewController) {
+            return window;
+        }
+    }
+    return nil;
+}
+
+// 弹 UIAlertController：支持 URL 拉取，或粘贴 JSON 正文后走 LBLegadoImportData
 static void LBLegadoShowImportAlert(void) {
-    UIWindow *window = [UIApplication sharedApplication].keyWindow;
+    UIWindow *window = LBLegadoKeyWindow();
     if (!window) return;
     UIViewController *rootVC = window.rootViewController;
     if (!rootVC) return;
 
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Legado 书源导入"
-                                                                   message:@"粘贴 Legado 书源 JSON 的 URL（http/https）"
+                                                                   message:@"可填 URL（http/https），或在第二框粘贴 JSON 正文"
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
         textField.placeholder = @"https://example.com/source.json";
         textField.keyboardType = UIKeyboardTypeURL;
     }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"导入" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        NSString *input = alert.textFields.firstObject.text;
-        if (input.length == 0) return;
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"或粘贴 Legado JSON 正文";
+        textField.keyboardType = UIKeyboardTypeDefault;
+        textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        textField.autocorrectionType = UITextAutocorrectionTypeNo;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"从 URL 导入" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSString *input = alert.textFields.count > 0 ? alert.textFields[0].text : nil;
+        if (input.length == 0) {
+            LBLegadoShowResult(@"请填写书源 JSON 的 URL");
+            return;
+        }
         NSURL *url = [NSURL URLWithString:input];
-        if (!url) return;
+        if (!url || url.scheme.length == 0) {
+            LBLegadoShowResult(@"URL 无效");
+            return;
+        }
         NSData *data = [NSData dataWithContentsOfURL:url];
         if (data.length == 0) {
             LBLegadoShowResult(@"拉取失败：无数据");
+            return;
+        }
+        LBLegadoImportData(data);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"粘贴 JSON 导入" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSString *jsonText = alert.textFields.count > 1 ? alert.textFields[1].text : nil;
+        if (jsonText.length == 0) {
+            // 第二框为空时尝试系统剪贴板，方便真机快速粘贴
+            jsonText = UIPasteboard.generalPasteboard.string;
+        }
+        if (jsonText.length == 0) {
+            LBLegadoShowResult(@"请粘贴 Legado JSON 正文");
+            return;
+        }
+        NSData *data = [jsonText dataUsingEncoding:NSUTF8StringEncoding];
+        if (data.length == 0) {
+            LBLegadoShowResult(@"JSON 正文为空");
             return;
         }
         LBLegadoImportData(data);
@@ -187,7 +250,7 @@ static void LBLegadoImportData(NSData *data) {
 }
 
 static void LBLegadoShowResult(NSString *msg) {
-    UIWindow *window = [UIApplication sharedApplication].keyWindow;
+    UIWindow *window = LBLegadoKeyWindow();
     UIViewController *rootVC = window.rootViewController;
     if (!rootVC) return;
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:nil message:msg preferredStyle:UIAlertControllerStyleAlert];
@@ -382,8 +445,33 @@ static id LBConfig_getGroupData_IMP(id self, SEL _cmd) {
 
 static NSArray * (*LBOrig_Config_getUseSourceNames)(id, SEL) = NULL;
 
+typedef NSArray *(*LBGetUseSourceNamesFn)(id, SEL);
+
+static NSMutableDictionary<NSString *, NSValue *> *LBOrigGetUseSourceNamesMap(void) {
+    static NSMutableDictionary *map;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ map = [NSMutableDictionary dictionary]; });
+    return map;
+}
+
 static NSArray *LBConfig_getUseSourceNames_IMP(id self, SEL _cmd) {
-    NSArray *orig = LBOrig_Config_getUseSourceNames ? LBOrig_Config_getUseSourceNames(self, _cmd) : @[];
+    NSArray *orig = @[];
+    NSString *key = NSStringFromClass(object_getClass(self));
+    NSValue *val = LBOrigGetUseSourceNamesMap()[key];
+    if (!val) {
+        Class cls = object_getClass(self);
+        while (cls && !val) {
+            val = LBOrigGetUseSourceNamesMap()[NSStringFromClass(cls)];
+            cls = class_getSuperclass(cls);
+        }
+    }
+    if (val) {
+        LBGetUseSourceNamesFn fn = (LBGetUseSourceNamesFn)val.pointerValue;
+        if (fn) orig = fn(self, _cmd) ?: @[];
+    } else if (LBOrig_Config_getUseSourceNames) {
+        // 兼容：仅挂到单一类时的旧指针
+        orig = LBOrig_Config_getUseSourceNames(self, _cmd) ?: @[];
+    }
     NSArray *legadoNames = LBLegadoGetSourceNames();
     // 调试：记录 Hook 命中
     NSString *dbg = [NSString stringWithFormat:@"orig=%lu legado=%lu", (unsigned long)orig.count, (unsigned long)legadoNames.count];
@@ -406,50 +494,268 @@ static void LBLegadoShowTapBlockedAlert(UIViewController *vc) {
     [vc presentViewController:alert animated:YES completion:nil];
 }
 
+/// 剥掉 textByIndexPath 可能带的「(相对时间)」后缀，得到纯源名
+static NSString *LBLegadoStripDisplaySuffix(NSString *name) {
+    if (name.length == 0) return name;
+    NSRange r = [name rangeOfString:@"(" options:NSBackwardsSearch];
+    if (r.location != NSNotFound && r.location > 0) {
+        name = [name substringToIndex:r.location];
+    }
+    return [name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+/// 从列表 VC 按 indexPath 解析源名：优先 textByIndexPath，失败则用 getUseSourceNames / getSortedSourceNames
 static NSString *LBLegadoSourceNameAtIndexPath(id self, NSIndexPath *indexPath) {
     SEL textSel = @selector(textByIndexPath:);
     if ([self respondsToSelector:textSel]) {
         id text = ((id (*)(id, SEL, NSIndexPath *))objc_msgSend)(self, textSel, indexPath);
-        if ([text isKindOfClass:[NSString class]]) {
-            NSString *name = (NSString *)text;
-            // textByIndexPath 可能返回 "笔趣阁测试源(57年前)"，剥掉后缀
-            NSRange r = [name rangeOfString:@"(" options:NSBackwardsSearch];
-            if (r.location != NSNotFound) {
-                return [name substringToIndex:r.location];
+        if ([text isKindOfClass:[NSString class]] && [(NSString *)text length] > 0) {
+            return LBLegadoStripDisplaySuffix((NSString *)text);
+        }
+    }
+
+    NSInteger row = indexPath.row;
+    if (row < 0) return nil;
+
+    SEL useSel = @selector(getUseSourceNames);
+    if ([self respondsToSelector:useSel]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        id names = [self performSelector:useSel];
+#pragma clang diagnostic pop
+        if ([names isKindOfClass:[NSArray class]] && (NSUInteger)row < [(NSArray *)names count]) {
+            id item = [(NSArray *)names objectAtIndex:(NSUInteger)row];
+            if ([item isKindOfClass:[NSString class]]) {
+                return LBLegadoStripDisplaySuffix((NSString *)item);
             }
-            return name;
+        }
+    }
+
+    SEL sortedSel = @selector(getSortedSourceNames);
+    if ([self respondsToSelector:sortedSel]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        id names = [self performSelector:sortedSel];
+#pragma clang diagnostic pop
+        if ([names isKindOfClass:[NSArray class]] && (NSUInteger)row < [(NSArray *)names count]) {
+            id item = [(NSArray *)names objectAtIndex:(NSUInteger)row];
+            if ([item isKindOfClass:[NSString class]]) {
+                return LBLegadoStripDisplaySuffix((NSString *)item);
+            }
         }
     }
     return nil;
 }
 
-static void (*LBOrig_Config_tableView_didSelect)(id, SEL, id, NSIndexPath *) = NULL;
-
-static void LBConfig_tableView_didSelect_IMP(id self, SEL _cmd, id tableView, NSIndexPath *indexPath) {
-    NSString *name = LBLegadoSourceNameAtIndexPath(self, indexPath);
-    if (name.length > 0 && LBLegadoIsSourceName(name)) {
-        LBLegadoShowTapBlockedAlert((UIViewController *)self);
-        return;
+/// 查 dicModelList[name][@"legadoBridge"] == @"1"（壳模型持久化标记）
+static BOOL LBLegadoModelMarkedInDicList(id listVC, NSString *name) {
+    if (name.length == 0) return NO;
+    id manager = nil;
+    Class managerClass = NSClassFromString(@"BookSourceModelManager");
+    if (managerClass) {
+        SEL sharedSel = @selector(sharedInstance);
+        if ([managerClass respondsToSelector:sharedSel]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            manager = [managerClass performSelector:sharedSel];
+#pragma clang diagnostic pop
+        }
     }
-    if (LBOrig_Config_tableView_didSelect) {
-        LBOrig_Config_tableView_didSelect(self, _cmd, tableView, indexPath);
+    if (!manager) {
+        // 部分列表 VC 可能持有 manager 属性
+        @try {
+            manager = [listVC valueForKey:@"manager"];
+        } @catch (__unused NSException *e) {
+            manager = nil;
+        }
+    }
+    if (!manager || ![manager respondsToSelector:@selector(dicModelList)]) return NO;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+    id list = [manager performSelector:@selector(dicModelList)];
+#pragma clang diagnostic pop
+    if (![list isKindOfClass:[NSDictionary class]]) return NO;
+    id model = [(NSDictionary *)list objectForKey:name];
+    if ([model isKindOfClass:[NSDictionary class]]) {
+        return [[(NSDictionary *)model objectForKey:@"legadoBridge"] isEqual:@"1"];
+    }
+    if (model) {
+        @try {
+            id marker = [model valueForKey:@"legadoBridge"];
+            return [marker isEqual:@"1"] || [marker isEqual:@1];
+        } @catch (__unused NSException *e) {
+            return NO;
+        }
+    }
+    return NO;
+}
+
+static BOOL LBLegadoShouldBlockSourceName(id listVC, NSString *name) {
+    if (name.length == 0) return NO;
+    if (LBLegadoIsSourceName(name)) return YES;
+    return LBLegadoModelMarkedInDicList(listVC, name);
+}
+
+/// 从任意 model（NSDictionary 或原生对象）用 KVC 读源名 / legadoBridge
+static BOOL LBLegadoShouldBlockModel(id model) {
+    if (!model) return NO;
+    NSString *name = nil;
+    id marker = nil;
+    if ([model isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dict = (NSDictionary *)model;
+        name = dict[@"sourceName"];
+        if (name.length == 0) name = dict[@"title"];
+        marker = dict[@"legadoBridge"];
+    } else {
+        @try {
+            name = [model valueForKey:@"sourceName"];
+        } @catch (__unused NSException *e) {
+            name = nil;
+        }
+        if (![name isKindOfClass:[NSString class]] || name.length == 0) {
+            @try {
+                id title = [model valueForKey:@"title"];
+                name = [title isKindOfClass:[NSString class]] ? title : nil;
+            } @catch (__unused NSException *e) {
+                name = nil;
+            }
+        } else if (![name isKindOfClass:[NSString class]]) {
+            name = nil;
+        }
+        @try {
+            marker = [model valueForKey:@"legadoBridge"];
+        } @catch (__unused NSException *e) {
+            marker = nil;
+        }
+    }
+    if ([marker isEqual:@"1"] || [marker isEqual:@1]) return YES;
+    if ([name isKindOfClass:[NSString class]] && LBLegadoIsSourceName(name)) return YES;
+    return NO;
+}
+
+static void LBLegadoDeselectRow(id tableView, NSIndexPath *indexPath) {
+    if (!tableView || !indexPath) return;
+    if ([tableView respondsToSelector:@selector(deselectRowAtIndexPath:animated:)]) {
+        ((void (*)(id, SEL, NSIndexPath *, BOOL))objc_msgSend)(
+            tableView, @selector(deselectRowAtIndexPath:animated:), indexPath, YES
+        );
     }
 }
 
-static void (*LBOrig_Config_openModel)(id, SEL, id, BOOL) = NULL;
+// 每个被 Hook 的类各自保存原 IMP，避免多类共享同一函数指针互相覆盖
+typedef void (*LBDidSelectFn)(id, SEL, id, NSIndexPath *);
+typedef void (*LBOpenModelFn)(id, SEL, id, BOOL);
 
-static void LBConfig_openModel_IMP(id self, SEL _cmd, id model, BOOL createNew) {
-    if ([model isKindOfClass:[NSDictionary class]]) {
-        NSDictionary *dict = (NSDictionary *)model;
-        NSString *name = dict[@"sourceName"];
-        if (name.length == 0) name = dict[@"title"];
-        if (LBLegadoIsSourceName(name) || [dict[@"legadoBridge"] isEqual:@"1"]) {
-            LBLegadoShowTapBlockedAlert((UIViewController *)self);
-            return;
+static NSMutableDictionary<NSString *, NSValue *> *LBOrigDidSelectMap(void) {
+    static NSMutableDictionary *map;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ map = [NSMutableDictionary dictionary]; });
+    return map;
+}
+
+static NSMutableDictionary<NSString *, NSValue *> *LBOrigOpenModelMap(void) {
+    static NSMutableDictionary *map;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ map = [NSMutableDictionary dictionary]; });
+    return map;
+}
+
+static void LBConfig_tableView_didSelect_IMP(id self, SEL _cmd, id tableView, NSIndexPath *indexPath) {
+    NSString *name = LBLegadoSourceNameAtIndexPath(self, indexPath);
+    if (LBLegadoShouldBlockSourceName(self, name)) {
+        LBLegadoDeselectRow(tableView, indexPath);
+        LBLegadoShowTapBlockedAlert((UIViewController *)self);
+        return;
+    }
+    NSString *key = NSStringFromClass(object_getClass(self));
+    NSValue *val = LBOrigDidSelectMap()[key];
+    // 子类可能继承父类方法：按 isa 找不到时回退遍历已保存的原 IMP（同签名）
+    if (!val) {
+        Class cls = object_getClass(self);
+        while (cls && !val) {
+            val = LBOrigDidSelectMap()[NSStringFromClass(cls)];
+            cls = class_getSuperclass(cls);
         }
     }
-    if (LBOrig_Config_openModel) {
-        LBOrig_Config_openModel(self, _cmd, model, createNew);
+    if (val) {
+        LBDidSelectFn orig = (LBDidSelectFn)val.pointerValue;
+        if (orig) orig(self, _cmd, tableView, indexPath);
+    }
+}
+
+static void LBConfig_openModel_IMP(id self, SEL _cmd, id model, BOOL createNew) {
+    if (LBLegadoShouldBlockModel(model)) {
+        LBLegadoShowTapBlockedAlert((UIViewController *)self);
+        return;
+    }
+    NSString *key = NSStringFromClass(object_getClass(self));
+    NSValue *val = LBOrigOpenModelMap()[key];
+    if (!val) {
+        Class cls = object_getClass(self);
+        while (cls && !val) {
+            val = LBOrigOpenModelMap()[NSStringFromClass(cls)];
+            cls = class_getSuperclass(cls);
+        }
+    }
+    if (val) {
+        LBOpenModelFn orig = (LBOpenModelFn)val.pointerValue;
+        if (orig) orig(self, _cmd, model, createNew);
+    }
+}
+
+/// 返回真正实现该实例方法的类（向上查找 class_copyMethodList），找不到返回 Nil
+static Class LBClassOwningInstanceMethod(Class cls, SEL sel) {
+    while (cls) {
+        unsigned int count = 0;
+        Method *methods = class_copyMethodList(cls, &count);
+        BOOL found = NO;
+        for (unsigned int i = 0; i < count; i++) {
+            if (method_getName(methods[i]) == sel) {
+                found = YES;
+                break;
+            }
+        }
+        if (methods) free(methods);
+        if (found) return cls;
+        cls = class_getSuperclass(cls);
+    }
+    return Nil;
+}
+
+/// 对「实际拥有方法」的类安装 didSelect / openModel；按类名分别保存原 IMP，避免继承链重复挂导致递归
+static void LBInstallDidSelectAndOpenModelOnClass(Class requested) {
+    if (!requested) return;
+
+    SEL selectSel = @selector(tableView:didSelectRowAtIndexPath:);
+    Class selectOwner = LBClassOwningInstanceMethod(requested, selectSel);
+    if (selectOwner) {
+        NSString *classKey = NSStringFromClass(selectOwner);
+        if (!LBOrigDidSelectMap()[classKey]) {
+            Method selectMethod = class_getInstanceMethod(selectOwner, selectSel);
+            if (selectMethod) {
+                IMP prev = method_getImplementation(selectMethod);
+                LBOrigDidSelectMap()[classKey] = [NSValue valueWithPointer:prev];
+                method_setImplementation(selectMethod, (IMP)LBConfig_tableView_didSelect_IMP);
+                NSLog(@"[LegadoBridge] hooked %@ tableView:didSelectRowAtIndexPath: (via %@)",
+                      classKey, NSStringFromClass(requested));
+            }
+        }
+    }
+
+    SEL openSel = @selector(openModel:createNew:);
+    Class openOwner = LBClassOwningInstanceMethod(requested, openSel);
+    if (openOwner) {
+        NSString *classKey = NSStringFromClass(openOwner);
+        if (!LBOrigOpenModelMap()[classKey]) {
+            Method openMethod = class_getInstanceMethod(openOwner, openSel);
+            if (openMethod) {
+                IMP prev = method_getImplementation(openMethod);
+                LBOrigOpenModelMap()[classKey] = [NSValue valueWithPointer:prev];
+                method_setImplementation(openMethod, (IMP)LBConfig_openModel_IMP);
+                NSLog(@"[LegadoBridge] hooked %@ openModel:createNew: (via %@)",
+                      classKey, NSStringFromClass(requested));
+            }
+        }
     }
 }
 
@@ -492,7 +798,6 @@ void LBInstallSourceListHooks(void) {
         NSLog(@"[LegadoBridge] hooked BookSourceModelManager sourceTypeTitleBySourceName:");
     }
 
-    Class listConClass = NSClassFromString(@"ConfigSourceModelListCon");
     Class listBaseClass = NSClassFromString(@"ConfigSourceListBase");
     if (listBaseClass) {
         SEL groupSel = @selector(getGroupData);
@@ -503,29 +808,52 @@ void LBInstallSourceListHooks(void) {
             NSLog(@"[LegadoBridge] hooked ConfigSourceListBase getGroupData");
         }
     }
-    if (listConClass) {
-        SEL useSel = @selector(getUseSourceNames);
-        Method useMethod = class_getInstanceMethod(listConClass, useSel);
-        if (useMethod) {
-            LBOrig_Config_getUseSourceNames = (NSArray * (*)(id, SEL))method_getImplementation(useMethod);
-            method_setImplementation(useMethod, (IMP)LBConfig_getUseSourceNames_IMP);
-            NSLog(@"[LegadoBridge] hooked ConfigSourceModelListCon getUseSourceNames");
+
+    // getUseSourceNames：挂到实际拥有该方法的类（按类分别保存原 IMP）
+    NSArray<NSString *> *useNameClasses = @[
+        @"ConfigSourceModelListCon",
+        @"ConfigSourceModelListCon_NoneSourceModel",
+        @"ConfigSourceListBase",
+        @"ConfigSourceModelConBase"
+    ];
+    for (NSString *cn in useNameClasses) {
+        Class requested = NSClassFromString(cn);
+        if (!requested) continue;
+        Class owner = LBClassOwningInstanceMethod(requested, @selector(getUseSourceNames));
+        if (!owner) continue;
+        NSString *ownerKey = NSStringFromClass(owner);
+        if (LBOrigGetUseSourceNamesMap()[ownerKey]) continue;
+        Method useMethod = class_getInstanceMethod(owner, @selector(getUseSourceNames));
+        if (!useMethod) continue;
+        IMP prev = method_getImplementation(useMethod);
+        LBOrigGetUseSourceNamesMap()[ownerKey] = [NSValue valueWithPointer:prev];
+        if (!LBOrig_Config_getUseSourceNames) {
+            LBOrig_Config_getUseSourceNames = (NSArray * (*)(id, SEL))prev;
         }
-        SEL selectSel = @selector(tableView:didSelectRowAtIndexPath:);
-        Method selectMethod = class_getInstanceMethod(listConClass, selectSel);
-        if (selectMethod) {
-            LBOrig_Config_tableView_didSelect = (void (*)(id, SEL, id, NSIndexPath *))method_getImplementation(selectMethod);
-            method_setImplementation(selectMethod, (IMP)LBConfig_tableView_didSelect_IMP);
-            NSLog(@"[LegadoBridge] hooked ConfigSourceModelListCon tableView:didSelectRowAtIndexPath:");
-        }
-        SEL openSel = @selector(openModel:createNew:);
-        Method openMethod = class_getInstanceMethod(listConClass, openSel);
-        if (openMethod) {
-            LBOrig_Config_openModel = (void (*)(id, SEL, id, BOOL))method_getImplementation(openMethod);
-            method_setImplementation(openMethod, (IMP)LBConfig_openModel_IMP);
-            NSLog(@"[LegadoBridge] hooked ConfigSourceModelListCon openModel:createNew:");
-        }
+        method_setImplementation(useMethod, (IMP)LBConfig_getUseSourceNames_IMP);
+        NSLog(@"[LegadoBridge] hooked %@ getUseSourceNames (via %@)", ownerKey, cn);
     }
+
+    // didSelect / openModel：多类安装，覆盖逆向确认的列表实现类
+    NSArray<NSString *> *tapHookClasses = @[
+        @"ConfigSourceModelListCon",
+        @"ConfigSourceModelListCon_NoneSourceModel",
+        @"ConfigSourceListBase",
+        @"ConfigSourceModelConBase"
+    ];
+    NSMutableArray *hooked = [NSMutableArray array];
+    for (NSString *cn in tapHookClasses) {
+        Class c = NSClassFromString(cn);
+        if (!c) {
+            NSLog(@"[LegadoBridge] class %@ not found, skip tap hooks", cn);
+            continue;
+        }
+        LBInstallDidSelectAndOpenModelOnClass(c);
+        [hooked addObject:cn];
+    }
+    NSString *marker = [NSString stringWithFormat:@"tapHooks=%@", [hooked componentsJoinedByString:@","]];
+    [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_tap_hooks.txt"]
+             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 }
 
 #pragma mark - Search / Catalog / Content Hooks
