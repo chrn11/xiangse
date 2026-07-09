@@ -593,7 +593,7 @@ static NSDictionary *LBLegadoNativeModel(NSString *name) {
 }
 
 static NSArray * (*LBOrig_BSM_getSortedSourceNames)(id, SEL) = NULL;
-static NSArray * (*LBOrig_BSM_getSortedSourceNamesByPriority)(id, SEL, NSInteger) = NULL;
+static NSArray * (*LBOrig_BSM_getSortedSourceNamesByPriority)(id, SEL, id) = NULL;
 static NSDictionary * (*LBOrig_BSM_dicModelList)(id, SEL) = NULL;
 static NSString * (*LBOrig_BSM_sourceTypeBySourceName)(id, SEL, NSString *) = NULL;
 static NSString * (*LBOrig_BSM_sourceTypeTitleBySourceName)(id, SEL, NSString *) = NULL;
@@ -613,14 +613,18 @@ static NSArray *LBBSM_getSortedSourceNames_IMP(id self, SEL _cmd) {
     return LBMergeLegadoNames(orig);
 }
 
-/// 搜索页「文本/小说」等筛选走此方法；未 Hook 时原生按 typeTitle/分组筛掉 Legado DOM 源 →「无可用站点 / 或修改筛选类型」
-static NSArray *LBBSM_getSortedSourceNamesByPriority_IMP(id self, SEL _cmd, NSInteger priorityType) {
+/// 搜索页「文本/小说」等筛选走此方法；编码 @24@0:8@16（参数为对象，常为 NSString 类型名）
+static NSArray *LBBSM_getSortedSourceNamesByPriority_IMP(id self, SEL _cmd, id priorityType) {
     NSArray *orig = LBOrig_BSM_getSortedSourceNamesByPriority
         ? LBOrig_BSM_getSortedSourceNamesByPriority(self, _cmd, priorityType)
         : @[];
     NSArray *merged = LBMergeLegadoNames(orig);
-    NSString *dbg = [NSString stringWithFormat:@"pri=%ld orig=%lu legadoMerged=%lu",
-                     (long)priorityType,
+    NSString *priDesc = @"nil";
+    if ([priorityType isKindOfClass:[NSString class]]) priDesc = (NSString *)priorityType;
+    else if ([priorityType isKindOfClass:[NSNumber class]]) priDesc = [(NSNumber *)priorityType stringValue];
+    else if (priorityType) priDesc = NSStringFromClass([priorityType class]);
+    NSString *dbg = [NSString stringWithFormat:@"pri=%@ orig=%lu legadoMerged=%lu",
+                     priDesc,
                      (unsigned long)(orig.count),
                      (unsigned long)merged.count];
     [dbg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_sorted_by_pri.txt"]
@@ -1026,7 +1030,7 @@ void LBInstallSourceListHooks(void) {
     Method sortedPriMethod = class_getInstanceMethod(managerClass, sortedPriSel);
     if (sortedPriMethod) {
         LBOrig_BSM_getSortedSourceNamesByPriority =
-            (NSArray * (*)(id, SEL, NSInteger))method_getImplementation(sortedPriMethod);
+            (NSArray * (*)(id, SEL, id))method_getImplementation(sortedPriMethod);
         method_setImplementation(sortedPriMethod, (IMP)LBBSM_getSortedSourceNamesByPriority_IMP);
         NSLog(@"[LegadoBridge] hooked BookSourceModelManager getSortedSourceNamesByPrioritySourceType:");
     }
@@ -1160,21 +1164,26 @@ void LBInstallSearchHooks(void) {
     }
 
     if (managerClass) {
-        // canSearch:fromShuping: — 编码 B24@0:8B16B20（两参数均为 BOOL，非 NSInteger）；
-        // UI 据此弹「无可用站点」。有 Legado 源时强制 YES。
+        // canSearch:fromShuping: — 真机 dump 编码 B28@0:8@16B24（首参为对象，次参 BOOL）；
+        // 旧版误写成双 BOOL（B24@0:8B16B20）导致 Hook 未真正生效，UI 仍弹「无可用站点」。
         SEL canSel = NSSelectorFromString(@"canSearch:fromShuping:");
         Method canMethod = class_getInstanceMethod(managerClass, canSel);
         if (canMethod) {
             IMP canOrigIMP = method_getImplementation(canMethod);
-            IMP canHookIMP = imp_implementationWithBlock(^BOOL(id self, BOOL typeOrFlag, BOOL shuping) {
+            const char *canTypes = method_getTypeEncoding(canMethod) ?: "B28@0:8@16B24";
+            IMP canHookIMP = imp_implementationWithBlock(^BOOL(id self, id typeOrFlag, BOOL shuping) {
                 id core = LBLegadoCoreIfReady();
                 if ([core respondsToSelector:@selector(allLegadoSourceNames)]) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
                     NSArray *names = [core performSelector:@selector(allLegadoSourceNames)];
 #pragma clang diagnostic pop
-                    NSString *dbg = [NSString stringWithFormat:@"canSearch names=%lu flag=%d shuping=%d",
-                                     (unsigned long)names.count, (int)typeOrFlag, (int)shuping];
+                    NSString *typeDesc = @"nil";
+                    if ([typeOrFlag isKindOfClass:[NSString class]]) typeDesc = (NSString *)typeOrFlag;
+                    else if ([typeOrFlag isKindOfClass:[NSNumber class]]) typeDesc = [(NSNumber *)typeOrFlag stringValue];
+                    else if (typeOrFlag) typeDesc = NSStringFromClass([typeOrFlag class]);
+                    NSString *dbg = [NSString stringWithFormat:@"canSearch names=%lu type=%@ shuping=%d enc=%s",
+                                     (unsigned long)names.count, typeDesc, (int)shuping, canTypes];
                     [dbg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_cansearch.txt"]
                           atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                     if (names.count > 0) {
@@ -1184,22 +1193,26 @@ void LBInstallSearchHooks(void) {
                     [@"canSearch core=nil" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_cansearch.txt"]
                                             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 }
-                return ((BOOL (*)(id, SEL, BOOL, BOOL))canOrigIMP)(self, canSel, typeOrFlag, shuping);
+                return ((BOOL (*)(id, SEL, id, BOOL))canOrigIMP)(self, canSel, typeOrFlag, shuping);
             });
             method_setImplementation(canMethod, canHookIMP);
-            NSLog(@"[LegadoBridge] hooked canSearch:fromShuping: on %@", NSStringFromClass(managerClass));
+            NSLog(@"[LegadoBridge] hooked canSearch:fromShuping: on %@ types=%s", NSStringFromClass(managerClass), canTypes);
         }
 
-        // 筛选「文本/小说」时 UI 调此方法；与 ModelManager 同名方法一并挂上
+        // 筛选「文本/小说」时 UI 调此方法；编码 @24@0:8@16（参数为对象）
         SEL sortedPriSel = @selector(getSortedSourceNamesByPrioritySourceType:);
         Method sortedPriMethod = class_getInstanceMethod(managerClass, sortedPriSel);
         if (sortedPriMethod) {
             IMP priOrig = method_getImplementation(sortedPriMethod);
-            IMP priHook = imp_implementationWithBlock(^NSArray *(id self, NSInteger priorityType) {
-                NSArray *orig = ((NSArray * (*)(id, SEL, NSInteger))priOrig)(self, sortedPriSel, priorityType);
+            IMP priHook = imp_implementationWithBlock(^NSArray *(id self, id priorityType) {
+                NSArray *orig = ((NSArray * (*)(id, SEL, id))priOrig)(self, sortedPriSel, priorityType) ?: @[];
                 NSArray *merged = LBMergeLegadoNames(orig);
-                NSString *dbg = [NSString stringWithFormat:@"mgrPri=%ld orig=%lu merged=%lu cls=%@",
-                                 (long)priorityType,
+                NSString *priDesc = @"nil";
+                if ([priorityType isKindOfClass:[NSString class]]) priDesc = (NSString *)priorityType;
+                else if ([priorityType isKindOfClass:[NSNumber class]]) priDesc = [(NSNumber *)priorityType stringValue];
+                else if (priorityType) priDesc = NSStringFromClass([priorityType class]);
+                NSString *dbg = [NSString stringWithFormat:@"mgrPri=%@ orig=%lu merged=%lu cls=%@",
+                                 priDesc,
                                  (unsigned long)orig.count,
                                  (unsigned long)merged.count,
                                  NSStringFromClass([self class])];
