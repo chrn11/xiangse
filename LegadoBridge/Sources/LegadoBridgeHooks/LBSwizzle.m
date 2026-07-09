@@ -1228,9 +1228,8 @@ void LBInstallSearchHooks(void) {
         Method searchMethod = class_getInstanceMethod(managerClass, searchSel);
         if (searchMethod) {
             IMP originalIMP = method_getImplementation(searchMethod);
-            (void)originalIMP;
-
-            IMP hookIMP = imp_implementationWithBlock(^void(id self, NSString *keyword, NSInteger type, BOOL shuping, BOOL quick) {
+            // 真机 dump：B40@0:8@16@24B32B36（返回 BOOL；prioritySourceType 为对象）
+            IMP hookIMP = imp_implementationWithBlock(^BOOL(id self, NSString *keyword, id type, BOOL shuping, BOOL quick) {
                 // 仅当 SourceRegistry 已有 Legado 源时拦截；否则走原生 XBS 搜索
                 id core = LBLegadoCoreIfReady();
                 BOOL hasLegado = NO;
@@ -1247,9 +1246,9 @@ void LBInstallSearchHooks(void) {
                     ((void (*)(id, SEL, NSString *, NSString *))objc_msgSend)(
                         core, @selector(handleSearchRequestWithKeyword:sourceUrl:), keyword ?: @"", nil
                     );
-                    return;
+                    return YES;
                 }
-                ((void (*)(id, SEL, NSString *, NSInteger, BOOL, BOOL))originalIMP)(
+                return ((BOOL (*)(id, SEL, NSString *, id, BOOL, BOOL))originalIMP)(
                     self, searchSel, keyword, type, shuping, quick
                 );
             });
