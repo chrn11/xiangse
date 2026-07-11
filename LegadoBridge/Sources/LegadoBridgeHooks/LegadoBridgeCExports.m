@@ -1191,6 +1191,7 @@ static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString 
             return YES;
         } @catch (NSException *e) {
             NSLog(@"[LegadoBridge] openReader on %@ fail-open: %@", cn, e);
+            [tried addObject:[NSString stringWithFormat:@"%@/ex:%@", cn, e.reason ?: @""]];
         }
     }
     if (outMsg) {
@@ -1276,8 +1277,33 @@ static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, N
         if (nav) break;
     }
     if (!nav) {
-        if (outMsg) *outMsg = @"pushReader miss: no nav";
-        return NO;
+        // CatalogCon 常以 present 盖住；退而 present TextReadVC
+        UIViewController *host = nil;
+        for (UIWindow *w in LBAllAppWindows()) {
+            UIViewController *root = w.rootViewController;
+            if (!root) continue;
+            host = root;
+            while (host.presentedViewController) host = host.presentedViewController;
+            if (host) break;
+        }
+        if (!host) {
+            if (outMsg) *outMsg = @"pushReader miss: no nav/host";
+            return NO;
+        }
+        @try {
+            UINavigationController *wrap =
+                [[UINavigationController alloc] initWithRootViewController:(UIViewController *)vc];
+            wrap.modalPresentationStyle = UIModalPresentationFullScreen;
+            [host presentViewController:wrap animated:YES completion:nil];
+            if (outMsg) {
+                *outMsg = [NSString stringWithFormat:@"presentReader ok %@ on %@",
+                           NSStringFromClass(cls), NSStringFromClass([host class])];
+            }
+            return YES;
+        } @catch (NSException *e) {
+            if (outMsg) *outMsg = [NSString stringWithFormat:@"presentReader fail: %@", e.reason ?: @""];
+            return NO;
+        }
     }
     @try {
         [nav pushViewController:(UIViewController *)vc animated:YES];
