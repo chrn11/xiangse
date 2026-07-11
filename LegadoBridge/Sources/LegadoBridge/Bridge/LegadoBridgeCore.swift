@@ -778,7 +778,7 @@ import LegadoBridgeHooks
                 )
                 postNotification(XiangseAdapter.notifyResetContent, userInfo: payload)
                 // 阅读页可能尚未注册监听：缓存并由 ReadVC appear / delay 再投
-                LBNoteResetContentPosted(payload as NSDictionary)
+                LBNoteResetContentPosted(payload)
             } catch {
                 let errPayload: [String: Any] = [
                     "error": error.localizedDescription,
@@ -789,7 +789,7 @@ import LegadoBridgeHooks
                     XiangseAdapter.notifyResetContent,
                     userInfo: errPayload
                 )
-                LBNoteResetContentPosted(errPayload as NSDictionary)
+                LBNoteResetContentPosted(errPayload)
             }
         }
     }

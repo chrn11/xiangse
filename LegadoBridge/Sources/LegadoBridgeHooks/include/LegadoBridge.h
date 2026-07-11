@@ -22,7 +22,7 @@ FOUNDATION_EXPORT void LBInstallCatalogUIAppearFlush(void);
 FOUNDATION_EXPORT void LBHandleCatalogRequest(NSString *bookUrl, NSString *sourceUrl);
 FOUNDATION_EXPORT void LBHandleContentRequest(NSString *chapterUrl, NSString *bookUrl, NSString *sourceUrl);
 /// 正文通知已发出：缓存载荷，阅读页 viewDidAppear 时再投一次（避免 ReadVC 尚未监听）
-FOUNDATION_EXPORT void LBNoteResetContentPosted(NSDictionary *userInfo);
+FOUNDATION_EXPORT void LBNoteResetContentPosted(NSDictionary * _Nullable userInfo);
 /// 安装 TextRead/ReadVC appear 冲刷 pending 正文
 FOUNDATION_EXPORT void LBInstallReaderContentAppearFlush(void);
 
