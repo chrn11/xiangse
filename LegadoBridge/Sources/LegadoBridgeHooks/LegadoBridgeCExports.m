@@ -993,12 +993,7 @@ static void LBScheduleCatalogReapply(NSArray *chapters, NSString *bookUrl) {
 }
 
 static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInteger section) {
-    NSInteger orig = 0;
-    if (sOrigCatalogNumberOfRows) {
-        orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))sOrigCatalogNumberOfRows)(self, _cmd, tv, section);
-    }
-    if (orig > 0) return orig;
-    // dataSource 可能是代理对象：仍允许 self 上的 legado 数组兜底
+    // legado 兜底优先：避免原生 orig>0 的脏行盖过我们的 2 章
     for (NSString *key in @[@"arrCatalog", @"arrBaseData", @"arrCpInfo"]) {
         @try {
             id cur = [self valueForKey:key];
@@ -1015,6 +1010,10 @@ static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv,
                 return (NSInteger)[cur count];
             } @catch (__unused NSException *e) {}
         }
+    }
+    NSInteger orig = 0;
+    if (sOrigCatalogNumberOfRows) {
+        orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))sOrigCatalogNumberOfRows)(self, _cmd, tv, section);
     }
     return orig;
 }
@@ -1117,6 +1116,40 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                                      chUrl, bookUrl, (long)ip.row];
                     [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_select.txt"]
                           atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                    // 尝试拉起原生阅读器（通知 alone 不 push ReadVC）
+                    for (UIViewController *vc in LBFindCatalogVCs()) {
+                        NSString *cn = NSStringFromClass([vc class]);
+                        if (![cn containsString:@"BookDetail"]) continue;
+                        SEL openSel = NSSelectorFromString(@"openReader:sourceName:record:");
+                        if (![vc respondsToSelector:openSel]) continue;
+                        NSMutableDictionary *book = [NSMutableDictionary dictionary];
+                        if ([item isKindOfClass:[NSDictionary class]]) {
+                            [book addEntriesFromDictionary:(NSDictionary *)item];
+                        }
+                        book[@"bookUrl"] = bookUrl;
+                        book[@"url"] = bookUrl;
+                        book[@"chapterUrl"] = chUrl;
+                        book[@"cpUrl"] = chUrl;
+                        book[@"cpIndex"] = @(ip.row);
+                        NSString *sourceName = nil;
+                        @try {
+                            id sn = [vc valueForKeyPath:@"dicBook.sourceName"];
+                            if ([sn isKindOfClass:[NSString class]]) sourceName = sn;
+                        } @catch (__unused NSException *e) {}
+                        if (sourceName.length == 0) sourceName = book[@"sourceName"] ?: @"";
+                        @try {
+                            ((void (*)(id, SEL, id, id, id))objc_msgSend)(
+                                vc, openSel, book, sourceName, nil
+                            );
+                            NSString *orm = [NSString stringWithFormat:@"openReader on %@ src=%@",
+                                             cn, sourceName ?: @""];
+                            [orm writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+                                  atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                        } @catch (NSException *e) {
+                            NSLog(@"[LegadoBridge] openReader fail-open: %@", e);
+                        }
+                        break;
+                    }
                 }
             }
             if (LBOrig_catalogDidSelect) {
