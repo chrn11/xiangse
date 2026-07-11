@@ -102,6 +102,8 @@ sequenceDiagram
 | `searchBook` | 兼容键；**必须是字典**。传 `NSArray` 会导致 `objectForKey:` 静默失败 → 引擎有结果但列表空 |
 | `arrSearchItems` / `arrSearchBook` | 数组形式备份 |
 
+**真机闭环缺口（已修）**：`onSearchBookSourceResponse:` 不在 `BookSearchController`（而在详情/书源切换等类）。搜索列表行数读的是基类 `arrBaseData`；若 `tableView.dataSource` 为断裂的 `_UIFilteredDataSource`（内部 dataSource=nil），则永远 0 行。因此引擎 `ok` + 仅靠通知不够：须调用 `LBApplySearchResultsToUI` 写入 `arrBaseData`/`dicSearchItems`/`dicAllBookList` 并 `reloadData`。`sourceType` 须对齐原生 `filterSourceType`（默认 `text`）。
+
 `SearchBook` 字段映射：
 
 | Legado | 香色闺阁键 |

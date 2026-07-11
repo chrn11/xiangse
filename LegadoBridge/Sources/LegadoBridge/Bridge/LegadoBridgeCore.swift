@@ -1,5 +1,6 @@
 import Foundation
 import LegadoRuleCore
+import LegadoBridgeHooks
 
 /// LegadoBridge 对外门面 — Swift 与 ObjC Hook 层统一入口
 @objc public final class LegadoBridgeCore: NSObject {
@@ -482,6 +483,7 @@ import LegadoRuleCore
                         )
                         payload["fromExplore"] = true
                         postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
+                        LBApplySearchResultsToUI([book], "explore")
                     }
                     if results.isEmpty {
                         var empty = XiangseAdapter.searchResultsPayload(
@@ -623,6 +625,8 @@ import LegadoRuleCore
                                 sourceName: r.sourceName.isEmpty ? sourceName : r.sourceName
                             )
                             self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
+                            // 直接灌入 arrBaseData：通知 handler 不在搜索页，仅靠通知 UI 永远空
+                            LBApplySearchResultsToUI([book], keyword)
                         }
                         if results.isEmpty {
                             let payload = XiangseAdapter.searchResultsPayload(

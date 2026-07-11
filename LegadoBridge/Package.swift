@@ -20,7 +20,8 @@ let package = Package(
             path: "Sources/LegadoBridgeHooks",
             publicHeadersPath: "include",
             linkerSettings: [
-                .linkedFramework("Foundation")
+                .linkedFramework("Foundation"),
+                .linkedFramework("UIKit")
             ]
         ),
         // 独立规则引擎：规则 / 网络 / Cookie / 变量 / JS API

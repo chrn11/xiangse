@@ -141,7 +141,8 @@ enum XiangseAdapter {
             "sourceUrl": r.sourceUrl,
             "sourceName": r.sourceName,
             "bookSourceName": r.sourceName,
-            "sourceType": "DOM",
+            // 原生搜索页 filterSourceType 默认 text；填 DOM 会被筛成空列表
+            "sourceType": "text",
             legadoMarkerKey: legadoMarkerValue,
             bridgeTokenKey: token,
             sourceAvailableKey: (binding?.sourceAvailable ?? true) ? "1" : "0",
@@ -172,7 +173,7 @@ enum XiangseAdapter {
             "sourceUrl": binding.sourceUrl,
             "sourceName": binding.sourceName,
             "bookSourceName": binding.sourceName,
-            "sourceType": "DOM",
+            "sourceType": "text",
             legadoMarkerKey: legadoMarkerValue,
             bridgeTokenKey: binding.bridgeToken,
             sourceAvailableKey: binding.sourceAvailable ? "1" : "0",

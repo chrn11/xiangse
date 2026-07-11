@@ -168,6 +168,7 @@ final class BookBindingStoreTests: XCTestCase {
         )
         XCTAssertTrue(batch["queryBook"] is [String: Any], "单本批量载荷的 queryBook 须为字典")
         XCTAssertTrue(batch["searchBook"] is [String: Any], "单本时 searchBook 须为字典而非数组")
+        XCTAssertEqual(book["sourceType"] as? String, "text", "须对齐原生 filterSourceType=text")
     }
 
     // MARK: - fixtures
