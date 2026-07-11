@@ -1005,9 +1005,10 @@ static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv,
         } @catch (__unused NSException *e) {}
     }
     if (tv && tv.dataSource && tv.dataSource != self) {
+        id dsObj = (id)tv.dataSource;
         for (NSString *key in @[@"arrCatalog", @"arrBaseData", @"arrCpInfo"]) {
             @try {
-                id cur = [tv.dataSource valueForKey:key];
+                id cur = [dsObj valueForKey:key];
                 if (!LBArrayLooksLegado(cur)) continue;
                 return (NSInteger)[cur count];
             } @catch (__unused NSException *e) {}
