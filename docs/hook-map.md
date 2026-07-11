@@ -135,7 +135,7 @@ sequenceDiagram
 |------|------|------|
 | 通知 | `dNotifyName_QueryCatalogResponse` | 注入 `chapterList`/`arrCatalog` |
 | 方法 | `setDicBook:` / `loadCatalog:ignoringCache:` | 请求侧；双 BOOL 编码勿 retain |
-| 灌入 | `LBApplyCatalogToUI` | 写可见页 `arrCatalog` 并 reload（对齐搜索） |
+| 灌入 | `LBApplyCatalogToUI` | 写 `arrCatalog`/`arrBaseData`/`arrCpInfo`（含 `cpTitle`），CatalogCon appear pending 冲刷 |
 | 引擎 | `getBookInfo` → `getChapterList` | 先解析 `tocUrl`，避免详情页无 `#list` 时空目录 |
 | 方法 | `loadMoreChapter` | 分页目录（Phase 5） |
 | 类 | `CatalogByBook` | 目录数据模型参考 |
@@ -144,10 +144,13 @@ sequenceDiagram
 
 ```objc
 @[
-  @{@"title": @"第一章", @"url": @"...", @"index": @0},
+  @{@"cpTitle": @"第一章", @"cpUrl": @"...", @"cpIndex": @0,
+    @"title": @"第一章", @"url": @"...", @"index": @0},
   ...
 ]
 ```
+
+详情页引擎先返回时 CatalogCon 尚未 push：结果进 pending，`CatalogCon viewDidAppear` / `setArrCatalog:` 空回写守卫后再灌。
 
 ## Hook #4 — 正文
 

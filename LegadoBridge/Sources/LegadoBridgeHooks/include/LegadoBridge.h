@@ -17,6 +17,8 @@ FOUNDATION_EXPORT void LBApplySearchResultsToUI(NSArray *books, NSString * _Null
 FOUNDATION_EXPORT void LBApplyCatalogToUI(NSArray *chapters, NSString * _Nullable bookUrl);
 /// 安装搜索页 viewDidAppear 冲刷 pending（LBInstallSearchHooks 内也会调用）
 FOUNDATION_EXPORT void LBInstallSearchUIAppearFlush(void);
+/// 安装目录页 viewDidAppear 冲刷 pending（详情时引擎先返回，CatalogCon 后出现）
+FOUNDATION_EXPORT void LBInstallCatalogUIAppearFlush(void);
 FOUNDATION_EXPORT void LBHandleCatalogRequest(NSString *bookUrl, NSString *sourceUrl);
 FOUNDATION_EXPORT void LBHandleContentRequest(NSString *chapterUrl, NSString *bookUrl, NSString *sourceUrl);
 

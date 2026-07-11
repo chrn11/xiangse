@@ -697,8 +697,12 @@ import LegadoBridgeHooks
                 }
                 let chapters = try await BridgeWebBook.getChapterList(source: source, book: book)
                 bookCache[bookUrl] = book
+                let tocOneLine = book.tocUrl
+                    .components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
+                    .joined()
                 writeCatalogMarker(
-                    "ok book=\(bookUrl) toc=\(book.tocUrl) chapters=\(chapters.count) first=\(chapters.first?.title ?? "")"
+                    "ok book=\(bookUrl) toc=\(tocOneLine) chapters=\(chapters.count) first=\(chapters.first?.title ?? "")"
                 )
                 let payload = XiangseAdapter.catalogPayload(
                     chapters: chapters,

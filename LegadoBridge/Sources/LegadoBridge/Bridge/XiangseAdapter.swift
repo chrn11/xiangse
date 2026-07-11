@@ -199,14 +199,20 @@ enum XiangseAdapter {
     }
 
     static func chapterDict(_ c: BridgeChapter) -> [String: Any] {
+        // 香色原生目录/阅读大量读 cpTitle/cpUrl/cpIndex（非 title）
         [
             "title": c.title,
             "name": c.title,
             "chapterName": c.title,
+            "cpTitle": c.title,
             "url": c.url,
             "chapterUrl": c.url,
+            "cpUrl": c.url,
             "index": c.index,
-            "chapterIndex": c.index
+            "chapterIndex": c.index,
+            "cpIndex": c.index,
+            legadoMarkerKey: legadoMarkerValue,
+            "fromLegadoBridge": true
         ]
     }
 

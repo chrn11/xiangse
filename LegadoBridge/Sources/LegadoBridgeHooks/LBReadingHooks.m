@@ -323,6 +323,10 @@ void LBInstallReadingHooks(void) {
             LBReadingDiagLog([NSString stringWithFormat:@"addBook skip: %@", reason]);
         }
 
+        // 目录 UI：详情页引擎先返回，CatalogCon 后 push → 对齐搜索的 appear pending 冲刷
+        LBInstallCatalogUIAppearFlush();
+        [installed addObject:@"catalogUIAppearFlush"];
+
         if (installed.count == 0) {
             LBCapabilityMarkSkipped(LBHookGroupReading, @"no production reading anchors");
         } else {
