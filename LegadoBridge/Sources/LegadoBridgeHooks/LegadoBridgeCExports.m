@@ -94,6 +94,7 @@ static BOOL sSearchUIAppearHooked;
 static IMP sOrigNumberOfRows;
 static IMP sOrigCellForRow;
 static NSHashTable *sKnownSearchVCs; // weak
+static __strong UIViewController *sCurrentSearchVC; // 短时强引用，防 weak 过早清空
 
 static void LBSetSearchKeywordOnVC(UIViewController *vc, NSString *keyword);
 
@@ -190,14 +191,16 @@ static NSArray *LBFindBookSearchVCs(void) {
     for (UIWindow *win in LBAllAppWindows()) {
         LBCollectBookSearchVCs(win.rootViewController, vcs);
     }
-    // 窗口遍历偶发漏掉已显示的搜索页：合并 viewDidAppear 缓存的弱引用
+    // 窗口遍历偶发漏掉已显示的搜索页：合并 viewDidAppear 缓存
+    if (sCurrentSearchVC && ![vcs containsObject:sCurrentSearchVC]) {
+        [vcs addObject:sCurrentSearchVC];
+    }
     if (sKnownSearchVCs.count > 0) {
         for (UIViewController *vc in sKnownSearchVCs) {
             if (vc && ![vcs containsObject:vc]) [vcs addObject:vc];
         }
     }
     if (vcs.count == 0) {
-        // 最后兜底：从 keyWindow 再扫一次
         UIWindow *key = LBLegadoKeyWindow();
         if (key.rootViewController) {
             LBCollectBookSearchVCs(key.rootViewController, vcs);
