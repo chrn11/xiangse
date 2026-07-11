@@ -91,7 +91,7 @@ if command -v insert_dylib &>/dev/null && [[ -f "$FRAMEWORKS/LegadoBridge" || -f
   INSERT_DYLIB="$(command -v insert_dylib)"
   BACKUP="$BIN.backup"
   cp "$BIN" "$BACKUP"
-  if "$INSERT_DYLIB" --strip-codesig --exists "@executable_path/Frameworks/LegadoBridge" "$BIN"; then
+  if "$INSERT_DYLIB" --inplace --all-yes --strip-codesig "@executable_path/Frameworks/LegadoBridge" "$BIN"; then
     INSERT_OK=1
     echo "==> insert_dylib 完成"
   else
