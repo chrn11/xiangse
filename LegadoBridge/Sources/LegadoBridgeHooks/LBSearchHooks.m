@@ -143,6 +143,41 @@ void LBInstallSearchHooks(void) {
         } else {
             LBCapabilityMarkEnabled(LBHookGroupSearch, [installed componentsJoinedByString:@","]);
         }
+
+        // 沙盒旁路：Documents/legado_search_request.json → {"keyword":"...","sourceUrl":null}
+        // 供 MCP write_file 在无法唤起软键盘 / dumpagent stale 时触发搜索
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                NSString *reqPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_request.json"];
+                NSString *ackPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_request_ack.txt"];
+                while (YES) {
+                    @autoreleasepool {
+                        NSData *data = [NSData dataWithContentsOfFile:reqPath];
+                        if (data.length > 0) {
+                            NSDictionary *obj = nil;
+                            id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+                            if ([json isKindOfClass:[NSDictionary class]]) obj = json;
+                            NSString *keyword = [obj[@"keyword"] isKindOfClass:[NSString class]] ? obj[@"keyword"] : nil;
+                            if (keyword.length == 0 && [obj[@"key"] isKindOfClass:[NSString class]]) {
+                                keyword = obj[@"key"];
+                            }
+                            NSString *sourceUrl = [obj[@"sourceUrl"] isKindOfClass:[NSString class]] ? obj[@"sourceUrl"] : nil;
+                            if (keyword.length > 0) {
+                                [[NSFileManager defaultManager] removeItemAtPath:reqPath error:NULL];
+                                [[NSString stringWithFormat:@"ack key=%@ src=%@", keyword, sourceUrl ?: @"all"]
+                                    writeToFile:ackPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                                LBHandleSearchRequest(keyword, sourceUrl.length > 0 ? sourceUrl : nil);
+                            } else {
+                                [[NSFileManager defaultManager] removeItemAtPath:reqPath error:NULL];
+                                [@"err missing keyword" writeToFile:ackPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                            }
+                        }
+                        [NSThread sleepForTimeInterval:1.0];
+                    }
+                }
+            });
+        });
     } @catch (NSException *e) {
         LBCapabilityMarkFailed(LBHookGroupSearch, e.reason ?: @"exception");
         NSLog(@"[LegadoBridge] search hooks exception: %@", e);

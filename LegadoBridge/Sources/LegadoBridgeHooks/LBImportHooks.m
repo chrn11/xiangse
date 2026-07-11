@@ -330,10 +330,31 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
     [url.absoluteString writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_openurl_hit.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
 
     // legado://import/bookSource?src=<url> 或 yuedu://booksource/importonline?src=<url>
+    // legado://search?keyword=<kw>[&sourceUrl=...] — 绕过软键盘触发混合搜索（验收深链）
     if (url) {
         NSString *scheme = url.scheme.lowercaseString;
         if ([scheme isEqualToString:@"legado"] || [scheme isEqualToString:@"yuedu"]) {
             NSString *src = LBQueryParameterFromURL(url, @"src");
+            NSString *keyword = LBQueryParameterFromURL(url, @"keyword");
+            if (keyword.length == 0) keyword = LBQueryParameterFromURL(url, @"key");
+            if (keyword.length == 0) keyword = LBQueryParameterFromURL(url, @"q");
+            NSString *host = url.host.lowercaseString ?: @"";
+            NSString *pathLower = url.path.lowercaseString ?: @"";
+            BOOL wantSearch = [host isEqualToString:@"search"]
+                || [pathLower containsString:@"/search"]
+                || (keyword.length > 0 && src.length == 0);
+            if (wantSearch) {
+                if (keyword.length == 0) {
+                    LBLegadoShowResult(@"缺少 keyword/key/q 参数");
+                    return YES;
+                }
+                NSString *sourceUrl = LBQueryParameterFromURL(url, @"sourceUrl");
+                [[NSString stringWithFormat:@"openURL search key=%@ src=%@", keyword, sourceUrl ?: @"all"]
+                    writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_openurl.txt"]
+                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                LBHandleSearchRequest(keyword, sourceUrl.length > 0 ? sourceUrl : nil);
+                return YES;
+            }
             if (src.length > 0) {
                 NSURL *srcURL = [NSURL URLWithString:src];
                 if (srcURL && srcURL.scheme.length > 0) {
@@ -342,7 +363,7 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                     LBLegadoShowResult([NSString stringWithFormat:@"src 参数无效: %@", src]);
                 }
             } else {
-                LBLegadoShowResult(@"缺少 src 参数");
+                LBLegadoShowResult(@"缺少 src 或 keyword 参数");
             }
             return YES;
         }
