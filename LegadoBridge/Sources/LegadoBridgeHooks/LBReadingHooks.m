@@ -326,6 +326,9 @@ void LBInstallReadingHooks(void) {
         // 目录 UI：详情页引擎先返回，CatalogCon 后 push → 对齐搜索的 appear pending 冲刷
         LBInstallCatalogUIAppearFlush();
         [installed addObject:@"catalogUIAppearFlush"];
+        // 正文：ReadVC appear 时重投 ResetContent（openReader 后才有监听者）
+        LBInstallReaderContentAppearFlush();
+        [installed addObject:@"readerContentAppearFlush"];
 
         if (installed.count == 0) {
             LBCapabilityMarkSkipped(LBHookGroupReading, @"no production reading anchors");

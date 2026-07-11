@@ -777,15 +777,19 @@ import LegadoBridgeHooks
                     binding: ensured
                 )
                 postNotification(XiangseAdapter.notifyResetContent, userInfo: payload)
+                // 阅读页可能尚未注册监听：缓存并由 ReadVC appear / delay 再投
+                LBNoteResetContentPosted(payload as NSDictionary)
             } catch {
+                let errPayload: [String: Any] = [
+                    "error": error.localizedDescription,
+                    "chapterUrl": chapterUrl,
+                    XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
+                ]
                 postNotification(
                     XiangseAdapter.notifyResetContent,
-                    userInfo: [
-                        "error": error.localizedDescription,
-                        "chapterUrl": chapterUrl,
-                        XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
-                    ]
+                    userInfo: errPayload
                 )
+                LBNoteResetContentPosted(errPayload as NSDictionary)
             }
         }
     }
