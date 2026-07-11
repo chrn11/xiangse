@@ -243,9 +243,22 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
     } @catch (__unused NSException *e) {}
 
     @try {
+        // 探针：_UIFilteredDataSource.filteredDataSource=nil 时 rows 恒 0；
+        // 仅当 DS 断裂时切回 VC（勿伪造 numberOfRows，避免行数不一致 SIGABRT）
+        @try { [vc setValue:@NO forKey:@"showFilterTip"]; } @catch (__unused NSException *e) {}
+        @try { [vc setValue:@0 forKey:@"nFilterResultType"]; } @catch (__unused NSException *e) {}
         UITableView *tv = [vc valueForKey:@"tableView"];
         if ([tv isKindOfClass:[UITableView class]]) {
-            // fail-open：不再强行替换 _UIFilteredDataSource（易触发 UITableView 行数不一致 SIGABRT）
+            id ds = tv.dataSource;
+            NSString *dsCls = ds ? NSStringFromClass([ds class]) : @"";
+            BOOL brokenFilter = (ds == nil)
+                || [dsCls containsString:@"FilteredDataSource"];
+            if (brokenFilter && [vc conformsToProtocol:@protocol(UITableViewDataSource)]) {
+                tv.dataSource = (id<UITableViewDataSource>)vc;
+                if ([vc conformsToProtocol:@protocol(UITableViewDelegate)]) {
+                    tv.delegate = (id<UITableViewDelegate>)vc;
+                }
+            }
             [tv reloadData];
         }
     } @catch (__unused NSException *e) {}

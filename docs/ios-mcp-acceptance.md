@@ -18,6 +18,26 @@ curl.exe --connect-timeout 3 --max-time 5 http://192.168.1.6:8090/health
 
 期望返回含 `"status":"ok"`、`"server":"ios-mcp"`。
 
+## 局域网 mock 书源（搜索→目录→正文）
+
+在与真机同网段的 PC 上起静态 HTTP，书源 `searchUrl` 指向该地址，用于证明 Bridge 能吃到真实 HTML。
+
+```powershell
+# 仓库根目录；默认探测 192.168.1.6 出站网卡 IP，监听 0.0.0.0:8765
+python fixtures/serve_local_mock.py
+# 或：python .test_tools/serve_local_mock.py --host 192.168.1.4 --port 8765
+```
+
+启动后会写出 `fixtures/legado-local-mock.runtime.json`（`__LAN_HOST__` 已替换）。提供页面：
+
+| 路径 | 用途 |
+| --- | --- |
+| `/mock_search.html` | 搜索结果（斗破苍穹 / 凡人修仙传） |
+| `/book/doupo.html`、`/book/doupo_toc.html` | 详情 / 目录 |
+| `/chapter/doupo_1.html` | 正文（含「萧炎」「本地 mock」等可识别文字） |
+
+导入：`open_file_with_app` 推送 runtime JSON，或 `legado://import/bookSource?src=http://<PC_IP>:8765/legado-local-mock.runtime.json`。搜索：`legado://search?keyword=斗破` 或 UI 回车。
+
 ## 操作约定（必读）
 
 1. **锁屏**：先 `wake_and_home`，再用 `screenshot` / `get_ui_elements` / `get_frontmost_app` 确认已到桌面或解锁界面；勿把单次 `press_home` 当成已进主屏。

@@ -49,11 +49,12 @@ static NSDictionary *LBBSM_dicModelList_IMP(id self, SEL _cmd) {
 }
 
 static NSString *LBBSM_sourceTypeBySourceName_IMP(id self, SEL _cmd, NSString *name) {
-    if (LBLegadoIsSourceName(name)) return @"DOM";
+    // 与搜索页 filterSourceType=text 对齐；返回 DOM 会被筛成空列表
+    if (LBLegadoIsSourceName(name)) return @"text";
     if (LBOrig_BSM_sourceTypeBySourceName) {
         return LBOrig_BSM_sourceTypeBySourceName(self, _cmd, name);
     }
-    return @"DOM";
+    return @"text";
 }
 
 static NSString *LBBSM_sourceTypeTitleBySourceName_IMP(id self, SEL _cmd, NSString *name) {
