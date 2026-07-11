@@ -1,5 +1,6 @@
 #import "LBInternal.h"
 #import "LegadoBridge.h"
+#include <stdint.h>
 
 /// 阅读链路（生产路径收窄）：
 /// 1) BookDetailController setDicBook: — 记忆 bookUrl↔sourceUrl，并请求目录
@@ -130,21 +131,41 @@ static void LBSetDicBook_IMP(id self, SEL _cmd, id dicBook) {
     }
 }
 
-static void (*LBOrig_loadCatalog)(id, SEL, id, BOOL) = NULL;
-static void LBLoadCatalog_IMP(id self, SEL _cmd, id arg, BOOL ignoringCache) {
-    NSString *bookUrl = nil;
-    NSString *sourceUrl = nil;
-    if (LBReadingObjectIsLegado(self, &bookUrl, &sourceUrl) ||
-        LBReadingObjectIsLegado(arg, &bookUrl, &sourceUrl)) {
-        LBReadingRequestCatalog(bookUrl, sourceUrl);
-        // fail-open：仍调用原实现，避免详情 UI 卡死；引擎结果经通知注入
-        if (LBOrig_loadCatalog) {
-            LBOrig_loadCatalog(self, _cmd, arg, ignoringCache);
+/// 真机崩溃根因：loadCatalog: 首参偶发为 BOOL YES(0x1)，ARC 对 id 参数 objc_retain → EXC_BAD_ACCESS。
+/// 用 void* 接参避免入口 retain；仅当指针像对象时才当 Legado 字典探测。
+static BOOL LBPointerLooksLikeObject(const void *p) {
+    if (!p) return NO;
+    uintptr_t v = (uintptr_t)p;
+    if (v < 0x10000) return NO;
+    return YES;
+}
+
+static void (*LBOrig_loadCatalog)(id, SEL, void *, BOOL) = NULL;
+static void LBLoadCatalog_IMP(id self, SEL _cmd, void *argRaw, BOOL ignoringCache) {
+    id arg = LBPointerLooksLikeObject(argRaw) ? (__bridge id)argRaw : nil;
+    @try {
+        NSString *bookUrl = nil;
+        NSString *sourceUrl = nil;
+        BOOL isLegado = NO;
+        if (self) {
+            isLegado = LBReadingObjectIsLegado(self, &bookUrl, &sourceUrl);
         }
-        return;
+        if (!isLegado && arg) {
+            isLegado = LBReadingObjectIsLegado(arg, &bookUrl, &sourceUrl);
+        }
+        if (isLegado) {
+            LBReadingRequestCatalog(bookUrl, sourceUrl);
+        }
+    } @catch (NSException *e) {
+        NSLog(@"[LegadoBridge] loadCatalog probe fail-open: %@", e);
     }
+    // fail-open：始终回原实现；void* 转发避免 ARC 对 BOOL(0x1) 二次 retain
     if (LBOrig_loadCatalog) {
-        LBOrig_loadCatalog(self, _cmd, arg, ignoringCache);
+        @try {
+            LBOrig_loadCatalog(self, _cmd, argRaw, ignoringCache);
+        } @catch (NSException *e) {
+            NSLog(@"[LegadoBridge] loadCatalog orig fail-open: %@", e);
+        }
     }
 }
 
@@ -223,7 +244,7 @@ void LBInstallReadingHooks(void) {
             if (enc && [enc containsString:@"@"] && [enc.uppercaseString containsString:@"B"]) {
                 Method m = class_getInstanceMethod(catalogOwner, catalogSel);
                 IMP prev = method_getImplementation(m);
-                LBOrig_loadCatalog = (void (*)(id, SEL, id, BOOL))prev;
+                LBOrig_loadCatalog = (void (*)(id, SEL, void *, BOOL))prev;
                 method_setImplementation(m, (IMP)LBLoadCatalog_IMP);
                 [installed addObject:[NSString stringWithFormat:@"loadCatalog@%@ enc=%@",
                                       NSStringFromClass(catalogOwner), enc ?: @""]];

@@ -486,14 +486,8 @@ import LegadoBridgeHooks
                         LBApplySearchResultsToUI([book], "explore")
                     }
                     if results.isEmpty {
-                        var empty = XiangseAdapter.searchResultsPayload(
-                            results: [],
-                            keyword: "explore",
-                            sourceUrl: source.bookSourceUrl,
-                            bindings: [:]
-                        )
-                        empty["fromExplore"] = true
-                        postNotification(XiangseAdapter.notifySearchResponse, userInfo: empty)
+                        // 空结果不 post searchBook=[]，避免原生 objectForKey 闪退
+                        writeSearchMarker("explore empty src=\(source.bookSourceUrl)")
                     }
                 } catch {
                     writeSearchMarker("explore err src=\(source.bookSourceUrl) \(error.localizedDescription)")
@@ -564,7 +558,8 @@ import LegadoBridgeHooks
                 return
             }
 
-            let maxConcurrent = 3
+            // fail-open：串行单飞，避免多源并发通知/UI 灌入打崩原生 UITableView
+            let maxConcurrent = 1
             var nextIndex = 0
             var totalCount = 0
             await withTaskGroup(of: (String, Result<[SearchBookResult], Error>).self) { group in
@@ -612,12 +607,15 @@ import LegadoBridgeHooks
                         }
                         totalCount += results.count
                         // 逐本增量通知：原生 onSearchBookSourceResponse 消费 queryBook（字典）
-                        // 旧实现把数组塞进 searchBook → 类型不匹配 → 引擎有结果但 UITableView 空
                         let sourceName = results.first?.sourceName
                             ?? SourceRegistry.shared.exactSource(forUrl: srcUrl)?.bookSourceName
                             ?? ""
                         for r in results {
                             let book = XiangseAdapter.searchBookDict(r, binding: bindings[r.bookUrl])
+                            guard Self.isSafeSearchBookDict(book) else {
+                                self.writeSearchMarker("skip unsafe book src=\(srcUrl)")
+                                continue
+                            }
                             let payload = XiangseAdapter.searchResultNotifyPayload(
                                 book: book,
                                 keyword: keyword,
@@ -628,15 +626,7 @@ import LegadoBridgeHooks
                             // 直接灌入 arrBaseData：通知 handler 不在搜索页，仅靠通知 UI 永远空
                             LBApplySearchResultsToUI([book], keyword)
                         }
-                        if results.isEmpty {
-                            let payload = XiangseAdapter.searchResultsPayload(
-                                results: [],
-                                keyword: keyword,
-                                sourceUrl: srcUrl,
-                                bindings: [:]
-                            )
-                            self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
-                        }
+                        // 空结果：不 post 含 searchBook=[] 的批量载荷（原生 objectForKey 易崩）
                     case .failure(let error):
                         // 单源失败不阻断其他源
                         self.writeSearchMarker("partial err src=\(srcUrl) \(error.localizedDescription)")
@@ -645,6 +635,15 @@ import LegadoBridgeHooks
             }
             writeSearchMarker("ok total=\(totalCount) sources=\(targets.count) key=\(keyword)")
         }
+    }
+
+    /// 通知/灌入前校验：拒绝空 bookUrl、非字符串关键字段
+    private static func isSafeSearchBookDict(_ book: [String: Any]) -> Bool {
+        let url = (book["bookUrl"] as? String) ?? (book["url"] as? String) ?? ""
+        let name = (book["bookName"] as? String) ?? (book["name"] as? String) ?? ""
+        guard !url.isEmpty || !name.isEmpty else { return false }
+        if let sb = book["searchBook"], !(sb is [String: Any]) { return false }
+        return true
     }
 
     private func writeSearchMarker(_ msg: String) {

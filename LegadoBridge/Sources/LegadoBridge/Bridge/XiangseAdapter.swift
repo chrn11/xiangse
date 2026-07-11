@@ -39,13 +39,12 @@ enum XiangseAdapter {
             "arrSearchItems": books,
             "fromLegadoBridge": true
         ]
-        // 原生监听侧期望 searchBook/queryBook 为字典；数组会被 objectForKey 静默丢弃 → 空列表
+        // 原生监听侧期望 searchBook/queryBook 为字典；数组会 unrecognized selector / 闪退
+        // 多本时仍只放首本字典（批量列表走 arrSearchBook），禁止把 [dict] 塞进 searchBook
         if let first = books.first {
             payload["queryBook"] = first
             payload["tempBook"] = first
-            payload["searchBook"] = books.count == 1 ? first : books
-        } else {
-            payload["searchBook"] = books
+            payload["searchBook"] = first
         }
         return payload
     }

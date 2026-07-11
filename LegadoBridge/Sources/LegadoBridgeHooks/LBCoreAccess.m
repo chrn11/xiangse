@@ -1,6 +1,7 @@
 #import "LBInternal.h"
 #import "LegadoBridge.h"
 #include <string.h>
+#include <stdint.h>
 
 static _Atomic(bool) LBCoreReady = false;
 static _Atomic(bool) LBCoreInitializing = false;
@@ -335,11 +336,17 @@ NSString *LBReadingSourceUrlForBookUrl(NSString *bookUrl) {
 
 NSDictionary *LBReadingDicFromObject(id object) {
     if (!object) return nil;
-    if ([object isKindOfClass:[NSDictionary class]]) return object;
-    for (NSString *key in @[@"dicBook", @"book", @"dicGoAfterLoadCatalog", @"dicContents"]) {
-        id v = nil;
-        @try { v = [object valueForKey:key]; } @catch (__unused NSException *e) { v = nil; }
-        if ([v isKindOfClass:[NSDictionary class]]) return v;
+    // 拒绝 BOOL YES(0x1) 等小整数被当成对象（与 LBLoadCatalog_IMP 同源防护）
+    if ((uintptr_t)object < 0x10000) return nil;
+    @try {
+        if ([object isKindOfClass:[NSDictionary class]]) return object;
+        for (NSString *key in @[@"dicBook", @"book", @"dicGoAfterLoadCatalog", @"dicContents"]) {
+            id v = nil;
+            @try { v = [object valueForKey:key]; } @catch (__unused NSException *e) { v = nil; }
+            if ([v isKindOfClass:[NSDictionary class]]) return v;
+        }
+    } @catch (__unused NSException *e) {
+        return nil;
     }
     return nil;
 }

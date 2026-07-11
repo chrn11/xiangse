@@ -169,6 +169,19 @@ final class BookBindingStoreTests: XCTestCase {
         XCTAssertTrue(batch["queryBook"] is [String: Any], "单本批量载荷的 queryBook 须为字典")
         XCTAssertTrue(batch["searchBook"] is [String: Any], "单本时 searchBook 须为字典而非数组")
         XCTAssertEqual(book["sourceType"] as? String, "text", "须对齐原生 filterSourceType=text")
+
+        // 多本批量：searchBook 仍须为字典（首本），禁止数组（真机 objectForKey 闪退）
+        var r2 = r
+        r2.bookUrl = "http://mock.local/book/doupo2.html"
+        r2.name = "斗破苍穹2"
+        let batch2 = XiangseAdapter.searchResultsPayload(
+            results: [r, r2],
+            keyword: "斗破",
+            sourceUrl: r.sourceUrl,
+            bindings: [r.bookUrl: binding]
+        )
+        XCTAssertTrue(batch2["searchBook"] is [String: Any], "多本时 searchBook 仍须为字典")
+        XCTAssertFalse(batch2["searchBook"] is [Any], "多本时 searchBook 禁止数组")
     }
 
     // MARK: - fixtures

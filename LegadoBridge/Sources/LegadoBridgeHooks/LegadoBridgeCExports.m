@@ -2,6 +2,7 @@
 #import <UIKit/UIKit.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
+#import <string.h>
 #import "LegadoBridge.h"
 #import "LBInternal.h"
 
@@ -89,6 +90,10 @@ void LBTriggerMixedSearch(NSString *keyword, NSString *sourceUrl) {
 static NSMutableArray *sPendingSearchBooks;
 static NSString *sPendingSearchKeyword;
 static BOOL sSearchUIAppearHooked;
+static IMP sOrigNumberOfRows;
+static IMP sOrigCellForRow;
+
+static void LBSetSearchKeywordOnVC(UIViewController *vc, NSString *keyword);
 
 static void LBCollectBookSearchVCs(UIViewController *vc, NSMutableArray *out) {
     if (!vc) return;
@@ -212,8 +217,7 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
     @try { [vc setValue:dicAll forKey:@"dicAllBookList"]; } @catch (__unused NSException *e) {}
 
     if (keyword.length > 0) {
-        @try { [vc setValue:keyword forKey:@"searchTextOutSide"]; } @catch (__unused NSException *e) {}
-        @try { [vc setValue:keyword forKey:@"searchText"]; } @catch (__unused NSException *e) {}
+        LBSetSearchKeywordOnVC(vc, keyword);
     }
     // 与原生 filterSourceType（默认 text）对齐；DOM 会被筛成 0 行
     @try {
@@ -241,16 +245,7 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
     @try {
         UITableView *tv = [vc valueForKey:@"tableView"];
         if ([tv isKindOfClass:[UITableView class]]) {
-            id ds = tv.dataSource;
-            NSString *dsName = ds ? NSStringFromClass([ds class]) : @"";
-            // 断裂的 _UIFilteredDataSource（内部 dataSource=nil）会永远 0 行
-            if ([dsName containsString:@"Filtered"]) {
-                id inner = nil;
-                @try { inner = [ds valueForKey:@"dataSource"]; } @catch (__unused NSException *e) {}
-                if (!inner) {
-                    tv.dataSource = (id<UITableViewDataSource>)vc;
-                }
-            }
+            // fail-open：不再强行替换 _UIFilteredDataSource（易触发 UITableView 行数不一致 SIGABRT）
             [tv reloadData];
         }
     } @catch (__unused NSException *e) {}
@@ -275,6 +270,48 @@ static void LBFlushPendingSearchUI(void) {
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 }
 
+static void LBSetSearchKeywordOnVC(UIViewController *vc, NSString *keyword) {
+    if (keyword.length == 0) return;
+    @try { [vc setValue:keyword forKey:@"searchTextOutSide"]; } @catch (__unused NSException *e) {}
+    @try { [vc setValue:keyword forKey:@"searchText"]; } @catch (__unused NSException *e) {}
+    // searchText 的 setter 常不落地；直接写 ivar
+    Class cls = [vc class];
+    while (cls && cls != [NSObject class]) {
+        unsigned int count = 0;
+        Ivar *ivars = class_copyIvarList(cls, &count);
+        for (unsigned int i = 0; i < count; i++) {
+            const char *name = ivar_getName(ivars[i]);
+            if (!name) continue;
+            if (strcmp(name, "_searchText") == 0 || strcmp(name, "_searchTextOutSide") == 0) {
+                object_setIvar(vc, ivars[i], keyword);
+            }
+        }
+        free(ivars);
+        cls = class_getSuperclass(cls);
+    }
+    @try {
+        if ([vc respondsToSelector:@selector(setSearchTextOutSide:)]) {
+            ((void (*)(id, SEL, NSString *))objc_msgSend)(vc, @selector(setSearchTextOutSide:), keyword);
+        }
+    } @catch (__unused NSException *e) {}
+}
+
+static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInteger section) {
+    // fail-open：不再伪造行数（与原生/_UIFilteredDataSource 不一致会 SIGABRT）
+    if (sOrigNumberOfRows) {
+        return ((NSInteger (*)(id, SEL, UITableView *, NSInteger))sOrigNumberOfRows)(self, _cmd, tv, section);
+    }
+    return 0;
+}
+
+static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip) {
+    // fail-open：不拦截 cell 渲染，避免越界/类型崩
+    if (sOrigCellForRow) {
+        return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCellForRow)(self, _cmd, tv, ip);
+    }
+    return nil;
+}
+
 void LBInstallSearchUIAppearFlush(void) {
     if (sSearchUIAppearHooked) return;
     sSearchUIAppearHooked = YES;
@@ -294,6 +331,20 @@ void LBInstallSearchUIAppearFlush(void) {
         });
         method_setImplementation(m, hook);
     }
+    // 兜底：有 arrBaseData+legadoBridge 时强制 numberOfRows / 填 cell
+    Class base1 = NSClassFromString(@"BookSearchVCBase1");
+    if (base1) {
+        Method rowsM = class_getInstanceMethod(base1, @selector(tableView:numberOfRowsInSection:));
+        if (rowsM && !sOrigNumberOfRows) {
+            sOrigNumberOfRows = method_getImplementation(rowsM);
+            method_setImplementation(rowsM, (IMP)LBHookedNumberOfRows);
+        }
+        Method cellM = class_getInstanceMethod(base1, @selector(tableView:cellForRowAtIndexPath:));
+        if (cellM && !sOrigCellForRow) {
+            sOrigCellForRow = method_getImplementation(cellM);
+            method_setImplementation(cellM, (IMP)LBHookedCellForRow);
+        }
+    }
 }
 
 void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
@@ -306,6 +357,7 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
         });
         return;
     }
+    @try {
     LBInstallSearchUIAppearFlush();
     if (!sPendingSearchBooks) sPendingSearchBooks = [NSMutableArray array];
     // 合并进 pending（同 key 去重）
@@ -344,6 +396,9 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
                         (unsigned long)vcs.count, (unsigned long)applied, keyword ?: @""];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    } @catch (NSException *e) {
+        NSLog(@"[LegadoBridge] LBApplySearchResultsToUI fail-open: %@", e);
+    }
 }
 
 void LBHandleCatalogRequest(NSString *bookUrl, NSString *sourceUrl) {

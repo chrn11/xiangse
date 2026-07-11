@@ -54,29 +54,39 @@ void LBInstallSearchHooks(void) {
             if (searchMethod) {
                 IMP originalIMP = method_getImplementation(searchMethod);
                 IMP hookIMP = imp_implementationWithBlock(^BOOL(id self, NSString *keyword, id type, BOOL shuping, BOOL quick) {
-                    BOOL nativeOk = ((BOOL (*)(id, SEL, NSString *, id, BOOL, BOOL))originalIMP)(
-                        self, searchSel, keyword, type, shuping, quick
-                    );
+                    BOOL nativeOk = NO;
+                    @try {
+                        nativeOk = ((BOOL (*)(id, SEL, NSString *, id, BOOL, BOOL))originalIMP)(
+                            self, searchSel, keyword, type, shuping, quick
+                        );
+                    } @catch (NSException *e) {
+                        NSLog(@"[LegadoBridge] startSearch native fail-open: %@", e);
+                        nativeOk = NO;
+                    }
 
-                    id core = LBLegadoCoreIfReady();
-                    NSArray *names = nil;
-                    if ([core respondsToSelector:@selector(allLegadoSourceNames)]) {
+                    @try {
+                        id core = LBLegadoCoreIfReady();
+                        NSArray *names = nil;
+                        if ([core respondsToSelector:@selector(allLegadoSourceNames)]) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-                        names = [core performSelector:@selector(allLegadoSourceNames)];
+                            names = [core performSelector:@selector(allLegadoSourceNames)];
 #pragma clang diagnostic pop
-                    }
-                    if (names.count > 0 &&
-                        [core respondsToSelector:@selector(handleSearchRequestWithKeyword:sourceUrl:)]) {
-                        NSString *marker = [NSString stringWithFormat:@"startSearch coexist native=%d legado=%lu key=%@",
-                                            (int)nativeOk, (unsigned long)names.count, keyword ?: @""];
-                        [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_hook.txt"]
-                                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                        // sourceUrl:nil → Core 侧搜索全部启用源（非仅第一个）
-                        ((void (*)(id, SEL, NSString *, NSString *))objc_msgSend)(
-                            core, @selector(handleSearchRequestWithKeyword:sourceUrl:), keyword ?: @"", nil
-                        );
-                        return YES;
+                        }
+                        if (names.count > 0 &&
+                            [core respondsToSelector:@selector(handleSearchRequestWithKeyword:sourceUrl:)]) {
+                            NSString *marker = [NSString stringWithFormat:@"startSearch coexist native=%d legado=%lu key=%@",
+                                                (int)nativeOk, (unsigned long)names.count, keyword ?: @""];
+                            [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_hook.txt"]
+                                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                            // sourceUrl:nil → Core 侧搜索全部启用源（现已串行 fail-open）
+                            ((void (*)(id, SEL, NSString *, NSString *))objc_msgSend)(
+                                core, @selector(handleSearchRequestWithKeyword:sourceUrl:), keyword ?: @"", nil
+                            );
+                            return YES;
+                        }
+                    } @catch (NSException *e) {
+                        NSLog(@"[LegadoBridge] startSearch legado fail-open: %@", e);
                     }
                     return nativeOk;
                 });
