@@ -100,7 +100,15 @@ static void LBSetSearchKeywordOnVC(UIViewController *vc, NSString *keyword);
 static void LBCollectBookSearchVCs(UIViewController *vc, NSMutableArray *out) {
     if (!vc) return;
     NSString *cn = NSStringFromClass([vc class]);
-    if ([cn containsString:@"BookSearch"]) {
+    BOOL hit = [cn containsString:@"BookSearch"] || [cn containsString:@"SearchController"];
+    if (!hit) {
+        @try {
+            // 仅用搜索页特有字段，避免误命中书架 BookShelfController.arrBaseData
+            id items = [vc valueForKey:@"arrSearchItems"];
+            if (items) hit = YES;
+        } @catch (__unused NSException *e) {}
+    }
+    if (hit && ![out containsObject:vc]) {
         [out addObject:vc];
     }
     for (UIViewController *child in vc.childViewControllers) {
@@ -123,6 +131,40 @@ static void LBCollectBookSearchVCs(UIViewController *vc, NSMutableArray *out) {
             LBCollectBookSearchVCs(tab.selectedViewController, out);
         }
     }
+}
+
+static NSArray<UIWindow *> *LBAllAppWindows(void);
+static void LBDumpVCWalk(UIViewController *vc, NSInteger depth, NSMutableArray *lines) {
+    if (!vc) return;
+    NSMutableString *pad = [NSMutableString string];
+    for (NSInteger i = 0; i < depth; i++) [pad appendString:@"  "];
+    [lines addObject:[NSString stringWithFormat:@"%@%@", pad, NSStringFromClass([vc class])]];
+    for (UIViewController *c in vc.childViewControllers) LBDumpVCWalk(c, depth + 1, lines);
+    if (vc.presentedViewController) LBDumpVCWalk(vc.presentedViewController, depth + 1, lines);
+    if ([vc isKindOfClass:[UINavigationController class]]) {
+        for (UIViewController *c in ((UINavigationController *)vc).viewControllers) {
+            LBDumpVCWalk(c, depth + 1, lines);
+        }
+    }
+    if ([vc isKindOfClass:[UITabBarController class]]) {
+        UITabBarController *tab = (UITabBarController *)vc;
+        for (UIViewController *c in tab.viewControllers) LBDumpVCWalk(c, depth + 1, lines);
+        if (tab.selectedViewController) LBDumpVCWalk(tab.selectedViewController, depth + 1, lines);
+    }
+}
+
+static void LBDumpVisibleVCTree(void) {
+    NSMutableArray *lines = [NSMutableArray array];
+    NSArray *wins = LBAllAppWindows();
+    [lines addObject:[NSString stringWithFormat:@"windows=%lu known=%lu",
+                      (unsigned long)wins.count, (unsigned long)sKnownSearchVCs.count]];
+    for (UIWindow *w in wins) {
+        [lines addObject:[NSString stringWithFormat:@"WINDOW %@", NSStringFromClass([w class])]];
+        LBDumpVCWalk(w.rootViewController, 0, lines);
+    }
+    [[lines componentsJoinedByString:@"\n"]
+        writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_vc_tree.txt"]
+         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 }
 
 static NSArray<UIWindow *> *LBAllAppWindows(void) {
@@ -400,6 +442,10 @@ void LBInstallSearchUIAppearFlush(void) {
                 sKnownSearchVCs = [NSHashTable weakObjectsHashTable];
             }
             [sKnownSearchVCs addObject:self];
+            NSString *appear = [NSString stringWithFormat:@"appear %@ known=%lu",
+                                NSStringFromClass([self class]), (unsigned long)sKnownSearchVCs.count];
+            [appear writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_appear.txt"]
+                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
             dispatch_async(dispatch_get_main_queue(), ^{
                 LBFlushPendingSearchUI();
                 LBReapplyLastSearchBooks();
@@ -453,6 +499,7 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
 
     NSArray *vcs = LBFindBookSearchVCs();
     if (vcs.count == 0) {
+        LBDumpVisibleVCTree();
         NSString *marker = [NSString stringWithFormat:@"uiInject pending n=%lu key=%@ (no BookSearchVC yet)",
                             (unsigned long)sPendingSearchBooks.count, keyword ?: @""];
         [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
