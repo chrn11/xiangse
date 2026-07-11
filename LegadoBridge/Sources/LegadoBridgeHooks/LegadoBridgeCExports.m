@@ -88,6 +88,7 @@ void LBTriggerMixedSearch(NSString *keyword, NSString *sourceUrl) {
 /// 断裂的 _UIFilteredDataSource → 引擎有结果 / arrSearchItems 有条目但 UITableView 仍空。
 /// 深链搜索时常尚未 push 搜索页 → 需 pending，等 viewDidAppear 再灌入。
 static NSMutableArray *sPendingSearchBooks;
+static NSMutableArray *sLastAppliedSearchBooks;
 static NSString *sPendingSearchKeyword;
 static BOOL sSearchUIAppearHooked;
 static IMP sOrigNumberOfRows;
@@ -243,25 +244,55 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
     } @catch (__unused NSException *e) {}
 
     @try {
-        // 探针：_UIFilteredDataSource.filteredDataSource=nil 时 rows 恒 0；
-        // 仅当 DS 断裂时切回 VC（勿伪造 numberOfRows，避免行数不一致 SIGABRT）
+        // 探针：_UIFilteredDataSource.filteredDataSource=nil 时 rows 恒 0。
+        // 有 Legado 结果时强制 DS=VC（仅在 DS==self 时才允许 rows 兜底，避免 SIGABRT）
         @try { [vc setValue:@NO forKey:@"showFilterTip"]; } @catch (__unused NSException *e) {}
         @try { [vc setValue:@0 forKey:@"nFilterResultType"]; } @catch (__unused NSException *e) {}
         UITableView *tv = [vc valueForKey:@"tableView"];
         if ([tv isKindOfClass:[UITableView class]]) {
             id ds = tv.dataSource;
-            NSString *dsCls = ds ? NSStringFromClass([ds class]) : @"";
-            BOOL brokenFilter = (ds == nil)
+            NSString *dsCls = ds ? NSStringFromClass([ds class]) : @"(nil)";
+            BOOL needOwnDS = (ds == nil)
+                || (ds != (id)vc)
                 || [dsCls containsString:@"FilteredDataSource"];
-            if (brokenFilter && [vc conformsToProtocol:@protocol(UITableViewDataSource)]) {
+            if (needOwnDS && [vc respondsToSelector:@selector(tableView:numberOfRowsInSection:)]) {
                 tv.dataSource = (id<UITableViewDataSource>)vc;
-                if ([vc conformsToProtocol:@protocol(UITableViewDelegate)]) {
+                if ([vc respondsToSelector:@selector(tableView:cellForRowAtIndexPath:)]) {
                     tv.delegate = (id<UITableViewDelegate>)vc;
                 }
             }
             [tv reloadData];
+            NSInteger rows = 0;
+            @try {
+                if ([tv.dataSource respondsToSelector:@selector(tableView:numberOfRowsInSection:)]) {
+                    rows = [tv.dataSource tableView:tv numberOfRowsInSection:0];
+                }
+            } @catch (__unused NSException *e) {}
+            NSUInteger arrN = 0;
+            @try {
+                id cur = [vc valueForKey:@"arrBaseData"];
+                if ([cur isKindOfClass:[NSArray class]]) arrN = [cur count];
+            } @catch (__unused NSException *e) {}
+            NSString *diag = [NSString stringWithFormat:
+                @"uiInject ds=%@ rows=%ld arr=%lu needOwn=%d",
+                dsCls, (long)rows, (unsigned long)arrN, needOwnDS ? 1 : 0];
+            [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
+                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         }
     } @catch (__unused NSException *e) {}
+}
+
+static void LBReapplyLastSearchBooks(void) {
+    if (sLastAppliedSearchBooks.count == 0) return;
+    NSArray *vcs = LBFindBookSearchVCs();
+    if (vcs.count == 0) return;
+    NSString *kw = sPendingSearchKeyword;
+    for (UIViewController *vc in vcs) {
+        for (id b in sLastAppliedSearchBooks) {
+            if (![b isKindOfClass:[NSDictionary class]]) continue;
+            LBMergeBookIntoSearchVC(vc, b, kw);
+        }
+    }
 }
 
 static void LBFlushPendingSearchUI(void) {
@@ -310,11 +341,24 @@ static void LBSetSearchKeywordOnVC(UIViewController *vc, NSString *keyword) {
 }
 
 static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInteger section) {
-    // fail-open：不再伪造行数（与原生/_UIFilteredDataSource 不一致会 SIGABRT）
+    NSInteger orig = 0;
     if (sOrigNumberOfRows) {
-        return ((NSInteger (*)(id, SEL, UITableView *, NSInteger))sOrigNumberOfRows)(self, _cmd, tv, section);
+        orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))sOrigNumberOfRows)(self, _cmd, tv, section);
     }
-    return 0;
+    if (orig > 0) return orig;
+    // 仅当 table 的 dataSource 就是 self 时兜底，避免与 FilteredDataSource 行数不一致崩
+    if (tv.dataSource != self) return orig;
+    @try {
+        id cur = [self valueForKey:@"arrBaseData"];
+        if (![cur isKindOfClass:[NSArray class]] || [cur count] == 0) return orig;
+        BOOL hasLegado = NO;
+        for (id item in cur) {
+            if (![item isKindOfClass:[NSDictionary class]]) continue;
+            if (item[@"legadoBridge"] || item[@"fromLegadoBridge"]) { hasLegado = YES; break; }
+        }
+        if (hasLegado) return (NSInteger)[cur count];
+    } @catch (__unused NSException *e) {}
+    return orig;
 }
 
 static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip) {
@@ -397,10 +441,13 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
         return;
     }
     NSUInteger applied = 0;
+    if (!sLastAppliedSearchBooks) sLastAppliedSearchBooks = [NSMutableArray array];
+    [sLastAppliedSearchBooks removeAllObjects];
     for (UIViewController *vc in vcs) {
         for (id b in sPendingSearchBooks) {
             if (![b isKindOfClass:[NSDictionary class]]) continue;
             LBMergeBookIntoSearchVC(vc, b, keyword ?: sPendingSearchKeyword);
+            [sLastAppliedSearchBooks addObject:b];
             applied++;
         }
     }
@@ -409,6 +456,13 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
                         (unsigned long)vcs.count, (unsigned long)applied, keyword ?: @""];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    // 原生搜索结束常回写空 FilteredDS；延迟再灌两次
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        LBReapplyLastSearchBooks();
+    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        LBReapplyLastSearchBooks();
+    });
     } @catch (NSException *e) {
         NSLog(@"[LegadoBridge] LBApplySearchResultsToUI fail-open: %@", e);
     }
