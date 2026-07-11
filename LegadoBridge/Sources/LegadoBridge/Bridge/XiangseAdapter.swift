@@ -80,20 +80,37 @@ enum XiangseAdapter {
     static func catalogPayload(
         chapters: [BridgeChapter],
         bookUrl: String,
-        binding: BookBinding? = nil
+        binding: BookBinding? = nil,
+        bookDetail: [String: Any]? = nil
     ) -> [String: Any] {
         let list = chapters.map { chapterDict($0) }
+        // 原生 onCatalogQueryFinishNotify / CatalogCon 读 chapterList，属性为 arrCatalog
         var payload: [String: Any] = [
             "bookUrl": bookUrl,
             legadoMarkerKey: legadoMarkerValue,
             "chapterList": list,
+            "arrCatalog": list,
             "arrChapter": list,
             "fromLegadoBridge": true
         ]
+        if let last = chapters.last?.title, !last.isEmpty {
+            payload["lastChapterTitle"] = last
+        }
         if let binding {
             payload["sourceUrl"] = binding.sourceUrl
+            payload["sourceName"] = binding.sourceName
+            payload["querySourceName"] = binding.sourceName
+            payload["queryingSourceNameList"] = binding.sourceName.isEmpty ? [] : [binding.sourceName]
             payload[bridgeTokenKey] = binding.bridgeToken
             payload[sourceAvailableKey] = binding.sourceAvailable ? "1" : "0"
+            let detail = bookDetail ?? detailDict(from: binding)
+            payload["bookDetail"] = detail
+            payload["tempBook"] = detail
+            payload["dicBook"] = detail
+        } else if let bookDetail {
+            payload["bookDetail"] = bookDetail
+            payload["tempBook"] = bookDetail
+            payload["dicBook"] = bookDetail
         }
         return payload
     }
@@ -184,10 +201,12 @@ enum XiangseAdapter {
     static func chapterDict(_ c: BridgeChapter) -> [String: Any] {
         [
             "title": c.title,
+            "name": c.title,
             "chapterName": c.title,
             "url": c.url,
             "chapterUrl": c.url,
-            "index": c.index
+            "index": c.index,
+            "chapterIndex": c.index
         ]
     }
 

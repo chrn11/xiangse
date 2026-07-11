@@ -25,6 +25,20 @@ static void LBReadingDiagLog(NSString *msg) {
     [fh closeFile];
 }
 
+static void LBReadingCatalogLog(NSString *msg) {
+    // 目录链路始终落盘（不依赖 diag），便于真机验收对照
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_hook.txt"];
+    NSString *line = [NSString stringWithFormat:@"%@ | %@\n", [NSDate date], msg ?: @""];
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!fh) {
+        [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return;
+    }
+    [fh seekToEndOfFile];
+    [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    [fh closeFile];
+}
+
 static void LBReadingRequestCatalog(NSString *bookUrl, NSString *sourceUrl) {
     if (bookUrl.length == 0) return;
     id core = LBLegadoCoreIfReady();
@@ -33,6 +47,7 @@ static void LBReadingRequestCatalog(NSString *bookUrl, NSString *sourceUrl) {
         core, @selector(handleCatalogRequestWithBookUrl:sourceUrl:), bookUrl, sourceUrl
     );
     LBReadingDiagLog([NSString stringWithFormat:@"catalog book=%@ source=%@", bookUrl, sourceUrl ?: @""]);
+    LBReadingCatalogLog([NSString stringWithFormat:@"request book=%@ source=%@", bookUrl, sourceUrl ?: @""]);
 }
 
 static void LBReadingRequestContent(NSString *chapterUrl, NSString *bookUrl, NSString *sourceUrl) {

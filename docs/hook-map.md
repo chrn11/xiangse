@@ -133,7 +133,10 @@ sequenceDiagram
 
 | 类型 | 符号 | 策略 |
 |------|------|------|
-| 通知 | `dNotifyName_QueryCatalogResponse` | 注入章节目录 |
+| 通知 | `dNotifyName_QueryCatalogResponse` | 注入 `chapterList`/`arrCatalog` |
+| 方法 | `setDicBook:` / `loadCatalog:ignoringCache:` | 请求侧；双 BOOL 编码勿 retain |
+| 灌入 | `LBApplyCatalogToUI` | 写可见页 `arrCatalog` 并 reload（对齐搜索） |
+| 引擎 | `getBookInfo` → `getChapterList` | 先解析 `tocUrl`，避免详情页无 `#list` 时空目录 |
 | 方法 | `loadMoreChapter` | 分页目录（Phase 5） |
 | 类 | `CatalogByBook` | 目录数据模型参考 |
 

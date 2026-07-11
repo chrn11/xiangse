@@ -691,15 +691,27 @@ import LegadoBridgeHooks
                 )
                 book.sourceUrl = source.bookSourceUrl
                 book.sourceName = source.bookSourceName
+                // 搜索缓存通常无 tocUrl；详情页 HTML 往往没有 #list，须先 getBookInfo 解析目录页
+                if book.tocUrl.isEmpty {
+                    _ = try await BridgeWebBook.getBookInfo(source: source, book: &book)
+                }
                 let chapters = try await BridgeWebBook.getChapterList(source: source, book: book)
                 bookCache[bookUrl] = book
+                writeCatalogMarker(
+                    "ok book=\(bookUrl) toc=\(book.tocUrl) chapters=\(chapters.count) first=\(chapters.first?.title ?? "")"
+                )
                 let payload = XiangseAdapter.catalogPayload(
                     chapters: chapters,
                     bookUrl: bookUrl,
-                    binding: ensured
+                    binding: ensured,
+                    bookDetail: XiangseAdapter.detailDict(from: ensured)
                 )
                 postNotification(XiangseAdapter.notifyCatalogResponse, userInfo: payload)
+                // 通知 alone 常不填 CatalogCon.arrCatalog；对齐搜索灌入路径
+                let chapterMaps = chapters.map { XiangseAdapter.chapterDict($0) }
+                LBApplyCatalogToUI(chapterMaps as [Any], bookUrl)
             } catch {
+                writeCatalogMarker("err book=\(bookUrl) \(error.localizedDescription)")
                 postNotification(
                     XiangseAdapter.notifyCatalogResponse,
                     userInfo: [
@@ -710,6 +722,11 @@ import LegadoBridgeHooks
                 )
             }
         }
+    }
+
+    private func writeCatalogMarker(_ msg: String) {
+        let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_catalog_last.txt")
+        try? msg.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     // MARK: - 正文

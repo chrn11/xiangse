@@ -650,6 +650,201 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
     }
 }
 
+#pragma mark - Catalog UI inject
+
+static void LBCatalogWriteMarker(NSString *msg) {
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_ui_inject.txt"];
+    [msg writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+}
+
+static void LBCatalogDumpVCTree(void) {
+    NSMutableArray *lines = [NSMutableArray array];
+    for (UIWindow *w in LBAllAppWindows()) {
+        UIViewController *root = w.rootViewController;
+        if (!root) continue;
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+        while (stack.count > 0) {
+            UIViewController *vc = stack.lastObject;
+            [stack removeLastObject];
+            NSString *name = NSStringFromClass([vc class]);
+            BOOL hasArr = NO;
+            @try { hasArr = ([vc valueForKey:@"arrCatalog"] != nil) || [vc respondsToSelector:@selector(setArrCatalog:)]; } @catch (__unused NSException *e) {}
+            [lines addObject:[NSString stringWithFormat:@"%@%@%@",
+                              name,
+                              LBVCIsVisibleInWindow(vc) ? @"*" : @"",
+                              hasArr ? @"[arrCatalog]" : @""]];
+            for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
+            if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
+            if ([vc isKindOfClass:[UINavigationController class]]) {
+                for (UIViewController *c in [(UINavigationController *)vc viewControllers]) [stack addObject:c];
+            }
+            if ([vc isKindOfClass:[UITabBarController class]]) {
+                for (UIViewController *c in [(UITabBarController *)vc viewControllers]) [stack addObject:c];
+            }
+        }
+    }
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_vc_tree.txt"];
+    [[lines componentsJoinedByString:@"\n"] writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+}
+
+static NSArray<UIViewController *> *LBFindCatalogVCs(void) {
+    NSMutableArray *out = [NSMutableArray array];
+    NSMutableSet *seen = [NSMutableSet set];
+    void (^consider)(UIViewController *) = ^(UIViewController *vc) {
+        if (!vc || [seen containsObject:vc]) return;
+        [seen addObject:vc];
+        NSString *cn = NSStringFromClass([vc class]);
+        BOOL nameHit = [cn containsString:@"Catalog"] || [cn containsString:@"BookDetail"] ||
+                       [cn containsString:@"ReadVC"] || [cn containsString:@"TextRead"];
+        BOOL hasArr = NO;
+        @try {
+            hasArr = [vc respondsToSelector:@selector(setArrCatalog:)] ||
+                     (class_getInstanceVariable(object_getClass(vc), "_arrCatalog") != NULL);
+            if (!hasArr) {
+                id cur = [vc valueForKey:@"arrCatalog"];
+                (void)cur;
+                hasArr = YES; // KVC 未抛则认为可写/可读
+            }
+        } @catch (__unused NSException *e) {
+            hasArr = NO;
+        }
+        if (nameHit || hasArr) {
+            [out addObject:vc];
+        }
+    };
+    for (UIWindow *w in LBAllAppWindows()) {
+        UIViewController *root = w.rootViewController;
+        if (!root) continue;
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+        while (stack.count > 0) {
+            UIViewController *vc = stack.lastObject;
+            [stack removeLastObject];
+            consider(vc);
+            for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
+            if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
+            if ([vc isKindOfClass:[UINavigationController class]]) {
+                for (UIViewController *c in [(UINavigationController *)vc viewControllers]) [stack addObject:c];
+            }
+            if ([vc isKindOfClass:[UITabBarController class]]) {
+                for (UIViewController *c in [(UITabBarController *)vc viewControllers]) [stack addObject:c];
+            }
+        }
+    }
+    // 也扫可见 TableView 的 responder 链（对齐搜索 Find）
+    for (UIWindow *w in LBAllAppWindows()) {
+        NSMutableArray *views = [NSMutableArray arrayWithObject:w];
+        while (views.count > 0) {
+            UIView *v = views.lastObject;
+            [views removeLastObject];
+            if ([v isKindOfClass:[UITableView class]] && LBVCIsVisibleInWindow((id)v)) {
+                UIResponder *r = v;
+                while (r) {
+                    if ([r isKindOfClass:[UIViewController class]]) {
+                        consider((UIViewController *)r);
+                        break;
+                    }
+                    r = r.nextResponder;
+                }
+            }
+            for (UIView *sub in v.subviews) [views addObject:sub];
+        }
+    }
+    return out;
+}
+
+static void LBReloadCatalogVC(UIViewController *vc) {
+    @try {
+        if ([vc respondsToSelector:@selector(reloadData)]) {
+            ((void (*)(id, SEL))objc_msgSend)(vc, @selector(reloadData));
+        }
+    } @catch (__unused NSException *e) {}
+    @try {
+        id tv = nil;
+        @try { tv = [vc valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
+        if (!tv) @try { tv = [vc valueForKey:@"tv"]; } @catch (__unused NSException *e) {}
+        if ([tv isKindOfClass:[UITableView class]]) {
+            [(UITableView *)tv reloadData];
+        }
+    } @catch (__unused NSException *e) {}
+    // 扫子视图 table
+    @try {
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:vc.view];
+        while (stack.count > 0) {
+            UIView *v = stack.lastObject;
+            [stack removeLastObject];
+            if ([v isKindOfClass:[UITableView class]]) {
+                [(UITableView *)v reloadData];
+            }
+            for (UIView *sub in v.subviews) [stack addObject:sub];
+        }
+    } @catch (__unused NSException *e) {}
+}
+
+void LBApplyCatalogToUI(NSArray *chapters, NSString *bookUrl) {
+    if (![chapters isKindOfClass:[NSArray class]] || chapters.count == 0) return;
+    if (![NSThread isMainThread]) {
+        NSArray *chCopy = [chapters copy];
+        NSString *buCopy = [bookUrl copy];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBApplyCatalogToUI(chCopy, buCopy);
+        });
+        return;
+    }
+    @try {
+        LBCatalogDumpVCTree();
+        NSArray *vcs = LBFindCatalogVCs();
+        if (vcs.count == 0) {
+            LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject pending n=%lu book=%@ (no CatalogVC)",
+                                  (unsigned long)chapters.count, bookUrl ?: @""]);
+            return;
+        }
+        NSMutableArray *targets = [NSMutableArray array];
+        NSUInteger applied = 0;
+        for (UIViewController *vc in vcs) {
+            BOOL wrote = NO;
+            @try {
+                [vc setValue:chapters forKey:@"arrCatalog"];
+                wrote = YES;
+            } @catch (__unused NSException *e) {
+                @try {
+                    if ([vc respondsToSelector:@selector(setArrCatalog:)]) {
+                        ((void (*)(id, SEL, id))objc_msgSend)(vc, @selector(setArrCatalog:), chapters);
+                        wrote = YES;
+                    }
+                } @catch (__unused NSException *e2) {}
+            }
+            if (wrote) {
+                applied++;
+                [targets addObject:[NSString stringWithFormat:@"%@%@",
+                                    NSStringFromClass([vc class]),
+                                    LBVCIsVisibleInWindow(vc) ? @"*" : @""]];
+                LBReloadCatalogVC(vc);
+            }
+        }
+        LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject ok vcs=%lu applied=%lu book=%@ n=%lu targets=%@",
+                              (unsigned long)vcs.count, (unsigned long)applied, bookUrl ?: @"",
+                              (unsigned long)chapters.count, [targets componentsJoinedByString:@","]]);
+        // 原生可能稍后清空，延迟再灌
+        NSArray *chCopy = [chapters copy];
+        NSString *buCopy = [bookUrl copy];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            for (UIViewController *vc in LBFindCatalogVCs()) {
+                @try { [vc setValue:chCopy forKey:@"arrCatalog"]; LBReloadCatalogVC(vc); } @catch (__unused NSException *e) {}
+            }
+        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            for (UIViewController *vc in LBFindCatalogVCs()) {
+                @try { [vc setValue:chCopy forKey:@"arrCatalog"]; LBReloadCatalogVC(vc); } @catch (__unused NSException *e) {}
+            }
+            LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject reapply book=%@ n=%lu",
+                                  buCopy ?: @"", (unsigned long)chCopy.count]);
+        });
+    } @catch (NSException *e) {
+        NSLog(@"[LegadoBridge] LBApplyCatalogToUI fail-open: %@", e);
+        LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject fail: %@", e.reason ?: @""]);
+    }
+}
+
 void LBHandleCatalogRequest(NSString *bookUrl, NSString *sourceUrl) {
     Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
     if (!coreClass) return;
