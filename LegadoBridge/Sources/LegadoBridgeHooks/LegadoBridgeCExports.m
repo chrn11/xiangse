@@ -1150,11 +1150,8 @@ static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString 
     id appDel = [UIApplication sharedApplication].delegate;
     if (appDel) [targets addObject:appDel];
     for (UIViewController *vc in LBFindCatalogVCs()) {
-        if ([vc respondsToSelector:openSel] && ![targets containsObject:vc]) {
-            [targets addObject:vc];
-        }
+        if (![targets containsObject:vc]) [targets addObject:vc];
     }
-    // 导航栈上的详情（CatalogCon 父级）
     for (UIWindow *w in LBAllAppWindows()) {
         UIViewController *root = w.rootViewController;
         if (!root) continue;
@@ -1162,9 +1159,7 @@ static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString 
         while (stack.count > 0) {
             UIViewController *vc = stack.lastObject;
             [stack removeLastObject];
-            if ([vc respondsToSelector:openSel] && ![targets containsObject:vc]) {
-                [targets addObject:vc];
-            }
+            if (![targets containsObject:vc]) [targets addObject:vc];
             for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
             if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
             if ([vc isKindOfClass:[UINavigationController class]]) {
@@ -1177,8 +1172,14 @@ static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString 
     NSMutableArray *tried = [NSMutableArray array];
     for (id t in targets) {
         NSString *cn = NSStringFromClass([t class]);
-        [tried addObject:cn];
-        if (![t respondsToSelector:openSel]) continue;
+        Method m = class_getInstanceMethod(object_getClass(t), openSel);
+        Class walk = [t class];
+        while (!m && walk && walk != [NSObject class]) {
+            m = class_getInstanceMethod(walk, openSel);
+            walk = class_getSuperclass(walk);
+        }
+        [tried addObject:[NSString stringWithFormat:@"%@/%@", cn, m ? @"has" : @"no"]];
+        if (!m) continue;
         @try {
             ((void (*)(id, SEL, id, id, id))objc_msgSend)(
                 t, openSel, book, sourceName ?: @"", nil
@@ -1197,6 +1198,98 @@ static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString 
                    [tried componentsJoinedByString:@","]];
     }
     return NO;
+}
+
+/// openReader 不可靠时：dismiss 目录并 push TextReadVC，再靠 ResetContent 灌正文
+static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, NSString **outMsg) {
+    Class cls = NSClassFromString(@"TextReadVC3");
+    if (!cls) cls = NSClassFromString(@"TextReadVC2");
+    if (!cls) cls = NSClassFromString(@"TextReadVC1");
+    if (!cls) cls = NSClassFromString(@"ReadVCBase1");
+    if (!cls) {
+        if (outMsg) *outMsg = @"pushReader miss: no TextReadVC class";
+        return NO;
+    }
+    id vc = nil;
+    @try {
+        vc = [[cls alloc] init];
+    } @catch (__unused NSException *e) {
+        vc = nil;
+    }
+    if (!vc) {
+        if (outMsg) *outMsg = @"pushReader miss: alloc init failed";
+        return NO;
+    }
+    NSMutableDictionary *dic = [NSMutableDictionary dictionaryWithDictionary:book ?: @{}];
+    if (sourceName.length > 0) {
+        dic[@"sourceName"] = sourceName;
+        dic[@"bookSourceName"] = sourceName;
+        dic[@"querySourceName"] = sourceName;
+    }
+    dic[@"legadoBridge"] = @"1";
+    @try {
+        if ([vc respondsToSelector:@selector(setDicBook:)]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(vc, @selector(setDicBook:), dic);
+        } else {
+            [vc setValue:dic forKey:@"dicBook"];
+        }
+    } @catch (__unused NSException *e) {}
+    // 关掉可见 CatalogCon
+    for (UIViewController *c in LBFindCatalogVCs()) {
+        NSString *cn = NSStringFromClass([c class]);
+        if (![cn containsString:@"Catalog"]) continue;
+        @try {
+            if (c.presentingViewController) {
+                [c dismissViewControllerAnimated:NO completion:nil];
+            } else if (c.navigationController) {
+                [c.navigationController popViewControllerAnimated:NO];
+            }
+        } @catch (__unused NSException *e) {}
+    }
+    UINavigationController *nav = nil;
+    for (UIWindow *w in LBAllAppWindows()) {
+        UIViewController *root = w.rootViewController;
+        if (!root) continue;
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+        while (stack.count > 0) {
+            UIViewController *cur = stack.lastObject;
+            [stack removeLastObject];
+            if ([cur isKindOfClass:[UINavigationController class]]) {
+                UINavigationController *n = (UINavigationController *)cur;
+                if (LBVCIsVisibleInWindow(n.visibleViewController ?: n)) {
+                    nav = n;
+                    break;
+                }
+            }
+            if (cur.navigationController && LBVCIsVisibleInWindow(cur)) {
+                nav = cur.navigationController;
+                break;
+            }
+            for (UIViewController *ch in cur.childViewControllers) [stack addObject:ch];
+            if (cur.presentedViewController) [stack addObject:cur.presentedViewController];
+            if ([cur isKindOfClass:[UITabBarController class]]) {
+                for (UIViewController *ch in [(UITabBarController *)cur viewControllers]) {
+                    [stack addObject:ch];
+                }
+            }
+        }
+        if (nav) break;
+    }
+    if (!nav) {
+        if (outMsg) *outMsg = @"pushReader miss: no nav";
+        return NO;
+    }
+    @try {
+        [nav pushViewController:(UIViewController *)vc animated:YES];
+        if (outMsg) {
+            *outMsg = [NSString stringWithFormat:@"pushReader ok %@ on %@",
+                       NSStringFromClass(cls), NSStringFromClass([nav class])];
+        }
+        return YES;
+    } @catch (NSException *e) {
+        if (outMsg) *outMsg = [NSString stringWithFormat:@"pushReader fail: %@", e.reason ?: @""];
+        return NO;
+    }
 }
 
 void LBNoteResetContentPosted(NSDictionary *userInfo) {
@@ -1323,7 +1416,13 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
                                    dispatch_get_main_queue(), ^{
                         NSString *orm = nil;
-                        LBCallOpenReader(bookCopy, srcCopy, &orm);
+                        BOOL ok = LBCallOpenReader(bookCopy, srcCopy, &orm);
+                        if (!ok) {
+                            NSString *pushMsg = nil;
+                            ok = LBPushTextReaderFallback(bookCopy, srcCopy, &pushMsg);
+                            orm = [NSString stringWithFormat:@"%@ || %@",
+                                   orm ?: @"", pushMsg ?: @""];
+                        }
                         [(orm ?: @"openReader no-msg")
                             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
                              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
