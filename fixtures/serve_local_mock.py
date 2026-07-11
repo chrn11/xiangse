@@ -7,8 +7,8 @@
 并在 0.0.0.0:8765 提供 fixtures/ 静态文件。
 
 用法：
-  python .test_tools/serve_local_mock.py
-  python .test_tools/serve_local_mock.py --port 8765 --probe 192.168.1.6
+  python fixtures/serve_local_mock.py
+  python fixtures/serve_local_mock.py --port 8765 --probe 192.168.1.6
 """
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-ROOT = Path(r"D:\soft\xiangse")
-FIXTURE_DIR = ROOT / "fixtures"
+ROOT = Path(__file__).resolve().parents[1]
+FIXTURE_DIR = Path(__file__).resolve().parent
 TEMPLATE = FIXTURE_DIR / "legado-local-mock.json"
 RUNTIME = FIXTURE_DIR / "legado-local-mock.runtime.json"
 DEFAULT_PROBE = "192.168.1.6"
