@@ -1181,8 +1181,13 @@ static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString 
         [tried addObject:[NSString stringWithFormat:@"%@/%@", cn, m ? @"has" : @"no"]];
         if (!m) continue;
         @try {
+            NSMutableDictionary *mutableBook =
+                [book isKindOfClass:[NSMutableDictionary class]]
+                    ? (NSMutableDictionary *)book
+                    : [(book ?: @{}) mutableCopy];
+            if (!mutableBook) mutableBook = [NSMutableDictionary dictionary];
             ((void (*)(id, SEL, id, id, id))objc_msgSend)(
-                t, openSel, book, sourceName ?: @"", nil
+                t, openSel, mutableBook, sourceName ?: @"", nil
             );
             if (outMsg) {
                 *outMsg = [NSString stringWithFormat:@"openReader ok on %@ src=%@",
@@ -1427,7 +1432,8 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                     );
                     NSString *chCopy = [chUrl copy];
                     NSString *buCopy = [bookUrl copy];
-                    NSDictionary *bookCopy = [book copy];
+                    // openReader 会对 book 做下标赋值；必须传可变副本，不能 [book copy]
+                    NSMutableDictionary *bookCopy = [book mutableCopy] ?: [NSMutableDictionary dictionary];
                     NSString *srcCopy = [sourceName copy] ?: @"";
                     // 1) 原生 didSelect：关掉 CatalogCon / 详情回调
                     // 2) 延迟 AppDelegate.openReader（立即调常被目录 dismiss 冲掉）
