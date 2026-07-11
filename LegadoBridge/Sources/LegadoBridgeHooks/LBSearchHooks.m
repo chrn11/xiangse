@@ -167,7 +167,7 @@ void LBInstallSearchHooks(void) {
                                 [[NSFileManager defaultManager] removeItemAtPath:reqPath error:NULL];
                                 [[NSString stringWithFormat:@"ack key=%@ src=%@", keyword, sourceUrl ?: @"all"]
                                     writeToFile:ackPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                                LBHandleSearchRequest(keyword, sourceUrl.length > 0 ? sourceUrl : nil);
+                                LBTriggerMixedSearch(keyword, sourceUrl.length > 0 ? sourceUrl : nil);
                             } else {
                                 [[NSFileManager defaultManager] removeItemAtPath:reqPath error:NULL];
                                 [@"err missing keyword" writeToFile:ackPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];

@@ -130,6 +130,46 @@ final class BookBindingStoreTests: XCTestCase {
         XCTAssertEqual(dict["sourceUrl"] as? String, r.sourceUrl)
     }
 
+    /// 回归：原生 onSearchBookSourceResponse 消费 queryBook（字典），
+    /// 旧实现把 [dict] 塞进 searchBook 会导致有引擎结果但列表空。
+    func testSearchNotifyPayloadUsesQueryBookDict() {
+        var r = SearchBookResult()
+        r.name = "斗破苍穹"
+        r.author = "天蚕土豆"
+        r.bookUrl = "http://mock.local/book/doupo.html"
+        r.sourceUrl = "http://mock.local"
+        r.sourceName = "本地静态测试源"
+        let binding = store.bind(
+            bookUrl: r.bookUrl,
+            sourceUrl: r.sourceUrl,
+            sourceName: r.sourceName,
+            name: r.name,
+            author: r.author
+        )
+        let book = XiangseAdapter.searchBookDict(r, binding: binding)
+        let payload = XiangseAdapter.searchResultNotifyPayload(
+            book: book,
+            keyword: "斗破",
+            sourceUrl: r.sourceUrl,
+            sourceName: r.sourceName
+        )
+        XCTAssertTrue(payload["queryBook"] is [String: Any])
+        XCTAssertTrue(payload["searchBook"] is [String: Any])
+        XCTAssertEqual((payload["queryBook"] as? [String: Any])?["bookName"] as? String, "斗破苍穹")
+        XCTAssertEqual(payload["querySourceName"] as? String, "本地静态测试源")
+        XCTAssertEqual(payload["sourceName"] as? String, "本地静态测试源")
+        XCTAssertEqual((payload["arrSearchItems"] as? [[String: Any]])?.count, 1)
+
+        let batch = XiangseAdapter.searchResultsPayload(
+            results: [r],
+            keyword: "斗破",
+            sourceUrl: r.sourceUrl,
+            bindings: [r.bookUrl: binding]
+        )
+        XCTAssertTrue(batch["queryBook"] is [String: Any], "单本批量载荷的 queryBook 须为字典")
+        XCTAssertTrue(batch["searchBook"] is [String: Any], "单本时 searchBook 须为字典而非数组")
+    }
+
     // MARK: - fixtures
 
     private static func sampleSource(url: String, name: String) -> [String: Any] {

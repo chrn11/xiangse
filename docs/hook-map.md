@@ -91,7 +91,18 @@ sequenceDiagram
 
 ### 输出适配（XiangseAdapter）
 
-香色闺阁 `SearchBook` 字段映射：
+香色闺阁搜索通知 `dNotifyName_SearchBookSourceResponse` 键（按二进制邻接串对齐）：
+
+| 键 | 含义 |
+|----|------|
+| `queryBook` | **单本**结果字典（原生主消费键；勿传数组） |
+| `querySourceName` | 来源站点名 |
+| `queryingSourceNameList` | 正在查询的源名列表 |
+| `tempBook` | 同 `queryBook`（兼容） |
+| `searchBook` | 兼容键；**必须是字典**。传 `NSArray` 会导致 `objectForKey:` 静默失败 → 引擎有结果但列表空 |
+| `arrSearchItems` / `arrSearchBook` | 数组形式备份 |
+
+`SearchBook` 字段映射：
 
 | Legado | 香色闺阁键 |
 |--------|-----------|
@@ -103,6 +114,8 @@ sequenceDiagram
 | `kind` | `kind` / `type` |
 | `lastChapter` | `lastChapterTitle` |
 | `sourceUrl` | `sourceUrl`（Legado 扩展标记 `legadoBridge=1`） |
+
+深链 `legado://search` / 沙盒 `legado_search_request.json` 须走 `LBTriggerMixedSearch`（优先 `startSearch`），以建立原生搜索会话后再由 coexist Hook 踢引擎；禁止只调 `handleSearchRequest` 却期望 UI 刷新。
 
 ### 实现文件
 

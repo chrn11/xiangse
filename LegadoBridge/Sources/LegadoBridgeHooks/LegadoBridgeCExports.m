@@ -39,6 +39,46 @@ void LBHandleSearchRequest(NSString *keyword, NSString *sourceUrl) {
     );
 }
 
+/// 优先走原生 startSearch，建立 dicSearchingBook / 搜索页监听态，再由 coexist Hook 踢 Legado。
+/// 深链/沙盒旁路若只调 handleSearchRequest，引擎有结果但 UI 无观察者 → 空列表。
+void LBTriggerMixedSearch(NSString *keyword, NSString *sourceUrl) {
+    NSString *kw = keyword ?: @"";
+    if (kw.length == 0) return;
+    // startSearch / UI 必须在主线程；沙盒 poller 在后台队列
+    if (![NSThread isMainThread]) {
+        NSString *kwCopy = [kw copy];
+        NSString *urlCopy = [sourceUrl copy];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBTriggerMixedSearch(kwCopy, urlCopy);
+        });
+        return;
+    }
+
+    Class managerClass = NSClassFromString(@"BookSourceManager");
+    if (!managerClass) managerClass = NSClassFromString(@"BookSourceManagerBase");
+    id mgr = nil;
+    if (managerClass && [managerClass respondsToSelector:@selector(sharedInstance)]) {
+        mgr = ((id (*)(Class, SEL))objc_msgSend)(managerClass, @selector(sharedInstance));
+    }
+    SEL searchSel = NSSelectorFromString(@"startSearch:prioritySourceType:fromShuping:quick:");
+    if (mgr && [mgr respondsToSelector:searchSel]) {
+        // type 传 nil：与 Hook 签名 (id) 一致；Hook 内会并存踢 Legado 全源
+        BOOL ok = ((BOOL (*)(id, SEL, NSString *, id, BOOL, BOOL))objc_msgSend)(
+            mgr, searchSel, kw, nil, NO, NO
+        );
+        NSString *marker = [NSString stringWithFormat:@"triggerMixed startSearch ok=%d key=%@ src=%@",
+                            (int)ok, kw, sourceUrl ?: @"all"];
+        [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_trigger.txt"]
+                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        if (!ok) {
+            // 原生未启动且 Hook 未接管时，兜底直调引擎（仍 post 通知）
+            LBHandleSearchRequest(kw, sourceUrl.length > 0 ? sourceUrl : nil);
+        }
+        return;
+    }
+    LBHandleSearchRequest(kw, sourceUrl.length > 0 ? sourceUrl : nil);
+}
+
 void LBHandleCatalogRequest(NSString *bookUrl, NSString *sourceUrl) {
     Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
     if (!coreClass) return;

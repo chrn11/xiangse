@@ -14,6 +14,8 @@ enum XiangseAdapter {
     /// 书源可用性（删源后保留书籍时为 0）
     static let sourceAvailableKey = "legadoSourceAvailable"
 
+    /// 批量结果载荷（调试/兼容）。原生 `onSearchBookSourceResponse:` 实际消费的是
+    /// **单本** `queryBook`（见 `searchResultNotifyPayload`）；批量场景请逐条 post。
     static func searchResultsPayload(
         results: [SearchBookResult],
         keyword: String,
@@ -23,12 +25,55 @@ enum XiangseAdapter {
         let books = results.map { r -> [String: Any] in
             searchBookDict(r, binding: bindings[r.bookUrl])
         }
+        let sourceName = results.first?.sourceName
+            ?? bindings.values.first?.sourceName
+            ?? ""
+        var payload: [String: Any] = [
+            "keyword": keyword,
+            "sourceUrl": sourceUrl,
+            "sourceName": sourceName,
+            "querySourceName": sourceName,
+            "queryingSourceNameList": sourceName.isEmpty ? [] : [sourceName],
+            legadoMarkerKey: legadoMarkerValue,
+            "arrSearchBook": books,
+            "arrSearchItems": books,
+            "fromLegadoBridge": true
+        ]
+        // 原生监听侧期望 searchBook/queryBook 为字典；数组会被 objectForKey 静默丢弃 → 空列表
+        if let first = books.first {
+            payload["queryBook"] = first
+            payload["tempBook"] = first
+            payload["searchBook"] = books.count == 1 ? first : books
+        } else {
+            payload["searchBook"] = books
+        }
+        return payload
+    }
+
+    /// 单本增量通知载荷：对齐香色 `dNotifyName_SearchBookSourceResponse` 键
+    ///（二进制邻接串：`queryBook` / `querySourceName` / `queryingSourceNameList` / `tempBook`）。
+    static func searchResultNotifyPayload(
+        book: [String: Any],
+        keyword: String,
+        sourceUrl: String,
+        sourceName: String
+    ) -> [String: Any] {
+        let name = sourceName.isEmpty
+            ? ((book["sourceName"] as? String) ?? (book["bookSourceName"] as? String) ?? "")
+            : sourceName
         return [
             "keyword": keyword,
             "sourceUrl": sourceUrl,
+            "sourceName": name,
+            "querySourceName": name,
+            "queryingSourceNameList": name.isEmpty ? [] : [name],
+            "queryBook": book,
+            "tempBook": book,
+            // 兼容旧键：必须是字典，不能是数组
+            "searchBook": book,
+            "arrSearchBook": [book],
+            "arrSearchItems": [book],
             legadoMarkerKey: legadoMarkerValue,
-            "searchBook": books,
-            "arrSearchBook": books,
             "fromLegadoBridge": true
         ]
     }

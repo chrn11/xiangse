@@ -352,7 +352,7 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                 [[NSString stringWithFormat:@"openURL search key=%@ src=%@", keyword, sourceUrl ?: @"all"]
                     writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_openurl.txt"]
                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                LBHandleSearchRequest(keyword, sourceUrl.length > 0 ? sourceUrl : nil);
+                LBTriggerMixedSearch(keyword, sourceUrl.length > 0 ? sourceUrl : nil);
                 return YES;
             }
             if (src.length > 0) {

@@ -6,6 +6,7 @@ analysis/payload.zip
 DerivedData/
 .build/
 LegadoBridge/.build/
+fixtures/*.runtime.json
 # 默认排除 IPA，但放行 ipa/ 目录下的源 IPA（用于 CI 重打包）
 *.ipa
 !ipa/*.ipa

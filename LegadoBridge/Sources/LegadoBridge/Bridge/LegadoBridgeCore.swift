@@ -471,14 +471,28 @@ import LegadoRuleCore
                         )
                     }
                     total += results.count
-                    var payload = XiangseAdapter.searchResultsPayload(
-                        results: results,
-                        keyword: "explore",
-                        sourceUrl: source.bookSourceUrl,
-                        bindings: bindings
-                    )
-                    payload["fromExplore"] = true
-                    postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
+                    // 逐本 post，键对齐原生 queryBook；避免 searchBook=数组导致 UI 空列表
+                    for r in results {
+                        let book = XiangseAdapter.searchBookDict(r, binding: bindings[r.bookUrl])
+                        var payload = XiangseAdapter.searchResultNotifyPayload(
+                            book: book,
+                            keyword: "explore",
+                            sourceUrl: source.bookSourceUrl,
+                            sourceName: r.sourceName
+                        )
+                        payload["fromExplore"] = true
+                        postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
+                    }
+                    if results.isEmpty {
+                        var empty = XiangseAdapter.searchResultsPayload(
+                            results: [],
+                            keyword: "explore",
+                            sourceUrl: source.bookSourceUrl,
+                            bindings: [:]
+                        )
+                        empty["fromExplore"] = true
+                        postNotification(XiangseAdapter.notifySearchResponse, userInfo: empty)
+                    }
                 } catch {
                     writeSearchMarker("explore err src=\(source.bookSourceUrl) \(error.localizedDescription)")
                 }
@@ -595,13 +609,30 @@ import LegadoRuleCore
                             bindings[r.bookUrl] = binding
                         }
                         totalCount += results.count
-                        let payload = XiangseAdapter.searchResultsPayload(
-                            results: results,
-                            keyword: keyword,
-                            sourceUrl: srcUrl,
-                            bindings: bindings
-                        )
-                        self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
+                        // 逐本增量通知：原生 onSearchBookSourceResponse 消费 queryBook（字典）
+                        // 旧实现把数组塞进 searchBook → 类型不匹配 → 引擎有结果但 UITableView 空
+                        let sourceName = results.first?.sourceName
+                            ?? SourceRegistry.shared.exactSource(forUrl: srcUrl)?.bookSourceName
+                            ?? ""
+                        for r in results {
+                            let book = XiangseAdapter.searchBookDict(r, binding: bindings[r.bookUrl])
+                            let payload = XiangseAdapter.searchResultNotifyPayload(
+                                book: book,
+                                keyword: keyword,
+                                sourceUrl: srcUrl,
+                                sourceName: r.sourceName.isEmpty ? sourceName : r.sourceName
+                            )
+                            self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
+                        }
+                        if results.isEmpty {
+                            let payload = XiangseAdapter.searchResultsPayload(
+                                results: [],
+                                keyword: keyword,
+                                sourceUrl: srcUrl,
+                                bindings: [:]
+                            )
+                            self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
+                        }
                     case .failure(let error):
                         // 单源失败不阻断其他源
                         self.writeSearchMarker("partial err src=\(srcUrl) \(error.localizedDescription)")
