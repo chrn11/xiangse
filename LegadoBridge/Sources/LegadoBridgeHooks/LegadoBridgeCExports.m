@@ -1,7 +1,9 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <objc/message.h>
+#import <objc/runtime.h>
 #import "LegadoBridge.h"
+#import "LBInternal.h"
 
 @class LegadoBridgeCore;
 
@@ -83,6 +85,11 @@ void LBTriggerMixedSearch(NSString *keyword, NSString *sourceUrl) {
 /// 真机闭环根因：通知 dNotifyName_SearchBookSourceResponse 的 handler 不在 BookSearchController；
 /// 列表行数读的是 arrBaseData（LCTableViewControllerBase_Plain），且 dataSource 可能是
 /// 断裂的 _UIFilteredDataSource → 引擎有结果 / arrSearchItems 有条目但 UITableView 仍空。
+/// 深链搜索时常尚未 push 搜索页 → 需 pending，等 viewDidAppear 再灌入。
+static NSMutableArray *sPendingSearchBooks;
+static NSString *sPendingSearchKeyword;
+static BOOL sSearchUIAppearHooked;
+
 static void LBCollectBookSearchVCs(UIViewController *vc, NSMutableArray *out) {
     if (!vc) return;
     NSString *cn = NSStringFromClass([vc class]);
@@ -109,6 +116,32 @@ static void LBCollectBookSearchVCs(UIViewController *vc, NSMutableArray *out) {
             LBCollectBookSearchVCs(tab.selectedViewController, out);
         }
     }
+}
+
+static NSArray<UIWindow *> *LBAllAppWindows(void) {
+    NSMutableArray *wins = [NSMutableArray array];
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+                if (w) [wins addObject:w];
+            }
+        }
+    }
+    for (UIWindow *w in UIApplication.sharedApplication.windows) {
+        if (w && ![wins containsObject:w]) [wins addObject:w];
+    }
+    UIWindow *key = LBLegadoKeyWindow();
+    if (key && ![wins containsObject:key]) [wins addObject:key];
+    return wins;
+}
+
+static NSArray *LBFindBookSearchVCs(void) {
+    NSMutableArray *vcs = [NSMutableArray array];
+    for (UIWindow *win in LBAllAppWindows()) {
+        LBCollectBookSearchVCs(win.rootViewController, vcs);
+    }
+    return vcs;
 }
 
 static NSString *LBSearchBookKey(NSDictionary *book) {
@@ -223,6 +256,46 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
     } @catch (__unused NSException *e) {}
 }
 
+static void LBFlushPendingSearchUI(void) {
+    if (sPendingSearchBooks.count == 0) return;
+    NSArray *books = [sPendingSearchBooks copy];
+    NSString *kw = [sPendingSearchKeyword copy];
+    NSArray *vcs = LBFindBookSearchVCs();
+    if (vcs.count == 0) return;
+    for (UIViewController *vc in vcs) {
+        for (id b in books) {
+            if (![b isKindOfClass:[NSDictionary class]]) continue;
+            LBMergeBookIntoSearchVC(vc, b, kw);
+        }
+    }
+    [sPendingSearchBooks removeAllObjects];
+    NSString *marker = [NSString stringWithFormat:@"uiInject flush ok vcs=%lu books=%lu key=%@",
+                        (unsigned long)vcs.count, (unsigned long)books.count, kw ?: @""];
+    [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+}
+
+void LBInstallSearchUIAppearFlush(void) {
+    if (sSearchUIAppearHooked) return;
+    sSearchUIAppearHooked = YES;
+    NSArray *names = @[@"BookSearchController", @"BookSearchVCBase1", @"BookSearchVCBase2"];
+    for (NSString *cn in names) {
+        Class cls = NSClassFromString(cn);
+        if (!cls) continue;
+        SEL sel = @selector(viewDidAppear:);
+        Method m = class_getInstanceMethod(cls, sel);
+        if (!m) continue;
+        IMP orig = method_getImplementation(m);
+        IMP hook = imp_implementationWithBlock(^void(id self, BOOL animated) {
+            ((void (*)(id, SEL, BOOL))orig)(self, sel, animated);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                LBFlushPendingSearchUI();
+            });
+        });
+        method_setImplementation(m, hook);
+    }
+}
+
 void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
     if (![books isKindOfClass:[NSArray class]] || books.count == 0) return;
     if (![NSThread isMainThread]) {
@@ -233,28 +306,42 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
         });
         return;
     }
-    NSMutableArray *vcs = [NSMutableArray array];
-    for (UIWindow *win in UIApplication.sharedApplication.windows) {
-        LBCollectBookSearchVCs(win.rootViewController, vcs);
+    LBInstallSearchUIAppearFlush();
+    if (!sPendingSearchBooks) sPendingSearchBooks = [NSMutableArray array];
+    // 合并进 pending（同 key 去重）
+    for (id b in books) {
+        if (![b isKindOfClass:[NSDictionary class]]) continue;
+        NSString *k = LBSearchBookKey(b);
+        BOOL exists = NO;
+        for (id cur in sPendingSearchBooks) {
+            if ([cur isKindOfClass:[NSDictionary class]] && [LBSearchBookKey(cur) isEqualToString:k]) {
+                exists = YES;
+                break;
+            }
+        }
+        if (!exists) [sPendingSearchBooks addObject:b];
     }
+    if (keyword.length > 0) sPendingSearchKeyword = [keyword copy];
+
+    NSArray *vcs = LBFindBookSearchVCs();
     if (vcs.count == 0) {
-        NSString *marker = [NSString stringWithFormat:@"uiInject skip no BookSearchVC n=%lu key=%@",
-                            (unsigned long)books.count, keyword ?: @""];
+        NSString *marker = [NSString stringWithFormat:@"uiInject pending n=%lu key=%@ (no BookSearchVC yet)",
+                            (unsigned long)sPendingSearchBooks.count, keyword ?: @""];
         [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
                  atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         return;
     }
     NSUInteger applied = 0;
     for (UIViewController *vc in vcs) {
-        for (id b in books) {
+        for (id b in sPendingSearchBooks) {
             if (![b isKindOfClass:[NSDictionary class]]) continue;
-            LBMergeBookIntoSearchVC(vc, b, keyword);
+            LBMergeBookIntoSearchVC(vc, b, keyword ?: sPendingSearchKeyword);
             applied++;
         }
     }
-    NSString *marker = [NSString stringWithFormat:@"uiInject ok vcs=%lu books=%lu applied=%lu key=%@",
-                        (unsigned long)vcs.count, (unsigned long)books.count,
-                        (unsigned long)applied, keyword ?: @""];
+    [sPendingSearchBooks removeAllObjects];
+    NSString *marker = [NSString stringWithFormat:@"uiInject ok vcs=%lu applied=%lu key=%@",
+                        (unsigned long)vcs.count, (unsigned long)applied, keyword ?: @""];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 }

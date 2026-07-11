@@ -8,6 +8,9 @@
 void LBInstallSearchHooks(void) {
     @try {
         NSMutableArray *installed = [NSMutableArray array];
+        // 搜索页出现时冲刷 pending 结果
+        LBInstallSearchUIAppearFlush();
+        [installed addObject:@"uiAppearFlush"];
 
         Class managerClass = NSClassFromString(@"BookSourceManager");
         if (!managerClass) {
