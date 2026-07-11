@@ -18,6 +18,43 @@ func resolveUrl(_ url: String, baseUrl: String?) -> String {
     return URL(string: url, relativeTo: baseURL)?.absoluteString ?? url
 }
 
+/// Legado CSS 扩展选择器：`text.` / `class.` / `id.` / `tag.`（Android AnalyzeByJSoup 同款前缀）
+/// SwiftSoup 原生不识 `text.目录`，直接 select 会空结果 → tocUrl 回落 bookUrl → 目录空。
+enum LegadoCSSSelect {
+    static func elements(in root: SwiftSoup.Element, selector: String) throws -> [SwiftSoup.Element] {
+        let s = selector.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.isEmpty { return [root] }
+
+        if s.hasPrefix("text.") {
+            let needle = String(s.dropFirst(5))
+            guard !needle.isEmpty else { return [] }
+            return try root.getAllElements().array().filter { el in
+                let own = (try? el.ownText()) ?? ""
+                if own.contains(needle) { return true }
+                // 部分节点 ownText 为空，回退完整 text（精确或包含）
+                if own.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let full = (try? el.text()) ?? ""
+                    return full == needle || full.contains(needle)
+                }
+                return false
+            }
+        }
+        if s.hasPrefix("class.") {
+            return try root.getElementsByClass(String(s.dropFirst(6))).array()
+        }
+        if s.hasPrefix("id.") {
+            if let el = try root.getElementById(String(s.dropFirst(3))) {
+                return [el]
+            }
+            return []
+        }
+        if s.hasPrefix("tag.") {
+            return try root.getElementsByTag(String(s.dropFirst(4))).array()
+        }
+        return try root.select(s).array()
+    }
+}
+
 // MARK: - 元素上下文（用于列表项提取）
 class ElementContext {
     var element: Any      // SwiftSoup.Element, JSON dict, 或 String
@@ -519,9 +556,9 @@ class RuleEngine {
                 return ElementContext(element: html, baseUrl: baseUrl)
             }
         } else {
-            // CSS
-            let selected = try doc.select(rule)
-            elements = selected.array().map { ElementContext(element: $0, baseUrl: baseUrl) }
+            // CSS（含 Legado text./class./id./tag.）
+            let selected = try LegadoCSSSelect.elements(in: doc, selector: rule)
+            elements = selected.map { ElementContext(element: $0, baseUrl: baseUrl) }
         }
         
         if reverse { elements.reverse() }
@@ -621,8 +658,8 @@ class RuleEngine {
             return try extractAttr(element: element, attr: attr, baseUrl: baseUrl)
         }
         
-        // 执行选择器
-        guard let found = try element.select(rule).first() else {
+        // 执行选择器（含 Legado text./class./id./tag. 前缀）
+        guard let found = try LegadoCSSSelect.elements(in: element, selector: rule).first else {
             return ""
         }
         
@@ -818,18 +855,18 @@ class RuleEngine {
 
         do {
             if let document = input as? SwiftSoup.Document {
-                let elements = selector.isEmpty ? [document] : try document.select(selector).array()
+                let elements = try LegadoCSSSelect.elements(in: document, selector: selector)
                 return mapCSSElements(elements, attr: attr, baseUrl: baseUrl)
             }
 
             if let element = input as? SwiftSoup.Element {
-                let elements = selector.isEmpty ? [element] : try element.select(selector).array()
+                let elements = try LegadoCSSSelect.elements(in: element, selector: selector)
                 return mapCSSElements(elements, attr: attr, baseUrl: baseUrl)
             }
 
             if let string = input as? String {
                 let document = try SwiftSoup.parse(string)
-                let elements = selector.isEmpty ? [document] : try document.select(selector).array()
+                let elements = try LegadoCSSSelect.elements(in: document, selector: selector)
                 return mapCSSElements(elements, attr: attr, baseUrl: baseUrl)
             }
         } catch {
@@ -902,24 +939,12 @@ class CSSParser: RuleExecutor {
         let baseUrl = context.baseURL?.absoluteString
 
         if let document = context.document as? SwiftSoup.Document {
-            if selector.isEmpty {
-                elements = [document]
-            } else {
-                elements = try document.select(selector).array()
-            }
+            elements = try LegadoCSSSelect.elements(in: document, selector: selector)
         } else if let element = context.document as? SwiftSoup.Element {
-            if selector.isEmpty {
-                elements = [element]
-            } else {
-                elements = try element.select(selector).array()
-            }
+            elements = try LegadoCSSSelect.elements(in: element, selector: selector)
         } else if let html = context.document as? String {
             let document = try SwiftSoup.parse(html)
-            if selector.isEmpty {
-                elements = [document]
-            } else {
-                elements = try document.select(selector).array()
-            }
+            elements = try LegadoCSSSelect.elements(in: document, selector: selector)
         } else {
             throw RuleError.noDocument
         }

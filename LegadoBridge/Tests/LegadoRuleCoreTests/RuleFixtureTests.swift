@@ -28,6 +28,24 @@ final class RuleFixtureTests: XCTestCase {
         XCTAssertTrue(name.contains("夹具之书"), "CSS 应取出书名，实际: \(name)")
     }
 
+    func testLegadoTextSelectorExtractsHref() throws {
+        let body = """
+        <html><body>
+        <h1>斗破苍穹</h1>
+        <p><a href="/book/doupo_toc.html">目录</a></p>
+        </body></html>
+        """
+        let href = try RuleWebBook.evaluateString(
+            rule: "@css:text.目录@href",
+            body: body,
+            baseUrl: "http://192.168.1.4:8765/book/doupo.html"
+        )
+        XCTAssertTrue(
+            href.contains("doupo_toc.html"),
+            "text.目录@href 应解析到目录页，实际: \(href)"
+        )
+    }
+
     func testCSSListCount() throws {
         let count = try RuleWebBook.evaluateElementCount(
             rule: "@css:.book-item",

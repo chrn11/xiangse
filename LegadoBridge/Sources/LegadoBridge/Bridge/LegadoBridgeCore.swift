@@ -691,8 +691,8 @@ import LegadoBridgeHooks
                 )
                 book.sourceUrl = source.bookSourceUrl
                 book.sourceName = source.bookSourceName
-                // 搜索缓存通常无 tocUrl；详情页 HTML 往往没有 #list，须先 getBookInfo 解析目录页
-                if book.tocUrl.isEmpty {
+                // 搜索缓存常无 tocUrl；getBookInfo 失败时也会把 tocUrl 写成 bookUrl，须重跑资料页
+                if book.tocUrl.isEmpty || book.tocUrl == book.bookUrl {
                     _ = try await BridgeWebBook.getBookInfo(source: source, book: &book)
                 }
                 let chapters = try await BridgeWebBook.getChapterList(source: source, book: book)
