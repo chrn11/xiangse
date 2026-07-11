@@ -1281,7 +1281,6 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                     if (LBArrayLooksLegado(b)) use = b;
                 } @catch (__unused NSException *e) {}
             }
-            BOOL openedReader = NO;
             if (use.count > 0 && ip && ip.row >= 0 && ip.row < (NSInteger)use.count) {
                 LBTrySetArrayKey(selfObj, @"arrCatalog", use);
                 id item = use[(NSUInteger)ip.row];
@@ -1302,31 +1301,45 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                                      chUrl, bookUrl, (long)ip.row];
                     [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_select.txt"]
                           atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                    // 先 openReader（AppDelegate），再取正文——ResetContent 需 ReadVC 已在监听
                     LBInstallReaderContentAppearFlush();
                     NSString *sourceName = nil;
                     NSDictionary *book = LBBookDictForOpenReader(
                         bookUrl, item, ip.row, chUrl, &sourceName
                     );
-                    NSString *orm = nil;
-                    openedReader = LBCallOpenReader(book, sourceName, &orm);
-                    [(orm ?: @"openReader no-msg")
-                        writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                     NSString *chCopy = [chUrl copy];
                     NSString *buCopy = [bookUrl copy];
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                    NSDictionary *bookCopy = [book copy];
+                    NSString *srcCopy = [sourceName copy] ?: @"";
+                    // 1) 原生 didSelect：关掉 CatalogCon / 详情回调
+                    // 2) 延迟 AppDelegate.openReader（立即调常被目录 dismiss 冲掉）
+                    // 3) 再取正文 + appear/delay 重投 ResetContent
+                    if (LBOrig_catalogDidSelect) {
+                        @try {
+                            LBOrig_catalogDidSelect(selfObj, selSel, tv, ip);
+                        } @catch (NSException *e) {
+                            NSLog(@"[LegadoBridge] catalog didSelect fail-open: %@", e);
+                        }
+                    }
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
+                                   dispatch_get_main_queue(), ^{
+                        NSString *orm = nil;
+                        LBCallOpenReader(bookCopy, srcCopy, &orm);
+                        [(orm ?: @"openReader no-msg")
+                            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+                             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                    });
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.55 * NSEC_PER_SEC)),
                                    dispatch_get_main_queue(), ^{
                         LBHandleContentRequest(chCopy, buCopy, nil);
                     });
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.4 * NSEC_PER_SEC)),
                                    dispatch_get_main_queue(), ^{
-                        LBFlushPendingResetContent(@"delay1s");
+                        LBFlushPendingResetContent(@"delay1.4s");
                     });
+                    return;
                 }
             }
-            // openReader 成功则不再走原生 didSelect（arrCatalog 常为空会空转）
-            if (!openedReader && LBOrig_catalogDidSelect) {
+            if (LBOrig_catalogDidSelect) {
                 @try {
                     LBOrig_catalogDidSelect(selfObj, selSel, tv, ip);
                 } @catch (NSException *e) {
