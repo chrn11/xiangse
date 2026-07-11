@@ -127,7 +127,10 @@ void LBLegadoPresentManagerVC(NSString *focusSourceUrl) {
     }
     UIViewController *managerVC = [[managerVCClass alloc] init];
     if (focusSourceUrl.length > 0 && [managerVC respondsToSelector:@selector(setFocusSourceUrl:)]) {
-        [(id)managerVC setFocusSourceUrl:focusSourceUrl];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        [managerVC performSelector:@selector(setFocusSourceUrl:) withObject:focusSourceUrl];
+#pragma clang diagnostic pop
     }
     UINavigationController *nav = rootVC.navigationController;
     if (!nav && [rootVC isKindOfClass:[UINavigationController class]]) {

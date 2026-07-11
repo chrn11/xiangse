@@ -430,6 +430,8 @@ static void LBInstallDidSelectAndOpenModelOnClass(Class requested) {
     }
 }
 
+static void LBInstallNativeSourceListLegadoButton(void);
+
 void LBInstallSourceListHooks(void) {
     @try {
     Class managerClass = NSClassFromString(@"BookSourceModelManager");
@@ -544,8 +546,6 @@ void LBInstallSourceListHooks(void) {
         NSLog(@"[LegadoBridge] source list hooks exception: %@", e);
     }
 }
-
-static void LBInstallNativeSourceListLegadoButton(void);
 
 /// 站点管理页「Legado」按钮的 target（替代启动强弹窗入口）
 @interface LBLegadoBarButtonTarget : NSObject
