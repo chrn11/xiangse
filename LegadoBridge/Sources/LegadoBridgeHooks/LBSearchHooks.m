@@ -36,16 +36,13 @@ void LBInstallSearchHooks(void) {
                       NSStringFromClass(managerClass), canTypes);
             }
 
+            // 注意：搜索路径禁止把 Legado 源名并入原生 sortedNames。
+            // 否则 searchWord:/startSearch 会把 Legado 名当原生 BookSource 发 selector → forwarding SIGABRT。
+            // Legado 搜索由下方 startSearch coexist / LBTriggerMixedSearch 单独踢；源列表 UI 的合并在 LBSourceListHooks。
             SEL sortedPriSel = @selector(getSortedSourceNamesByPrioritySourceType:);
             Method sortedPriMethod = class_getInstanceMethod(managerClass, sortedPriSel);
             if (sortedPriMethod) {
-                IMP priOrig = method_getImplementation(sortedPriMethod);
-                IMP priHook = imp_implementationWithBlock(^NSArray *(id self, id priorityType) {
-                    NSArray *orig = ((NSArray * (*)(id, SEL, id))priOrig)(self, sortedPriSel, priorityType) ?: @[];
-                    return LBMergeLegadoNames(orig);
-                });
-                method_setImplementation(sortedPriMethod, priHook);
-                [installed addObject:@"sortedByPri"];
+                [installed addObject:@"sortedByPriNativeOnly"];
             }
 
             // 关键：先原生，再并行踢 Legado 全源；绝不因有 Legado 而吞掉原生
@@ -109,12 +106,25 @@ void LBInstallSearchHooks(void) {
                 continue;
             }
             IMP swOrig = method_getImplementation(own);
+            // 真机 213746：UISearchBar return → searchWord → 原生对毒化源名 forwarding → SIGABRT
+            // （legado://search 只走 startSearch@try，上次复验漏掉本 UI 路径）
             IMP swHook = imp_implementationWithBlock(^BOOL(id self, NSString *word) {
+                NSString *kw = [word isKindOfClass:[NSString class]] ? word : @"";
                 if (LBLegadoGetSourceNames().count > 0) {
-                    ((BOOL (*)(id, SEL, NSString *))swOrig)(self, @selector(searchWord:), word);
+                    @try {
+                        // 有 Legado：跳过原生 searchWord（易崩），直接走共存 startSearch
+                        LBTriggerMixedSearch(kw, nil);
+                    } @catch (NSException *e) {
+                        NSLog(@"[LegadoBridge] searchWord Legado path fail-open: %@", e);
+                    }
                     return YES;
                 }
-                return ((BOOL (*)(id, SEL, NSString *))swOrig)(self, @selector(searchWord:), word);
+                @try {
+                    return ((BOOL (*)(id, SEL, NSString *))swOrig)(self, @selector(searchWord:), kw);
+                } @catch (NSException *e) {
+                    NSLog(@"[LegadoBridge] searchWord native fail-open: %@", e);
+                    return NO;
+                }
             });
             method_setImplementation(own, swHook);
             [installed addObject:[NSString stringWithFormat:@"searchWord:%@", cn]];
