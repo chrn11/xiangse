@@ -2,6 +2,7 @@
 #define LegadoBridge_h
 
 #import <Foundation/Foundation.h>
+#import "LBCapabilityRegistry.h"
 
 FOUNDATION_EXPORT void LBInstallHooks(void);
 
@@ -13,7 +14,10 @@ FOUNDATION_EXPORT void LBHandleContentRequest(NSString *chapterUrl, NSString *bo
 
 FOUNDATION_EXPORT NSString *LBBridgeVersion(void);
 
-/// 弹出 Legado 书源导入 alert（URL / 粘贴 JSON）
+/// 弹出 Legado 书源导入 alert（URL / 粘贴 JSON）；仅用户主动触发，不再启动强弹
 FOUNDATION_EXPORT void LBShowLegadoImportAlert(void);
+
+/// 打开 Legado 书源管理页；sourceUrl 非空时自动进入该源编辑器
+FOUNDATION_EXPORT void LBPresentLegadoSourceManager(NSString * _Nullable sourceUrl);
 
 #endif /* LegadoBridge_h */

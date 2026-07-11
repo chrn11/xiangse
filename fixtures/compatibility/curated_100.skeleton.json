@@ -1,0 +1,1024 @@
+{
+  "version": 1,
+  "title": "公开社区源 curated 100 骨架",
+  "policy": {
+    "ciRole": "report-only",
+    "hardGate": "fixtures only",
+    "successThresholdAfterExclusions": 0.9,
+    "rateLimit": {
+      "requestsPerSource": 4,
+      "delaySeconds": 1.5,
+      "concurrency": 2
+    },
+    "excludeCategories": [
+      "login",
+      "captcha",
+      "webview",
+      "comic",
+      "audio",
+      "video"
+    ]
+  },
+  "sources": [
+    {
+      "id": "curated-001",
+      "category": "通用小说",
+      "displayName": "占位样本 001",
+      "bookSourceUrl": "https://example.invalid/legado/source/001",
+      "sourceJsonUrl": "https://example.invalid/legado/json/001.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-002",
+      "category": "网文",
+      "displayName": "占位样本 002",
+      "bookSourceUrl": "https://example.invalid/legado/source/002",
+      "sourceJsonUrl": "https://example.invalid/legado/json/002.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-003",
+      "category": "轻小说",
+      "displayName": "占位样本 003",
+      "bookSourceUrl": "https://example.invalid/legado/source/003",
+      "sourceJsonUrl": "https://example.invalid/legado/json/003.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-004",
+      "category": "出版",
+      "displayName": "占位样本 004",
+      "bookSourceUrl": "https://example.invalid/legado/source/004",
+      "sourceJsonUrl": "https://example.invalid/legado/json/004.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-005",
+      "category": "二次元",
+      "displayName": "占位样本 005",
+      "bookSourceUrl": "https://example.invalid/legado/source/005",
+      "sourceJsonUrl": "https://example.invalid/legado/json/005.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-006",
+      "category": "玄幻",
+      "displayName": "占位样本 006",
+      "bookSourceUrl": "https://example.invalid/legado/source/006",
+      "sourceJsonUrl": "https://example.invalid/legado/json/006.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-007",
+      "category": "都市",
+      "displayName": "占位样本 007",
+      "bookSourceUrl": "https://example.invalid/legado/source/007",
+      "sourceJsonUrl": "https://example.invalid/legado/json/007.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-008",
+      "category": "历史",
+      "displayName": "占位样本 008",
+      "bookSourceUrl": "https://example.invalid/legado/source/008",
+      "sourceJsonUrl": "https://example.invalid/legado/json/008.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-009",
+      "category": "科幻",
+      "displayName": "占位样本 009",
+      "bookSourceUrl": "https://example.invalid/legado/source/009",
+      "sourceJsonUrl": "https://example.invalid/legado/json/009.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-010",
+      "category": "其他",
+      "displayName": "占位样本 010",
+      "bookSourceUrl": "https://example.invalid/legado/source/010",
+      "sourceJsonUrl": "https://example.invalid/legado/json/010.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-011",
+      "category": "通用小说",
+      "displayName": "占位样本 011",
+      "bookSourceUrl": "https://example.invalid/legado/source/011",
+      "sourceJsonUrl": "https://example.invalid/legado/json/011.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-012",
+      "category": "网文",
+      "displayName": "占位样本 012",
+      "bookSourceUrl": "https://example.invalid/legado/source/012",
+      "sourceJsonUrl": "https://example.invalid/legado/json/012.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-013",
+      "category": "轻小说",
+      "displayName": "占位样本 013",
+      "bookSourceUrl": "https://example.invalid/legado/source/013",
+      "sourceJsonUrl": "https://example.invalid/legado/json/013.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-014",
+      "category": "出版",
+      "displayName": "占位样本 014",
+      "bookSourceUrl": "https://example.invalid/legado/source/014",
+      "sourceJsonUrl": "https://example.invalid/legado/json/014.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-015",
+      "category": "二次元",
+      "displayName": "占位样本 015",
+      "bookSourceUrl": "https://example.invalid/legado/source/015",
+      "sourceJsonUrl": "https://example.invalid/legado/json/015.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-016",
+      "category": "玄幻",
+      "displayName": "占位样本 016",
+      "bookSourceUrl": "https://example.invalid/legado/source/016",
+      "sourceJsonUrl": "https://example.invalid/legado/json/016.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-017",
+      "category": "都市",
+      "displayName": "占位样本 017",
+      "bookSourceUrl": "https://example.invalid/legado/source/017",
+      "sourceJsonUrl": "https://example.invalid/legado/json/017.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-018",
+      "category": "历史",
+      "displayName": "占位样本 018",
+      "bookSourceUrl": "https://example.invalid/legado/source/018",
+      "sourceJsonUrl": "https://example.invalid/legado/json/018.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-019",
+      "category": "科幻",
+      "displayName": "占位样本 019",
+      "bookSourceUrl": "https://example.invalid/legado/source/019",
+      "sourceJsonUrl": "https://example.invalid/legado/json/019.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-020",
+      "category": "其他",
+      "displayName": "占位样本 020",
+      "bookSourceUrl": "https://example.invalid/legado/source/020",
+      "sourceJsonUrl": "https://example.invalid/legado/json/020.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-021",
+      "category": "通用小说",
+      "displayName": "占位样本 021",
+      "bookSourceUrl": "https://example.invalid/legado/source/021",
+      "sourceJsonUrl": "https://example.invalid/legado/json/021.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-022",
+      "category": "网文",
+      "displayName": "占位样本 022",
+      "bookSourceUrl": "https://example.invalid/legado/source/022",
+      "sourceJsonUrl": "https://example.invalid/legado/json/022.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-023",
+      "category": "轻小说",
+      "displayName": "占位样本 023",
+      "bookSourceUrl": "https://example.invalid/legado/source/023",
+      "sourceJsonUrl": "https://example.invalid/legado/json/023.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-024",
+      "category": "出版",
+      "displayName": "占位样本 024",
+      "bookSourceUrl": "https://example.invalid/legado/source/024",
+      "sourceJsonUrl": "https://example.invalid/legado/json/024.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-025",
+      "category": "二次元",
+      "displayName": "占位样本 025",
+      "bookSourceUrl": "https://example.invalid/legado/source/025",
+      "sourceJsonUrl": "https://example.invalid/legado/json/025.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-026",
+      "category": "玄幻",
+      "displayName": "占位样本 026",
+      "bookSourceUrl": "https://example.invalid/legado/source/026",
+      "sourceJsonUrl": "https://example.invalid/legado/json/026.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-027",
+      "category": "都市",
+      "displayName": "占位样本 027",
+      "bookSourceUrl": "https://example.invalid/legado/source/027",
+      "sourceJsonUrl": "https://example.invalid/legado/json/027.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-028",
+      "category": "历史",
+      "displayName": "占位样本 028",
+      "bookSourceUrl": "https://example.invalid/legado/source/028",
+      "sourceJsonUrl": "https://example.invalid/legado/json/028.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-029",
+      "category": "科幻",
+      "displayName": "占位样本 029",
+      "bookSourceUrl": "https://example.invalid/legado/source/029",
+      "sourceJsonUrl": "https://example.invalid/legado/json/029.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-030",
+      "category": "其他",
+      "displayName": "占位样本 030",
+      "bookSourceUrl": "https://example.invalid/legado/source/030",
+      "sourceJsonUrl": "https://example.invalid/legado/json/030.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-031",
+      "category": "通用小说",
+      "displayName": "占位样本 031",
+      "bookSourceUrl": "https://example.invalid/legado/source/031",
+      "sourceJsonUrl": "https://example.invalid/legado/json/031.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-032",
+      "category": "网文",
+      "displayName": "占位样本 032",
+      "bookSourceUrl": "https://example.invalid/legado/source/032",
+      "sourceJsonUrl": "https://example.invalid/legado/json/032.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-033",
+      "category": "轻小说",
+      "displayName": "占位样本 033",
+      "bookSourceUrl": "https://example.invalid/legado/source/033",
+      "sourceJsonUrl": "https://example.invalid/legado/json/033.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-034",
+      "category": "出版",
+      "displayName": "占位样本 034",
+      "bookSourceUrl": "https://example.invalid/legado/source/034",
+      "sourceJsonUrl": "https://example.invalid/legado/json/034.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-035",
+      "category": "二次元",
+      "displayName": "占位样本 035",
+      "bookSourceUrl": "https://example.invalid/legado/source/035",
+      "sourceJsonUrl": "https://example.invalid/legado/json/035.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-036",
+      "category": "玄幻",
+      "displayName": "占位样本 036",
+      "bookSourceUrl": "https://example.invalid/legado/source/036",
+      "sourceJsonUrl": "https://example.invalid/legado/json/036.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-037",
+      "category": "都市",
+      "displayName": "占位样本 037",
+      "bookSourceUrl": "https://example.invalid/legado/source/037",
+      "sourceJsonUrl": "https://example.invalid/legado/json/037.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-038",
+      "category": "历史",
+      "displayName": "占位样本 038",
+      "bookSourceUrl": "https://example.invalid/legado/source/038",
+      "sourceJsonUrl": "https://example.invalid/legado/json/038.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-039",
+      "category": "科幻",
+      "displayName": "占位样本 039",
+      "bookSourceUrl": "https://example.invalid/legado/source/039",
+      "sourceJsonUrl": "https://example.invalid/legado/json/039.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-040",
+      "category": "其他",
+      "displayName": "占位样本 040",
+      "bookSourceUrl": "https://example.invalid/legado/source/040",
+      "sourceJsonUrl": "https://example.invalid/legado/json/040.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-041",
+      "category": "通用小说",
+      "displayName": "占位样本 041",
+      "bookSourceUrl": "https://example.invalid/legado/source/041",
+      "sourceJsonUrl": "https://example.invalid/legado/json/041.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-042",
+      "category": "网文",
+      "displayName": "占位样本 042",
+      "bookSourceUrl": "https://example.invalid/legado/source/042",
+      "sourceJsonUrl": "https://example.invalid/legado/json/042.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-043",
+      "category": "轻小说",
+      "displayName": "占位样本 043",
+      "bookSourceUrl": "https://example.invalid/legado/source/043",
+      "sourceJsonUrl": "https://example.invalid/legado/json/043.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-044",
+      "category": "出版",
+      "displayName": "占位样本 044",
+      "bookSourceUrl": "https://example.invalid/legado/source/044",
+      "sourceJsonUrl": "https://example.invalid/legado/json/044.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-045",
+      "category": "二次元",
+      "displayName": "占位样本 045",
+      "bookSourceUrl": "https://example.invalid/legado/source/045",
+      "sourceJsonUrl": "https://example.invalid/legado/json/045.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-046",
+      "category": "玄幻",
+      "displayName": "占位样本 046",
+      "bookSourceUrl": "https://example.invalid/legado/source/046",
+      "sourceJsonUrl": "https://example.invalid/legado/json/046.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-047",
+      "category": "都市",
+      "displayName": "占位样本 047",
+      "bookSourceUrl": "https://example.invalid/legado/source/047",
+      "sourceJsonUrl": "https://example.invalid/legado/json/047.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-048",
+      "category": "历史",
+      "displayName": "占位样本 048",
+      "bookSourceUrl": "https://example.invalid/legado/source/048",
+      "sourceJsonUrl": "https://example.invalid/legado/json/048.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-049",
+      "category": "科幻",
+      "displayName": "占位样本 049",
+      "bookSourceUrl": "https://example.invalid/legado/source/049",
+      "sourceJsonUrl": "https://example.invalid/legado/json/049.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-050",
+      "category": "其他",
+      "displayName": "占位样本 050",
+      "bookSourceUrl": "https://example.invalid/legado/source/050",
+      "sourceJsonUrl": "https://example.invalid/legado/json/050.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-051",
+      "category": "通用小说",
+      "displayName": "占位样本 051",
+      "bookSourceUrl": "https://example.invalid/legado/source/051",
+      "sourceJsonUrl": "https://example.invalid/legado/json/051.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-052",
+      "category": "网文",
+      "displayName": "占位样本 052",
+      "bookSourceUrl": "https://example.invalid/legado/source/052",
+      "sourceJsonUrl": "https://example.invalid/legado/json/052.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-053",
+      "category": "轻小说",
+      "displayName": "占位样本 053",
+      "bookSourceUrl": "https://example.invalid/legado/source/053",
+      "sourceJsonUrl": "https://example.invalid/legado/json/053.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-054",
+      "category": "出版",
+      "displayName": "占位样本 054",
+      "bookSourceUrl": "https://example.invalid/legado/source/054",
+      "sourceJsonUrl": "https://example.invalid/legado/json/054.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-055",
+      "category": "二次元",
+      "displayName": "占位样本 055",
+      "bookSourceUrl": "https://example.invalid/legado/source/055",
+      "sourceJsonUrl": "https://example.invalid/legado/json/055.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-056",
+      "category": "玄幻",
+      "displayName": "占位样本 056",
+      "bookSourceUrl": "https://example.invalid/legado/source/056",
+      "sourceJsonUrl": "https://example.invalid/legado/json/056.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-057",
+      "category": "都市",
+      "displayName": "占位样本 057",
+      "bookSourceUrl": "https://example.invalid/legado/source/057",
+      "sourceJsonUrl": "https://example.invalid/legado/json/057.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-058",
+      "category": "历史",
+      "displayName": "占位样本 058",
+      "bookSourceUrl": "https://example.invalid/legado/source/058",
+      "sourceJsonUrl": "https://example.invalid/legado/json/058.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-059",
+      "category": "科幻",
+      "displayName": "占位样本 059",
+      "bookSourceUrl": "https://example.invalid/legado/source/059",
+      "sourceJsonUrl": "https://example.invalid/legado/json/059.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-060",
+      "category": "其他",
+      "displayName": "占位样本 060",
+      "bookSourceUrl": "https://example.invalid/legado/source/060",
+      "sourceJsonUrl": "https://example.invalid/legado/json/060.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-061",
+      "category": "通用小说",
+      "displayName": "占位样本 061",
+      "bookSourceUrl": "https://example.invalid/legado/source/061",
+      "sourceJsonUrl": "https://example.invalid/legado/json/061.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-062",
+      "category": "网文",
+      "displayName": "占位样本 062",
+      "bookSourceUrl": "https://example.invalid/legado/source/062",
+      "sourceJsonUrl": "https://example.invalid/legado/json/062.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-063",
+      "category": "轻小说",
+      "displayName": "占位样本 063",
+      "bookSourceUrl": "https://example.invalid/legado/source/063",
+      "sourceJsonUrl": "https://example.invalid/legado/json/063.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-064",
+      "category": "出版",
+      "displayName": "占位样本 064",
+      "bookSourceUrl": "https://example.invalid/legado/source/064",
+      "sourceJsonUrl": "https://example.invalid/legado/json/064.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-065",
+      "category": "二次元",
+      "displayName": "占位样本 065",
+      "bookSourceUrl": "https://example.invalid/legado/source/065",
+      "sourceJsonUrl": "https://example.invalid/legado/json/065.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-066",
+      "category": "玄幻",
+      "displayName": "占位样本 066",
+      "bookSourceUrl": "https://example.invalid/legado/source/066",
+      "sourceJsonUrl": "https://example.invalid/legado/json/066.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-067",
+      "category": "都市",
+      "displayName": "占位样本 067",
+      "bookSourceUrl": "https://example.invalid/legado/source/067",
+      "sourceJsonUrl": "https://example.invalid/legado/json/067.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-068",
+      "category": "历史",
+      "displayName": "占位样本 068",
+      "bookSourceUrl": "https://example.invalid/legado/source/068",
+      "sourceJsonUrl": "https://example.invalid/legado/json/068.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-069",
+      "category": "科幻",
+      "displayName": "占位样本 069",
+      "bookSourceUrl": "https://example.invalid/legado/source/069",
+      "sourceJsonUrl": "https://example.invalid/legado/json/069.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-070",
+      "category": "其他",
+      "displayName": "占位样本 070",
+      "bookSourceUrl": "https://example.invalid/legado/source/070",
+      "sourceJsonUrl": "https://example.invalid/legado/json/070.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-071",
+      "category": "通用小说",
+      "displayName": "占位样本 071",
+      "bookSourceUrl": "https://example.invalid/legado/source/071",
+      "sourceJsonUrl": "https://example.invalid/legado/json/071.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-072",
+      "category": "网文",
+      "displayName": "占位样本 072",
+      "bookSourceUrl": "https://example.invalid/legado/source/072",
+      "sourceJsonUrl": "https://example.invalid/legado/json/072.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-073",
+      "category": "轻小说",
+      "displayName": "占位样本 073",
+      "bookSourceUrl": "https://example.invalid/legado/source/073",
+      "sourceJsonUrl": "https://example.invalid/legado/json/073.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-074",
+      "category": "出版",
+      "displayName": "占位样本 074",
+      "bookSourceUrl": "https://example.invalid/legado/source/074",
+      "sourceJsonUrl": "https://example.invalid/legado/json/074.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-075",
+      "category": "二次元",
+      "displayName": "占位样本 075",
+      "bookSourceUrl": "https://example.invalid/legado/source/075",
+      "sourceJsonUrl": "https://example.invalid/legado/json/075.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-076",
+      "category": "玄幻",
+      "displayName": "占位样本 076",
+      "bookSourceUrl": "https://example.invalid/legado/source/076",
+      "sourceJsonUrl": "https://example.invalid/legado/json/076.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-077",
+      "category": "都市",
+      "displayName": "占位样本 077",
+      "bookSourceUrl": "https://example.invalid/legado/source/077",
+      "sourceJsonUrl": "https://example.invalid/legado/json/077.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-078",
+      "category": "历史",
+      "displayName": "占位样本 078",
+      "bookSourceUrl": "https://example.invalid/legado/source/078",
+      "sourceJsonUrl": "https://example.invalid/legado/json/078.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-079",
+      "category": "科幻",
+      "displayName": "占位样本 079",
+      "bookSourceUrl": "https://example.invalid/legado/source/079",
+      "sourceJsonUrl": "https://example.invalid/legado/json/079.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-080",
+      "category": "其他",
+      "displayName": "占位样本 080",
+      "bookSourceUrl": "https://example.invalid/legado/source/080",
+      "sourceJsonUrl": "https://example.invalid/legado/json/080.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-081",
+      "category": "通用小说",
+      "displayName": "占位样本 081",
+      "bookSourceUrl": "https://example.invalid/legado/source/081",
+      "sourceJsonUrl": "https://example.invalid/legado/json/081.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-082",
+      "category": "网文",
+      "displayName": "占位样本 082",
+      "bookSourceUrl": "https://example.invalid/legado/source/082",
+      "sourceJsonUrl": "https://example.invalid/legado/json/082.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-083",
+      "category": "轻小说",
+      "displayName": "占位样本 083",
+      "bookSourceUrl": "https://example.invalid/legado/source/083",
+      "sourceJsonUrl": "https://example.invalid/legado/json/083.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-084",
+      "category": "出版",
+      "displayName": "占位样本 084",
+      "bookSourceUrl": "https://example.invalid/legado/source/084",
+      "sourceJsonUrl": "https://example.invalid/legado/json/084.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-085",
+      "category": "二次元",
+      "displayName": "占位样本 085",
+      "bookSourceUrl": "https://example.invalid/legado/source/085",
+      "sourceJsonUrl": "https://example.invalid/legado/json/085.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-086",
+      "category": "玄幻",
+      "displayName": "占位样本 086",
+      "bookSourceUrl": "https://example.invalid/legado/source/086",
+      "sourceJsonUrl": "https://example.invalid/legado/json/086.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-087",
+      "category": "都市",
+      "displayName": "占位样本 087",
+      "bookSourceUrl": "https://example.invalid/legado/source/087",
+      "sourceJsonUrl": "https://example.invalid/legado/json/087.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-088",
+      "category": "历史",
+      "displayName": "占位样本 088",
+      "bookSourceUrl": "https://example.invalid/legado/source/088",
+      "sourceJsonUrl": "https://example.invalid/legado/json/088.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-089",
+      "category": "科幻",
+      "displayName": "占位样本 089",
+      "bookSourceUrl": "https://example.invalid/legado/source/089",
+      "sourceJsonUrl": "https://example.invalid/legado/json/089.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-090",
+      "category": "其他",
+      "displayName": "占位样本 090",
+      "bookSourceUrl": "https://example.invalid/legado/source/090",
+      "sourceJsonUrl": "https://example.invalid/legado/json/090.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-091",
+      "category": "通用小说",
+      "displayName": "占位样本 091",
+      "bookSourceUrl": "https://example.invalid/legado/source/091",
+      "sourceJsonUrl": "https://example.invalid/legado/json/091.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-092",
+      "category": "网文",
+      "displayName": "占位样本 092",
+      "bookSourceUrl": "https://example.invalid/legado/source/092",
+      "sourceJsonUrl": "https://example.invalid/legado/json/092.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-093",
+      "category": "轻小说",
+      "displayName": "占位样本 093",
+      "bookSourceUrl": "https://example.invalid/legado/source/093",
+      "sourceJsonUrl": "https://example.invalid/legado/json/093.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-094",
+      "category": "出版",
+      "displayName": "占位样本 094",
+      "bookSourceUrl": "https://example.invalid/legado/source/094",
+      "sourceJsonUrl": "https://example.invalid/legado/json/094.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-095",
+      "category": "二次元",
+      "displayName": "占位样本 095",
+      "bookSourceUrl": "https://example.invalid/legado/source/095",
+      "sourceJsonUrl": "https://example.invalid/legado/json/095.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-096",
+      "category": "玄幻",
+      "displayName": "占位样本 096",
+      "bookSourceUrl": "https://example.invalid/legado/source/096",
+      "sourceJsonUrl": "https://example.invalid/legado/json/096.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-097",
+      "category": "都市",
+      "displayName": "占位样本 097",
+      "bookSourceUrl": "https://example.invalid/legado/source/097",
+      "sourceJsonUrl": "https://example.invalid/legado/json/097.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-098",
+      "category": "历史",
+      "displayName": "占位样本 098",
+      "bookSourceUrl": "https://example.invalid/legado/source/098",
+      "sourceJsonUrl": "https://example.invalid/legado/json/098.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-099",
+      "category": "科幻",
+      "displayName": "占位样本 099",
+      "bookSourceUrl": "https://example.invalid/legado/source/099",
+      "sourceJsonUrl": "https://example.invalid/legado/json/099.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    },
+    {
+      "id": "curated-100",
+      "category": "其他",
+      "displayName": "占位样本 100",
+      "bookSourceUrl": "https://example.invalid/legado/source/100",
+      "sourceJsonUrl": "https://example.invalid/legado/json/100.json",
+      "enabled": true,
+      "excludeReasons": [],
+      "notes": "骨架占位：实施时替换为公开社区源快照标识，不随成品分发完整源正文"
+    }
+  ]
+}

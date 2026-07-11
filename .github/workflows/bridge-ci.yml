@@ -8,7 +8,17 @@ on:
   workflow_dispatch:
 
 jobs:
+  # 固定夹具硬门禁（不依赖网络 / 不依赖 Xcode）
+  fixture-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: 固定夹具硬门禁
+        run: python3 tools/ci/validate_fixtures.py
+
   build-bridge:
+    needs: [fixture-gate]
     runs-on: macos-14
     timeout-minutes: 45
     steps:
@@ -57,12 +67,15 @@ jobs:
             git clone --depth 1 https://github.com/tyilo/insert_dylib /tmp/insert_dylib
             cd /tmp/insert_dylib && xcodebuild -configuration Release
             sudo cp build/Release/insert_dylib /usr/local/bin/ || cp build/Release/insert_dylib "$HOME/bin/" || true
+            mkdir -p "$HOME/bin"
+            export PATH="$HOME/bin:$PATH"
+            echo "$HOME/bin" >> "$GITHUB_PATH"
           fi
 
-      - name: 重打包 IPA
+      - name: 重打包 IPA 并校验注入
         run: |
-          chmod +x tools/repack/repack.sh
-          # 优先找真正的动态库（排除 dSYM/DWARF），再退而求其次找 framework
+          set -euo pipefail
+          chmod +x tools/repack/repack.sh tools/repack/verify_ipa.sh
           DYLIB=$(find LegadoBridge/.build -type f -name 'LegadoBridge' \
             -path '*Release-iphoneos*' -not -path '*dSYM*' 2>/dev/null | head -1 || true)
           if [[ -z "$DYLIB" ]]; then
@@ -75,11 +88,25 @@ jobs:
             "ipa/香色闺阁2.56.1_未加密.ipa" \
             "${DYLIB:-}" \
             "dist/StandarReader-legado-bridge.ipa"
+          # repack.sh 末尾已调用 verify_ipa.sh（LC_LOAD_DYLIB / arm64 / Scheme / SHA256）
+          ls -la dist/
+          test -f dist/StandarReader-legado-bridge.ipa.sha256
+
+      # 仅 Artifact，不创建 GitHub Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LegadoBridge-IPA
+          path: |
+            dist/StandarReader-legado-bridge.ipa
+            dist/StandarReader-legado-bridge.ipa.sha256
+            LegadoBridge/spm-build.log
+          if-no-files-found: warn
 
       - uses: actions/upload-artifact@v4
         with:
-          name: LegadoBridge-build
+          name: LegadoBridge-build-logs
           path: |
             LegadoBridge/.build/**/*
             LegadoBridge/spm-build.log
-            dist/*
+          if-no-files-found: warn
+          retention-days: 7

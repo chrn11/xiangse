@@ -1,4 +1,5 @@
 import Foundation
+import LegadoRuleCore
 
 /// 路线 A：将 Legado 书源转为香色闺阁完整 DOM 原生模型（基于 dicBaseModelTemplateDom）
 enum XiangseNativeModelConverter {

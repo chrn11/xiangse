@@ -1,4 +1,5 @@
 import Foundation
+import LegadoRuleCore
 
 /// 将 Legado 书源同步到香色闺阁原生 BookSourceModelManager，使「站点管理」可见
 enum NativeSourceInjector {

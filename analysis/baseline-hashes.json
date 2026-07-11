@@ -1,0 +1,120 @@
+{
+  "protocol_lock": "legado-E 3.26.030717",
+  "injection_baseline": "ipa/香色闺阁2.56.1_未加密.ipa",
+  "hook103_policy": "仅文档/探针参考；禁止依赖其第三方 dylib（MikeCrack/Sideload/Substrate 等）",
+  "baseline_ipa": {
+    "ipa_path": "ipa/香色闺阁2.56.1_未加密.ipa",
+    "ipa_size": 2090387,
+    "ipa_sha256": "ed35e2734ef9d75ab8700921ec2819bb329c679ea508ba88e6d9576ae7be1631",
+    "app_root": "Payload/StandarReader.app/",
+    "bundle_id": "com.appbox.StandarReader",
+    "version": "2.56.1",
+    "build": "2.56.1",
+    "executable": "StandarReader",
+    "min_os": "13.0",
+    "info_plist_sha256": "920fa5bcedeabb271ad3c0604e1888eb508df98753aca3485b58adc205a517ce",
+    "executable_path": "Payload/StandarReader.app/StandarReader",
+    "executable_size": 3270496,
+    "executable_sha256": "04f780eb59f86c9104f8c8c3c04fb24278f521d0a43e401b3773d2a47890dea7",
+    "macho_arches": [
+      {
+        "arch": "arm64",
+        "thin": true,
+        "is64": true,
+        "magic": "0xfeedfacf",
+        "size": 3270496
+      }
+    ],
+    "extra_binaries": [],
+    "key_selector_present": {
+      "application:openURL:options:": true,
+      "JSONObjectWithData:options:error:": true,
+      "startSearch:prioritySourceType:fromShuping:quick:": true,
+      "dicModelList": true,
+      "getSortedSourceNames": true,
+      "getSortedSourceNamesByPriority": true,
+      "sourceTypeBySourceName:": true,
+      "sourceTypeTitleBySourceName:": true,
+      "BookSourceModelManager": true,
+      "BookSourceManager": true,
+      "dNotifyName_SearchBookSourceResponse": true,
+      "dNotifyName_QueryCatalogResponse": true,
+      "dNotifyName_ReadView_ResetContent": true,
+      "dNotifyName_UpdateBookSourceModelList": true,
+      "setDicBook:": true,
+      "resetPosition": true,
+      "reset:updating:lastTimeStamp:": true,
+      "save": true
+    }
+  },
+  "hook103_sample": {
+    "ipa_path": "ipa/香色闺阁Plus_2.56.1_hook103.ipa",
+    "ipa_size": 3680293,
+    "ipa_sha256": "4876f4cece4164deb1a81b4cebb9d9b8469f44e938d87ead2a1827254d437b0a",
+    "app_root": "Payload/Tg@TrollstoreKios.app/",
+    "bundle_id": "com.appbox.StandarReader0",
+    "version": "2.56.1",
+    "build": "2.56.1",
+    "executable": "Tg@TrollstoreKios",
+    "min_os": "10.0",
+    "info_plist_sha256": "bd87421877159aca15c3b87828ddb49db650cc67f138652648a332b1d53c08d9",
+    "executable_path": "Payload/Tg@TrollstoreKios.app/Tg@TrollstoreKios",
+    "executable_size": 3327984,
+    "executable_sha256": "afe28c312eba31781c3cc6d3b06f11effa5ca2c081f91587040c03f905185b1c",
+    "macho_arches": [
+      {
+        "arch": "arm64",
+        "thin": true,
+        "is64": true,
+        "magic": "0xfeedfacf",
+        "size": 3327984
+      }
+    ],
+    "extra_binaries": [
+      "Frameworks/UnrarKit.framework/Headers/URKArchive.h",
+      "Frameworks/UnrarKit.framework/Headers/URKFileInfo.h",
+      "Frameworks/UnrarKit.framework/Headers/UnrarKit.h",
+      "Frameworks/UnrarKit.framework/Headers/UnrarKitMacros.h",
+      "Frameworks/UnrarKit.framework/Headers/dll.hpp",
+      "Frameworks/UnrarKit.framework/Headers/raros.hpp",
+      "Frameworks/UnrarKit.framework/Info.plist",
+      "Frameworks/UnrarKit.framework/Modules/module.modulemap",
+      "Frameworks/UnrarKit.framework/UnrarKit",
+      "Frameworks/UnrarKit.framework/UnrarKitResources.bundle/Info.plist",
+      "Frameworks/UnrarKit.framework/UnrarKitResources.bundle/en.lproj/UnrarKit.strings",
+      "MikeCrack.dylib",
+      "SideloadMikepass1.dylib",
+      "SideloadMikepass2.dylib",
+      "Tg@TrollstoreKios.dylib",
+      "Tg@TrollstoreMios.dylib",
+      "libsubstrate.dylib"
+    ],
+    "key_selector_present": {
+      "application:openURL:options:": true,
+      "JSONObjectWithData:options:error:": true,
+      "startSearch:prioritySourceType:fromShuping:quick:": true,
+      "dicModelList": true,
+      "getSortedSourceNames": true,
+      "getSortedSourceNamesByPriority": true,
+      "sourceTypeBySourceName:": true,
+      "sourceTypeTitleBySourceName:": true,
+      "BookSourceModelManager": true,
+      "BookSourceManager": true,
+      "dNotifyName_SearchBookSourceResponse": true,
+      "dNotifyName_QueryCatalogResponse": true,
+      "dNotifyName_ReadView_ResetContent": true,
+      "dNotifyName_UpdateBookSourceModelList": true,
+      "setDicBook:": true,
+      "resetPosition": true,
+      "reset:updating:lastTimeStamp:": true,
+      "save": true
+    }
+  },
+  "mikecrack_dylib": {
+    "zip_entry": "Payload/Tg@TrollstoreKios.app/MikeCrack.dylib",
+    "size": 87976,
+    "sha256": "634b746a2149318bed3b2f90af315bd5f4b0415959dba18cd977391913714e1b",
+    "note": "仅作逆向参考指纹；禁止作为构建/注入依赖"
+  },
+  "base_missing_key_selectors": []
+}

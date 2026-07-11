@@ -1,4 +1,5 @@
 import Foundation
+import LegadoRuleCore
 
 /// 将 Legado 引擎结果转为香色闺阁可消费的 NSDictionary / 通知 userInfo
 enum XiangseAdapter {
@@ -8,13 +9,20 @@ enum XiangseAdapter {
     static let notifyUpdateSourceList = "dNotifyName_UpdateBookSourceModelList"
     static let legadoMarkerKey = "legadoBridge"
     static let legadoMarkerValue = "1"
+    /// 持久绑定令牌，写入搜索/详情字典，供 BookBindingStore 反查
+    static let bridgeTokenKey = "legadoBridgeToken"
+    /// 书源可用性（删源后保留书籍时为 0）
+    static let sourceAvailableKey = "legadoSourceAvailable"
 
     static func searchResultsPayload(
         results: [SearchBookResult],
         keyword: String,
-        sourceUrl: String
+        sourceUrl: String,
+        bindings: [String: BookBinding] = [:]
     ) -> [String: Any] {
-        let books = results.map { searchBookDict($0) }
+        let books = results.map { r -> [String: Any] in
+            searchBookDict(r, binding: bindings[r.bookUrl])
+        }
         return [
             "keyword": keyword,
             "sourceUrl": sourceUrl,
@@ -25,25 +33,45 @@ enum XiangseAdapter {
         ]
     }
 
-    static func catalogPayload(chapters: [BridgeChapter], bookUrl: String) -> [String: Any] {
+    static func catalogPayload(
+        chapters: [BridgeChapter],
+        bookUrl: String,
+        binding: BookBinding? = nil
+    ) -> [String: Any] {
         let list = chapters.map { chapterDict($0) }
-        return [
+        var payload: [String: Any] = [
             "bookUrl": bookUrl,
             legadoMarkerKey: legadoMarkerValue,
             "chapterList": list,
             "arrChapter": list,
             "fromLegadoBridge": true
         ]
+        if let binding {
+            payload["sourceUrl"] = binding.sourceUrl
+            payload[bridgeTokenKey] = binding.bridgeToken
+            payload[sourceAvailableKey] = binding.sourceAvailable ? "1" : "0"
+        }
+        return payload
     }
 
-    static func contentPayload(content: String, chapterUrl: String) -> [String: Any] {
-        [
+    static func contentPayload(
+        content: String,
+        chapterUrl: String,
+        binding: BookBinding? = nil
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
             "chapterUrl": chapterUrl,
             legadoMarkerKey: legadoMarkerValue,
             "chapterContent": content,
             "content": content,
             "fromLegadoBridge": true
         ]
+        if let binding {
+            payload["bookUrl"] = binding.bookUrl
+            payload["sourceUrl"] = binding.sourceUrl
+            payload[bridgeTokenKey] = binding.bridgeToken
+        }
+        return payload
     }
 
     static func sourceListPayload(sources: [MemoryBridgeBookSource]) -> [String: Any] {
@@ -55,7 +83,10 @@ enum XiangseAdapter {
         ]
     }
 
-    static func searchBookDict(_ r: SearchBookResult) -> [String: Any] {
+    /// 搜索条目 → 香色原生详情/书架可消费字典（含 bridge token；进度/缓存仍由原生持有）
+    static func searchBookDict(_ r: SearchBookResult, binding: BookBinding? = nil) -> [String: Any] {
+        let token = binding?.bridgeToken
+            ?? BookBindingStore.makeToken(bookUrl: r.bookUrl, sourceUrl: r.sourceUrl)
         var d: [String: Any] = [
             "name": r.name,
             "bookName": r.name,
@@ -63,14 +94,46 @@ enum XiangseAdapter {
             "bookUrl": r.bookUrl,
             "url": r.bookUrl,
             "sourceUrl": r.sourceUrl,
-            legadoMarkerKey: legadoMarkerValue
+            "sourceName": r.sourceName,
+            "bookSourceName": r.sourceName,
+            "sourceType": "DOM",
+            legadoMarkerKey: legadoMarkerValue,
+            bridgeTokenKey: token,
+            sourceAvailableKey: (binding?.sourceAvailable ?? true) ? "1" : "0",
+            // 允许原生详情页走「加书架」；章节预加载/离线缓存/进度不由 Bridge 接管
+            "canAddBookShelf": true,
+            "fromLegadoBridge": true
         ]
         if let cover = r.coverUrl { d["coverUrl"] = cover }
         if let intro = r.intro { d["intro"] = intro }
-        if let kind = r.kind { d["kind"] = kind }
+        if let kind = r.kind {
+            d["kind"] = kind
+            d["type"] = kind
+        }
         if let last = r.lastChapter { d["lastChapterTitle"] = last }
         if let wc = r.wordCount { d["wordCount"] = wc }
         return d
+    }
+
+    /// 从持久绑定还原详情字典（重启后点书架/历史进入详情）
+    static func detailDict(from binding: BookBinding) -> [String: Any] {
+        [
+            "name": binding.name,
+            "bookName": binding.name,
+            "author": binding.author,
+            "bookUrl": binding.bookUrl,
+            "url": binding.bookUrl,
+            "coverUrl": binding.coverUrl,
+            "sourceUrl": binding.sourceUrl,
+            "sourceName": binding.sourceName,
+            "bookSourceName": binding.sourceName,
+            "sourceType": "DOM",
+            legadoMarkerKey: legadoMarkerValue,
+            bridgeTokenKey: binding.bridgeToken,
+            sourceAvailableKey: binding.sourceAvailable ? "1" : "0",
+            "canAddBookShelf": true,
+            "fromLegadoBridge": true
+        ]
     }
 
     static func chapterDict(_ c: BridgeChapter) -> [String: Any] {

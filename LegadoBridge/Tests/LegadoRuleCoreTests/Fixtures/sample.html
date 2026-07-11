@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>夹具书城</title></head>
+<body>
+  <div id="search-list">
+    <div class="book-item">
+      <a class="name" href="/book/1001.html">夹具之书</a>
+      <span class="author">测试作者</span>
+      <span class="kind">玄幻</span>
+      <img class="cover" src="/covers/1001.jpg"/>
+      <p class="intro">这是一本用于规则引擎夹具的书。</p>
+      <span class="last">第3章 终章</span>
+      <span class="words">12000</span>
+    </div>
+    <div class="book-item">
+      <a class="name" href="/book/1002.html">另一本</a>
+      <span class="author">乙作者</span>
+    </div>
+  </div>
+  <div id="toc">
+    <a class="chapter" href="/chapter/1.html">第一章 开端</a>
+    <a class="chapter" href="/chapter/2.html">第二章 发展</a>
+    <a class="chapter" href="/chapter/3.html">第三章 终章</a>
+    <a id="next-toc" href="/toc?page=2">下一页</a>
+  </div>
+  <div id="content">
+    <p>正文第一段。</p>
+    <p>正文第二段，含内联图片：</p>
+    <img src="/images/scene.png" alt="场景"/>
+    <p>正文结束。</p>
+    <a id="next-content" href="/chapter/1-2.html">下一页</a>
+  </div>
+  <div id="xpath-box">
+    <ul>
+      <li data-id="a">甲</li>
+      <li data-id="b">乙</li>
+    </ul>
+  </div>
+</body>
+</html>

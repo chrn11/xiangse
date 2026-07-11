@@ -1,0 +1,11 @@
+{
+  "list": [
+    {"name": "JSON书名", "author": "JSON作者", "url": "/j/1", "cover": "https://cdn.example/1.jpg"},
+    {"name": "第二本", "author": "作者二", "url": "/j/2"}
+  ],
+  "info": {
+    "title": "详情书名",
+    "writer": "详情作者",
+    "words": 5600
+  }
+}

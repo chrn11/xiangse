@@ -2,20 +2,20 @@ import Foundation
 
 // MARK: - 规则类型（从 legado-ios BookSource 扩展提取，去除 CoreData 依赖）
 
-enum BridgeRuleTypes {
-    struct ExploreRule: Codable {
-        var exploreList: String?
-        var name: String?
-        var author: String?
-        var intro: String?
-        var kind: String?
-        var updateTime: String?
-        var bookUrl: String?
-        var coverUrl: String?
-        var lastChapter: String?
-        var wordCount: String?
+public enum BridgeRuleTypes {
+    public struct ExploreRule: Codable {
+        public var exploreList: String?
+        public var name: String?
+        public var author: String?
+        public var intro: String?
+        public var kind: String?
+        public var updateTime: String?
+        public var bookUrl: String?
+        public var coverUrl: String?
+        public var lastChapter: String?
+        public var wordCount: String?
 
-        init(
+        public init(
             exploreList: String? = nil,
             name: String? = nil,
             author: String? = nil,
@@ -39,12 +39,12 @@ enum BridgeRuleTypes {
             self.wordCount = wordCount
         }
 
-        enum CodingKeys: String, CodingKey {
+        public enum CodingKeys: String, CodingKey {
             case exploreList, bookList, name, author, intro, kind, updateTime
             case bookUrl, coverUrl, lastChapter, wordCount
         }
 
-        init(from decoder: Decoder) throws {
+        public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             exploreList = try c.decodeIfPresent(String.self, forKey: .exploreList)
                 ?? c.decodeIfPresent(String.self, forKey: .bookList)
@@ -59,7 +59,7 @@ enum BridgeRuleTypes {
             wordCount = try c.decodeIfPresent(String.self, forKey: .wordCount)
         }
 
-        func encode(to encoder: Encoder) throws {
+        public func encode(to encoder: Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encodeIfPresent(exploreList, forKey: .bookList)
             try c.encodeIfPresent(name, forKey: .name)
@@ -74,53 +74,125 @@ enum BridgeRuleTypes {
         }
     }
 
-    struct SearchRule: Codable {
-        var checkKeyWord: String?
-        var bookList: String?
-        var name: String?
-        var author: String?
-        var intro: String?
-        var bookUrl: String?
-        var coverUrl: String?
-        var lastChapter: String?
-        var wordCount: String?
-        var kind: String?
+    public struct SearchRule: Codable {
+        public var checkKeyWord: String?
+        public var bookList: String?
+        public var name: String?
+        public var author: String?
+        public var intro: String?
+        public var bookUrl: String?
+        public var coverUrl: String?
+        public var lastChapter: String?
+        public var wordCount: String?
+        public var kind: String?
+
+        public init(
+            checkKeyWord: String? = nil,
+            bookList: String? = nil,
+            name: String? = nil,
+            author: String? = nil,
+            intro: String? = nil,
+            bookUrl: String? = nil,
+            coverUrl: String? = nil,
+            lastChapter: String? = nil,
+            wordCount: String? = nil,
+            kind: String? = nil
+        ) {
+            self.checkKeyWord = checkKeyWord
+            self.bookList = bookList
+            self.name = name
+            self.author = author
+            self.intro = intro
+            self.bookUrl = bookUrl
+            self.coverUrl = coverUrl
+            self.lastChapter = lastChapter
+            self.wordCount = wordCount
+            self.kind = kind
+        }
     }
 
-    struct BookInfoRule: Codable {
-        var initRule: String?
-        var name: String?
-        var author: String?
-        var intro: String?
-        var kind: String?
-        var coverUrl: String?
-        var tocUrl: String?
-        var lastChapter: String?
-        var updateTime: String?
-        var wordCount: String?
-        var canReName: String?
-        var downloadUrls: String?
+    public struct BookInfoRule: Codable {
+        public var initRule: String?
+        public var name: String?
+        public var author: String?
+        public var intro: String?
+        public var kind: String?
+        public var coverUrl: String?
+        public var tocUrl: String?
+        public var lastChapter: String?
+        public var updateTime: String?
+        public var wordCount: String?
+        public var canReName: String?
+        public var downloadUrls: String?
 
-        enum CodingKeys: String, CodingKey {
+        public enum CodingKeys: String, CodingKey {
             case initRule = "init"
             case name, author, intro, kind, coverUrl, tocUrl, lastChapter
             case updateTime, wordCount, canReName, downloadUrls
         }
+
+        public init(
+            initRule: String? = nil,
+            name: String? = nil,
+            author: String? = nil,
+            intro: String? = nil,
+            kind: String? = nil,
+            coverUrl: String? = nil,
+            tocUrl: String? = nil,
+            lastChapter: String? = nil,
+            updateTime: String? = nil,
+            wordCount: String? = nil,
+            canReName: String? = nil,
+            downloadUrls: String? = nil
+        ) {
+            self.initRule = initRule
+            self.name = name
+            self.author = author
+            self.intro = intro
+            self.kind = kind
+            self.coverUrl = coverUrl
+            self.tocUrl = tocUrl
+            self.lastChapter = lastChapter
+            self.updateTime = updateTime
+            self.wordCount = wordCount
+            self.canReName = canReName
+            self.downloadUrls = downloadUrls
+        }
     }
 
-    struct ContentRule: Codable {
-        var content: String?
-        var title: String?
-        var nextContentUrl: String?
-        var webJs: String?
-        var sourceRegex: String?
-        var replaceRegex: String?
-        var imageStyle: String?
-        var payAction: String?
+    public struct ContentRule: Codable {
+        public var content: String?
+        public var title: String?
+        public var nextContentUrl: String?
+        public var webJs: String?
+        public var sourceRegex: String?
+        public var replaceRegex: String?
+        public var imageStyle: String?
+        public var payAction: String?
+
+        public init(
+            content: String? = nil,
+            title: String? = nil,
+            nextContentUrl: String? = nil,
+            webJs: String? = nil,
+            sourceRegex: String? = nil,
+            replaceRegex: String? = nil,
+            imageStyle: String? = nil,
+            payAction: String? = nil
+        ) {
+            self.content = content
+            self.title = title
+            self.nextContentUrl = nextContentUrl
+            self.webJs = webJs
+            self.sourceRegex = sourceRegex
+            self.replaceRegex = replaceRegex
+            self.imageStyle = imageStyle
+            self.payAction = payAction
+        }
     }
 }
 
-typealias BridgeSearchRule = BridgeRuleTypes.SearchRule
-typealias BridgeExploreRule = BridgeRuleTypes.ExploreRule
-typealias BridgeBookInfoRule = BridgeRuleTypes.BookInfoRule
-typealias BridgeContentRule = BridgeRuleTypes.ContentRule
+public typealias BridgeSearchRule = BridgeRuleTypes.SearchRule
+public typealias BridgeExploreRule = BridgeRuleTypes.ExploreRule
+public typealias BridgeBookInfoRule = BridgeRuleTypes.BookInfoRule
+public typealias BridgeContentRule = BridgeRuleTypes.ContentRule

@@ -25,8 +25,11 @@ powershell -File tools\sync_legado_vendor.ps1
 ### 2. 本地逻辑验证（Windows）
 
 ```powershell
-python .test_tools\validate_bridge_logic.py
+python .test_tools\gen_baseline_hashes.py
+python .test_tools\validate_baseline_and_tests.py
 ```
+
+macOS / CI 另跑：`swift test --package-path LegadoBridge`
 
 ### 3. 编译 LegadoBridge（需 macOS / GitHub Actions）
 
@@ -73,5 +76,7 @@ powershell -File tools\repack\repack.ps1
 ## 文档
 
 - [ipa-baseline.md](docs/ipa-baseline.md)
+- [baseline-hashes.md](docs/baseline-hashes.md)
 - [hook-map.md](docs/hook-map.md)
+- [hook103-reference.md](docs/hook103-reference.md)
 - [mvp-report.md](docs/mvp-report.md)

@@ -1,6 +1,7 @@
 import Foundation
+import LegadoRuleCore
 
-/// 内存书源 — 从 Legado JSON 构建，供 BridgeWebBook 使用
+/// 内存书源 — 从 Legado JSON 构建，供 BridgeWebBook / RuleWebBook 使用
 final class MemoryBridgeBookSource: BridgeSourceProtocol {
     let sourceId: String
     let bookSourceUrl: String
@@ -11,6 +12,9 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
     var loginUrl: String?
     var bookUrlPattern: String?
     var searchUrl: String?
+    var exploreUrl: String?
+    var bookSourceGroup: String?
+    var enabledExplore: Bool
     var concurrentRate: String?
     var jsLib: String?
     var variable: String?
@@ -31,6 +35,9 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
         loginUrl = part.loginUrl
         bookUrlPattern = part.bookUrlPattern
         searchUrl = part.searchUrl
+        exploreUrl = part.exploreUrl
+        bookSourceGroup = part.bookSourceGroup
+        enabledExplore = part.enabledExplore ?? true
         concurrentRate = part.concurrentRate
         jsLib = part.jsLib
         variable = part.variable
@@ -39,6 +46,13 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
         ruleBookInfo = part.ruleBookInfo.map(Self.mapBookInfo)
         ruleToc = part.ruleToc.map(Self.mapToc)
         ruleContent = part.ruleContent.map(Self.mapContent)
+    }
+
+    /// 是否具备发现能力（exploreUrl 或 explore 规则）
+    var supportsExplore: Bool {
+        let urlOk = !(exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let listOk = !(ruleExplore?.exploreList?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        return enabledExplore && (urlOk || listOk)
     }
 
     convenience init(json: [String: Any]) throws {

@@ -1,112 +1,112 @@
 import Foundation
 
-struct BookSourcePart: Codable, Identifiable {
-    var id: String { bookSourceUrl }
+public struct BookSourcePart: Codable, Identifiable {
+    public var id: String { bookSourceUrl }
 
-    var bookSourceUrl: String
-    var bookSourceName: String
-    var bookSourceGroup: String?
-    var bookSourceType: Int?
-    var bookUrlPattern: String?
-    var header: String?
-    var concurrentRate: String?
-    var loginUrl: String?
-    var loginUi: String?
-    var loginCheckJs: String?
-    var coverDecodeJs: String?
-    var jsLib: String?
-    var bookSourceComment: String?
-    var variableComment: String?
-    var lastUpdateTime: Int64?
-    var respondTime: Int64?
-    var weight: Int?
-    var exploreUrl: String?
-    var exploreScreen: String?
-    var searchUrl: String?
-    var enabled: Bool?
-    var enabledExplore: Bool?
-    var enabledCookieJar: Bool?
-    var ruleSearch: SearchRulePart?
-    var ruleExplore: ExploreRulePart?
-    var ruleBookInfo: BookInfoRulePart?
-    var ruleToc: TocRulePart?
-    var ruleContent: ContentRulePart?
-    var ruleReview: ReviewRulePart?
-    var variable: String?
+    public var bookSourceUrl: String
+    public var bookSourceName: String
+    public var bookSourceGroup: String?
+    public var bookSourceType: Int?
+    public var bookUrlPattern: String?
+    public var header: String?
+    public var concurrentRate: String?
+    public var loginUrl: String?
+    public var loginUi: String?
+    public var loginCheckJs: String?
+    public var coverDecodeJs: String?
+    public var jsLib: String?
+    public var bookSourceComment: String?
+    public var variableComment: String?
+    public var lastUpdateTime: Int64?
+    public var respondTime: Int64?
+    public var weight: Int?
+    public var exploreUrl: String?
+    public var exploreScreen: String?
+    public var searchUrl: String?
+    public var enabled: Bool?
+    public var enabledExplore: Bool?
+    public var enabledCookieJar: Bool?
+    public var ruleSearch: SearchRulePart?
+    public var ruleExplore: ExploreRulePart?
+    public var ruleBookInfo: BookInfoRulePart?
+    public var ruleToc: TocRulePart?
+    public var ruleContent: ContentRulePart?
+    public var ruleReview: ReviewRulePart?
+    public var variable: String?
 
-    struct SearchRulePart: Codable {
-        var checkKeyWord: String?
-        var bookList: String?
-        var name: String?
-        var author: String?
-        var intro: String?
-        var kind: String?
-        var lastChapter: String?
-        var updateTime: String?
-        var bookUrl: String?
-        var coverUrl: String?
-        var wordCount: String?
+    public struct SearchRulePart: Codable {
+        public var checkKeyWord: String?
+        public var bookList: String?
+        public var name: String?
+        public var author: String?
+        public var intro: String?
+        public var kind: String?
+        public var lastChapter: String?
+        public var updateTime: String?
+        public var bookUrl: String?
+        public var coverUrl: String?
+        public var wordCount: String?
     }
 
-    struct ExploreRulePart: Codable {
-        var bookList: String?
-        var name: String?
-        var author: String?
-        var intro: String?
-        var kind: String?
-        var lastChapter: String?
-        var updateTime: String?
-        var bookUrl: String?
-        var coverUrl: String?
-        var wordCount: String?
+    public struct ExploreRulePart: Codable {
+        public var bookList: String?
+        public var name: String?
+        public var author: String?
+        public var intro: String?
+        public var kind: String?
+        public var lastChapter: String?
+        public var updateTime: String?
+        public var bookUrl: String?
+        public var coverUrl: String?
+        public var wordCount: String?
     }
 
-    struct BookInfoRulePart: Codable {
-        var initRule: String?
-        var name: String?
-        var author: String?
-        var intro: String?
-        var kind: String?
-        var lastChapter: String?
-        var updateTime: String?
-        var coverUrl: String?
-        var tocUrl: String?
-        var wordCount: String?
-        var canReName: String?
-        var downloadUrls: String?
+    public struct BookInfoRulePart: Codable {
+        public var initRule: String?
+        public var name: String?
+        public var author: String?
+        public var intro: String?
+        public var kind: String?
+        public var lastChapter: String?
+        public var updateTime: String?
+        public var coverUrl: String?
+        public var tocUrl: String?
+        public var wordCount: String?
+        public var canReName: String?
+        public var downloadUrls: String?
     }
 
-    struct TocRulePart: Codable {
-        var chapterList: String?
-        var chapterName: String?
-        var chapterUrl: String?
-        var formatJs: String?
-        var isVolume: String?
-        var isVip: String?
-        var isPay: String?
-        var nextTocUrl: String?
+    public struct TocRulePart: Codable {
+        public var chapterList: String?
+        public var chapterName: String?
+        public var chapterUrl: String?
+        public var formatJs: String?
+        public var isVolume: String?
+        public var isVip: String?
+        public var isPay: String?
+        public var nextTocUrl: String?
     }
 
-    struct ContentRulePart: Codable {
-        var content: String?
-        var nextContentUrl: String?
-        var webJs: String?
-        var sourceRegex: String?
-        var replaceRegex: String?
-        var imageStyle: String?
-        var imageDecode: String?
-        var payAction: String?
+    public struct ContentRulePart: Codable {
+        public var content: String?
+        public var nextContentUrl: String?
+        public var webJs: String?
+        public var sourceRegex: String?
+        public var replaceRegex: String?
+        public var imageStyle: String?
+        public var imageDecode: String?
+        public var payAction: String?
     }
 
-    struct ReviewRulePart: Codable {
-        var reviewUrl: String?
-        var avatarRule: String?
-        var contentRule: String?
-        var postUrl: String?
+    public struct ReviewRulePart: Codable {
+        public var reviewUrl: String?
+        public var avatarRule: String?
+        public var contentRule: String?
+        public var postUrl: String?
     }
 }
 
-struct BookSourceCheckResult {
+public struct BookSourceCheckResult {
     let sourceUrl: String
     let sourceName: String
     let isValid: Bool

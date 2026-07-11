@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 IPA_IN_RAW="${1:-$ROOT/ipa/香色闺阁2.56.1_未加密.ipa}"
 DYLIB_RAW="${2:-$ROOT/LegadoBridge/.build/Build/Products/Release-iphoneos/LegadoBridge.framework/LegadoBridge}"
 OUT_RAW="${3:-$ROOT/dist/StandarReader-legado-bridge.ipa}"
+SKIP_VERIFY="${SKIP_VERIFY:-0}"
 
 # 解析为绝对路径，避免 pushd 后相对路径失效
 IPA_IN="$(cd "$(dirname "$IPA_IN_RAW")" 2>/dev/null && echo "$(pwd)/$(basename "$IPA_IN_RAW")")"
@@ -36,14 +37,18 @@ BIN="$APP/StandarReader"
 FRAMEWORKS="$APP/Frameworks"
 mkdir -p "$FRAMEWORKS"
 
+INJECTED=0
 if [[ -f "$DYLIB" ]]; then
   cp "$DYLIB" "$FRAMEWORKS/LegadoBridge"
+  INJECTED=1
 elif [[ -d "${DYLIB%.framework}" ]] || [[ -d "$(dirname "$DYLIB")" ]]; then
   FRAME_SRC="$(dirname "$DYLIB")"
   if [[ "$(basename "$FRAME_SRC")" == "LegadoBridge.framework" ]]; then
     cp -R "$FRAME_SRC" "$FRAMEWORKS/"
+    INJECTED=1
   else
     cp "$DYLIB" "$FRAMEWORKS/LegadoBridge" 2>/dev/null || true
+    [[ -f "$FRAMEWORKS/LegadoBridge" ]] && INJECTED=1
   fi
 else
   echo "WARN: 未找到 LegadoBridge 产物，将仅写入注入标记 manifest（需 CI 编译后重跑）"
@@ -81,16 +86,19 @@ else
   echo "==> 跳过 URL scheme 注入（PlistBuddy 不可用或 Info.plist 不存在）"
 fi
 
+INSERT_OK=0
 if command -v insert_dylib &>/dev/null && [[ -f "$FRAMEWORKS/LegadoBridge" || -f "$FRAMEWORKS/LegadoBridge.framework/LegadoBridge" ]]; then
   INSERT_DYLIB="$(command -v insert_dylib)"
   BACKUP="$BIN.backup"
   cp "$BIN" "$BACKUP"
-  "$INSERT_DYLIB" --strip-codesig --inplace "@executable_path/Frameworks/LegadoBridge" "$BIN" || {
+  if "$INSERT_DYLIB" --strip-codesig --exists "@executable_path/Frameworks/LegadoBridge" "$BIN"; then
+    INSERT_OK=1
+    echo "==> insert_dylib 完成"
+  else
     echo "insert_dylib 失败，恢复备份"
     mv "$BACKUP" "$BIN"
-  }
+  fi
   rm -f "$BACKUP"
-  echo "==> insert_dylib 完成"
 else
   echo "==> 跳过 insert_dylib（工具或 dylib 不可用）"
 fi
@@ -102,7 +110,24 @@ popd >/dev/null
 
 if command -v shasum &>/dev/null; then
   shasum -a 256 "$OUT" | tee "$OUT.sha256"
+elif command -v sha256sum &>/dev/null; then
+  sha256sum "$OUT" | tee "$OUT.sha256"
 fi
 
 echo "==> 完成: $OUT"
 echo "    TrollStore 安装此 IPA 即可"
+
+# 构建后硬校验：LC_LOAD_DYLIB / arm64 / Scheme / SHA256
+if [[ "$SKIP_VERIFY" != "1" ]]; then
+  VERIFY="$ROOT/tools/repack/verify_ipa.sh"
+  chmod +x "$VERIFY" 2>/dev/null || true
+  EXPECT=0
+  if [[ "$INJECTED" == "1" && "$INSERT_OK" == "1" ]]; then
+    EXPECT=1
+  fi
+  # 有可用 dylib 输入时要求注入成功
+  if [[ -n "$DYLIB" && -f "$DYLIB" ]]; then
+    EXPECT=1
+  fi
+  bash "$VERIFY" "$OUT" "$EXPECT"
+fi

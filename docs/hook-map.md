@@ -148,12 +148,39 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     A[dylib constructor] --> B[LBInstallHooks]
-    B --> C[LBInstallImportHooks]
+    B --> V[LBInstallRuntimeValidateHooks]
+    B --> C[LBInstallImportHooks + OpenURL]
     B --> D[LBInstallSearchHooks]
-    C --> G[SourceRegistry.shared]
-    D --> G
-    G --> H[LegadoBridgeCore Swift]
+    B --> E[LBInstallSourceListHooks]
+    B --> F[LBInstallReadingHooks]
+    V --> R[LBCapabilityRegistry fail-open]
+    C --> R
+    D --> R
+    E --> R
+    F --> R
+    D --> H[LegadoBridgeCore 多源搜索]
+    F --> H
 ```
+
+实现文件拆分：
+
+| 分组 | 文件 |
+|------|------|
+| 编排 | `LBSwizzle.m` |
+| 能力注册表 | `LBCapabilityRegistry.m` |
+| 共享 Core/校验 | `LBCoreAccess.m` |
+| 运行时校验/探针 | `LBRuntimeValidate.m` |
+| 导入 | `LBImportHooks.m` |
+| 搜索 | `LBSearchHooks.m` |
+| 书源列表 | `LBSourceListHooks.m` |
+| 阅读链路 | `LBReadingHooks.m` |
+| 书籍绑定 | `BookBindingStore.swift` + `LegadoBridgeCore` |
+
+诊断开关：`NSUserDefaults LegadoBridgeDiagProbes` 或环境变量 `LEGADO_DIAG_PROBES`。
+
+## BookBindingStore
+
+搜索结果与详情字典携带 `legadoBridgeToken`；`Documents/legado_bridge_books.json` 持久 `bookUrl↔sourceUrl↔token`。目录/正文用 `exactSource(forUrl:)` 解析，禁止回退到 active 源。进度与章节缓存由香色原生机制持有，Bridge 不接管。
 
 ## 风险与 Fallback
 

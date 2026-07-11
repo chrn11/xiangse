@@ -1,4 +1,5 @@
 import Foundation
+import LegadoRuleCore
 
 /// LegadoBridge 对外门面 — Swift 与 ObjC Hook 层统一入口
 @objc public final class LegadoBridgeCore: NSObject {
@@ -27,6 +28,10 @@ import Foundation
     @discardableResult
     public func restorePersistedSources() -> Int {
         let count = SourceRegistry.shared.restoreFromDiskIfNeeded()
+        // 书籍绑定与书源分文件；启动时一并恢复，避免重启串源
+        _ = BookBindingStore.shared.restoreFromDiskIfNeeded()
+        _ = ReplaceRuleStore.shared.restoreFromDiskIfNeeded()
+        ReplaceRuleStore.shared.installPresetsIfEmpty()
         if count > 0 {
             let enabled = SourceRegistry.shared.allSources().filter {
                 SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl)
@@ -34,6 +39,72 @@ import Foundation
             NativeSourceInjector.syncToNativeManager(sources: enabled)
         }
         return count
+    }
+
+    // MARK: - 书籍绑定（native-flow）
+
+    /// 搜索/详情记住 bookUrl↔sourceUrl↔token；落盘后重启可反查
+    @objc(rememberBookBindingWithBookUrl:sourceUrl:sourceName:name:author:coverUrl:bridgeToken:)
+    @discardableResult
+    public func rememberBookBinding(
+        bookUrl: String,
+        sourceUrl: String,
+        sourceName: String?,
+        name: String?,
+        author: String?,
+        coverUrl: String?,
+        bridgeToken: String?
+    ) -> String {
+        let binding = BookBindingStore.shared.bind(
+            bookUrl: bookUrl,
+            sourceUrl: sourceUrl,
+            sourceName: sourceName ?? "",
+            name: name ?? "",
+            author: author ?? "",
+            coverUrl: coverUrl ?? "",
+            bridgeToken: bridgeToken
+        )
+        let book = BridgeBook(
+            name: binding.name,
+            author: binding.author,
+            bookUrl: binding.bookUrl,
+            coverUrl: binding.coverUrl,
+            intro: "",
+            sourceUrl: binding.sourceUrl,
+            sourceName: binding.sourceName
+        )
+        bookCache[binding.bookUrl] = book
+        return binding.bridgeToken
+    }
+
+    @objc(sourceUrlForBookUrl:)
+    public func sourceUrl(forBookUrl bookUrl: String) -> String? {
+        if let url = BookBindingStore.shared.sourceUrl(forBookUrl: bookUrl) {
+            return url
+        }
+        return bookCache[bookUrl]?.sourceUrl
+    }
+
+    @objc(bridgeTokenForBookUrl:)
+    public func bridgeToken(forBookUrl bookUrl: String) -> String? {
+        BookBindingStore.shared.binding(forBookUrl: bookUrl)?.bridgeToken
+    }
+
+    @objc(detailDictForBookUrl:)
+    public func detailDict(forBookUrl bookUrl: String) -> NSDictionary? {
+        guard let binding = BookBindingStore.shared.binding(forBookUrl: bookUrl) else { return nil }
+        return XiangseAdapter.detailDict(from: binding) as NSDictionary
+    }
+
+    @objc(isBookSourceAvailable:)
+    public func isBookSourceAvailable(_ bookUrl: String) -> Bool {
+        BookBindingStore.shared.binding(forBookUrl: bookUrl)?.sourceAvailable ?? true
+    }
+
+    /// 删源策略：0=保留书籍并标记不可用（默认）；1=清除桥接层绑定
+    @objc public var sourceDeletePolicyRaw: Int {
+        get { BookBindingStore.deletePolicy.rawValue }
+        set { BookBindingStore.deletePolicy = SourceDeletePolicy(rawValue: newValue) ?? .keepBooksMarkUnavailable }
     }
 
     // MARK: - 导入
@@ -59,6 +130,10 @@ import Foundation
         let count = try SourceRegistry.shared.importJSONData(data)
         let enabled = SourceRegistry.shared.allSources().filter {
             SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl)
+        }
+        // 重新导入同源后，恢复此前「书源不可用」标记的绑定
+        for s in enabled {
+            BookBindingStore.shared.markSourceAvailable(sourceUrl: s.bookSourceUrl)
         }
         NativeSourceInjector.syncToNativeManager(sources: enabled)
         postNotification(
@@ -95,6 +170,11 @@ import Foundation
             .map(\.bookSourceName)
         SourceRegistry.shared.removeSource(url: url)
         NativeSourceInjector.removeFromNativeManager(names: names)
+        // 删源策略：默认保留书籍绑定并标记书源不可用（待 iOS MCP 复核原版语义后可切换）
+        BookBindingStore.shared.applySourceDeleted(sourceUrl: url)
+        // 清内存缓存中依赖该源的书，避免继续用已删源拉目录
+        bookCache = bookCache.filter { $0.value.sourceUrl != url }
+        resyncNativeList()
     }
 
     @objc(setSourceEnabled:enabled:)
@@ -103,10 +183,7 @@ import Foundation
         SourceRegistry.shared.setEnabled(url: url, enabled: enabled)
         if wasEnabled != enabled {
             if enabled {
-                let enabledSources = SourceRegistry.shared.allSources().filter {
-                    SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl)
-                }
-                NativeSourceInjector.syncToNativeManager(sources: enabledSources)
+                resyncNativeList()
             } else {
                 let names = SourceRegistry.shared.allSources()
                     .filter { $0.bookSourceUrl == url }
@@ -121,16 +198,315 @@ import Foundation
         SourceRegistry.shared.sourceJSON(url: url)
     }
 
-    /// 所有已注册书源摘要（bookSourceName/bookSourceUrl/enabled），供管理 VC 列表展示
-    @objc public var allSourcesInfo: NSArray {
-        let sources = SourceRegistry.shared.allSources()
-        return sources.map { source -> NSDictionary in
-            [
-                "bookSourceName": source.bookSourceName,
-                "bookSourceUrl": source.bookSourceUrl,
-                "enabled": SourceRegistry.shared.isEnabled(url: source.bookSourceUrl)
+    /// 保存完整 JSON（结构化/JSON 编辑器）；校验通过后落盘并同步原生列表
+    @objc(updateSourceJSON:forUrl:error:)
+    @discardableResult
+    public func updateSourceJSON(_ data: Data, forUrl expectedUrl: String?, error: NSErrorPointer) -> Bool {
+        do {
+            let newUrl = try SourceRegistry.shared.updateSourceJSON(data, forUrl: expectedUrl)
+            resyncNativeList()
+            postNotification(
+                XiangseAdapter.notifyUpdateSourceList,
+                userInfo: XiangseAdapter.sourceListPayload(
+                    sources: SourceRegistry.shared.allSources().filter {
+                        SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl)
+                    }
+                )
+            )
+            _ = newUrl
+            return true
+        } catch let err as NSError {
+            error?.pointee = err
+            return false
+        }
+    }
+
+    /// 结构化字段更新
+    @objc(updateStructuredFieldsForUrl:name:searchUrl:group:error:)
+    @discardableResult
+    public func updateStructuredFields(
+        forUrl url: String,
+        name: String?,
+        searchUrl: String?,
+        group: String?,
+        error: NSErrorPointer
+    ) -> Bool {
+        do {
+            _ = try SourceRegistry.shared.updateStructuredFields(
+                url: url,
+                name: name,
+                searchUrl: searchUrl,
+                group: group
+            )
+            resyncNativeList()
+            return true
+        } catch let err as NSError {
+            error?.pointee = err
+            return false
+        }
+    }
+
+    /// 订阅安全更新：保留本地启停；远端消失只标记不删除
+    @objc(applySubscriptionJSONData:subscriptionURL:error:)
+    @discardableResult
+    public func applySubscriptionJSONData(
+        _ data: Data,
+        subscriptionURL: String,
+        error: NSErrorPointer
+    ) -> NSDictionary? {
+        do {
+            let result = try SourceRegistry.shared.applySubscriptionUpdate(
+                data: data,
+                subscriptionUrl: subscriptionURL
+            )
+            resyncNativeList()
+            return [
+                "added": result.added,
+                "updated": result.updated,
+                "markedMissing": result.markedMissing,
+                "unchanged": result.unchanged
             ] as NSDictionary
-        } as NSArray
+        } catch let err as NSError {
+            error?.pointee = err
+            return nil
+        }
+    }
+
+    /// 所有已注册书源摘要，供管理 VC 列表展示
+    @objc public var allSourcesInfo: NSArray {
+        SourceRegistry.shared.allSourcesInfoDicts().map { $0 as NSDictionary } as NSArray
+    }
+
+    /// 按分组筛选书源摘要；`group` 为空或 `__all__` 表示全部；`__ungrouped__` 表示无分组
+    @objc(sourcesInfoFilteredByGroup:)
+    public func sourcesInfoFiltered(byGroup group: String?) -> NSArray {
+        SourceRegistry.shared.allSourcesInfoDicts(groupFilter: group)
+            .map { $0 as NSDictionary } as NSArray
+    }
+
+    /// 去重分组名列表
+    @objc public var allSourceGroups: [String] {
+        SourceRegistry.shared.allGroups()
+    }
+
+    private func resyncNativeList() {
+        let enabled = SourceRegistry.shared.allSources().filter {
+            SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl)
+        }
+        NativeSourceInjector.syncToNativeManager(sources: enabled)
+    }
+
+    // MARK: - 换源
+
+    /// 纯逻辑章节匹配（夹具 / ObjC 可读结果字典）
+    @objc(matchChapterWithTitle:index:chapterTitles:chapterUrls:)
+    public func matchChapter(
+        title: String?,
+        index: Int,
+        chapterTitles: [String],
+        chapterUrls: [String]
+    ) -> NSDictionary? {
+        let count = min(chapterTitles.count, chapterUrls.count)
+        guard count > 0 else { return nil }
+        var chapters: [BridgeChapter] = []
+        chapters.reserveCapacity(count)
+        for i in 0..<count {
+            chapters.append(BridgeChapter(title: chapterTitles[i], url: chapterUrls[i], index: i))
+        }
+        let idx: Int? = index >= 0 ? index : nil
+        guard let match = ChapterMatcher.match(
+            currentTitle: title,
+            currentIndex: idx,
+            chapters: chapters
+        ) else { return nil }
+        return [
+            "index": match.index,
+            "title": match.title,
+            "url": match.url,
+            "score": match.score,
+            "strategy": match.strategy
+        ] as NSDictionary
+    }
+
+    /// 换源：重绑定 bookUrl↔sourceUrl，并对齐章节；异步结果经通知 `LegadoBridgeSourceSwitched`
+    @objc(switchBookSourceWithOldBookUrl:newBookUrl:newSourceUrl:chapterTitle:chapterIndex:)
+    public func switchBookSource(
+        oldBookUrl: String,
+        newBookUrl: String,
+        newSourceUrl: String,
+        chapterTitle: String?,
+        chapterIndex: Int
+    ) {
+        Task {
+            do {
+                guard let source = SourceRegistry.shared.exactSource(forUrl: newSourceUrl),
+                      SourceRegistry.shared.isEnabled(url: source.bookSourceUrl) else {
+                    throw LegadoBridgeError.sourceNotFound
+                }
+                let old = BookBindingStore.shared.binding(forBookUrl: oldBookUrl)
+                var book = BridgeBook(
+                    name: old?.name ?? bookCache[oldBookUrl]?.name ?? "",
+                    author: old?.author ?? bookCache[oldBookUrl]?.author ?? "",
+                    bookUrl: newBookUrl,
+                    coverUrl: old?.coverUrl ?? bookCache[oldBookUrl]?.coverUrl ?? "",
+                    sourceUrl: source.bookSourceUrl,
+                    sourceName: source.bookSourceName
+                )
+                _ = try await BridgeWebBook.getBookInfo(source: source, book: &book)
+                let chapters = try await BridgeWebBook.getChapterList(source: source, book: book)
+                let match = ChapterMatcher.match(
+                    currentTitle: chapterTitle,
+                    currentIndex: chapterIndex >= 0 ? chapterIndex : nil,
+                    chapters: chapters
+                )
+                // 旧 bookUrl 与新不同时，保留旧记录但标记不可用，写入新绑定
+                if oldBookUrl != newBookUrl,
+                   let stale = BookBindingStore.shared.binding(forBookUrl: oldBookUrl) {
+                    _ = BookBindingStore.shared.bind(
+                        bookUrl: stale.bookUrl,
+                        sourceUrl: stale.sourceUrl,
+                        sourceName: stale.sourceName,
+                        name: stale.name,
+                        author: stale.author,
+                        coverUrl: stale.coverUrl,
+                        bridgeToken: stale.bridgeToken,
+                        sourceAvailable: false
+                    )
+                }
+                let binding = BookBindingStore.shared.bind(
+                    bookUrl: newBookUrl,
+                    sourceUrl: source.bookSourceUrl,
+                    sourceName: source.bookSourceName,
+                    name: book.name.isEmpty ? (old?.name ?? "") : book.name,
+                    author: book.author.isEmpty ? (old?.author ?? "") : book.author,
+                    coverUrl: book.coverUrl.isEmpty ? (old?.coverUrl ?? "") : book.coverUrl
+                )
+                bookCache[newBookUrl] = book
+                var info: [String: Any] = [
+                    "oldBookUrl": oldBookUrl,
+                    "newBookUrl": newBookUrl,
+                    "sourceUrl": source.bookSourceUrl,
+                    "bridgeToken": binding.bridgeToken,
+                    "chapterCount": chapters.count,
+                    XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
+                ]
+                if let match {
+                    info["matchedIndex"] = match.index
+                    info["matchedTitle"] = match.title
+                    info["matchedUrl"] = match.url
+                    info["matchScore"] = match.score
+                    info["matchStrategy"] = match.strategy
+                }
+                postNotification("LegadoBridgeSourceSwitched", userInfo: info)
+                writeSearchMarker(
+                    "switch ok \(oldBookUrl) -> \(newBookUrl) src=\(source.bookSourceUrl) match=\(match?.index ?? -1)"
+                )
+            } catch {
+                postNotification(
+                    "LegadoBridgeSourceSwitched",
+                    userInfo: [
+                        "error": error.localizedDescription,
+                        "oldBookUrl": oldBookUrl,
+                        "newBookUrl": newBookUrl,
+                        XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
+                    ]
+                )
+            }
+        }
+    }
+
+    // MARK: - 发现
+
+    /// 触发发现请求；结果走搜索响应通知（带 fromExplore）
+    @objc(handleExploreRequestWithSourceUrl:exploreUrl:page:)
+    public func handleExploreRequest(sourceUrl: String?, exploreUrl: String?, page: Int) {
+        Task {
+            let targets: [MemoryBridgeBookSource]
+            if let sourceUrl, !sourceUrl.isEmpty,
+               let one = SourceRegistry.shared.source(forUrl: sourceUrl),
+               SourceRegistry.shared.isEnabled(url: one.bookSourceUrl) {
+                targets = [one]
+            } else {
+                targets = SourceRegistry.shared.exploreCapableSources()
+            }
+            guard !targets.isEmpty else {
+                postNotification(
+                    XiangseAdapter.notifySearchResponse,
+                    userInfo: [
+                        "error": "无可用发现源",
+                        "fromExplore": true,
+                        "fromLegadoBridge": true,
+                        XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
+                    ]
+                )
+                return
+            }
+            var total = 0
+            for source in targets {
+                do {
+                    let results = try await BridgeWebBook.exploreBook(
+                        source: source,
+                        url: exploreUrl,
+                        page: max(page, 1)
+                    )
+                    var bindings: [String: BookBinding] = [:]
+                    for r in results {
+                        let book = BridgeBook(
+                            name: r.name,
+                            author: r.author,
+                            bookUrl: r.bookUrl,
+                            coverUrl: r.coverUrl ?? "",
+                            intro: r.intro ?? "",
+                            sourceUrl: r.sourceUrl,
+                            sourceName: r.sourceName
+                        )
+                        bookCache[r.bookUrl] = book
+                        bindings[r.bookUrl] = BookBindingStore.shared.bind(
+                            bookUrl: r.bookUrl,
+                            sourceUrl: r.sourceUrl,
+                            sourceName: r.sourceName,
+                            name: r.name,
+                            author: r.author,
+                            coverUrl: r.coverUrl ?? ""
+                        )
+                    }
+                    total += results.count
+                    var payload = XiangseAdapter.searchResultsPayload(
+                        results: results,
+                        keyword: "explore",
+                        sourceUrl: source.bookSourceUrl,
+                        bindings: bindings
+                    )
+                    payload["fromExplore"] = true
+                    postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
+                } catch {
+                    writeSearchMarker("explore err src=\(source.bookSourceUrl) \(error.localizedDescription)")
+                }
+            }
+            writeSearchMarker("explore ok total=\(total) sources=\(targets.count)")
+        }
+    }
+
+    // MARK: - 替换净化
+
+    @objc(importReplaceRulesJSON:error:)
+    @discardableResult
+    public func importReplaceRulesJSON(_ json: String, error: NSErrorPointer) -> Int {
+        do {
+            return try ReplaceRuleStore.shared.importJSON(json, merge: true)
+        } catch let err as NSError {
+            error?.pointee = err
+            return 0
+        }
+    }
+
+    @objc(purifyContent:bookUrl:chapterUrl:)
+    public func purifyContent(_ text: String, bookUrl: String?, chapterUrl: String?) -> String {
+        ReplaceRuleStore.shared.purify(text, bookUrl: bookUrl, chapterUrl: chapterUrl)
+    }
+
+    @objc public var replaceRulesCount: Int {
+        ReplaceRuleStore.shared.allRules().count
     }
 
     // MARK: - 搜索
@@ -145,46 +521,94 @@ import Foundation
     @objc(handleSearchRequestWithKeyword:sourceUrl:)
     public func handleSearchRequest(keyword: String, sourceUrl: String?) {
         // 入口即写标记，便于验收区分「UI 未进 Hook」与「引擎失败」
-        writeSearchMarker("enter key=\(keyword) url=\(sourceUrl ?? "nil")")
+        writeSearchMarker("enter key=\(keyword) url=\(sourceUrl ?? "all")")
         Task {
-            do {
-                let activeSource = SourceRegistry.shared.source(forUrl: sourceUrl)
-                guard let activeSource,
-                      SourceRegistry.shared.isEnabled(url: activeSource.bookSourceUrl) else {
-                    throw LegadoBridgeError.sourceNotFound
+            let targets: [MemoryBridgeBookSource]
+            if let sourceUrl, !sourceUrl.isEmpty,
+               let one = SourceRegistry.shared.source(forUrl: sourceUrl),
+               SourceRegistry.shared.isEnabled(url: one.bookSourceUrl) {
+                targets = [one]
+            } else {
+                // nil / 空：全部启用源并行搜，避免只吃第一个
+                targets = SourceRegistry.shared.allSources().filter {
+                    SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl)
                 }
-                let results = try await self.search(keyword: keyword, sourceUrl: sourceUrl)
-                for r in results {
-                    let book = BridgeBook(
-                        name: r.name,
-                        author: r.author,
-                        bookUrl: r.bookUrl,
-                        coverUrl: r.coverUrl ?? "",
-                        intro: r.intro ?? "",
-                        sourceUrl: r.sourceUrl,
-                        sourceName: r.sourceName
-                    )
-                    self.bookCache[r.bookUrl] = book
-                }
-                let payload = XiangseAdapter.searchResultsPayload(
-                    results: results,
-                    keyword: keyword,
-                    sourceUrl: sourceUrl ?? activeSource.bookSourceUrl ?? ""
-                )
-                self.writeSearchMarker("ok count=\(results.count) key=\(keyword)")
-                self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
-            } catch {
-                self.writeSearchMarker("err \(error.localizedDescription) key=\(keyword)")
-                self.postNotification(
+            }
+            guard !targets.isEmpty else {
+                writeSearchMarker("err no enabled sources key=\(keyword)")
+                postNotification(
                     XiangseAdapter.notifySearchResponse,
                     userInfo: [
-                        "error": error.localizedDescription,
+                        "error": LegadoBridgeError.sourceNotFound.localizedDescription,
                         "keyword": keyword,
                         "fromLegadoBridge": true,
                         XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
                     ]
                 )
+                return
             }
+
+            let maxConcurrent = 3
+            var nextIndex = 0
+            var totalCount = 0
+            await withTaskGroup(of: (String, Result<[SearchBookResult], Error>).self) { group in
+                var inFlight = 0
+                while nextIndex < targets.count || inFlight > 0 {
+                    while inFlight < maxConcurrent && nextIndex < targets.count {
+                        let source = targets[nextIndex]
+                        nextIndex += 1
+                        inFlight += 1
+                        group.addTask {
+                            do {
+                                let results = try await BridgeWebBook.searchBook(source: source, key: keyword)
+                                return (source.bookSourceUrl, .success(results))
+                            } catch {
+                                return (source.bookSourceUrl, .failure(error))
+                            }
+                        }
+                    }
+                    guard let finished = await group.next() else { break }
+                    inFlight -= 1
+                    let (srcUrl, result) = finished
+                    switch result {
+                    case .success(let results):
+                        var bindings: [String: BookBinding] = [:]
+                        for r in results {
+                            let book = BridgeBook(
+                                name: r.name,
+                                author: r.author,
+                                bookUrl: r.bookUrl,
+                                coverUrl: r.coverUrl ?? "",
+                                intro: r.intro ?? "",
+                                sourceUrl: r.sourceUrl,
+                                sourceName: r.sourceName
+                            )
+                            self.bookCache[r.bookUrl] = book
+                            let binding = BookBindingStore.shared.bind(
+                                bookUrl: r.bookUrl,
+                                sourceUrl: r.sourceUrl,
+                                sourceName: r.sourceName,
+                                name: r.name,
+                                author: r.author,
+                                coverUrl: r.coverUrl ?? ""
+                            )
+                            bindings[r.bookUrl] = binding
+                        }
+                        totalCount += results.count
+                        let payload = XiangseAdapter.searchResultsPayload(
+                            results: results,
+                            keyword: keyword,
+                            sourceUrl: srcUrl,
+                            bindings: bindings
+                        )
+                        self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
+                    case .failure(let error):
+                        // 单源失败不阻断其他源
+                        self.writeSearchMarker("partial err src=\(srcUrl) \(error.localizedDescription)")
+                    }
+                }
+            }
+            writeSearchMarker("ok total=\(totalCount) sources=\(targets.count) key=\(keyword)")
         }
     }
 
@@ -199,22 +623,56 @@ import Foundation
     public func handleCatalogRequest(bookUrl: String, sourceUrl: String?) {
         Task {
             do {
-                guard let source = SourceRegistry.shared.source(forUrl: sourceUrl) else {
+                let binding = BookBindingStore.shared.binding(forBookUrl: bookUrl)
+                if let binding, !binding.sourceAvailable {
+                    throw LegadoBridgeError.engineError("书源不可用，请重新导入或换源后重试")
+                }
+                let resolvedUrl = sourceUrl
+                    ?? binding?.sourceUrl
+                    ?? bookCache[bookUrl]?.sourceUrl
+                guard let source = SourceRegistry.shared.exactSource(forUrl: resolvedUrl),
+                      SourceRegistry.shared.isEnabled(url: source.bookSourceUrl) else {
                     throw LegadoBridgeError.sourceNotFound
                 }
-                var book = bookCache[bookUrl] ?? BridgeBook(
+                // 目录请求侧再次落盘，防止仅内存映射丢失
+                let ensured = BookBindingStore.shared.bind(
                     bookUrl: bookUrl,
+                    sourceUrl: source.bookSourceUrl,
+                    sourceName: {
+                        if let binding, !binding.sourceName.isEmpty { return binding.sourceName }
+                        return source.bookSourceName
+                    }(),
+                    name: binding?.name ?? bookCache[bookUrl]?.name ?? "",
+                    author: binding?.author ?? bookCache[bookUrl]?.author ?? "",
+                    coverUrl: binding?.coverUrl ?? bookCache[bookUrl]?.coverUrl ?? "",
+                    bridgeToken: binding?.bridgeToken
+                )
+                var book = bookCache[bookUrl] ?? BridgeBook(
+                    name: ensured.name,
+                    author: ensured.author,
+                    bookUrl: bookUrl,
+                    coverUrl: ensured.coverUrl,
                     sourceUrl: source.bookSourceUrl,
                     sourceName: source.bookSourceName
                 )
+                book.sourceUrl = source.bookSourceUrl
+                book.sourceName = source.bookSourceName
                 let chapters = try await BridgeWebBook.getChapterList(source: source, book: book)
                 bookCache[bookUrl] = book
-                let payload = XiangseAdapter.catalogPayload(chapters: chapters, bookUrl: bookUrl)
+                let payload = XiangseAdapter.catalogPayload(
+                    chapters: chapters,
+                    bookUrl: bookUrl,
+                    binding: ensured
+                )
                 postNotification(XiangseAdapter.notifyCatalogResponse, userInfo: payload)
             } catch {
                 postNotification(
                     XiangseAdapter.notifyCatalogResponse,
-                    userInfo: ["error": error.localizedDescription, "bookUrl": bookUrl]
+                    userInfo: [
+                        "error": error.localizedDescription,
+                        "bookUrl": bookUrl,
+                        XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
+                    ]
                 )
             }
         }
@@ -226,18 +684,52 @@ import Foundation
     public func handleContentRequest(chapterUrl: String, bookUrl: String, sourceUrl: String?) {
         Task {
             do {
-                guard let source = SourceRegistry.shared.source(forUrl: sourceUrl) else {
+                let binding = BookBindingStore.shared.binding(forBookUrl: bookUrl)
+                if let binding, !binding.sourceAvailable {
+                    throw LegadoBridgeError.engineError("书源不可用，请重新导入或换源后重试")
+                }
+                let resolvedUrl = sourceUrl
+                    ?? binding?.sourceUrl
+                    ?? bookCache[bookUrl]?.sourceUrl
+                guard let source = SourceRegistry.shared.exactSource(forUrl: resolvedUrl),
+                      SourceRegistry.shared.isEnabled(url: source.bookSourceUrl) else {
                     throw LegadoBridgeError.sourceNotFound
                 }
-                let book = bookCache[bookUrl] ?? BridgeBook(bookUrl: bookUrl, sourceUrl: source.bookSourceUrl)
+                let ensured = binding ?? BookBindingStore.shared.bind(
+                    bookUrl: bookUrl,
+                    sourceUrl: source.bookSourceUrl,
+                    sourceName: source.bookSourceName,
+                    name: bookCache[bookUrl]?.name ?? "",
+                    author: bookCache[bookUrl]?.author ?? "",
+                    coverUrl: bookCache[bookUrl]?.coverUrl ?? ""
+                )
+                let book = bookCache[bookUrl] ?? BridgeBook(
+                    bookUrl: bookUrl,
+                    sourceUrl: source.bookSourceUrl,
+                    sourceName: source.bookSourceName
+                )
                 let chapter = BridgeChapter(title: "", url: chapterUrl, index: 0)
-                let content = try await BridgeWebBook.getContent(source: source, book: book, chapter: chapter)
-                let payload = XiangseAdapter.contentPayload(content: content, chapterUrl: chapterUrl)
+                var content = try await BridgeWebBook.getContent(source: source, book: book, chapter: chapter)
+                // 全局/书本级替换净化（书源内 replaceRegex 已在 RuleWebBook 处理）
+                content = ReplaceRuleStore.shared.purify(
+                    content,
+                    bookUrl: bookUrl,
+                    chapterUrl: chapterUrl
+                )
+                let payload = XiangseAdapter.contentPayload(
+                    content: content,
+                    chapterUrl: chapterUrl,
+                    binding: ensured
+                )
                 postNotification(XiangseAdapter.notifyResetContent, userInfo: payload)
             } catch {
                 postNotification(
                     XiangseAdapter.notifyResetContent,
-                    userInfo: ["error": error.localizedDescription, "chapterUrl": chapterUrl]
+                    userInfo: [
+                        "error": error.localizedDescription,
+                        "chapterUrl": chapterUrl,
+                        XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
+                    ]
                 )
             }
         }

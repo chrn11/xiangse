@@ -24,7 +24,9 @@ class JSBridge: JsEncodeUtils {
         injectJavaObject(into: jsContext)
         injectSourceObject(into: jsContext)
         injectCookieObject(into: jsContext)
+        injectNetworkObject(into: jsContext)
         injectCacheObject(into: jsContext)
+        denyForbiddenNativeAPIs(into: jsContext)
     }
 
     // MARK: - java 对象注入
@@ -326,6 +328,46 @@ class JSBridge: JsEncodeUtils {
         jsContext.setValue(cookieObject, forKey: "cookie")
     }
 
+    // MARK: - network 对象注入（阅读约定）
+
+    private func injectNetworkObject(into jsContext: JSContext) {
+        let networkObject = JSValue(newObjectIn: jsContext)
+
+        let ajaxBlock: @convention(block) (String) -> String = { [weak self] url in
+            guard let self = self, !url.isEmpty else { return "" }
+            return JSBridgeHTTPClient.syncGet(url: url, headers: self.parseSourceHeaders()) ?? ""
+        }
+        networkObject?.setObject(ajaxBlock, forKeyedSubscript: "ajax" as NSString)
+
+        let getBlock: @convention(block) (String) -> String = { url in ajaxBlock(url) }
+        networkObject?.setObject(getBlock, forKeyedSubscript: "get" as NSString)
+
+        let postBlock: @convention(block) (String, String) -> String = { [weak self] url, body in
+            guard let self = self, !url.isEmpty else { return "" }
+            return JSBridgeHTTPClient.syncPost(url: url, body: body, headers: self.parseSourceHeaders()) ?? ""
+        }
+        networkObject?.setObject(postBlock, forKeyedSubscript: "post" as NSString)
+
+        jsContext.setValue(networkObject, forKey: "network")
+    }
+
+    /// 禁止协议外原生能力：钥匙串、香色私有文件等
+    private func denyForbiddenNativeAPIs(into jsContext: JSContext) {
+        let deny: @convention(block) (String) -> String = { name in
+            DebugLogger.shared.log("[JS] 拒绝协议外原生能力: \(name)")
+            return ""
+        }
+        jsContext.setValue(deny, forKey: "__denyNative")
+        _ = jsContext.evaluateScript("""
+        (function(){
+          var blocked = ['SecItem','keychain','xiangsePrivateFile','LAContext'];
+          blocked.forEach(function(n){
+            try { this[n] = function(){ return __denyNative(n); }; } catch(e) {}
+          });
+        })();
+        """)
+    }
+
     // MARK: - cache 对象注入
 
     private func injectCacheObject(into jsContext: JSContext) {
@@ -398,7 +440,7 @@ class JSBridgeHTTPClient {
     }()
 
     static func syncGet(url: String, headers: [String: String]?) -> String? {
-        guard let request = makeRequest(url: url, headers: headers) else { return nil }
+        guard let request = makeRequest(url: url, headers: headers, method: "GET", body: nil) else { return nil }
         let semaphore = DispatchSemaphore(value: 0)
         var output: String?
         var task: URLSessionDataTask?
@@ -415,7 +457,7 @@ class JSBridgeHTTPClient {
     }
 
     static func asyncGet(url: String, headers: [String: String]?, completion: @escaping (String?) -> Void) {
-        guard let request = makeRequest(url: url, headers: headers) else { completion(nil); return }
+        guard let request = makeRequest(url: url, headers: headers, method: "GET", body: nil) else { completion(nil); return }
         session.dataTask(with: request) { data, response, error in
             if error != nil { completion(nil); return }
             guard let data else { completion(nil); return }
@@ -424,13 +466,36 @@ class JSBridgeHTTPClient {
         }.resume()
     }
 
-    private static func makeRequest(url: String, headers: [String: String]?) -> URLRequest? {
+    static func syncPost(url: String, body: String, headers: [String: String]?) -> String? {
+        guard let request = makeRequest(url: url, headers: headers, method: "POST", body: body) else { return nil }
+        let semaphore = DispatchSemaphore(value: 0)
+        var output: String?
+        var task: URLSessionDataTask?
+        task = session.dataTask(with: request) { data, response, error in
+            defer { semaphore.signal() }
+            if error != nil { return }
+            guard let data else { return }
+            if let resp = response as? HTTPURLResponse, !(200..<300).contains(resp.statusCode) { return }
+            output = decode(data: data, response: response)
+        }
+        task?.resume()
+        if semaphore.wait(timeout: DispatchTime.now() + .seconds(15)) == .timedOut { task?.cancel(); return nil }
+        return output
+    }
+
+    private static func makeRequest(url: String, headers: [String: String]?, method: String = "GET", body: String? = nil) -> URLRequest? {
         guard let targetURL = URL(string: url) else { return nil }
         var request = URLRequest(url: targetURL)
-        request.httpMethod = "GET"
+        request.httpMethod = method
         request.timeoutInterval = 15
         request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
         headers?.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        if let body {
+            request.httpBody = body.data(using: .utf8)
+            if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            }
+        }
         return request
     }
 

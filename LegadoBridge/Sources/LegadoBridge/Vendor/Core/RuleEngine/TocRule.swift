@@ -1,24 +1,24 @@
 import Foundation
 
-struct TocRule: Codable {
-    var preUpdateJs: String?
-    var bookList: String?
-    var chapterName: String?
-    var chapterUrl: String?
-    var formatJs: String?
-    var isVolume: String?
-    var isVip: String?
-    var updateTime: String?
+public struct TocRule: Codable {
+    public var preUpdateJs: String?
+    public var bookList: String?
+    public var chapterName: String?
+    public var chapterUrl: String?
+    public var formatJs: String?
+    public var isVolume: String?
+    public var isVip: String?
+    public var updateTime: String?
 
-    var nextTocUrl: String?
-    var isPay: String?
+    public var nextTocUrl: String?
+    public var isPay: String?
 
-    var chapterList: String? {
+    public var chapterList: String? {
         get { bookList }
         set { bookList = newValue }
     }
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case bookList
         case chapterList
         case preUpdateJs
@@ -32,7 +32,7 @@ struct TocRule: Codable {
         case isPay
     }
 
-    init(
+    public init(
         preUpdateJs: String? = nil,
         bookList: String? = nil,
         chapterName: String? = nil,
@@ -56,7 +56,7 @@ struct TocRule: Codable {
         self.isPay = isPay
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.preUpdateJs = try container.decodeIfPresent(String.self, forKey: .preUpdateJs)
         self.bookList = try container.decodeIfPresent(String.self, forKey: .bookList)
@@ -71,7 +71,7 @@ struct TocRule: Codable {
         self.isPay = try container.decodeIfPresent(String.self, forKey: .isPay)
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(preUpdateJs, forKey: .preUpdateJs)
         try container.encodeIfPresent(bookList, forKey: .bookList)

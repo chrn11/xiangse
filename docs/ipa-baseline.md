@@ -68,9 +68,16 @@
 - 无需有效开发者签名
 - 通过 `insert_dylib` 注入 `LegadoBridge.framework`
 
+## 哈希与协议基线
+
+- 完整 SHA-256 / arm64 / 关键 selector 清单：[`docs/baseline-hashes.md`](baseline-hashes.md)、[`analysis/baseline-hashes.json`](../analysis/baseline-hashes.json)
+- Legado 协议锁定：**legado-E 3.26.030717**
+- hook103 仅作参考：[`docs/hook103-reference.md`](hook103-reference.md)；**禁止**依赖其第三方 dylib
+
 ## 原始数据
 
 - `analysis/baseline.json` — Info.plist 摘要
+- `analysis/baseline-hashes.json` — IPA/可执行文件/selector 哈希门禁
 - `analysis/deep-strings.json` — 关键字字符串命中
 - `analysis/objc-classes.txt` — ObjC 类名候选
 - `analysis/unpacked/` — 解压后 Payload
