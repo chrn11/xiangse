@@ -104,6 +104,8 @@ sequenceDiagram
 
 **真机闭环缺口（已修）**：`onSearchBookSourceResponse:` 不在 `BookSearchController`（而在详情/书源切换等类）。搜索列表行数读的是基类 `arrBaseData`；若 `tableView.dataSource` 为断裂的 `_UIFilteredDataSource`（内部 dataSource=nil），则永远 0 行。因此引擎 `ok` + 仅靠通知不够：须调用 `LBApplySearchResultsToUI` 写入 `arrBaseData`/`dicSearchItems`/`dicAllBookList` 并 `reloadData`。`sourceType` 须对齐原生 `filterSourceType`（默认 `text`）。
 
+**定位搜索 VC**：仅靠 `keyWindow` VC 树不可靠（Apply 时常见只有 `BookShelfController`+`AudioReadVC`，而屏幕上仍有搜索栏/空列表）。`LBFindBookSearchVCs` 现按：appear 强引用 → VC 树 → 弱缓存 → **可视 view 树（UISearchBar/UITableView→nextResponder）** 找回持有者，可见优先灌入。
+
 `SearchBook` 字段映射：
 
 | Legado | 香色闺阁键 |

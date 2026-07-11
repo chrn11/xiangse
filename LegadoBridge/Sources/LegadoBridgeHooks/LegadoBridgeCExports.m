@@ -97,19 +97,42 @@ static NSHashTable *sKnownSearchVCs; // weak
 static __strong UIViewController *sCurrentSearchVC; // 短时强引用，防 weak 过早清空
 
 static void LBSetSearchKeywordOnVC(UIViewController *vc, NSString *keyword);
+static NSArray<UIWindow *> *LBAllAppWindows(void);
+
+/// 是否为搜索结果页控制器（避免误命中 BookShelfController）
+static BOOL LBVCLooksLikeBookSearch(UIViewController *vc) {
+    if (!vc) return NO;
+    NSString *cn = NSStringFromClass([vc class]);
+    if ([cn containsString:@"BookSearch"] || [cn containsString:@"SearchController"]) return YES;
+    // UISearchController 系统类排除
+    if ([cn isEqualToString:@"UISearchController"] || [cn containsString:@"UIInput"]) return NO;
+    @try {
+        id items = [vc valueForKey:@"arrSearchItems"];
+        if (items) return YES;
+    } @catch (__unused NSException *e) {}
+    @try {
+        id bar = [vc valueForKey:@"searchBar"];
+        if (bar) return YES;
+    } @catch (__unused NSException *e) {}
+    return NO;
+}
+
+static BOOL LBVCIsVisibleInWindow(UIViewController *vc) {
+    return vc.isViewLoaded && vc.view.window != nil;
+}
+
+static UIViewController *LBViewControllerOwningView(UIView *view) {
+    for (UIResponder *r = view; r; r = r.nextResponder) {
+        if ([r isKindOfClass:[UIViewController class]]) {
+            return (UIViewController *)r;
+        }
+    }
+    return nil;
+}
 
 static void LBCollectBookSearchVCs(UIViewController *vc, NSMutableArray *out) {
     if (!vc) return;
-    NSString *cn = NSStringFromClass([vc class]);
-    BOOL hit = [cn containsString:@"BookSearch"] || [cn containsString:@"SearchController"];
-    if (!hit) {
-        @try {
-            // 仅用搜索页特有字段，避免误命中书架 BookShelfController.arrBaseData
-            id items = [vc valueForKey:@"arrSearchItems"];
-            if (items) hit = YES;
-        } @catch (__unused NSException *e) {}
-    }
-    if (hit && ![out containsObject:vc]) {
+    if (LBVCLooksLikeBookSearch(vc) && ![out containsObject:vc]) {
         [out addObject:vc];
     }
     for (UIViewController *child in vc.childViewControllers) {
@@ -134,12 +157,62 @@ static void LBCollectBookSearchVCs(UIViewController *vc, NSMutableArray *out) {
     }
 }
 
-static NSArray<UIWindow *> *LBAllAppWindows(void);
+/// 从可视 view 树找持有 UISearchBar / UITableView 的搜索相关 VC（不依赖 nav 父子链）
+static void LBCollectSearchVCsFromView(UIView *view, NSMutableArray *out, NSMutableArray *diag, NSInteger depth) {
+    if (!view || depth > 40) return;
+    BOOL interesting =
+        [view isKindOfClass:[UITableView class]] ||
+        [view isKindOfClass:[UISearchBar class]] ||
+        [NSStringFromClass([view class]) containsString:@"SearchBar"];
+    if (interesting) {
+        UIViewController *owner = LBViewControllerOwningView(view);
+        NSString *ownCn = owner ? NSStringFromClass([owner class]) : @"(nil)";
+        NSString *vCn = NSStringFromClass([view class]);
+        BOOL hit = LBVCLooksLikeBookSearch(owner);
+        // 可见空列表：table 的 dataSource/delegate 若是搜索 VC 也算
+        if (!hit && [view isKindOfClass:[UITableView class]]) {
+            UITableView *tv = (UITableView *)view;
+            id ds = tv.dataSource;
+            if ([ds isKindOfClass:[UIViewController class]] && LBVCLooksLikeBookSearch((UIViewController *)ds)) {
+                owner = (UIViewController *)ds;
+                hit = YES;
+                ownCn = NSStringFromClass([owner class]);
+            }
+        }
+        if (diag) {
+            [diag addObject:[NSString stringWithFormat:@"%@ -> %@ hit=%d win=%d",
+                             vCn, ownCn, hit ? 1 : 0,
+                             (owner && LBVCIsVisibleInWindow(owner)) ? 1 : 0]];
+        }
+        if (hit && owner && ![out containsObject:owner]) {
+            [out addObject:owner];
+            sCurrentSearchVC = owner; // 可见持有者优先强引用
+        }
+    }
+    for (UIView *sub in view.subviews) {
+        LBCollectSearchVCsFromView(sub, out, diag, depth + 1);
+    }
+}
+
+static void LBCollectSearchVCsFromVisibleViews(NSMutableArray *out, NSMutableArray *diag) {
+    for (UIWindow *win in LBAllAppWindows()) {
+        if (diag) {
+            [diag addObject:[NSString stringWithFormat:@"VIEWWALK %@", NSStringFromClass([win class])]];
+        }
+        LBCollectSearchVCsFromView(win, out, diag, 0);
+    }
+}
+
 static void LBDumpVCWalk(UIViewController *vc, NSInteger depth, NSMutableArray *lines) {
     if (!vc) return;
     NSMutableString *pad = [NSMutableString string];
     for (NSInteger i = 0; i < depth; i++) [pad appendString:@"  "];
-    [lines addObject:[NSString stringWithFormat:@"%@%@", pad, NSStringFromClass([vc class])]];
+    BOOL vis = LBVCIsVisibleInWindow(vc);
+    BOOL search = LBVCLooksLikeBookSearch(vc);
+    [lines addObject:[NSString stringWithFormat:@"%@%@%@%@",
+                      pad, NSStringFromClass([vc class]),
+                      vis ? @" [vis]" : @"",
+                      search ? @" [search]" : @""]];
     for (UIViewController *c in vc.childViewControllers) LBDumpVCWalk(c, depth + 1, lines);
     if (vc.presentedViewController) LBDumpVCWalk(vc.presentedViewController, depth + 1, lines);
     if ([vc isKindOfClass:[UINavigationController class]]) {
@@ -157,12 +230,25 @@ static void LBDumpVCWalk(UIViewController *vc, NSInteger depth, NSMutableArray *
 static void LBDumpVisibleVCTree(void) {
     NSMutableArray *lines = [NSMutableArray array];
     NSArray *wins = LBAllAppWindows();
-    [lines addObject:[NSString stringWithFormat:@"windows=%lu known=%lu",
-                      (unsigned long)wins.count, (unsigned long)sKnownSearchVCs.count]];
+    [lines addObject:[NSString stringWithFormat:@"windows=%lu known=%lu strong=%@",
+                      (unsigned long)wins.count,
+                      (unsigned long)sKnownSearchVCs.count,
+                      sCurrentSearchVC ? NSStringFromClass([sCurrentSearchVC class]) : @"(nil)"]];
     for (UIWindow *w in wins) {
         [lines addObject:[NSString stringWithFormat:@"WINDOW %@", NSStringFromClass([w class])]];
         LBDumpVCWalk(w.rootViewController, 0, lines);
     }
+    NSMutableArray *viewHits = [NSMutableArray array];
+    NSMutableArray *diag = [NSMutableArray array];
+    LBCollectSearchVCsFromVisibleViews(viewHits, diag);
+    [lines addObject:@"--- view holders ---"];
+    [lines addObjectsFromArray:diag];
+    NSMutableArray *hitNames = [NSMutableArray array];
+    for (UIViewController *vc in viewHits) {
+        [hitNames addObject:NSStringFromClass([vc class])];
+    }
+    [lines addObject:[NSString stringWithFormat:@"viewHitVCs=%@",
+                      hitNames.count ? [hitNames componentsJoinedByString:@","] : @"(none)"]];
     [[lines componentsJoinedByString:@"\n"]
         writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_vc_tree.txt"]
          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
@@ -186,12 +272,12 @@ static NSArray<UIWindow *> *LBAllAppWindows(void) {
     return wins;
 }
 
+/// 可见搜索 VC 优先；强引用/弱缓存兜底；最后扫 view 树
 static NSArray *LBFindBookSearchVCs(void) {
     NSMutableArray *vcs = [NSMutableArray array];
     for (UIWindow *win in LBAllAppWindows()) {
         LBCollectBookSearchVCs(win.rootViewController, vcs);
     }
-    // 窗口遍历偶发漏掉已显示的搜索页：合并 viewDidAppear 缓存
     if (sCurrentSearchVC && ![vcs containsObject:sCurrentSearchVC]) {
         [vcs addObject:sCurrentSearchVC];
     }
@@ -200,12 +286,25 @@ static NSArray *LBFindBookSearchVCs(void) {
             if (vc && ![vcs containsObject:vc]) [vcs addObject:vc];
         }
     }
+    // 关键：VC 树漏掉但屏幕上仍有搜索栏/空列表时，从 view→nextResponder 找回
+    NSMutableArray *fromViews = [NSMutableArray array];
+    LBCollectSearchVCsFromVisibleViews(fromViews, nil);
+    for (UIViewController *vc in fromViews) {
+        if (vc && ![vcs containsObject:vc]) [vcs addObject:vc];
+    }
     if (vcs.count == 0) {
         UIWindow *key = LBLegadoKeyWindow();
         if (key.rootViewController) {
             LBCollectBookSearchVCs(key.rootViewController, vcs);
         }
     }
+    // 可见优先排序
+    [vcs sortUsingComparator:^NSComparisonResult(UIViewController *a, UIViewController *b) {
+        BOOL va = LBVCIsVisibleInWindow(a);
+        BOOL vb = LBVCIsVisibleInWindow(b);
+        if (va == vb) return NSOrderedSame;
+        return va ? NSOrderedAscending : NSOrderedDescending;
+    }];
     return vcs;
 }
 
@@ -445,8 +544,11 @@ void LBInstallSearchUIAppearFlush(void) {
                 sKnownSearchVCs = [NSHashTable weakObjectsHashTable];
             }
             [sKnownSearchVCs addObject:self];
-            NSString *appear = [NSString stringWithFormat:@"appear %@ known=%lu",
-                                NSStringFromClass([self class]), (unsigned long)sKnownSearchVCs.count];
+            sCurrentSearchVC = self; // 强引用直到下一次 appear/搜索结束
+            NSString *appear = [NSString stringWithFormat:@"appear %@ known=%lu strong=%@",
+                                NSStringFromClass([self class]),
+                                (unsigned long)sKnownSearchVCs.count,
+                                NSStringFromClass([sCurrentSearchVC class])];
             [appear writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_appear.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -501,8 +603,9 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
     if (keyword.length > 0) sPendingSearchKeyword = [keyword copy];
 
     NSArray *vcs = LBFindBookSearchVCs();
+    // 每次 Apply 都 dump，便于对照「空列表」实际持有者
+    LBDumpVisibleVCTree();
     if (vcs.count == 0) {
-        LBDumpVisibleVCTree();
         NSString *marker = [NSString stringWithFormat:@"uiInject pending n=%lu key=%@ (no BookSearchVC yet)",
                             (unsigned long)sPendingSearchBooks.count, keyword ?: @""];
         [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
@@ -512,17 +615,27 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
     NSUInteger applied = 0;
     if (!sLastAppliedSearchBooks) sLastAppliedSearchBooks = [NSMutableArray array];
     [sLastAppliedSearchBooks removeAllObjects];
+    NSMutableArray *vcNames = [NSMutableArray array];
     for (UIViewController *vc in vcs) {
+        [vcNames addObject:[NSString stringWithFormat:@"%@%@",
+                            NSStringFromClass([vc class]),
+                            LBVCIsVisibleInWindow(vc) ? @"*" : @""]];
         for (id b in sPendingSearchBooks) {
             if (![b isKindOfClass:[NSDictionary class]]) continue;
             LBMergeBookIntoSearchVC(vc, b, keyword ?: sPendingSearchKeyword);
-            [sLastAppliedSearchBooks addObject:b];
+            if (![sLastAppliedSearchBooks containsObject:b]) {
+                [sLastAppliedSearchBooks addObject:b];
+            }
             applied++;
+        }
+        if (LBVCIsVisibleInWindow(vc)) {
+            sCurrentSearchVC = vc;
         }
     }
     [sPendingSearchBooks removeAllObjects];
-    NSString *marker = [NSString stringWithFormat:@"uiInject ok vcs=%lu applied=%lu key=%@",
-                        (unsigned long)vcs.count, (unsigned long)applied, keyword ?: @""];
+    NSString *marker = [NSString stringWithFormat:@"uiInject ok vcs=%lu applied=%lu key=%@ targets=%@",
+                        (unsigned long)vcs.count, (unsigned long)applied, keyword ?: @"",
+                        [vcNames componentsJoinedByString:@","]];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     // 原生搜索结束常回写空 FilteredDS；延迟再灌两次
