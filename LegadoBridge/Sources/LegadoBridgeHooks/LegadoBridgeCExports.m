@@ -660,6 +660,8 @@ static BOOL sCatalogInjectReentrant = NO;
 static IMP sOrigCatalogNumberOfRows = NULL;
 static IMP sOrigCatalogCellForRow = NULL;
 static void (*LBOrig_setArrCatalog)(id, SEL, id) = NULL;
+static id (*LBOrig_getArrCatalog)(id, SEL) = NULL;
+static void (*LBOrig_catalogDidSelect)(id, SEL, UITableView *, NSIndexPath *) = NULL;
 
 static void LBCatalogWriteMarker(NSString *msg) {
     NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_ui_inject.txt"];
@@ -1087,6 +1089,46 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
         sOrigCatalogCellForRow = method_getImplementation(cellM);
         method_setImplementation(cellM, (IMP)LBHookedCatalogCellForRow);
     }
+    SEL selSel = @selector(tableView:didSelectRowAtIndexPath:);
+    Class selOwner = LBClassOwningInstanceMethod(cls, selSel) ?: cls;
+    Method selM = class_getInstanceMethod(selOwner, selSel);
+    if (selM && !LBOrig_catalogDidSelect) {
+        LBOrig_catalogDidSelect = (void (*)(id, SEL, UITableView *, NSIndexPath *))method_getImplementation(selM);
+        IMP hook = imp_implementationWithBlock(^void(id selfObj, UITableView *tv, NSIndexPath *ip) {
+            NSArray *use = sPendingCatalogChapters;
+            if (use.count == 0) {
+                @try {
+                    id b = [selfObj valueForKey:@"arrBaseData"];
+                    if (LBArrayLooksLegado(b)) use = b;
+                } @catch (__unused NSException *e) {}
+            }
+            if (use.count > 0 && ip && ip.row >= 0 && ip.row < (NSInteger)use.count) {
+                LBTrySetArrayKey(selfObj, @"arrCatalog", use);
+                id item = use[(NSUInteger)ip.row];
+                NSString *chUrl = nil;
+                if ([item isKindOfClass:[NSDictionary class]]) {
+                    NSDictionary *d = (NSDictionary *)item;
+                    chUrl = d[@"cpUrl"] ?: d[@"chapterUrl"] ?: d[@"url"];
+                }
+                NSString *bookUrl = sPendingCatalogBookUrl;
+                if (chUrl.length > 0 && bookUrl.length > 0) {
+                    LBHandleContentRequest(chUrl, bookUrl, nil);
+                    NSString *msg = [NSString stringWithFormat:@"didSelect ch=%@ book=%@ idx=%ld",
+                                     chUrl, bookUrl, (long)ip.row];
+                    [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_select.txt"]
+                          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                }
+            }
+            if (LBOrig_catalogDidSelect) {
+                @try {
+                    LBOrig_catalogDidSelect(selfObj, selSel, tv, ip);
+                } @catch (NSException *e) {
+                    NSLog(@"[LegadoBridge] catalog didSelect fail-open: %@", e);
+                }
+            }
+        });
+        method_setImplementation(selM, hook);
+    }
 }
 
 void LBInstallCatalogUIAppearFlush(void) {
@@ -1124,6 +1166,22 @@ void LBInstallCatalogUIAppearFlush(void) {
         if (setM && !LBOrig_setArrCatalog) {
             LBOrig_setArrCatalog = (void (*)(id, SEL, id))method_getImplementation(setM);
             method_setImplementation(setM, (IMP)LBCatalogSetArrCatalog_IMP);
+        }
+        SEL getSel = @selector(arrCatalog);
+        Method getM = class_getInstanceMethod(catalogCls, getSel);
+        if (getM && !LBOrig_getArrCatalog) {
+            LBOrig_getArrCatalog = (id (*)(id, SEL))method_getImplementation(getM);
+            IMP ghook = imp_implementationWithBlock(^id(id selfObj) {
+                id orig = LBOrig_getArrCatalog ? LBOrig_getArrCatalog(selfObj, getSel) : nil;
+                if ([orig isKindOfClass:[NSArray class]] && [(NSArray *)orig count] > 0) return orig;
+                if (sPendingCatalogChapters.count > 0) return sPendingCatalogChapters;
+                @try {
+                    id base = [selfObj valueForKey:@"arrBaseData"];
+                    if (LBArrayLooksLegado(base)) return base;
+                } @catch (__unused NSException *e) {}
+                return orig;
+            });
+            method_setImplementation(getM, ghook);
         }
         LBInstallCatalogTableHooksOnClass(catalogCls);
     }
