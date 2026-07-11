@@ -658,6 +658,7 @@ static NSString *sPendingCatalogBookUrl = nil;
 static BOOL sCatalogUIAppearHooked = NO;
 static BOOL sCatalogInjectReentrant = NO;
 static IMP sOrigCatalogNumberOfRows = NULL;
+static IMP sOrigCatalogCellForRow = NULL;
 static void (*LBOrig_setArrCatalog)(id, SEL, id) = NULL;
 
 static void LBCatalogWriteMarker(NSString *msg) {
@@ -811,31 +812,6 @@ static void LBReloadCatalogVC(UIViewController *vc) {
     } @catch (__unused NSException *e) {}
 }
 
-static BOOL LBTrySetArrayKey(id obj, NSString *key, NSArray *chapters) {
-    if (!obj || key.length == 0) return NO;
-    @try {
-        [obj setValue:chapters forKey:key];
-        return YES;
-    } @catch (__unused NSException *e) {}
-    NSString *setter = [NSString stringWithFormat:@"set%@%@:",
-                        [[key substringToIndex:1] uppercaseString],
-                        [key substringFromIndex:1]];
-    SEL sel = NSSelectorFromString(setter);
-    if ([obj respondsToSelector:sel]) {
-        @try {
-            ((void (*)(id, SEL, id))objc_msgSend)(obj, sel, chapters);
-            return YES;
-        } @catch (__unused NSException *e) {}
-    }
-    Ivar ivar = class_getInstanceVariable(object_getClass(obj),
-                                          [[@"_" stringByAppendingString:key] UTF8String]);
-    if (ivar) {
-        object_setIvar(obj, ivar, chapters);
-        return YES;
-    }
-    return NO;
-}
-
 static NSUInteger LBReadArrayCount(id obj, NSString *key) {
     @try {
         id cur = [obj valueForKey:key];
@@ -844,7 +820,85 @@ static NSUInteger LBReadArrayCount(id obj, NSString *key) {
     return 0;
 }
 
-/// 写入 arrCatalog / arrBaseData / arrCpInfo，并尝试嵌套 catalogView
+static BOOL LBTrySetArrayKey(id obj, NSString *key, NSArray *chapters) {
+    if (!obj || key.length == 0) return NO;
+    @try {
+        [obj setValue:chapters forKey:key];
+    } @catch (__unused NSException *e) {
+        NSString *setter = [NSString stringWithFormat:@"set%@%@:",
+                            [[key substringToIndex:1] uppercaseString],
+                            [key substringFromIndex:1]];
+        SEL sel = NSSelectorFromString(setter);
+        if ([obj respondsToSelector:sel]) {
+            @try {
+                ((void (*)(id, SEL, id))objc_msgSend)(obj, sel, chapters);
+            } @catch (__unused NSException *e2) {}
+        }
+    }
+    // 无论 setter 是否过滤，沿继承链强制写 ivar（CatalogCon.arrCatalog 常拒收 NSDictionary）
+    NSString *ivarName = [@"_" stringByAppendingString:key];
+    Class cls = object_getClass(obj);
+    while (cls && cls != [NSObject class]) {
+        Ivar ivar = class_getInstanceVariable(cls, [ivarName UTF8String]);
+        if (ivar) {
+            object_setIvar(obj, ivar, chapters);
+            return YES;
+        }
+        cls = class_getSuperclass(cls);
+    }
+    // 无 ivar 时：若 valueForKey 已能读回则算成功
+    return LBReadArrayCount(obj, key) > 0;
+}
+
+static BOOL LBArrayLooksLegado(NSArray *arr) {
+    if (![arr isKindOfClass:[NSArray class]] || arr.count == 0) return NO;
+    for (id item in arr) {
+        if (![item isKindOfClass:[NSDictionary class]]) continue;
+        if (item[@"legadoBridge"] || item[@"fromLegadoBridge"] || item[@"cpTitle"]) return YES;
+    }
+    return NO;
+}
+
+static NSString *LBChapterTitleFromItem(id item) {
+    if ([item isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *d = item;
+        for (NSString *k in @[@"cpTitle", @"title", @"name", @"chapterName"]) {
+            id v = d[k];
+            if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) return v;
+        }
+        return nil;
+    }
+    for (NSString *k in @[@"cpTitle", @"title", @"name", @"chapterName"]) {
+        @try {
+            id v = [item valueForKey:k];
+            if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) return v;
+        } @catch (__unused NSException *e) {}
+    }
+    return nil;
+}
+
+static void LBDeliverCatalogNotify(id target, NSArray *chapters, NSString *bookUrl) {
+    if (!target || chapters.count == 0) return;
+    NSDictionary *userInfo = @{
+        @"bookUrl": bookUrl ?: @"",
+        @"chapterList": chapters,
+        @"arrCatalog": chapters,
+        @"arrChapter": chapters,
+        @"legadoBridge": @"1",
+        @"fromLegadoBridge": @YES
+    };
+    NSNotification *note = [NSNotification notificationWithName:@"dNotifyName_QueryCatalogResponse"
+                                                          object:nil
+                                                        userInfo:userInfo];
+    SEL sel = @selector(onCatalogQueryFinishNotify:);
+    if ([target respondsToSelector:sel]) {
+        @try {
+            ((void (*)(id, SEL, id))objc_msgSend)(target, sel, note);
+        } @catch (__unused NSException *e) {}
+    }
+}
+
+/// 写入 arrCatalog / arrBaseData / arrCpInfo，并尝试嵌套 catalogView + 通知
 static BOOL LBWriteChaptersOntoObject(id obj, NSArray *chapters) {
     if (!obj || ![chapters isKindOfClass:[NSArray class]] || chapters.count == 0) return NO;
     BOOL wrote = NO;
@@ -863,6 +917,37 @@ static BOOL LBWriteChaptersOntoObject(id obj, NSArray *chapters) {
     return wrote;
 }
 
+static void LBWriteChaptersOntoVisibleTables(NSArray *chapters, NSString *bookUrl, NSMutableArray *targets) {
+    for (UIWindow *w in LBAllAppWindows()) {
+        NSMutableArray *views = [NSMutableArray arrayWithObject:w];
+        while (views.count > 0) {
+            UIView *v = views.lastObject;
+            [views removeLastObject];
+            if ([v isKindOfClass:[UITableView class]] && v.window) {
+                UITableView *tv = (UITableView *)v;
+                id ds = tv.dataSource;
+                if (ds) {
+                    BOOL wrote = LBWriteChaptersOntoObject(ds, chapters);
+                    NSUInteger nCat = LBReadArrayCount(ds, @"arrCatalog");
+                    NSUInteger nBase = LBReadArrayCount(ds, @"arrBaseData");
+                    if (wrote || nCat > 0 || nBase > 0) {
+                        [targets addObject:[NSString stringWithFormat:@"TV.ds=%@ cat=%lu base=%lu",
+                                            NSStringFromClass([ds class]),
+                                            (unsigned long)nCat, (unsigned long)nBase]];
+                    }
+                }
+                UIViewController *owner = LBViewControllerOwningView(tv);
+                if (owner && owner != ds) {
+                    LBWriteChaptersOntoObject(owner, chapters);
+                    LBDeliverCatalogNotify(owner, chapters, bookUrl);
+                }
+                @try { [tv reloadData]; } @catch (__unused NSException *e) {}
+            }
+            for (UIView *sub in v.subviews) [views addObject:sub];
+        }
+    }
+}
+
 static NSUInteger LBApplyPendingCatalogToVCs(NSArray *chapters, NSString *bookUrl, NSString *phase) {
     if (![chapters isKindOfClass:[NSArray class]] || chapters.count == 0) return 0;
     LBCatalogDumpVCTree();
@@ -871,6 +956,7 @@ static NSUInteger LBApplyPendingCatalogToVCs(NSArray *chapters, NSString *bookUr
     NSUInteger applied = 0;
     for (UIViewController *vc in vcs) {
         BOOL wrote = LBWriteChaptersOntoObject(vc, chapters);
+        LBDeliverCatalogNotify(vc, chapters, bookUrl);
         NSUInteger nCat = LBReadArrayCount(vc, @"arrCatalog");
         NSUInteger nBase = LBReadArrayCount(vc, @"arrBaseData");
         if (wrote || nCat > 0 || nBase > 0) {
@@ -884,6 +970,7 @@ static NSUInteger LBApplyPendingCatalogToVCs(NSArray *chapters, NSString *bookUr
             }
         }
     }
+    LBWriteChaptersOntoVisibleTables(chapters, bookUrl, targets);
     LBCatalogWriteMarker([NSString stringWithFormat:
                           @"uiInject %@ vcs=%lu applied=%lu book=%@ n=%lu targets=%@",
                           phase ?: @"ok", (unsigned long)vcs.count, (unsigned long)applied,
@@ -909,23 +996,58 @@ static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv,
         orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))sOrigCatalogNumberOfRows)(self, _cmd, tv, section);
     }
     if (orig > 0) return orig;
-    if (tv.dataSource != self) return orig;
+    // dataSource 可能是代理对象：仍允许 self 上的 legado 数组兜底
     for (NSString *key in @[@"arrCatalog", @"arrBaseData", @"arrCpInfo"]) {
         @try {
             id cur = [self valueForKey:key];
-            if (![cur isKindOfClass:[NSArray class]] || [cur count] == 0) continue;
-            BOOL hasLegado = NO;
-            for (id item in cur) {
-                if (![item isKindOfClass:[NSDictionary class]]) continue;
-                if (item[@"legadoBridge"] || item[@"fromLegadoBridge"] || item[@"cpTitle"]) {
-                    hasLegado = YES;
-                    break;
-                }
-            }
-            if (hasLegado) return (NSInteger)[cur count];
+            if (!LBArrayLooksLegado(cur)) continue;
+            return (NSInteger)[cur count];
         } @catch (__unused NSException *e) {}
     }
+    if (tv && tv.dataSource && tv.dataSource != self) {
+        for (NSString *key in @[@"arrCatalog", @"arrBaseData", @"arrCpInfo"]) {
+            @try {
+                id cur = [tv.dataSource valueForKey:key];
+                if (!LBArrayLooksLegado(cur)) continue;
+                return (NSInteger)[cur count];
+            } @catch (__unused NSException *e) {}
+        }
+    }
     return orig;
+}
+
+static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip) {
+    NSArray *cat = nil;
+    NSArray *base = nil;
+    @try {
+        id c = [self valueForKey:@"arrCatalog"];
+        if ([c isKindOfClass:[NSArray class]]) cat = c;
+    } @catch (__unused NSException *e) {}
+    @try {
+        id b = [self valueForKey:@"arrBaseData"];
+        if ([b isKindOfClass:[NSArray class]]) base = b;
+    } @catch (__unused NSException *e) {}
+    BOOL legadoFallback = (!cat || cat.count == 0) && LBArrayLooksLegado(base);
+    if (!legadoFallback && sOrigCatalogCellForRow) {
+        return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCatalogCellForRow)(self, _cmd, tv, ip);
+    }
+    if (legadoFallback && ip.row >= 0 && ip.row < (NSInteger)base.count) {
+        id item = base[(NSUInteger)ip.row];
+        NSString *title = LBChapterTitleFromItem(item) ?: [NSString stringWithFormat:@"章节 %ld", (long)ip.row + 1];
+        UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"legado.catalog.cp"];
+        if (!cell) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
+                                         reuseIdentifier:@"legado.catalog.cp"];
+        }
+        cell.textLabel.text = title;
+        cell.textLabel.textColor = [UIColor labelColor];
+        cell.backgroundColor = [UIColor clearColor];
+        return cell;
+    }
+    if (sOrigCatalogCellForRow) {
+        return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCatalogCellForRow)(self, _cmd, tv, ip);
+    }
+    return nil;
 }
 
 static void LBCatalogSetArrCatalog_IMP(id self, SEL _cmd, id arr) {
@@ -935,7 +1057,7 @@ static void LBCatalogSetArrCatalog_IMP(id self, SEL _cmd, id arr) {
     if (sCatalogInjectReentrant) return;
     BOOL empty = (!arr || ([arr isKindOfClass:[NSArray class]] && [arr count] == 0));
     if (!empty || sPendingCatalogChapters.count == 0) return;
-    // 原生异步回写空目录时，用 pending 盖回
+    // 原生异步回写空目录时，用 pending 盖回（含 ivar 强写）
     NSArray *ch = [sPendingCatalogChapters copy];
     dispatch_async(dispatch_get_main_queue(), ^{
         if (sPendingCatalogChapters.count == 0) return;
@@ -946,6 +1068,24 @@ static void LBCatalogSetArrCatalog_IMP(id self, SEL _cmd, id arr) {
         LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject setArrCatalog-guard n=%lu on=%@",
                               (unsigned long)ch.count, NSStringFromClass([self class])]);
     });
+}
+
+static void LBInstallCatalogTableHooksOnClass(Class cls) {
+    if (!cls) return;
+    SEL rowsSel = @selector(tableView:numberOfRowsInSection:);
+    Class rowsOwner = LBClassOwningInstanceMethod(cls, rowsSel) ?: cls;
+    Method rowsM = class_getInstanceMethod(rowsOwner, rowsSel);
+    if (rowsM && !sOrigCatalogNumberOfRows) {
+        sOrigCatalogNumberOfRows = method_getImplementation(rowsM);
+        method_setImplementation(rowsM, (IMP)LBHookedCatalogNumberOfRows);
+    }
+    SEL cellSel = @selector(tableView:cellForRowAtIndexPath:);
+    Class cellOwner = LBClassOwningInstanceMethod(cls, cellSel) ?: cls;
+    Method cellM = class_getInstanceMethod(cellOwner, cellSel);
+    if (cellM && !sOrigCatalogCellForRow) {
+        sOrigCatalogCellForRow = method_getImplementation(cellM);
+        method_setImplementation(cellM, (IMP)LBHookedCatalogCellForRow);
+    }
 }
 
 void LBInstallCatalogUIAppearFlush(void) {
@@ -984,21 +1124,10 @@ void LBInstallCatalogUIAppearFlush(void) {
             LBOrig_setArrCatalog = (void (*)(id, SEL, id))method_getImplementation(setM);
             method_setImplementation(setM, (IMP)LBCatalogSetArrCatalog_IMP);
         }
-        Method rowsM = class_getInstanceMethod(catalogCls, @selector(tableView:numberOfRowsInSection:));
-        if (rowsM && !sOrigCatalogNumberOfRows) {
-            sOrigCatalogNumberOfRows = method_getImplementation(rowsM);
-            method_setImplementation(rowsM, (IMP)LBHookedCatalogNumberOfRows);
-        }
+        LBInstallCatalogTableHooksOnClass(catalogCls);
     }
-    // 部分目录列表在基类实现 numberOfRows
     for (NSString *baseName in @[@"ReadVCBase1", @"BookDetailVCBase"]) {
-        Class base = NSClassFromString(baseName);
-        if (!base) continue;
-        Method rowsM = class_getInstanceMethod(base, @selector(tableView:numberOfRowsInSection:));
-        if (rowsM && !sOrigCatalogNumberOfRows) {
-            sOrigCatalogNumberOfRows = method_getImplementation(rowsM);
-            method_setImplementation(rowsM, (IMP)LBHookedCatalogNumberOfRows);
-        }
+        LBInstallCatalogTableHooksOnClass(NSClassFromString(baseName));
     }
 }
 
