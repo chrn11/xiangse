@@ -118,6 +118,7 @@ static BOOL LBVCLooksLikeBookSearch(UIViewController *vc) {
 }
 
 static BOOL LBVCIsVisibleInWindow(UIViewController *vc) {
+    if (![vc isKindOfClass:[UIViewController class]]) return NO;
     return vc.isViewLoaded && vc.view.window != nil;
 }
 
