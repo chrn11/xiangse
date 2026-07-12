@@ -1463,30 +1463,50 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         NSString *orm = nil;
         BOOL opened = NO;
         @try {
-            // 1) 优先 push TextRead + 原生 viewDidLoad（openReader 历史 callingOrig 后 SIGABRT）
+            // 1) 优先 push TextRead + 原生 viewDidLoad
+            // 注意：push 动画期间 LBIsTextReaderVisible 常为 NO，切勿立刻再调 openReader
+            // （历史证据：callingOrig 后 SIGABRT 回桌面）。
             LBWriteOpenReaderMarker(@"nativeOpen callingPushNativeFull");
             opened = LBPushTextReaderNativeFull(book, sourceName, &orm);
-            if (opened && LBIsTextReaderVisible()) {
-                LBAppendOpenReaderTrace(@"pushNativeFull visible");
-            }
-            // 2) push 未见页时再试 openReader（完整章节字典）
-            if (!opened || !LBIsTextReaderVisible()) {
-                LBWriteOpenReaderMarker(@"nativeOpen callingOpenReader nativeFull");
-                BOOL orOk = LBCallOpenReader(book, sourceName, &orm);
-                if (orOk && LBIsTextReaderVisible()) {
-                    opened = YES;
-                    sLegadoReaderMode = 1;
-                    LBAppendOpenReaderTrace(@"openReader visible nativeFull");
+            if (opened) {
+                // 给 push/appear 一点时间；仍不可见再考虑兜底
+                for (int wi = 0; wi < 8 && !LBIsTextReaderVisible(); wi++) {
+                    [[NSRunLoop currentRunLoop] runUntilDate:
+                        [NSDate dateWithTimeIntervalSinceNow:0.15]];
+                }
+                if (LBIsTextReaderVisible()) {
+                    LBAppendOpenReaderTrace(@"pushNativeFull visible");
+                } else {
+                    LBAppendOpenReaderTrace(@"pushNativeFull returned but not yet visible");
                 }
             }
-            // 3) 仍失败：safeShell 仅兜底（验收不算过关）
-            if (!opened || !LBIsTextReaderVisible()) {
+            // 2) 仅当 push 本身失败时才试 openReader（成功 push 后禁止再调，防杀进程）
+            if (!opened) {
+                LBWriteOpenReaderMarker(@"nativeOpen callingOpenReader nativeFull");
+                BOOL orOk = LBCallOpenReader(book, sourceName, &orm);
+                if (orOk) {
+                    for (int wi = 0; wi < 8 && !LBIsTextReaderVisible(); wi++) {
+                        [[NSRunLoop currentRunLoop] runUntilDate:
+                            [NSDate dateWithTimeIntervalSinceNow:0.15]];
+                    }
+                    if (LBIsTextReaderVisible()) {
+                        opened = YES;
+                        sLegadoReaderMode = 1;
+                        LBAppendOpenReaderTrace(@"openReader visible nativeFull");
+                    } else {
+                        LBAppendOpenReaderTrace(@"openReader returned but reader not visible");
+                    }
+                }
+            }
+            // 3) 仍无阅读页：safeShell 仅兜底（验收不算过关）
+            if (!LBIsTextReaderVisible()) {
                 sLegadoReaderMode = 2;
                 LBWriteOpenReaderMarker(@"nativeOpen callingPushSafeShell fallback");
                 opened = LBPushTextReaderFallback(book, sourceName, &orm);
             }
-            LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen origReturned opened=%d mode=%d | %@",
-                                     opened ? 1 : 0, sLegadoReaderMode, orm ?: @"?"]);
+            LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen origReturned opened=%d mode=%d vis=%d | %@",
+                                     opened ? 1 : 0, sLegadoReaderMode,
+                                     LBIsTextReaderVisible() ? 1 : 0, orm ?: @"?"]);
         } @catch (NSException *e) {
             orm = [NSString stringWithFormat:@"openReader exception: %@", e.reason ?: @""];
             opened = NO;
