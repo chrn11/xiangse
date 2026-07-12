@@ -1326,6 +1326,7 @@ static NSMutableDictionary *LBBookDictForOpenReader(NSString *bookUrl,
                                                     NSString **outSourceName);
 static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString **outMsg);
 static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, NSString **outMsg);
+static void LBInjectPendingContentIntoReader(UIViewController *readerVC, NSString *phase);
 static BOOL LBPrepareDetailForOpenReader(NSMutableDictionary *book, NSString *sourceName, NSString **outMsg);
 static void LBFlushPendingResetContent(NSString *phase);
 static BOOL LBIsTextReaderVisible(void);
@@ -2423,10 +2424,9 @@ static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, N
     }
     LBSanitizeBookDictForReaderEx(dic, NO, YES);
     LBReadingRememberBook(dic);
-    // 先 push 空阅读页，再在下一拍 setDicBook，避免 load+appear 钩叠杀
-    LBAppendOpenReaderTrace([NSString stringWithFormat:@"pushReader deferSetDic %@ keys=%lu",
+    (void)dic; // 仅用于绑定记忆；不写入 TextRead（setter/ResetContent 会 SIGABRT）
+    LBAppendOpenReaderTrace([NSString stringWithFormat:@"pushReader deferInject %@ keys=%lu",
                              NSStringFromClass(cls), (unsigned long)dic.count]);
-    NSDictionary *dicCopy = [dic copy];
     id vcRef = vc;
     void (^applyDicLater)(void) = ^{
         @try {
