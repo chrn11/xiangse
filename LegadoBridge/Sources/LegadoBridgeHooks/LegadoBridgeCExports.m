@@ -1772,17 +1772,31 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
         list.chapters = sPendingCatalogChapters;
     }
 
-    UINavigationController *nav = LBFindBestNavigationController((UIViewController *)searchVC);
+    UINavigationController *nav = [(UIViewController *)searchVC navigationController];
+    if (!nav) {
+        nav = LBFindBestNavigationController((UIViewController *)searchVC);
+    }
     BOOL presentedWrap = NO;
     @try {
-        if (nav) {
+        if (nav && [nav.viewControllers containsObject:(UIViewController *)searchVC]) {
             [nav pushViewController:list animated:NO];
-        } else {
-            UINavigationController *wrap = [[UINavigationController alloc] initWithRootViewController:list];
+        } else if (nav) {
+            // 搜索页不在该 nav 栈内时，勿推到隐藏栈；改 present
+            UINavigationController *wrap =
+                [[UINavigationController alloc] initWithRootViewController:list];
             UIViewController *host = (UIViewController *)searchVC;
             while (host.presentedViewController) host = host.presentedViewController;
             [host presentViewController:wrap animated:NO completion:nil];
             presentedWrap = YES;
+            nav = wrap;
+        } else {
+            UINavigationController *wrap =
+                [[UINavigationController alloc] initWithRootViewController:list];
+            UIViewController *host = (UIViewController *)searchVC;
+            while (host.presentedViewController) host = host.presentedViewController;
+            [host presentViewController:wrap animated:NO completion:nil];
+            presentedWrap = YES;
+            nav = wrap;
         }
     } @catch (NSException *e) {
         mark([NSString stringWithFormat:@"searchPush fail: push %@", e.reason ?: @""]);
