@@ -3171,9 +3171,13 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
             BOOL responded = NO;
             for (id host in containers) {
                 NSString *hn = NSStringFromClass([host class]);
-                // TextRPageContainer::divisionResponse 真机曾在返回后触发 SIGABRT，禁止调用
-                if ([hn containsString:@"TextRPageContainer"]) {
-                    LBAppendOpenReaderTrace(@"contentInject skip TextRPageContainer (sigabort risk)");
+                // TextR 仅在已 seed 缓存后调用；空读 ORIG 后再打 TextR 曾 SIGABRT
+                BOOL allowTextR = [phase containsString:@"Division"] ||
+                                  [phase containsString:@"Appear"] ||
+                                  [phase containsString:@"settle"] ||
+                                  [phase containsString:@"go"];
+                if ([hn containsString:@"TextRPageContainer"] && !allowTextR) {
+                    LBAppendOpenReaderTrace(@"contentInject defer TextR (need seed+ORIG first)");
                     continue;
                 }
                 if ([host respondsToSelector:dr2]) {
@@ -3236,7 +3240,11 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
             SEL pp = NSSelectorFromString(@"processPageData:userInfo:cpTitle:");
             for (id host in containers) {
                 NSString *hn2 = NSStringFromClass([host class]);
-                if ([hn2 containsString:@"TextRPageContainer"]) continue;
+                BOOL allowTextR2 = [phase containsString:@"Division"] ||
+                                   [phase containsString:@"Appear"] ||
+                                   [phase containsString:@"settle"] ||
+                                   [phase containsString:@"go"];
+                if ([hn2 containsString:@"TextRPageContainer"] && !allowTextR2) continue;
                 if (![host respondsToSelector:pp]) continue;
                 NSDictionary *ui = @{
                     @"chapterContent": body,
@@ -3306,8 +3314,29 @@ LB_INJECT_FINISH:
             id ev = nil;
             @try { ev = [readerVC valueForKey:@"errorView"]; } @catch (__unused NSException *e) {}
             if ([ev isKindOfClass:[UIView class]]) {
-                ((UIView *)ev).hidden = YES;
+                UIView *errV = (UIView *)ev;
+                errV.hidden = YES;
+                errV.alpha = 0;
+                errV.userInteractionEnabled = NO;
                 [okPaths addObject:@"errorViewHidden"];
+            }
+        } @catch (__unused NSException *e) {}
+        // 扫树藏 ReadErrorView（hideErrorView 有时只清标志不藏视图）
+        @try {
+            if (readerVC.isViewLoaded && readerVC.view) {
+                NSMutableArray *vs = [NSMutableArray arrayWithObject:readerVC.view];
+                while (vs.count > 0) {
+                    UIView *v = vs.lastObject;
+                    [vs removeLastObject];
+                    NSString *vn = NSStringFromClass([v class]);
+                    if ([vn containsString:@"ErrorView"] || [vn containsString:@"ReadError"]) {
+                        v.hidden = YES;
+                        v.alpha = 0;
+                        v.userInteractionEnabled = NO;
+                        [okPaths addObject:@"readErrorHidden"];
+                    }
+                    for (UIView *sub in v.subviews) [vs addObject:sub];
+                }
             }
         } @catch (__unused NSException *e) {}
         // 不主动 gotoCp/showPage：divisionResponse 已上屏；误调易二次布局 SIGABRT
