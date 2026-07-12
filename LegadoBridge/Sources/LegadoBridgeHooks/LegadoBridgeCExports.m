@@ -2620,8 +2620,10 @@ static void LBLogDivisionSelectors(id sampleTV) {
         };
         if (sampleTV) probeCls([sampleTV class]);
         for (NSString *cn in @[@"TextReadTV", @"TextReadTVBase", @"LCCoreTextUtil",
+                               @"PaibanManager", @"TextReadPaibanList",
                                @"TextReadVC3", @"ReadVCBase2", @"ReadPageContainer",
-                               @"TextRPageContainer", @"ReadScrollContainer", @"ReadPageModel"]) {
+                               @"TextRPageContainer", @"ReadScrollContainer",
+                               @"ReadPageModel", @"ReadErrorView"]) {
             probeCls(NSClassFromString(cn));
         }
         unsigned int ccount = 0;
@@ -2673,8 +2675,10 @@ static id LBCallDivisionText(id target, BOOL targetIsClass, NSString *body, NSSt
     if (sz.width < 10) sz.width = 350;
     if (sz.height < 10) sz.height = 500;
     BOOL doubleCol = NO;
-    NSArray *heights = @[];
+    NSMutableArray *heights = [NSMutableArray array];
     NSDictionary *paiban = [paibanInfo isKindOfClass:[NSDictionary class]] ? paibanInfo : @{};
+    // 原生会对 backHeights 执行 addObject:，必须可变
+    if (![paiban isKindOfClass:[NSDictionary class]]) paiban = @{};
     NSUInteger argc = sig.numberOfArguments;
     if (argc > 2) [inv setArgument:&argBody atIndex:2];
     if (argc > 3) [inv setArgument:&argTitle atIndex:3];
