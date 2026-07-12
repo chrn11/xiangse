@@ -1188,37 +1188,24 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         [[NSString stringWithFormat:@"nativeOpen phase=goStart ch=%@", chCopy]
             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        LBInstallReaderContentAppearFlush();
+        // 跳过 LBInstallReaderContentAppearFlush + LBPrepareDetailForOpenReader：
+        // 上轮证据停在 goStart、无 prepDone → 二者之一（或中间 bookDict）无 ips 杀进程。
         NSString *sourceName = nil;
-        NSMutableDictionary *book = LBBookDictForOpenReader(
-            buCopy, itemCopy, idxCopy, chCopy, &sourceName
-        );
-        LBSanitizeBookDictForReader(book);
-        NSString *prepMsg = nil;
-        BOOL prepped = LBPrepareDetailForOpenReader(book, sourceName, &prepMsg);
-        [[NSString stringWithFormat:@"nativeOpen phase=prepDone ok=%d | %@", prepped ? 1 : 0, prepMsg ?: @"?"]
-            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        // 隐藏详情即可；无详情类才 Bridge
-        if (!prepped) {
-            NSString *skip = [NSString stringWithFormat:
-                              @"nativeSkip noDetail→bridge | %@ ch=%@", prepMsg ?: @"?", chCopy];
-            [skip writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                   atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-            LBHandleContentRequest(chCopy, buCopy, nil);
-            NSString *brMsg = nil;
-            BOOL presented = LBPresentBridgeReader(titleCopy, chCopy, buCopy, &brMsg);
-            NSString *fb = [NSString stringWithFormat:
-                            @"bridgeFallback presented=%d | %@ || %@",
-                            presented ? 1 : 0, brMsg ?: @"?", skip];
-            [fb writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-            if (sPendingResetContent.count > 0) {
-                LBBridgeReaderApplyContent(sPendingResetContent);
-            }
+        NSMutableDictionary *book = nil;
+        @try {
+            book = LBBookDictForOpenReader(buCopy, itemCopy, idxCopy, chCopy, &sourceName);
+            LBSanitizeBookDictForReader(book);
+        } @catch (NSException *e) {
+            [[NSString stringWithFormat:@"nativeOpen fail bookDict: %@", e.reason ?: @""]
+                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
             return;
         }
-        [[NSString stringWithFormat:@"nativeOpen beforeCall prep=%@", prepMsg ?: @""]
+        [[NSString stringWithFormat:@"nativeOpen phase=bookDictOK src=%@", sourceName ?: @""]
+            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        LBHandleContentRequest(chCopy, buCopy, nil);
+        [[NSString stringWithFormat:@"nativeOpen beforeCall skipPrep=1"]
             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         NSString *orm = nil;
@@ -1229,14 +1216,11 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
             orm = [NSString stringWithFormat:@"openReader exception: %@", e.reason ?: @""];
             opened = NO;
         }
-        LBHandleContentRequest(chCopy, buCopy, nil);
         NSString *line = [NSString stringWithFormat:
-                          @"nativeOpen opened=%d readerVis=%d | %@ | %@ || via=cellOrSelect preferNative=1",
-                          opened ? 1 : 0, LBIsTextReaderVisible() ? 1 : 0,
-                          orm ?: @"?", prepMsg ?: @""];
+                          @"nativeOpen opened=%d readerVis=%d | %@ || via=skipPrep preferNative=1",
+                          opened ? 1 : 0, LBIsTextReaderVisible() ? 1 : 0, orm ?: @"?"];
         [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        // 原生页出现后灌正文
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             if (LBIsTextReaderVisible()) {
@@ -1246,13 +1230,12 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
                 LBFlushPendingResetContent(@"native0.7");
             }
         });
-        // 超时无 TextRead*：Bridge 兜底（保留正文体验）
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.8 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             if (LBIsTextReaderVisible()) {
                 LBFlushPendingResetContent(@"native1.8");
                 NSString *ok = [NSString stringWithFormat:
-                                @"nativeOpen keep TextRead readerVis=1 ch=%@", chCopy];
+                                @"nativeOpen keepTextRead readerVis=1 ch=%@", chCopy];
                 [ok writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 return;
