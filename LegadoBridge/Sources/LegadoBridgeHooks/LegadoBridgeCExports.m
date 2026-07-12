@@ -1153,6 +1153,8 @@ static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString 
 static BOOL LBPrepareDetailForOpenReader(NSMutableDictionary *book, NSString *sourceName, NSString **outMsg);
 static void LBFlushPendingResetContent(NSString *phase);
 static BOOL LBIsTextReaderVisible(void);
+static UIViewController *LBFindBookDetailVC(void);
+static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic);
 
 /// 点章：默认原生 openReader → TextReadVC；超时仍无原生页再 Bridge 兜底
 static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
