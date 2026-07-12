@@ -2437,6 +2437,36 @@ static BOOL LBForceSetIvar(id obj, NSString *key, id value) {
     }
 }
 
+/// 把对象上为 nil 的 NSString 属性填成 @""，压 didAppear @[nil] abort
+static void LBSeedNilStringProperties(id obj) {
+    if (!obj) return;
+    Class cls = [obj class];
+    while (cls && cls != [NSObject class]) {
+        unsigned int n = 0;
+        objc_property_t *props = class_copyPropertyList(cls, &n);
+        for (unsigned int i = 0; i < n; i++) {
+            const char *attrs = property_getAttributes(props[i]);
+            if (!attrs) continue;
+            // T@"NSString" 或 T@"NSMutableString"
+            if (strstr(attrs, "T@\"NSString\"") == NULL &&
+                strstr(attrs, "T@\"NSMutableString\"") == NULL) continue;
+            const char *name = property_getName(props[i]);
+            if (!name) continue;
+            NSString *key = [NSString stringWithUTF8String:name];
+            @try {
+                id cur = [obj valueForKey:key];
+                if (cur == nil || cur == [NSNull null]) {
+                    [obj setValue:@"" forKey:key];
+                }
+            } @catch (__unused NSException *e) {
+                LBForceSetIvar(obj, key, @"");
+            }
+        }
+        if (props) free(props);
+        cls = class_getSuperclass(cls);
+    }
+}
+
 /// nativeFull：进入原生 viewDidLoad 前消毒/灌 dicBook + 关键数组
 static void LBPrepareTextReadNativeFull(id readerVC, NSDictionary *book) {
     if (!readerVC) return;
@@ -2452,6 +2482,7 @@ static void LBPrepareTextReadNativeFull(id readerVC, NSDictionary *book) {
     }
     LBSanitizeBookDictForReaderEx(dic, YES, YES);
     sPendingNativeFullBook = [dic mutableCopy];
+    LBSeedNilStringProperties(readerVC);
 
     // 字符串属性兜底（viewDidLoad/appear 里 @[prop] 遇 nil 会 abort）
     for (NSString *k in @[@"bookKey", @"sourceName", @"lastSourceName", @"name", @"author"]) {
@@ -2521,21 +2552,30 @@ static void LBDeliverContentToVisibleReaders(NSString *phase) {
             BOOL isRead = [cn containsString:@"TextReadVC"] || [cn containsString:@"ReadVCBase"];
             if (isRead && LBVCIsVisibleInWindow(vc)) {
                 if (sLegadoReaderMode == 1) {
-                    SEL sel = @selector(onResetContentNotify:);
-                    if ([vc respondsToSelector:sel] || LBOrig_onResetContentNotify) {
+                    BOOL delivered = NO;
+                    NSArray *sels = @[@"onResetContentNotify:", @"onResetContent:",
+                                      @"resetContentNotify:", @"handleResetContent:"];
+                    for (NSString *sn in sels) {
+                        SEL sel = NSSelectorFromString(sn);
+                        if (![vc respondsToSelector:sel] && !LBOrig_onResetContentNotify) continue;
+                        if (![vc respondsToSelector:sel] && LBOrig_onResetContentNotify &&
+                            sel != @selector(onResetContentNotify:)) continue;
                         @try {
                             NSNotification *note =
                                 [NSNotification notificationWithName:@"dNotifyName_ReadView_ResetContent"
                                                               object:nil
                                                             userInfo:safe];
-                            if (LBOrig_onResetContentNotify) {
+                            if (LBOrig_onResetContentNotify &&
+                                (sel == @selector(onResetContentNotify:) ||
+                                 [sn isEqualToString:@"onResetContentNotify:"])) {
                                 LBOrig_onResetContentNotify(vc, sel, note);
                             } else {
                                 ((void (*)(id, SEL, id))objc_msgSend)(vc, sel, note);
                             }
                             LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                     @"deliver ORIG_OK phase=%@ cls=%@",
-                                                     phase ?: @"?", cn]);
+                                                     @"deliver ORIG_OK phase=%@ cls=%@ sel=%@",
+                                                     phase ?: @"?", cn, sn]);
+                            delivered = YES;
                             NSString *body = safe[@"chapterContent"] ?: safe[@"content"] ?: @"";
                             if ([body isKindOfClass:[NSString class]] &&
                                 ([body containsString:@"萧炎"] || [body containsString:@"斗气"])) {
@@ -2543,15 +2583,36 @@ static void LBDeliverContentToVisibleReaders(NSString *phase) {
                                                         @"nativeOpen keepTextRead readerVis=1 via=nativeFull phase=%@",
                                                         phase ?: @"?"]);
                             }
-                            continue;
+                            break;
                         } @catch (NSException *ex) {
                             LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                     @"deliver ORIG_EX phase=%@ %@",
-                                                     phase ?: @"?", ex.reason ?: @""]);
+                                                     @"deliver ORIG_EX phase=%@ sel=%@ %@",
+                                                     phase ?: @"?", sn, ex.reason ?: @""]);
                         }
                     }
+                    if (!delivered) {
+                        // 直接 post 通知，让已注册的观察者收（消毒后的 payload）
+                        @try {
+                            [[NSNotificationCenter defaultCenter]
+                                postNotificationName:@"dNotifyName_ReadView_ResetContent"
+                                              object:nil
+                                            userInfo:safe];
+                            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                     @"deliver POSTED phase=%@ cls=%@",
+                                                     phase ?: @"?", cn]);
+                            delivered = YES;
+                        } @catch (NSException *ex) {
+                            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                     @"deliver POST_EX %@", ex.reason ?: @""]);
+                        }
+                    }
+                    if (delivered) continue;
+                    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                             @"deliver NO_SEL phase=%@ cls=%@ orig=%d",
+                                             phase ?: @"?", cn,
+                                             LBOrig_onResetContentNotify ? 1 : 0]);
                 }
-                // nativeFull 失败或 safeShell：TV 直灌
+                // nativeFull 失败或 safeShell：TV / TextReadTV 直灌
                 LBInjectPendingContentIntoReader(vc, phase ?: @"deliver");
             }
             for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
@@ -2568,52 +2629,65 @@ static void LBDeliverContentToVisibleReaders(NSString *phase) {
 static void LBInstallNativeResetContentHook(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        for (NSString *cn in @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1",
-                               @"ReadVCBase2", @"ReadVCBase1"]) {
+        NSArray *names = @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1",
+                           @"ReadVCBase2", @"ReadVCBase1"];
+        NSArray *sels = @[
+            @"onResetContentNotify:",
+            @"onResetContent:",
+            @"resetContentNotify:",
+            @"handleResetContent:"
+        ];
+        BOOL hooked = NO;
+        for (NSString *cn in names) {
             Class cls = NSClassFromString(cn);
-            if (!cls) continue;
-            SEL sel = @selector(onResetContentNotify:);
-            Class owner = LBClassOwningInstanceMethod(cls, sel) ?: cls;
-            Method m = class_getInstanceMethod(owner, sel);
-            if (!m) continue;
-            if (!LBOrig_onResetContentNotify) {
-                LBOrig_onResetContentNotify =
-                    (void (*)(id, SEL, NSNotification *))method_getImplementation(m);
+            if (!cls) {
+                LBAppendOpenReaderTrace([NSString stringWithFormat:@"nativeReset miss class %@", cn]);
+                continue;
             }
-            IMP hook = imp_implementationWithBlock(^void(id selfObj, NSNotification *note) {
-                NSDictionary *safe = LBSanitizeResetContentUserInfo(note.userInfo);
-                sPendingResetContent = safe;
-                NSNotification *safeNote =
-                    [NSNotification notificationWithName:note.name ?: @"dNotifyName_ReadView_ResetContent"
-                                                  object:note.object
-                                                userInfo:safe];
-                if (sLegadoReaderMode == 1 && LBOrig_onResetContentNotify) {
-                    @try {
-                        LBOrig_onResetContentNotify(selfObj, sel, safeNote);
-                        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                 @"onReset hook ORIG_OK cls=%@",
-                                                 NSStringFromClass([selfObj class])]);
-                        return;
-                    } @catch (NSException *ex) {
-                        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                 @"onReset hook ORIG_EX %@", ex.reason ?: @""]);
+            for (NSString *sn in sels) {
+                SEL sel = NSSelectorFromString(sn);
+                Class owner = LBClassOwningInstanceMethod(cls, sel);
+                Method m = owner ? class_getInstanceMethod(owner, sel) : NULL;
+                if (!m) continue;
+                if (!LBOrig_onResetContentNotify) {
+                    LBOrig_onResetContentNotify =
+                        (void (*)(id, SEL, NSNotification *))method_getImplementation(m);
+                }
+                IMP hook = imp_implementationWithBlock(^void(id selfObj, NSNotification *note) {
+                    NSDictionary *safe = LBSanitizeResetContentUserInfo(note.userInfo);
+                    sPendingResetContent = safe;
+                    NSNotification *safeNote =
+                        [NSNotification notificationWithName:note.name ?: @"dNotifyName_ReadView_ResetContent"
+                                                      object:note.object
+                                                    userInfo:safe];
+                    if (sLegadoReaderMode == 1 && LBOrig_onResetContentNotify) {
+                        @try {
+                            LBOrig_onResetContentNotify(selfObj, sel, safeNote);
+                            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                     @"onReset hook ORIG_OK cls=%@ sel=%@",
+                                                     NSStringFromClass([selfObj class]), sn]);
+                            return;
+                        } @catch (NSException *ex) {
+                            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                     @"onReset hook ORIG_EX %@", ex.reason ?: @""]);
+                        }
                     }
-                }
-                if (sLegadoReaderMode != 1) {
-                    // safeShell / off：不进原生通知处理
-                    LBInjectPendingContentIntoReader((UIViewController *)selfObj, @"onResetHook");
-                    return;
-                }
-                // nativeFull ORIG 失败再 inject（降级可见正文，但 UI 可能已是原版壳）
-                if (LBOrig_onResetContentNotify) {
-                    // 已失败；仅 inject
-                }
-                LBInjectPendingContentIntoReader((UIViewController *)selfObj, @"onResetFallback");
-            });
-            method_setImplementation(m, hook);
-            LBAppendOpenReaderTrace([NSString stringWithFormat:@"nativeReset hooked %@ @%@",
-                                     cn, NSStringFromClass(owner)]);
-            break;
+                    if (sLegadoReaderMode != 1) {
+                        LBInjectPendingContentIntoReader((UIViewController *)selfObj, @"onResetHook");
+                        return;
+                    }
+                    LBInjectPendingContentIntoReader((UIViewController *)selfObj, @"onResetFallback");
+                });
+                method_setImplementation(m, hook);
+                LBAppendOpenReaderTrace([NSString stringWithFormat:@"nativeReset hooked %@ @%@ sel=%@",
+                                         cn, NSStringFromClass(owner), sn]);
+                hooked = YES;
+                break;
+            }
+            if (hooked) break;
+        }
+        if (!hooked) {
+            LBAppendOpenReaderTrace(@"nativeReset HOOK_MISS all candidates");
         }
     });
 }
@@ -2632,13 +2706,18 @@ static void LBInjectPendingContentIntoReader(UIViewController *readerVC, NSStrin
         LBAppendOpenReaderTrace([NSString stringWithFormat:@"injectSkip noBody phase=%@", phase ?: @""]);
         return;
     }
-    // 禁止 post ResetContent：裸 TextRead 收通知会 SIGABRT。直接灌 UITextView。
+    // 禁止 post ResetContent：裸 TextRead 收通知会 SIGABRT。直接灌 UITextView / TextReadTV。
     NSMutableArray *stack = [NSMutableArray array];
     if (readerVC.isViewLoaded && readerVC.view) [stack addObject:readerVC.view];
     UITextView *target = nil;
+    UIView *textReadTV = nil;
     while (stack.count > 0) {
         UIView *v = stack.lastObject;
         [stack removeLastObject];
+        NSString *vn = NSStringFromClass([v class]);
+        if ([vn containsString:@"TextReadTV"]) {
+            textReadTV = v;
+        }
         if ([v isKindOfClass:[UITextView class]]) {
             target = (UITextView *)v;
             if (v.tag == 92001) break; // 优先我们挂的 safeShell TV
@@ -2647,15 +2726,44 @@ static void LBInjectPendingContentIntoReader(UIViewController *readerVC, NSStrin
         for (UIView *sub in v.subviews) [stack addObject:sub];
     }
     if (!target) {
-        // 再试 KVC 常见出口
-        for (NSString *k in @[@"textView", @"textViewL", @"tv", @"contentTextView"]) {
+        // 再试 KVC 常见出口（含 TextReadTV）
+        for (NSString *k in @[@"textView", @"textViewL", @"textViewR", @"tv", @"contentTextView"]) {
             @try {
                 id tv = [readerVC valueForKey:k];
                 if ([tv isKindOfClass:[UITextView class]]) {
                     target = (UITextView *)tv;
                     break;
                 }
+                if (tv && [NSStringFromClass([tv class]) containsString:@"TextReadTV"]) {
+                    textReadTV = (UIView *)tv;
+                }
             } @catch (__unused NSException *e) {}
+        }
+    }
+    if (!target && textReadTV) {
+        // TextReadTV 非 UITextView：尝试 KVC text / attributedText / setText:
+        @try {
+            NSString *title = payload[@"cpTitle"] ?: payload[@"title"] ?: @"";
+            if (![title isKindOfClass:[NSString class]]) title = @"";
+            NSString *full = title.length > 0
+                ? [NSString stringWithFormat:@"%@\n\n%@", title, body]
+                : body;
+            if ([textReadTV respondsToSelector:@selector(setText:)]) {
+                ((void (*)(id, SEL, id))objc_msgSend)(textReadTV, @selector(setText:), full);
+            } else {
+                [textReadTV setValue:full forKey:@"text"];
+            }
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"injectOK phase=%@ len=%lu tv=TextReadTV",
+                                     phase ?: @"", (unsigned long)body.length]);
+            if ([body containsString:@"萧炎"] || [body containsString:@"斗气"]) {
+                LBWriteOpenReaderMarker([NSString stringWithFormat:
+                                        @"nativeOpen keepTextRead readerVis=1 via=nativeFull-TextReadTV phase=%@",
+                                        phase ?: @""]);
+            }
+            return;
+        } @catch (NSException *e) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:@"injectTextReadTVEx %@", e.reason ?: @""]);
         }
     }
     if (!target) {
@@ -2767,6 +2875,7 @@ static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
         LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
+        LBSeedNilStringProperties(self);
         @try {
             if (LBOrig_TR_viewWillAppear) LBOrig_TR_viewWillAppear(self, _cmd, animated);
             else {
@@ -2801,6 +2910,7 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
+        LBSeedNilStringProperties(self);
         @try {
             if (LBOrig_TR_viewDidAppear) LBOrig_TR_viewDidAppear(self, _cmd, animated);
             else {
@@ -2815,6 +2925,11 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
             ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
         }
         LBDeliverContentToVisibleReaders(@"nativeAppear");
+        // 延迟再投一次：正文异步到达 / didAppear 异常后 TextReadTV 可能已就绪
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            LBDeliverContentToVisibleReaders(@"nativeAppear0.5");
+        });
         return;
     }
     if (LBOrig_TR_viewDidAppear) LBOrig_TR_viewDidAppear(self, _cmd, animated);
