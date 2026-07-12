@@ -655,6 +655,9 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
 
 static NSArray *sPendingCatalogChapters = nil;
 static NSString *sPendingCatalogBookUrl = nil;
+/// legado://nativeRead 等待目录返回后再点章
+static NSInteger sDeferredNativeOpenIdx = -1;
+static NSString *sDeferredNativeOpenBookUrl = nil;
 static NSDictionary *sPendingResetContent = nil;
 static BOOL sReaderContentAppearHooked = NO;
 static BOOL sCatalogUIAppearHooked = NO;
@@ -719,16 +722,22 @@ static BOOL LBObjectHasCatalogArray(id obj) {
     return NO;
 }
 
+static BOOL LBVCIsSearchTableContext(id selfObj);
+static BOOL LBVCIsCatalogTableContext(id selfObj);
+
 static NSArray<UIViewController *> *LBFindCatalogVCs(void) {
     NSMutableArray *out = [NSMutableArray array];
     NSMutableSet *seen = [NSMutableSet set];
     void (^consider)(UIViewController *) = ^(UIViewController *vc) {
         if (!vc || [seen containsObject:vc]) return;
         [seen addObject:vc];
+        // 搜索/书架等也有 arrBaseData，绝不能当目录灌章节（真机点书/nativeRead 回桌面根因）
+        if (LBVCIsSearchTableContext(vc)) return;
         NSString *cn = NSStringFromClass([vc class]);
         BOOL nameHit = [cn containsString:@"Catalog"] || [cn containsString:@"BookDetail"] ||
                        [cn containsString:@"ReadVC"] || [cn containsString:@"TextRead"];
-        if (nameHit || LBObjectHasCatalogArray(vc)) {
+        // 仅名称命中或明确目录上下文；不再用「有 arrBaseData」兜底（会吃进 BookSearch）
+        if (nameHit || LBVCIsCatalogTableContext(vc)) {
             [out addObject:vc];
         }
     };
@@ -980,6 +989,16 @@ static void LBWriteChaptersOntoVisibleTables(NSArray *chapters, NSString *bookUr
             [views removeLastObject];
             if ([v isKindOfClass:[UITableView class]] && v.window) {
                 UITableView *tv = (UITableView *)v;
+                UIViewController *owner = LBViewControllerOwningView(tv);
+                if (LBVCIsSearchTableContext(owner) || LBVCIsSearchTableContext(tv.dataSource)) {
+                    for (UIView *sub in v.subviews) [views addObject:sub];
+                    continue;
+                }
+                if (owner && !LBVCIsCatalogTableContext(owner) &&
+                    !(tv.dataSource && LBVCIsCatalogTableContext(tv.dataSource))) {
+                    for (UIView *sub in v.subviews) [views addObject:sub];
+                    continue;
+                }
                 id ds = tv.dataSource;
                 if (ds) {
                     BOOL wrote = LBWriteChaptersOntoObject(ds, chapters);
@@ -991,7 +1010,6 @@ static void LBWriteChaptersOntoVisibleTables(NSArray *chapters, NSString *bookUr
                                             (unsigned long)nCat, (unsigned long)nBase]];
                     }
                 }
-                UIViewController *owner = LBViewControllerOwningView(tv);
                 if (owner && owner != ds) {
                     LBWriteChaptersOntoObject(owner, chapters);
                     LBDeliverCatalogNotify(owner, chapters, bookUrl);
@@ -2234,6 +2252,17 @@ void LBApplyCatalogToUI(NSArray *chapters, NSString *bookUrl) {
         }
         // 保留 pending：CatalogCon 常在详情引擎返回之后才 push
         LBScheduleCatalogReapply(chapters, bookUrl);
+        // nativeRead 深链：目录一到立刻点章（不等固定延迟）
+        if (sDeferredNativeOpenIdx >= 0 &&
+            (sDeferredNativeOpenBookUrl.length == 0 ||
+             [sDeferredNativeOpenBookUrl isEqualToString:bookUrl])) {
+            NSInteger useIdx = sDeferredNativeOpenIdx;
+            if (useIdx >= (NSInteger)chapters.count) useIdx = 0;
+            sDeferredNativeOpenIdx = -1;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                LBOpenLegadoChapterAtIndex(useIdx);
+            });
+        }
     } @catch (NSException *e) {
         NSLog(@"[LegadoBridge] LBApplyCatalogToUI fail-open: %@", e);
         LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject fail: %@", e.reason ?: @""]);
@@ -2254,14 +2283,26 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
     NSString *bu = [bookUrl copy];
     NSString *su = [sourceUrl copy];
     NSInteger wantIdx = idx < 0 ? 0 : idx;
+    sDeferredNativeOpenIdx = wantIdx;
+    sDeferredNativeOpenBookUrl = bu;
     [[NSString stringWithFormat:@"nativeOpenRequest book=%@ src=%@ idx=%ld",
       bu, su ?: @"", (long)wantIdx]
         writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_nativeread_request.txt"]
         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     LBInstallCatalogUIAppearFlush();
+    // 若目录已在 pending，立刻点章
+    if (sPendingCatalogChapters.count > 0 &&
+        (sPendingCatalogBookUrl.length == 0 || [sPendingCatalogBookUrl isEqualToString:bu])) {
+        NSInteger useIdx = wantIdx;
+        if (useIdx >= (NSInteger)sPendingCatalogChapters.count) useIdx = 0;
+        sDeferredNativeOpenIdx = -1;
+        LBOpenLegadoChapterAtIndex(useIdx);
+        return;
+    }
     LBHandleCatalogRequest(bu, su);
-    // 目录异步返回后 pending 就绪再点章；多档延迟覆盖慢网
+    // 目录异步返回后由 LBApplyCatalogToUI 触发；多档延迟兜底
     void (^tryOpen)(NSString *) = ^(NSString *phase) {
+        if (sDeferredNativeOpenIdx < 0) return;
         if (sPendingCatalogChapters.count == 0) {
             NSString *miss = [NSString stringWithFormat:@"nativeOpen wait %@ pending=0 book=%@",
                               phase, bu];
@@ -2269,20 +2310,22 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
             return;
         }
-        if (sPendingCatalogBookUrl.length > 0 &&
-            ![sPendingCatalogBookUrl isEqualToString:bu]) {
-            // 仍尝试：验收深链以本次 bookUrl 为准时，若 pending 已是目标书则继续
+        if (sDeferredNativeOpenBookUrl.length > 0 &&
+            sPendingCatalogBookUrl.length > 0 &&
+            ![sDeferredNativeOpenBookUrl isEqualToString:sPendingCatalogBookUrl]) {
+            return;
         }
-        NSInteger useIdx = wantIdx;
+        NSInteger useIdx = sDeferredNativeOpenIdx;
         if (useIdx >= (NSInteger)sPendingCatalogChapters.count) useIdx = 0;
+        sDeferredNativeOpenIdx = -1;
         LBOpenLegadoChapterAtIndex(useIdx);
     };
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{ tryOpen(@"0.6"); });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.4 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{ tryOpen(@"1.4"); });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.4 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{ tryOpen(@"2.4"); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{ tryOpen(@"0.8"); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{ tryOpen(@"2.0"); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4.0 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{ tryOpen(@"4.0"); });
 }
 
 void LBHandleContentRequest(NSString *chapterUrl, NSString *bookUrl, NSString *sourceUrl) {
