@@ -2355,7 +2355,7 @@ static void LBInjectPendingContentIntoReader(UIViewController *readerVC, NSStrin
         [stack removeLastObject];
         if ([v isKindOfClass:[UITextView class]]) {
             target = (UITextView *)v;
-            // 偏好面积较大的正文视图
+            if (v.tag == 92001) break; // 优先我们挂的 safeShell TV
             if (v.bounds.size.width >= 200 && v.bounds.size.height >= 200) break;
         }
         for (UIView *sub in v.subviews) [stack addObject:sub];
@@ -2397,12 +2397,88 @@ static void LBInjectPendingContentIntoReader(UIViewController *readerVC, NSStrin
     }
 }
 
+static BOOL sLegadoSafeTextReadShell = NO;
+static void (*LBOrig_TR_viewDidLoad)(id, SEL) = NULL;
+static void (*LBOrig_TR_viewWillAppear)(id, SEL, BOOL) = NULL;
+static void (*LBOrig_TR_viewDidAppear)(id, SEL, BOOL) = NULL;
+
+static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
+    if (!sLegadoSafeTextReadShell) {
+        if (LBOrig_TR_viewDidLoad) LBOrig_TR_viewDidLoad(self, _cmd);
+        return;
+    }
+    LBAppendOpenReaderTrace(@"safeShell viewDidLoad");
+    struct objc_super sup = { self, [UIViewController class] };
+    ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, _cmd);
+    UIViewController *vc = (UIViewController *)self;
+    if (!vc.isViewLoaded) return;
+    // 自建正文区，避开原生 TextReadTV 初始化
+    UITextView *tv = [[UITextView alloc] initWithFrame:vc.view.bounds];
+    tv.tag = 92001;
+    tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    tv.editable = NO;
+    tv.font = [UIFont systemFontOfSize:18];
+    tv.textContainerInset = UIEdgeInsetsMake(24, 16, 24, 16);
+    [vc.view addSubview:tv];
+    vc.title = @"阅读";
+    LBAppendOpenReaderTrace(@"safeShell added UITextView");
+}
+
+static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
+    if (!sLegadoSafeTextReadShell) {
+        if (LBOrig_TR_viewWillAppear) LBOrig_TR_viewWillAppear(self, _cmd, animated);
+        return;
+    }
+    struct objc_super sup = { self, [UIViewController class] };
+    ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
+}
+
+static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
+    if (!sLegadoSafeTextReadShell) {
+        if (LBOrig_TR_viewDidAppear) LBOrig_TR_viewDidAppear(self, _cmd, animated);
+        return;
+    }
+    struct objc_super sup = { self, [UIViewController class] };
+    ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
+    LBInjectPendingContentIntoReader((UIViewController *)self, @"safeAppear");
+}
+
+static void LBInstallSafeTextReadShellHooks(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        for (NSString *cn in @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1"]) {
+            Class cls = NSClassFromString(cn);
+            if (!cls) continue;
+            Method m1 = class_getInstanceMethod(cls, @selector(viewDidLoad));
+            if (m1 && !LBOrig_TR_viewDidLoad) {
+                LBOrig_TR_viewDidLoad = (void (*)(id, SEL))method_getImplementation(m1);
+                method_setImplementation(m1, (IMP)LBTextRead_viewDidLoad_Safe);
+            }
+            Method m2 = class_getInstanceMethod(cls, @selector(viewWillAppear:));
+            if (m2 && !LBOrig_TR_viewWillAppear) {
+                LBOrig_TR_viewWillAppear = (void (*)(id, SEL, BOOL))method_getImplementation(m2);
+                method_setImplementation(m2, (IMP)LBTextRead_viewWillAppear_Safe);
+            }
+            Method m3 = class_getInstanceMethod(cls, @selector(viewDidAppear:));
+            if (m3 && !LBOrig_TR_viewDidAppear) {
+                LBOrig_TR_viewDidAppear = (void (*)(id, SEL, BOOL))method_getImplementation(m3);
+                method_setImplementation(m3, (IMP)LBTextRead_viewDidAppear_Safe);
+            }
+            LBAppendOpenReaderTrace([NSString stringWithFormat:@"safeShell hooked %@", cn]);
+            break;
+        }
+    });
+}
+
 static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, NSString **outMsg) {
+    LBInstallSafeTextReadShellHooks();
+    sLegadoSafeTextReadShell = YES;
     Class cls = NSClassFromString(@"TextReadVC3");
     if (!cls) cls = NSClassFromString(@"TextReadVC2");
     if (!cls) cls = NSClassFromString(@"TextReadVC1");
     if (!cls) cls = NSClassFromString(@"ReadVCBase1");
     if (!cls) {
+        sLegadoSafeTextReadShell = NO;
         if (outMsg) *outMsg = @"pushReader miss: no TextReadVC class";
         return NO;
     }
@@ -2413,6 +2489,7 @@ static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, N
         vc = nil;
     }
     if (!vc) {
+        sLegadoSafeTextReadShell = NO;
         if (outMsg) *outMsg = @"pushReader miss: alloc init failed";
         return NO;
     }
