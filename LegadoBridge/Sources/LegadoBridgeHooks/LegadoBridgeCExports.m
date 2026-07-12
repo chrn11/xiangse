@@ -1325,6 +1325,7 @@ static NSMutableDictionary *LBBookDictForOpenReader(NSString *bookUrl,
                                                     NSString *chUrl,
                                                     NSString **outSourceName);
 static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString **outMsg);
+static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, NSString **outMsg);
 static BOOL LBPrepareDetailForOpenReader(NSMutableDictionary *book, NSString *sourceName, NSString **outMsg);
 static void LBFlushPendingResetContent(NSString *phase);
 static BOOL LBIsTextReaderVisible(void);
@@ -1444,12 +1445,17 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         LBAppendOpenReaderTrace(@"goStart leanDict ready");
         LBInstallReaderContentAppearFlush();
         LBHandleContentRequest(chCopy, buCopy, nil);
-        LBWriteOpenReaderMarker(@"nativeOpen beforeCall leanBridge=1");
+        LBWriteOpenReaderMarker(@"nativeOpen beforeCall preferPush=1");
         NSString *orm = nil;
         BOOL opened = NO;
         @try {
-            LBWriteOpenReaderMarker(@"nativeOpen callingOrig");
-            opened = LBCallOpenReader(book, sourceName, &orm);
+            // openReader 在真机对 Legado 字典仍会无 ips 杀进程；优先 push TextRead*
+            LBWriteOpenReaderMarker(@"nativeOpen callingPush");
+            opened = LBPushTextReaderFallback(book, sourceName, &orm);
+            if (!opened) {
+                LBWriteOpenReaderMarker(@"nativeOpen pushMiss tryOpenReader");
+                opened = LBCallOpenReader(book, sourceName, &orm);
+            }
             LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen origReturned opened=%d | %@",
                                      opened ? 1 : 0, orm ?: @"?"]);
         } @catch (NSException *e) {
@@ -2302,11 +2308,133 @@ static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString 
     return NO;
 }
 
-/// 裸 push TextReadVC 易崩；仅作内部保留（点章路径默认不用）
-static BOOL __attribute__((unused)) LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, NSString **outMsg) {
-    (void)book; (void)sourceName;
-    if (outMsg) *outMsg = @"pushReader disabled (prefer openReader / bridge fallback)";
-    return NO;
+/// 不调 openReader：alloc TextReadVC 后 push/present，正文靠 ResetContent 灌入
+static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, NSString **outMsg) {
+    Class cls = NSClassFromString(@"TextReadVC3");
+    if (!cls) cls = NSClassFromString(@"TextReadVC2");
+    if (!cls) cls = NSClassFromString(@"TextReadVC1");
+    if (!cls) cls = NSClassFromString(@"ReadVCBase1");
+    if (!cls) {
+        if (outMsg) *outMsg = @"pushReader miss: no TextReadVC class";
+        return NO;
+    }
+    id vc = nil;
+    @try {
+        vc = [[cls alloc] init];
+    } @catch (__unused NSException *e) {
+        vc = nil;
+    }
+    if (!vc) {
+        if (outMsg) *outMsg = @"pushReader miss: alloc init failed";
+        return NO;
+    }
+    NSMutableDictionary *dic = [NSMutableDictionary dictionaryWithDictionary:book ?: @{}];
+    if (sourceName.length > 0) {
+        dic[@"sourceName"] = sourceName;
+        dic[@"bookSourceName"] = sourceName;
+        dic[@"querySourceName"] = sourceName;
+    }
+    LBSanitizeBookDictForReaderEx(dic, NO, YES);
+    LBReadingRememberBook(dic);
+    LBAppendOpenReaderTrace([NSString stringWithFormat:@"pushReader setDic %@ keys=%lu",
+                             NSStringFromClass(cls), (unsigned long)dic.count]);
+    @try {
+        if ([vc respondsToSelector:@selector(setDicBook:)]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(vc, @selector(setDicBook:), dic);
+        } else {
+            [vc setValue:dic forKey:@"dicBook"];
+        }
+    } @catch (NSException *e) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"pushReader setDicEx %@", e.reason ?: @""]);
+    }
+    // 优先推到自建目录页的 nav（避免 dismiss 整条链路）
+    UINavigationController *nav = nil;
+    for (UIViewController *c in LBFindCatalogVCs()) {
+        NSString *cn = NSStringFromClass([c class]);
+        if ([cn containsString:@"LBLegadoCatalogListVC"] && c.navigationController) {
+            nav = c.navigationController;
+            break;
+        }
+    }
+    if (!nav) {
+        for (UIViewController *c in LBFindCatalogVCs()) {
+            if (c.navigationController) {
+                nav = c.navigationController;
+                break;
+            }
+        }
+    }
+    if (!nav) {
+        for (UIWindow *w in LBAllAppWindows()) {
+            UIViewController *root = w.rootViewController;
+            if (!root) continue;
+            NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+            while (stack.count > 0) {
+                UIViewController *cur = stack.lastObject;
+                [stack removeLastObject];
+                if ([cur isKindOfClass:[UINavigationController class]]) {
+                    UINavigationController *n = (UINavigationController *)cur;
+                    if (LBVCIsVisibleInWindow(n.visibleViewController ?: n)) {
+                        nav = n;
+                        break;
+                    }
+                }
+                if (cur.navigationController && LBVCIsVisibleInWindow(cur)) {
+                    nav = cur.navigationController;
+                    break;
+                }
+                for (UIViewController *ch in cur.childViewControllers) [stack addObject:ch];
+                if (cur.presentedViewController) [stack addObject:cur.presentedViewController];
+            }
+            if (nav) break;
+        }
+    }
+    if (nav) {
+        @try {
+            LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen pushing %@ on %@",
+                                     NSStringFromClass(cls), NSStringFromClass([nav class])]);
+            LBAppendOpenReaderTrace(@"pushReader pushVC");
+            [nav pushViewController:(UIViewController *)vc animated:YES];
+            if (outMsg) {
+                *outMsg = [NSString stringWithFormat:@"pushReader ok %@ on %@",
+                           NSStringFromClass(cls), NSStringFromClass([nav class])];
+            }
+            return YES;
+        } @catch (NSException *e) {
+            if (outMsg) *outMsg = [NSString stringWithFormat:@"pushReader fail: %@", e.reason ?: @""];
+            LBAppendOpenReaderTrace([NSString stringWithFormat:@"pushEx %@", e.reason ?: @""]);
+        }
+    }
+    UIViewController *host = nil;
+    for (UIWindow *w in LBAllAppWindows()) {
+        UIViewController *root = w.rootViewController;
+        if (!root) continue;
+        host = root;
+        while (host.presentedViewController) host = host.presentedViewController;
+        if (host) break;
+    }
+    if (!host) {
+        if (outMsg) *outMsg = @"pushReader miss: no nav/host";
+        return NO;
+    }
+    @try {
+        UINavigationController *wrap =
+            [[UINavigationController alloc] initWithRootViewController:(UIViewController *)vc];
+        wrap.modalPresentationStyle = UIModalPresentationFullScreen;
+        LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen presenting %@ on %@",
+                                 NSStringFromClass(cls), NSStringFromClass([host class])]);
+        LBAppendOpenReaderTrace(@"pushReader presentVC");
+        [host presentViewController:wrap animated:YES completion:nil];
+        if (outMsg) {
+            *outMsg = [NSString stringWithFormat:@"presentReader ok %@ on %@",
+                       NSStringFromClass(cls), NSStringFromClass([host class])];
+        }
+        return YES;
+    } @catch (NSException *e) {
+        if (outMsg) *outMsg = [NSString stringWithFormat:@"presentReader fail: %@", e.reason ?: @""];
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"presentEx %@", e.reason ?: @""]);
+        return NO;
+    }
 }
 
 void LBNoteResetContentPosted(NSDictionary *userInfo) {
