@@ -2926,12 +2926,38 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
             nativePaged = YES;
         }
 
-        // 4b) divisionText：绕过 respondsToSelector 误报
+        // 4b) divisionText：真机归属 PaibanManager
         id paiban = nil;
         @try { paiban = [readerVC valueForKey:@"tr_paibanInfo"]; } @catch (__unused NSException *e) {}
         if (!paiban && textReadTV) {
             @try { paiban = [textReadTV valueForKey:@"tr_paibanInfo"]; } @catch (__unused NSException *e) {}
         }
+        Class paibanMgrCls2 = NSClassFromString(@"PaibanManager");
+        id pmEarly = nil;
+        if (paibanMgrCls2) {
+            for (NSString *ss in @[@"sharedInstance", @"shared", @"sharedManager"]) {
+                SEL s = NSSelectorFromString(ss);
+                if ([paibanMgrCls2 respondsToSelector:s]) {
+                    pmEarly = ((id (*)(id, SEL))objc_msgSend)(paibanMgrCls2, s);
+                    if (pmEarly) break;
+                }
+            }
+        }
+        if (!paiban && pmEarly) {
+            @try { paiban = [pmEarly valueForKey:@"curPaiban"]; } @catch (__unused NSException *e) {}
+            if (!paiban) {
+                @try { paiban = [pmEarly valueForKey:@"tr_paibanInfo"]; } @catch (__unused NSException *e) {}
+            }
+            if (!paiban && [pmEarly respondsToSelector:NSSelectorFromString(@"paibanById:")]) {
+                @try {
+                    paiban = ((id (*)(id, SEL, id))objc_msgSend)(
+                        pmEarly, NSSelectorFromString(@"paibanById:"), @"default");
+                } @catch (__unused NSException *e) {}
+            }
+        }
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject paibanCls=%@",
+                                 paiban ? NSStringFromClass([paiban class]) : @"nil"]);
         CGSize sz = textReadTV ? textReadTV.bounds.size : readerVC.view.bounds.size;
         if (sz.width < 10 || sz.height < 10) {
             sz = UIScreen.mainScreen.bounds.size;
@@ -2940,8 +2966,29 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
         }
         NSMutableArray *tryList = [NSMutableArray array];
         if (textReadTV) [tryList addObject:textReadTV];
-        Class tvCls = NSClassFromString(@"TextReadTV");
-        Class tvBase = NSClassFromString(@"TextReadTVBase");
+        // 真机 divisionProbe：divisionText 归属 PaibanManager
+        Class paibanMgrCls = NSClassFromString(@"PaibanManager");
+        if (paibanMgrCls) {
+            id pm = nil;
+            for (NSString *ss in @[@"sharedInstance", @"shared", @"sharedManager", @"defaultManager"]) {
+                SEL s = NSSelectorFromString(ss);
+                if ([paibanMgrCls respondsToSelector:s]) {
+                    pm = ((id (*)(id, SEL))objc_msgSend)(paibanMgrCls, s);
+                    if (pm) break;
+                }
+            }
+            if (!pm) {
+                @try { pm = [[paibanMgrCls alloc] init]; } @catch (__unused NSException *e) {}
+            }
+            if (pm) {
+                [tryList insertObject:pm atIndex:0];
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"contentInject paibanMgr=%@",
+                                         NSStringFromClass([pm class])]);
+            } else {
+                [tryList addObject:paibanMgrCls];
+            }
+        }
         Class util = NSClassFromString(@"LCCoreTextUtil");
         if (util) {
             id utilInst = nil;
@@ -2965,6 +3012,8 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
             }
         }
         if (!pageResult && textReadTV) {
+            Class tvCls = NSClassFromString(@"TextReadTV");
+            Class tvBase = NSClassFromString(@"TextReadTVBase");
             Class candidates[2] = { tvCls, tvBase };
             for (int ci = 0; ci < 2; ci++) {
                 Class c = candidates[ci];
@@ -2995,34 +3044,76 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                          ? (unsigned long)[(NSArray *)pageResult count] : 0]);
         }
 
-        // 4c) divisionResponse 吃分页结果（有 pageResult 才算原生分页成功）
+        // 4c) divisionResponse 在 ReadPageContainer / ReadScrollContainer（非 TextReadVC）
         if (pageResult) {
-            id responsePayload = pageResult;
+            NSMutableArray *containers = [NSMutableArray array];
+            id cont = nil;
+            @try { cont = [readerVC valueForKey:@"container"]; } @catch (__unused NSException *e) {}
+            if (cont) [containers addObject:cont];
+            for (UIViewController *ch in readerVC.childViewControllers) {
+                NSString *cn = NSStringFromClass([ch class]);
+                if ([cn containsString:@"PageContainer"] || [cn containsString:@"ScrollContainer"] ||
+                    [cn containsString:@"RPage"]) {
+                    [containers addObject:ch];
+                }
+            }
+            // 再扫 view 树找 container
+            NSMutableArray *vs = [NSMutableArray array];
+            if (readerVC.isViewLoaded && readerVC.view) [vs addObject:readerVC.view];
+            while (vs.count > 0 && containers.count < 6) {
+                UIView *v = vs.lastObject;
+                [vs removeLastObject];
+                NSString *vn = NSStringFromClass([v class]);
+                if ([vn containsString:@"PageContainer"] || [vn containsString:@"ScrollContainer"]) {
+                    if (![containers containsObject:v]) [containers addObject:v];
+                }
+                for (UIView *sub in v.subviews) [vs addObject:sub];
+            }
+            [containers addObject:readerVC]; // 兜底
+
             SEL dr = NSSelectorFromString(@"divisionResponse:cpTitle:cpIndex:");
             SEL dr2 = NSSelectorFromString(@"divisionResponse:cpTitle:cpIndex:heights:");
-            if ([readerVC respondsToSelector:dr2]) {
-                NSArray *heights = @[@(0)];
-                @try {
-                    ((void (*)(id, SEL, id, id, NSInteger, id))objc_msgSend)(
-                        readerVC, dr2, responsePayload, title, cpIndex, heights);
-                    [okPaths addObject:@"divisionResponseHeights"];
-                    nativePaged = YES;
-                } @catch (NSException *ex) {
-                    LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                             @"contentInject dr2 EX %@", ex.reason ?: @""]);
+            BOOL responded = NO;
+            for (id host in containers) {
+                if ([host respondsToSelector:dr2]) {
+                    NSArray *heights = @[@(0)];
+                    @try {
+                        id ret = ((id (*)(id, SEL, id, id, NSInteger, id))objc_msgSend)(
+                            host, dr2, pageResult, title, cpIndex, heights);
+                        [okPaths addObject:[NSString stringWithFormat:@"divisionResponseHeights@%@",
+                                            NSStringFromClass([host class])]];
+                        if (ret) {
+                            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                     @"contentInject dr2ret cls=%@",
+                                                     NSStringFromClass([ret class])]);
+                        }
+                        nativePaged = YES;
+                        responded = YES;
+                        break;
+                    } @catch (NSException *ex) {
+                        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                 @"contentInject dr2 EX %@ %@",
+                                                 NSStringFromClass([host class]), ex.reason ?: @""]);
+                    }
                 }
-            } else if ([readerVC respondsToSelector:dr]) {
-                @try {
-                    ((void (*)(id, SEL, id, id, NSInteger))objc_msgSend)(
-                        readerVC, dr, responsePayload, title, cpIndex);
-                    [okPaths addObject:@"divisionResponse"];
-                    nativePaged = YES;
-                } @catch (NSException *ex) {
-                    LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                             @"contentInject dr EX %@", ex.reason ?: @""]);
+                if ([host respondsToSelector:dr]) {
+                    @try {
+                        ((void (*)(id, SEL, id, id, NSInteger))objc_msgSend)(
+                            host, dr, pageResult, title, cpIndex);
+                        [okPaths addObject:[NSString stringWithFormat:@"divisionResponse@%@",
+                                            NSStringFromClass([host class])]];
+                        nativePaged = YES;
+                        responded = YES;
+                        break;
+                    } @catch (NSException *ex) {
+                        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                 @"contentInject dr EX %@ %@",
+                                                 NSStringFromClass([host class]), ex.reason ?: @""]);
+                    }
                 }
-            } else {
-                LBAppendOpenReaderTrace(@"contentInject noSel divisionResponse");
+            }
+            if (!responded) {
+                LBAppendOpenReaderTrace(@"contentInject noSel divisionResponse on containers");
             }
 
             SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
@@ -3035,7 +3126,8 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 } @catch (__unused NSException *e) {}
             }
             SEL pp = NSSelectorFromString(@"processPageData:userInfo:cpTitle:");
-            if ([readerVC respondsToSelector:pp]) {
+            for (id host in containers) {
+                if (![host respondsToSelector:pp]) continue;
                 NSDictionary *ui = @{
                     @"chapterContent": body,
                     @"content": body,
@@ -3044,9 +3136,11 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 };
                 @try {
                     ((void (*)(id, SEL, id, id, id))objc_msgSend)(
-                        readerVC, pp, pageResult, ui, title);
-                    [okPaths addObject:@"processPageData"];
+                        host, pp, pageResult, ui, title);
+                    [okPaths addObject:[NSString stringWithFormat:@"processPageData@%@",
+                                        NSStringFromClass([host class])]];
                     nativePaged = YES;
+                    break;
                 } @catch (NSException *ex) {
                     LBAppendOpenReaderTrace([NSString stringWithFormat:
                                              @"contentInject processPageData EX %@",
