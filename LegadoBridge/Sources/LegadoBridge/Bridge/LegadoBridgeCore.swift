@@ -771,6 +771,8 @@ import LegadoBridgeHooks
                     bookUrl: bookUrl,
                     chapterUrl: chapterUrl
                 )
+                // 从目录缓存补齐标题/索引，便于原生 dicContents / divisionText
+                //（BridgeBook 无 chapters 字段；由 LBNoteResetContentPosted 用 sPendingCatalog 补）
                 let payload = XiangseAdapter.contentPayload(
                     content: content,
                     chapterUrl: chapterUrl,

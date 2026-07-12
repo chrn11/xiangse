@@ -1332,9 +1332,11 @@ static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString 
 static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, NSString **outMsg);
 static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName, NSString **outMsg);
 static void LBInjectPendingContentIntoReader(UIViewController *readerVC, NSString *phase);
+static BOOL LBInjectNativeChapterContent(UIViewController *readerVC, NSDictionary *payload, NSString *phase);
 static void LBDeliverContentToVisibleReaders(NSString *phase);
 static void LBInstallSafeTextReadShellHooks(void);
 static void LBInstallNativeResetContentHook(void);
+static void LBSeedTextReadAppearFields(id readerVC, NSDictionary *book);
 static BOOL LBPrepareDetailForOpenReader(NSMutableDictionary *book, NSString *sourceName, NSString **outMsg);
 static void LBFlushPendingResetContent(NSString *phase);
 static BOOL LBIsTextReaderVisible(void);
@@ -1483,25 +1485,21 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
                 }
             }
             // 2) 禁止对 Legado 再调 openReader（callingOrig 后 SIGABRT，且会打断 nativeFull）
-            // 3) push/loadView 失败 → 直接 safeShell（验收不算过关）
+            // 3) push/loadView 失败 → 仍尝试 nativeFull 重推一次，禁止立刻 safeShell
             if (!opened) {
-                sLegadoReaderMode = 2;
-                LBWriteOpenReaderMarker(@"nativeOpen callingPushSafeShell fallback (skipOpenReader)");
-                opened = LBPushTextReaderFallback(book, sourceName, &orm);
+                LBWriteOpenReaderMarker(@"nativeOpen pushNativeFull miss, retry once (no safeShell)");
+                opened = LBPushTextReaderNativeFull(book, sourceName, &orm);
             } else if (opened && sLegadoReaderMode == 1) {
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.8 * NSEC_PER_SEC)),
                                dispatch_get_main_queue(), ^{
                     if (LBIsTextReaderVisible() && sLegadoReaderMode == 1) {
                         LBAppendOpenReaderTrace(@"nativeFull settle keep mode=1");
+                        LBDeliverContentToVisibleReaders(@"settle2.8");
                         return;
                     }
-                    if (sLegadoReaderMode != 1) return;
-                    LBAppendOpenReaderTrace(@"nativeFull timeout -> safeShell fallback");
-                    sLegadoReaderMode = 2;
-                    NSString *fbMsg = nil;
-                    LBPushTextReaderFallback(book, sourceName, &fbMsg);
-                    LBWriteOpenReaderMarker([NSString stringWithFormat:
-                                            @"nativeOpen delayedSafeShell | %@", fbMsg ?: @"?"]);
+                    // 超时仍 invisible：再投正文，保持 nativeFull，禁止降级 safeShell
+                    LBAppendOpenReaderTrace(@"nativeFull timeout keep mode=1 (no safeShell)");
+                    LBDeliverContentToVisibleReaders(@"timeoutKeep");
                 });
             }
             LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen origReturned opened=%d mode=%d vis=%d | %@",
@@ -2383,7 +2381,8 @@ static NSDictionary *LBSanitizeResetContentUserInfo(NSDictionary *userInfo) {
         [m addEntriesFromDictionary:userInfo];
     }
     for (NSString *k in @[@"chapterUrl", @"chapterContent", @"content", @"cpTitle", @"title",
-                          @"bookUrl", @"sourceUrl", @"sourceName", @"error", @"cpUrl", @"name"]) {
+                          @"bookUrl", @"sourceUrl", @"sourceName", @"error", @"cpUrl", @"name",
+                          @"bookKey"]) {
         id v = m[k];
         if (v == nil || v == [NSNull null]) {
             m[k] = @"";
@@ -2392,6 +2391,14 @@ static NSDictionary *LBSanitizeResetContentUserInfo(NSDictionary *userInfo) {
                    ![v isKindOfClass:[NSArray class]] &&
                    ![v isKindOfClass:[NSDictionary class]]) {
             m[k] = [[v description] copy] ?: @"";
+        }
+    }
+    if (m[@"cpIndex"] == nil || m[@"cpIndex"] == [NSNull null]) {
+        // 保留缺省，由 NoteReset 用目录补
+    } else if (![m[@"cpIndex"] isKindOfClass:[NSNumber class]]) {
+        id cpi = m[@"cpIndex"];
+        if ([cpi respondsToSelector:@selector(integerValue)]) {
+            m[@"cpIndex"] = @([cpi integerValue]);
         }
     }
     if (![m[@"queryingSourceNameList"] isKindOfClass:[NSArray class]]) {
@@ -2427,33 +2434,93 @@ static BOOL LBForceSetIvar(id obj, NSString *key, id value) {
     }
 }
 
-/// 把对象上为 nil 的 NSString 属性填成 @""，压 didAppear @[nil] abort
-static void LBSeedNilStringProperties(id obj) {
-    if (!obj) return;
-    Class cls = [obj class];
-    while (cls && cls != [NSObject class]) {
-        unsigned int n = 0;
-        objc_property_t *props = class_copyPropertyList(cls, &n);
-        for (unsigned int i = 0; i < n; i++) {
-            const char *attrs = property_getAttributes(props[i]);
-            if (!attrs) continue;
-            // T@"NSString" 或 T@"NSMutableString"
-            if (strstr(attrs, "T@\"NSString\"") == NULL &&
-                strstr(attrs, "T@\"NSMutableString\"") == NULL) continue;
-            const char *name = property_getName(props[i]);
-            if (!name) continue;
-            NSString *key = [NSString stringWithUTF8String:name];
-            @try {
-                id cur = [obj valueForKey:key];
-                if (cur == nil || cur == [NSNull null]) {
-                    [obj setValue:@"" forKey:key];
-                }
-            } @catch (__unused NSException *e) {
-                LBForceSetIvar(obj, key, @"");
+/// didAppear 前定点消毒：只填已知安全字段，禁止全量空串种子（会触发 name length 断言）
+static void LBSeedTextReadAppearFields(id readerVC, NSDictionary *book) {
+    if (!readerVC) return;
+    NSDictionary *dic = [book isKindOfClass:[NSDictionary class]] ? book : @{};
+    NSString *nm = [dic[@"name"] isKindOfClass:[NSString class]] ? dic[@"name"] : @"";
+    if (nm.length == 0) {
+        nm = [dic[@"bookName"] isKindOfClass:[NSString class]] ? dic[@"bookName"] : @"书";
+    }
+    NSString *au = [dic[@"author"] isKindOfClass:[NSString class]] ? dic[@"author"] : @"";
+    NSString *bk = [dic[@"bookKey"] isKindOfClass:[NSString class]] ? dic[@"bookKey"] : @"";
+    if (bk.length == 0) {
+        bk = au.length > 0 ? [NSString stringWithFormat:@"%@|%@", nm, au] : nm;
+    }
+    NSString *sn = [dic[@"sourceName"] isKindOfClass:[NSString class]] ? dic[@"sourceName"] : @"";
+    if (sn.length == 0) sn = @"本地静态测试源";
+    NSString *bu = [dic[@"bookUrl"] isKindOfClass:[NSString class]] ? dic[@"bookUrl"] : @"";
+    NSString *su = [dic[@"sourceUrl"] isKindOfClass:[NSString class]] ? dic[@"sourceUrl"] : @"";
+    NSString *cpTitle = [dic[@"cpTitle"] isKindOfClass:[NSString class]] ? dic[@"cpTitle"] : @"";
+    if (cpTitle.length == 0) {
+        cpTitle = [dic[@"title"] isKindOfClass:[NSString class]] ? dic[@"title"] : @"章节";
+    }
+    NSString *cpUrl = [dic[@"cpUrl"] isKindOfClass:[NSString class]] ? dic[@"cpUrl"] : @"";
+    if (cpUrl.length == 0) {
+        cpUrl = [dic[@"chapterUrl"] isKindOfClass:[NSString class]] ? dic[@"chapterUrl"] : @"";
+    }
+    NSDictionary *fills = @{
+        @"name": nm,
+        @"bookName": nm,
+        @"author": au.length > 0 ? au : @"",
+        @"bookKey": bk,
+        @"sourceName": sn,
+        @"lastSourceName": sn,
+        @"querySourceName": sn,
+        @"bookSourceName": sn,
+        @"bookUrl": bu.length > 0 ? bu : @"",
+        @"url": bu.length > 0 ? bu : @"",
+        @"sourceUrl": su.length > 0 ? su : @"",
+        @"cpTitle": cpTitle,
+        @"title": cpTitle,
+        @"lastChapterTitle": cpTitle,
+        @"chapterName": cpTitle,
+        @"cpUrl": cpUrl,
+        @"chapterUrl": cpUrl,
+        @"curChapterUrl": cpUrl,
+        @"sourceType": @"text",
+        @"type": @"text",
+        @"groupKey": @"",
+        @"bookDirPath": [NSHomeDirectory() stringByAppendingPathComponent:
+                        [NSString stringWithFormat:@"Documents/xsfolder/book/%@", bk]]
+    };
+    NSMutableArray *nilKeys = [NSMutableArray array];
+    for (NSString *k in fills) {
+        id cur = nil;
+        @try { cur = [readerVC valueForKey:k]; } @catch (__unused NSException *e) {}
+        if (cur == nil || cur == [NSNull null] ||
+            ([cur isKindOfClass:[NSString class]] && [(NSString *)cur length] == 0)) {
+            if (cur == nil || cur == [NSNull null]) [nilKeys addObject:k];
+            id fill = fills[k];
+            if ([fill isKindOfClass:[NSString class]] &&
+                ([(NSString *)fill length] > 0 ||
+                 [k isEqualToString:@"author"] || [k isEqualToString:@"groupKey"] ||
+                 [k isEqualToString:@"bookUrl"] || [k isEqualToString:@"url"] ||
+                 [k isEqualToString:@"sourceUrl"] || [k isEqualToString:@"cpUrl"] ||
+                 [k isEqualToString:@"chapterUrl"] || [k isEqualToString:@"curChapterUrl"])) {
+                LBForceSetIvar(readerVC, k, fill);
             }
         }
-        if (props) free(props);
-        cls = class_getSuperclass(cls);
+    }
+    // dicContents 必须非 nil，否则排版/换章 @[dicContents[...]] 易崩
+    id dicContents = nil;
+    @try { dicContents = [readerVC valueForKey:@"dicContents"]; } @catch (__unused NSException *e) {}
+    if (![dicContents isKindOfClass:[NSMutableDictionary class]]) {
+        NSMutableDictionary *fresh = [NSMutableDictionary dictionary];
+        if ([dicContents isKindOfClass:[NSDictionary class]]) {
+            [fresh addEntriesFromDictionary:(NSDictionary *)dicContents];
+        }
+        LBForceSetIvar(readerVC, @"dicContents", fresh);
+        if ([readerVC respondsToSelector:@selector(setDicContents:)]) {
+            @try {
+                ((void (*)(id, SEL, id))objc_msgSend)(readerVC, @selector(setDicContents:), fresh);
+            } @catch (__unused NSException *e) {}
+        }
+    }
+    if (nilKeys.count > 0) {
+        NSString *joined = [nilKeys componentsJoinedByString:@","];
+        if (joined.length > 120) joined = [joined substringToIndex:120];
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"appearSeed nilWas=%@", joined]);
     }
 }
 
@@ -2474,30 +2541,8 @@ static void LBPrepareTextReadNativeFull(id readerVC, NSDictionary *book) {
     sPendingNativeFullBook = [dic mutableCopy];
     // 注意：禁止把所有 nil NSString 填成 @""——真机 loadView 会断言
     // (name != nil) && ([name length] > 0)。只灌已知安全字段。
+    LBSeedTextReadAppearFields(readerVC, dic);
 
-    // 字符串属性兜底（viewDidLoad/appear 里 @[prop] 遇 nil 会 abort）
-    for (NSString *k in @[@"bookKey", @"sourceName", @"lastSourceName", @"name", @"author"]) {
-        id cur = nil;
-        @try { cur = [readerVC valueForKey:k]; } @catch (__unused NSException *e) {}
-        if (cur == nil || cur == [NSNull null] ||
-            ([cur isKindOfClass:[NSString class]] && [(NSString *)cur length] == 0)) {
-            id fromBook = dic[k];
-            NSString *fill = [fromBook isKindOfClass:[NSString class]] ? (NSString *)fromBook : @"";
-            if ([k isEqualToString:@"name"] && fill.length == 0) {
-                fill = [dic[@"bookName"] isKindOfClass:[NSString class]] ? dic[@"bookName"] : @"书";
-            }
-            if ([k isEqualToString:@"bookKey"] && fill.length == 0) {
-                NSString *nm = [dic[@"name"] isKindOfClass:[NSString class]] ? dic[@"name"] : @"书";
-                NSString *au = [dic[@"author"] isKindOfClass:[NSString class]] ? dic[@"author"] : @"";
-                fill = au.length > 0 ? [NSString stringWithFormat:@"%@|%@", nm, au] : nm;
-            }
-            if (fill.length == 0 && ([k isEqualToString:@"sourceName"] ||
-                                     [k isEqualToString:@"lastSourceName"])) {
-                fill = @"本地静态测试源";
-            }
-            if (fill.length > 0) LBForceSetIvar(readerVC, k, fill);
-        }
-    }
     // 数组/字典属性兜底
     NSArray *arrKeys = @[@"arrCatalog", @"arrChapter", @"arrBaseData", @"arrCpInfo",
                          @"arrSource", @"arrSourceType", @"chapterList"];
@@ -2538,7 +2583,327 @@ static void LBPrepareTextReadNativeFull(id readerVC, NSDictionary *book) {
                              [cats isKindOfClass:[NSArray class]] ? (unsigned long)[(NSArray *)cats count] : 0]);
 }
 
-/// 向可见 TextRead 交付正文：nativeFull 走 onResetContentNotify；否则 injectTV
+/// 对照本地书路径：把 mock 正文写入原生缓存/排版（dicContents / xsfolder / setCpCached / division*）
+static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
+                                         NSDictionary *payload,
+                                         NSString *phase) {
+    if (!readerVC || ![payload isKindOfClass:[NSDictionary class]]) return NO;
+    NSString *body = nil;
+    id c = payload[@"chapterContent"] ?: payload[@"content"];
+    if ([c isKindOfClass:[NSString class]]) body = (NSString *)c;
+    if (body.length == 0) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject skip noBody phase=%@", phase ?: @""]);
+        return NO;
+    }
+    NSString *title = payload[@"cpTitle"] ?: payload[@"title"] ?: @"";
+    if (![title isKindOfClass:[NSString class]]) title = @"";
+    if (title.length == 0) title = @"章节";
+    NSInteger cpIndex = 0;
+    id cpi = payload[@"cpIndex"] ?: payload[@"index"];
+    if ([cpi respondsToSelector:@selector(integerValue)]) cpIndex = [cpi integerValue];
+    @try {
+        id cur = [readerVC valueForKey:@"curCpIndex"];
+        if ([cur respondsToSelector:@selector(integerValue)]) cpIndex = [cur integerValue];
+    } @catch (__unused NSException *e) {}
+
+    NSDictionary *dicBook = nil;
+    @try {
+        id d = [readerVC valueForKey:@"dicBook"];
+        if ([d isKindOfClass:[NSDictionary class]]) dicBook = d;
+    } @catch (__unused NSException *e) {}
+    if (![dicBook isKindOfClass:[NSDictionary class]]) dicBook = sPendingNativeFullBook;
+    NSString *bookKey = nil;
+    NSString *sourceName = nil;
+    if ([dicBook isKindOfClass:[NSDictionary class]]) {
+        bookKey = [dicBook[@"bookKey"] isKindOfClass:[NSString class]] ? dicBook[@"bookKey"] : nil;
+        sourceName = [dicBook[@"sourceName"] isKindOfClass:[NSString class]] ? dicBook[@"sourceName"] : nil;
+        if (title.length == 0 || [title isEqualToString:@"章节"]) {
+            NSString *t2 = dicBook[@"cpTitle"] ?: dicBook[@"title"];
+            if ([t2 isKindOfClass:[NSString class]] && t2.length > 0) title = t2;
+        }
+    }
+    if (bookKey.length == 0) {
+        @try {
+            id v = [readerVC valueForKey:@"bookKey"];
+            if ([v isKindOfClass:[NSString class]]) bookKey = v;
+        } @catch (__unused NSException *e) {}
+    }
+    if (bookKey.length == 0) bookKey = @"legado|bridge";
+    if (sourceName.length == 0) {
+        @try {
+            id v = [readerVC valueForKey:@"sourceName"];
+            if ([v isKindOfClass:[NSString class]]) sourceName = v;
+        } @catch (__unused NSException *e) {}
+    }
+    if (sourceName.length == 0) {
+        sourceName = [payload[@"sourceName"] isKindOfClass:[NSString class]]
+            ? payload[@"sourceName"] : @"本地静态测试源";
+    }
+
+    NSMutableArray *okPaths = [NSMutableArray array];
+
+    // 1) dicContents：原生换章/排版内存缓存
+    @try {
+        NSMutableDictionary *dc = nil;
+        id cur = nil;
+        @try { cur = [readerVC valueForKey:@"dicContents"]; } @catch (__unused NSException *e) {}
+        if ([cur isKindOfClass:[NSMutableDictionary class]]) {
+            dc = (NSMutableDictionary *)cur;
+        } else if ([cur isKindOfClass:[NSDictionary class]]) {
+            dc = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)cur];
+        } else {
+            dc = [NSMutableDictionary dictionary];
+        }
+        dc[@(cpIndex)] = body;
+        dc[[@(cpIndex) stringValue]] = body;
+        if (title.length > 0) dc[title] = body;
+        NSString *chUrl = payload[@"chapterUrl"] ?: payload[@"cpUrl"];
+        if ([chUrl isKindOfClass:[NSString class]] && chUrl.length > 0) dc[chUrl] = body;
+        LBForceSetIvar(readerVC, @"dicContents", dc);
+        if ([readerVC respondsToSelector:@selector(setDicContents:)]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(readerVC, @selector(setDicContents:), dc);
+        }
+        [okPaths addObject:@"dicContents"];
+    } @catch (NSException *ex) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"contentInject dicContents EX %@",
+                                 ex.reason ?: @""]);
+    }
+
+    // 2) 本地书同构：Documents/xsfolder/book/<bookKey>/<cpIndex> + localSourceText
+    NSString *bookDir = [NSHomeDirectory() stringByAppendingPathComponent:
+                         [NSString stringWithFormat:@"Documents/xsfolder/book/%@", bookKey]];
+    @try {
+        [[NSFileManager defaultManager] createDirectoryAtPath:bookDir
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil
+                                                        error:NULL];
+        NSString *cpPath = [bookDir stringByAppendingPathComponent:
+                            [NSString stringWithFormat:@"%ld", (long)cpIndex]];
+        [body writeToFile:cpPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        // 兼容 %@%li 命名
+        NSString *alt = [bookDir stringByAppendingPathComponent:
+                         [NSString stringWithFormat:@"%@%ld", bookKey, (long)cpIndex]];
+        [body writeToFile:alt atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        NSDictionary *plist = @{
+            @"list": @[ @{
+                @"title": title,
+                @"url": [@(cpIndex) stringValue]
+            } ]
+        };
+        NSString *lst = [bookDir stringByAppendingPathComponent:@"localSourceText"];
+        [plist writeToFile:lst atomically:YES];
+        LBForceSetIvar(readerVC, @"bookDirPath", bookDir);
+        if ([readerVC respondsToSelector:NSSelectorFromString(@"setBookDirPath:")]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(readerVC,
+                                                  NSSelectorFromString(@"setBookDirPath:"),
+                                                  bookDir);
+        }
+        [okPaths addObject:@"localSourceText"];
+    } @catch (NSException *ex) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"contentInject localFile EX %@",
+                                 ex.reason ?: @""]);
+    }
+
+    // 3) setCpCached:cpIndex:bookKey:sourceName:（首参优先正文，失败再试标题）
+    @try {
+        id mgr = nil;
+        for (NSString *cn in @[@"BookDbManager", @"BookQueryManager", @"CacherManager",
+                               @"BookCacher", @"LCDiskCacheManager"]) {
+            Class cls = NSClassFromString(cn);
+            if (!cls) continue;
+            if ([cls respondsToSelector:@selector(sharedInstance)]) {
+                mgr = ((id (*)(id, SEL))objc_msgSend)(cls, @selector(sharedInstance));
+            } else if ([cls respondsToSelector:@selector(sharedManager)]) {
+                mgr = ((id (*)(id, SEL))objc_msgSend)(cls, @selector(sharedManager));
+            } else if ([cls respondsToSelector:@selector(shared)]) {
+                mgr = ((id (*)(id, SEL))objc_msgSend)(cls, @selector(shared));
+            }
+            if (!mgr) mgr = readerVC; // 部分实现挂在 ReadVC 上
+            SEL sel = NSSelectorFromString(@"setCpCached:cpIndex:bookKey:sourceName:");
+            if (![mgr respondsToSelector:sel] && ![readerVC respondsToSelector:sel]) {
+                mgr = nil;
+                continue;
+            }
+            if (![mgr respondsToSelector:sel]) mgr = readerVC;
+            @try {
+                ((void (*)(id, SEL, id, NSInteger, id, id))objc_msgSend)(
+                    mgr, sel, body, cpIndex, bookKey, sourceName);
+                [okPaths addObject:[NSString stringWithFormat:@"setCpCached@%@", cn]];
+                break;
+            } @catch (__unused NSException *e1) {
+                @try {
+                    ((void (*)(id, SEL, id, NSInteger, id, id))objc_msgSend)(
+                        mgr, sel, title, cpIndex, bookKey, sourceName);
+                    [okPaths addObject:[NSString stringWithFormat:@"setCpCachedTitle@%@", cn]];
+                    break;
+                } @catch (NSException *e2) {
+                    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                             @"contentInject setCpCached EX %@ %@",
+                                             cn, e2.reason ?: @""]);
+                }
+            }
+        }
+        // ReadVC 自身也可能实现
+        SEL selSelf = NSSelectorFromString(@"setCpCached:cpIndex:bookKey:sourceName:");
+        BOOL alreadyCached = NO;
+        for (NSString *p in okPaths) {
+            if ([p hasPrefix:@"setCpCached"]) { alreadyCached = YES; break; }
+        }
+        if (!alreadyCached && [readerVC respondsToSelector:selSelf]) {
+            ((void (*)(id, SEL, id, NSInteger, id, id))objc_msgSend)(
+                readerVC, selSelf, body, cpIndex, bookKey, sourceName);
+            [okPaths addObject:@"setCpCached@self"];
+        }
+    } @catch (NSException *ex) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"contentInject setCpCached outer EX %@",
+                                 ex.reason ?: @""]);
+    }
+
+    // 4) 排版入口：divisionResponse / divisionText / processPageData
+    @try {
+        SEL dr = NSSelectorFromString(@"divisionResponse:cpTitle:cpIndex:");
+        if ([readerVC respondsToSelector:dr]) {
+            ((void (*)(id, SEL, id, id, NSInteger))objc_msgSend)(
+                readerVC, dr, body, title, cpIndex);
+            [okPaths addObject:@"divisionResponse"];
+        }
+    } @catch (NSException *ex) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"contentInject divisionResponse EX %@",
+                                 ex.reason ?: @""]);
+    }
+    @try {
+        SEL pp = NSSelectorFromString(@"processPageData:userInfo:cpTitle:");
+        if ([readerVC respondsToSelector:pp]) {
+            NSDictionary *ui = @{
+                @"chapterContent": body,
+                @"content": body,
+                @"cpTitle": title,
+                @"cpIndex": @(cpIndex)
+            };
+            ((void (*)(id, SEL, id, id, id))objc_msgSend)(readerVC, pp, body, ui, title);
+            [okPaths addObject:@"processPageData"];
+        }
+    } @catch (NSException *ex) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"contentInject processPageData EX %@",
+                                 ex.reason ?: @""]);
+    }
+    // TextReadTV.divisionText:...（CGSize 用 NSInvocation）
+    @try {
+        UIView *textReadTV = nil;
+        NSMutableArray *stack = [NSMutableArray array];
+        if (readerVC.isViewLoaded && readerVC.view) [stack addObject:readerVC.view];
+        while (stack.count > 0) {
+            UIView *v = stack.lastObject;
+            [stack removeLastObject];
+            if ([NSStringFromClass([v class]) containsString:@"TextReadTV"]) {
+                textReadTV = v;
+                break;
+            }
+            for (UIView *sub in v.subviews) [stack addObject:sub];
+        }
+        if (!textReadTV) {
+            for (NSString *k in @[@"curPageTV", @"textViewL", @"textViewR", @"tv"]) {
+                @try {
+                    id tv = [readerVC valueForKey:k];
+                    if (tv && [NSStringFromClass([tv class]) containsString:@"TextReadTV"]) {
+                        textReadTV = (UIView *)tv;
+                        break;
+                    }
+                } @catch (__unused NSException *e) {}
+            }
+        }
+        if (textReadTV) {
+            SEL divSel = NSSelectorFromString(
+                @"divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:");
+            SEL divSel2 = NSSelectorFromString(
+                @"divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:paibanInfo:");
+            SEL useSel = [textReadTV respondsToSelector:divSel2] ? divSel2 :
+                ([textReadTV respondsToSelector:divSel] ? divSel : NULL);
+            if (useSel) {
+                NSMethodSignature *sig = [textReadTV methodSignatureForSelector:useSel];
+                if (sig) {
+                    NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+                    [inv setTarget:textReadTV];
+                    [inv setSelector:useSel];
+                    NSString *argBody = body;
+                    NSString *argTitle = title;
+                    NSInteger argIdx = cpIndex;
+                    CGSize sz = textReadTV.bounds.size;
+                    if (sz.width < 10 || sz.height < 10) {
+                        sz = readerVC.view.bounds.size;
+                    }
+                    BOOL doubleCol = NO;
+                    NSArray *heights = @[];
+                    [inv setArgument:&argBody atIndex:2];
+                    [inv setArgument:&argTitle atIndex:3];
+                    [inv setArgument:&argIdx atIndex:4];
+                    [inv setArgument:&sz atIndex:5];
+                    [inv setArgument:&doubleCol atIndex:6];
+                    [inv setArgument:&heights atIndex:7];
+                    if (useSel == divSel2) {
+                        NSDictionary *paiban = @{};
+                        [inv setArgument:&paiban atIndex:8];
+                    }
+                    [inv invoke];
+                    [okPaths addObject:@"divisionText"];
+                }
+            }
+            SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
+            if ([readerVC respondsToSelector:finish]) {
+                @try {
+                    ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(
+                        readerVC, finish, body, cpIndex);
+                    [okPaths addObject:@"onDivisionTextFinish"];
+                } @catch (__unused NSException *e) {}
+            }
+        }
+    } @catch (NSException *ex) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"contentInject divisionText EX %@",
+                                 ex.reason ?: @""]);
+    }
+
+    // 5) 关掉「错误的书本」错误页；不调 onReloadContentEvent（会再走空缓存 → 错误页）
+    @try {
+        if ([readerVC respondsToSelector:NSSelectorFromString(@"hideErrorView")]) {
+            ((void (*)(id, SEL))objc_msgSend)(readerVC, NSSelectorFromString(@"hideErrorView"));
+            [okPaths addObject:@"hideErrorView"];
+        }
+    } @catch (__unused NSException *e) {}
+    @try {
+        // 直接把 errorView 藏掉（hideErrorView 若无实现）
+        id ev = nil;
+        @try { ev = [readerVC valueForKey:@"errorView"]; } @catch (__unused NSException *e) {}
+        if ([ev isKindOfClass:[UIView class]]) {
+            ((UIView *)ev).hidden = YES;
+            [((UIView *)ev) removeFromSuperview];
+            [okPaths addObject:@"errorViewHidden"];
+        }
+    } @catch (__unused NSException *e) {}
+    @try {
+        SEL showPage = NSSelectorFromString(@"showPage:direction:animated:");
+        if ([readerVC respondsToSelector:showPage]) {
+            ((void (*)(id, SEL, NSInteger, NSInteger, BOOL))objc_msgSend)(
+                readerVC, showPage, 0, 0, NO);
+            [okPaths addObject:@"showPage"];
+        }
+    } @catch (__unused NSException *e) {}
+
+    NSString *pathStr = okPaths.count > 0 ? [okPaths componentsJoinedByString:@"+"] : @"none";
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"contentInject phase=%@ paths=%@ len=%lu idx=%ld key=%@",
+                             phase ?: @"?", pathStr, (unsigned long)body.length,
+                             (long)cpIndex, bookKey]);
+    BOOL hasXiaoyan = [body containsString:@"萧炎"] || [body containsString:@"斗气"];
+    if (hasXiaoyan && okPaths.count > 0) {
+        LBWriteOpenReaderMarker([NSString stringWithFormat:
+                                 @"nativeOpen keepTextRead readerVis=1 via=nativeFull contentInject=%@ phase=%@",
+                                 pathStr, phase ?: @""]);
+    }
+    return okPaths.count > 0;
+}
+
+/// 向可见 TextRead 交付正文：nativeFull 优先原生缓存/排版；禁止无参 onReset 空读「错误的书本」
 static void LBDeliverContentToVisibleReaders(NSString *phase) {
     NSDictionary *payload = sPendingResetContent;
     if (![payload isKindOfClass:[NSDictionary class]] || payload.count == 0) {
@@ -2557,11 +2922,18 @@ static void LBDeliverContentToVisibleReaders(NSString *phase) {
             BOOL isRead = [cn containsString:@"TextReadVC"] || [cn containsString:@"ReadVCBase"];
             if (isRead && LBVCIsVisibleInWindow(vc)) {
                 if (sLegadoReaderMode == 1) {
+                    // 优先：dicContents / xsfolder / setCpCached / division*
+                    BOOL injected = LBInjectNativeChapterContent(vc, safe, phase ?: @"deliver");
+                    if (injected) {
+                        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                 @"deliver nativeInject_OK phase=%@ cls=%@",
+                                                 phase ?: @"?", cn]);
+                        continue; // 不要再调无参 onReset（会盖成「错误的书本」）
+                    }
                     BOOL delivered = NO;
                     NSArray *sels = @[@"onResetContentNotify:",
                                       @"onResetContent:", @"resetContentNotify:",
                                       @"handleResetContent:"];
-                    // 注意：无参 onResetContentNotify 会在 hook 内被通知链路反复触发，Deliver 里不要调它
                     for (NSString *sn in sels) {
                         SEL sel = NSSelectorFromString(sn);
                         if (![vc respondsToSelector:sel]) continue;
@@ -2580,13 +2952,6 @@ static void LBDeliverContentToVisibleReaders(NSString *phase) {
                                                      @"deliver ORIG_OK phase=%@ cls=%@ sel=%@",
                                                      phase ?: @"?", cn, sn]);
                             delivered = YES;
-                            NSString *body = safe[@"chapterContent"] ?: safe[@"content"] ?: @"";
-                            if ([body isKindOfClass:[NSString class]] &&
-                                ([body containsString:@"萧炎"] || [body containsString:@"斗气"])) {
-                                LBWriteOpenReaderMarker([NSString stringWithFormat:
-                                                        @"nativeOpen keepTextRead readerVis=1 via=nativeFull phase=%@",
-                                                        phase ?: @"?"]);
-                            }
                             break;
                         } @catch (NSException *ex) {
                             LBAppendOpenReaderTrace([NSString stringWithFormat:
@@ -2594,10 +2959,14 @@ static void LBDeliverContentToVisibleReaders(NSString *phase) {
                                                      phase ?: @"?", sn, ex.reason ?: @""]);
                         }
                     }
-                    // 无参入口：只调用一次，且不经 Deliver 递归
-                    if (!delivered && [vc respondsToSelector:NSSelectorFromString(@"onResetContentNotify")]) {
+                    // 无参 onReset 读不到 pending，且会显示「错误的书本」——仅在无正文时作探测
+                    NSString *body = safe[@"chapterContent"] ?: safe[@"content"] ?: @"";
+                    BOOL hasBody = [body isKindOfClass:[NSString class]] && body.length > 0;
+                    if (!delivered && !hasBody &&
+                        [vc respondsToSelector:NSSelectorFromString(@"onResetContentNotify")]) {
                         @try {
-                            ((void (*)(id, SEL))objc_msgSend)(vc, NSSelectorFromString(@"onResetContentNotify"));
+                            ((void (*)(id, SEL))objc_msgSend)(
+                                vc, NSSelectorFromString(@"onResetContentNotify"));
                             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                                      @"deliver noArg_OK phase=%@ cls=%@",
                                                      phase ?: @"?", cn]);
@@ -2607,29 +2976,12 @@ static void LBDeliverContentToVisibleReaders(NSString *phase) {
                                                      @"deliver noArg_EX %@", ex.reason ?: @""]);
                         }
                     }
-                    if (!delivered) {
-                        // 直接 post 通知，让已注册的观察者收（消毒后的 payload）
-                        @try {
-                            [[NSNotificationCenter defaultCenter]
-                                postNotificationName:@"dNotifyName_ReadView_ResetContent"
-                                              object:nil
-                                            userInfo:safe];
-                            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                     @"deliver POSTED phase=%@ cls=%@",
-                                                     phase ?: @"?", cn]);
-                            delivered = YES;
-                        } @catch (NSException *ex) {
-                            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                     @"deliver POST_EX %@", ex.reason ?: @""]);
-                        }
-                    }
-                    if (delivered) continue;
+                    if (injected || delivered) continue;
                     LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                             @"deliver NO_SEL phase=%@ cls=%@ orig=%d",
-                                             phase ?: @"?", cn,
-                                             LBOrig_onResetContentNotify ? 1 : 0]);
+                                             @"deliver NO_SEL phase=%@ cls=%@",
+                                             phase ?: @"?", cn]);
                 }
-                // nativeFull 失败或 safeShell：TV / TextReadTV 直灌
+                // nativeFull 注入失败或 safeShell：最后才 TextReadTV/UITextView 直灌
                 LBInjectPendingContentIntoReader(vc, phase ?: @"deliver");
             }
             for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
@@ -2706,7 +3058,7 @@ static void LBInstallNativeResetContentHook(void) {
                         LBInjectPendingContentIntoReader((UIViewController *)selfObj, @"onResetFallback");
                     });
                 } else {
-                    // 无参：只调 ORIG，禁止在 hook 内再 Deliver（会递归 onReset → 栈溢出回桌面）
+                    // 无参：ORIG 常读空缓存显示「错误的书本」；ORIG 后立刻 contentInject 覆盖
                     static BOOL sOnResetNoArgBusy = NO;
                     void (*origNoArg)(id, SEL) = (void (*)(id, SEL))method_getImplementation(m);
                     hook = imp_implementationWithBlock(^void(id selfObj) {
@@ -2721,10 +3073,21 @@ static void LBInstallNativeResetContentHook(void) {
                         } @catch (NSException *ex) {
                             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                                      @"onReset noArg EX %@", ex.reason ?: @""]);
-                        } @finally {
-                            sOnResetNoArgBusy = NO;
                         }
-                        // 不在此处 Deliver；由 appear / delay / NoteResetContent 投递
+                        if (sLegadoReaderMode == 1 &&
+                            [sPendingResetContent isKindOfClass:[NSDictionary class]] &&
+                            sPendingResetContent.count > 0) {
+                            @try {
+                                LBInjectNativeChapterContent((UIViewController *)selfObj,
+                                                             sPendingResetContent,
+                                                             @"afterNoArg");
+                            } @catch (NSException *ex2) {
+                                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                         @"onReset afterInject EX %@",
+                                                         ex2.reason ?: @""]);
+                            }
+                        }
+                        sOnResetNoArgBusy = NO;
                     });
                 }
                 method_setImplementation(m, hook);
@@ -2918,10 +3281,11 @@ static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
                                      @"nativeFull viewDidLoad EX %@", ex.reason ?: @""]);
             LBWriteOpenReaderMarker([NSString stringWithFormat:
                                      @"nativeOpen viewDidLoad EX %@", ex.reason ?: @""]);
-            // 异常时降级 safeShell UI，避免白屏
-            sLegadoReaderMode = 2;
-            sLegadoSafeTextReadShell = YES;
-            LBTextRead_viewDidLoad_Safe(self, _cmd);
+            // 保持 nativeFull，禁止自动降级 safeShell（用户硬性要求原版 UI）
+            struct objc_super sup = { self, [UIViewController class] };
+            @try {
+                ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, _cmd);
+            } @catch (__unused NSException *e2) {}
         }
         return;
     }
@@ -2978,6 +3342,8 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
+        LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
+        LBSeedTextReadAppearFields(self, sPendingNativeFullBook);
         @try {
             if (LBOrig_TR_viewDidAppear) LBOrig_TR_viewDidAppear(self, _cmd, animated);
             else {
@@ -2988,8 +3354,12 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
         } @catch (NSException *ex) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                      @"nativeFull didAppear EX %@", ex.reason ?: @""]);
-            struct objc_super sup = { self, [UIViewController class] };
-            ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
+            // 再消毒一次后只走 UIViewController 基类 appear，保持 nativeFull，禁止降级 safeShell
+            LBSeedTextReadAppearFields(self, sPendingNativeFullBook);
+            @try {
+                struct objc_super sup = { self, [UIViewController class] };
+                ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
+            } @catch (__unused NSException *e2) {}
         }
         LBDeliverContentToVisibleReaders(@"nativeAppear");
         // 延迟再投一次：正文异步到达 / didAppear 异常后 TextReadTV 可能已就绪
@@ -3304,7 +3674,47 @@ static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, N
 
 void LBNoteResetContentPosted(NSDictionary *userInfo) {
     if (![userInfo isKindOfClass:[NSDictionary class]] || userInfo.count == 0) return;
-    sPendingResetContent = LBSanitizeResetContentUserInfo(userInfo);
+    NSMutableDictionary *enriched =
+        [NSMutableDictionary dictionaryWithDictionary:LBSanitizeResetContentUserInfo(userInfo)];
+    // 用 pending 目录补 cpTitle/cpIndex，供 contentInject 写 dicContents / divisionText
+    NSString *chUrl = enriched[@"chapterUrl"] ?: enriched[@"cpUrl"] ?: @"";
+    if (chUrl.length > 0 && sPendingCatalogChapters.count > 0) {
+        NSInteger i = 0;
+        for (id item in sPendingCatalogChapters) {
+            if (![item isKindOfClass:[NSDictionary class]]) { i++; continue; }
+            NSDictionary *d = (NSDictionary *)item;
+            NSString *u = d[@"cpUrl"] ?: d[@"chapterUrl"] ?: d[@"url"] ?: @"";
+            if ([u isKindOfClass:[NSString class]] && [u isEqualToString:chUrl]) {
+                id t = d[@"cpTitle"] ?: d[@"title"] ?: d[@"name"] ?: d[@"chapterName"];
+                if ([t isKindOfClass:[NSString class]] && [(NSString *)t length] > 0) {
+                    if (![enriched[@"cpTitle"] isKindOfClass:[NSString class]] ||
+                        [(NSString *)enriched[@"cpTitle"] length] == 0) {
+                        enriched[@"cpTitle"] = t;
+                        enriched[@"title"] = t;
+                    }
+                }
+                id cpi = d[@"cpIndex"] ?: d[@"index"] ?: @(i);
+                if (!enriched[@"cpIndex"]) enriched[@"cpIndex"] = cpi;
+                break;
+            }
+            i++;
+        }
+    }
+    if ([sPendingNativeFullBook isKindOfClass:[NSDictionary class]]) {
+        for (NSString *k in @[@"bookKey", @"sourceName", @"bookUrl", @"name", @"author"]) {
+            if (!enriched[k] && sPendingNativeFullBook[k]) {
+                enriched[k] = sPendingNativeFullBook[k];
+            }
+        }
+        if (!enriched[@"cpTitle"] && sPendingNativeFullBook[@"cpTitle"]) {
+            enriched[@"cpTitle"] = sPendingNativeFullBook[@"cpTitle"];
+            enriched[@"title"] = sPendingNativeFullBook[@"cpTitle"];
+        }
+        if (!enriched[@"cpIndex"] && sPendingNativeFullBook[@"cpIndex"]) {
+            enriched[@"cpIndex"] = sPendingNativeFullBook[@"cpIndex"];
+        }
+    }
+    sPendingResetContent = enriched;
     NSString *ch = sPendingResetContent[@"chapterUrl"] ?: @"";
     NSString *marker = [NSString stringWithFormat:@"pendingResetContent ch=%@ keys=%lu mode=%d",
                         ch, (unsigned long)sPendingResetContent.count, sLegadoReaderMode];

@@ -118,18 +118,30 @@ enum XiangseAdapter {
     static func contentPayload(
         content: String,
         chapterUrl: String,
-        binding: BookBinding? = nil
+        binding: BookBinding? = nil,
+        cpTitle: String? = nil,
+        cpIndex: Int? = nil
     ) -> [String: Any] {
         var payload: [String: Any] = [
             "chapterUrl": chapterUrl,
+            "cpUrl": chapterUrl,
             legadoMarkerKey: legadoMarkerValue,
             "chapterContent": content,
             "content": content,
             "fromLegadoBridge": true
         ]
+        if let title = cpTitle, !title.isEmpty {
+            payload["cpTitle"] = title
+            payload["title"] = title
+        }
+        if let idx = cpIndex {
+            payload["cpIndex"] = idx
+            payload["index"] = idx
+        }
         if let binding {
             payload["bookUrl"] = binding.bookUrl
             payload["sourceUrl"] = binding.sourceUrl
+            payload["sourceName"] = binding.sourceName
             payload[bridgeTokenKey] = binding.bridgeToken
         }
         return payload
