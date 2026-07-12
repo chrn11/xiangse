@@ -355,6 +355,38 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                 LBTriggerMixedSearch(keyword, sourceUrl.length > 0 ? sourceUrl : nil);
                 return YES;
             }
+            // legado://read?chapterUrl=...&bookUrl=...&title=... — 直达 Bridge 阅读页（验收/旁路）
+            BOOL wantRead = [host isEqualToString:@"read"] || [pathLower containsString:@"/read"];
+            if (wantRead) {
+                NSString *chapterUrl = LBQueryParameterFromURL(url, @"chapterUrl");
+                NSString *bookUrl = LBQueryParameterFromURL(url, @"bookUrl");
+                NSString *title = LBQueryParameterFromURL(url, @"title");
+                if (chapterUrl.length == 0 || bookUrl.length == 0) {
+                    LBLegadoShowResult(@"read 缺少 chapterUrl 或 bookUrl");
+                    return YES;
+                }
+                NSString *chCopy = [chapterUrl copy];
+                NSString *buCopy = [bookUrl copy];
+                NSString *titleCopy = title.length > 0 ? [title copy] : @"章节";
+                [[NSString stringWithFormat:@"openURL read ch=%@ book=%@ title=%@",
+                  chCopy, buCopy, titleCopy]
+                    writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_read_openurl.txt"]
+                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    NSString *brMsg = nil;
+                    BOOL ok = LBPresentBridgeReader(titleCopy, chCopy, buCopy, &brMsg);
+                    NSString *line = [NSString stringWithFormat:
+                                      @"bridgeReader deeplink presented=%d | %@",
+                                      ok ? 1 : 0, brMsg ?: @"?"];
+                    [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+                             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                });
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    LBHandleContentRequest(chCopy, buCopy, nil);
+                });
+                return YES;
+            }
             if (src.length > 0) {
                 NSURL *srcURL = [NSURL URLWithString:src];
                 if (srcURL && srcURL.scheme.length > 0) {

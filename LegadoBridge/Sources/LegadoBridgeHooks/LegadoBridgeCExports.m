@@ -665,6 +665,9 @@ static void (*LBOrig_setArrCatalog)(id, SEL, id) = NULL;
 static id (*LBOrig_getArrCatalog)(id, SEL) = NULL;
 static void (*LBOrig_catalogDidSelect)(id, SEL, UITableView *, NSIndexPath *) = NULL;
 
+static void LBFlushPendingResetContent(NSString *phase);
+static const char kLBCatIdxKey;
+
 static void LBCatalogWriteMarker(NSString *msg) {
     NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_ui_inject.txt"];
     [msg writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
@@ -1020,6 +1023,66 @@ static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv,
     return orig;
 }
 
+/// 点章打开 Bridge 阅读页（目录 didSelect 与自定义 cell 按钮共用）
+static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
+    NSArray *use = sPendingCatalogChapters;
+    if (use.count == 0) return;
+    if (idx < 0 || idx >= (NSInteger)use.count) return;
+    id item = use[(NSUInteger)idx];
+    NSString *chUrl = nil;
+    NSString *chTitle = nil;
+    if ([item isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *d = (NSDictionary *)item;
+        chUrl = d[@"cpUrl"] ?: d[@"chapterUrl"] ?: d[@"url"];
+        chTitle = d[@"cpTitle"] ?: d[@"title"] ?: d[@"name"] ?: d[@"chapterName"];
+    }
+    NSString *bookUrl = sPendingCatalogBookUrl;
+    if (bookUrl.length == 0 || chUrl.length == 0) return;
+    NSString *titleCopy = chTitle.length > 0 ? [chTitle copy] : @"章节";
+    NSString *chCopy = [chUrl copy];
+    NSString *buCopy = [bookUrl copy];
+    NSString *msg = [NSString stringWithFormat:@"didSelect ch=%@ book=%@ idx=%ld title=%@",
+                     chUrl, bookUrl, (long)idx, titleCopy];
+    [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_select.txt"]
+           atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSString *brMsg = nil;
+        BOOL presented = LBPresentBridgeReader(titleCopy, chCopy, buCopy, &brMsg);
+        NSString *line = [NSString stringWithFormat:
+                         @"bridgeReader presented=%d | %@ || via=cellOrSelect",
+                         presented ? 1 : 0, brMsg ?: @"?"];
+        [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        LBHandleContentRequest(chCopy, buCopy, nil);
+    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (sPendingResetContent.count > 0) {
+            LBBridgeReaderApplyContent(sPendingResetContent);
+            LBFlushPendingResetContent(@"bridge1.5s");
+        }
+    });
+}
+
+@interface LBCatalogCellOpenProxy : NSObject
+@end
+@implementation LBCatalogCellOpenProxy
+- (void)openChapter:(UIButton *)sender {
+    NSNumber *idxNum = objc_getAssociatedObject(sender, &kLBCatIdxKey);
+    if (![idxNum isKindOfClass:[NSNumber class]]) return;
+    LBOpenLegadoChapterAtIndex(idxNum.integerValue);
+}
+@end
+static LBCatalogCellOpenProxy *LBCatalogCellProxy(void) {
+    static LBCatalogCellOpenProxy *p;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ p = [[LBCatalogCellOpenProxy alloc] init]; });
+    return p;
+}
+
 static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip) {
     NSArray *cat = nil;
     NSArray *base = nil;
@@ -1031,12 +1094,18 @@ static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView
         id b = [self valueForKey:@"arrBaseData"];
         if ([b isKindOfClass:[NSArray class]]) base = b;
     } @catch (__unused NSException *e) {}
-    BOOL legadoFallback = (!cat || cat.count == 0) && LBArrayLooksLegado(base);
+    // pending 优先：原生 arrCatalog 常为空，列表靠 arrBaseData / pending
+    NSArray *use = sPendingCatalogChapters.count > 0 ? sPendingCatalogChapters : nil;
+    if (!use) {
+        if (LBArrayLooksLegado(cat)) use = cat;
+        else if (LBArrayLooksLegado(base)) use = base;
+    }
+    BOOL legadoFallback = (use.count > 0);
     if (!legadoFallback && sOrigCatalogCellForRow) {
         return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCatalogCellForRow)(self, _cmd, tv, ip);
     }
-    if (legadoFallback && ip.row >= 0 && ip.row < (NSInteger)base.count) {
-        id item = base[(NSUInteger)ip.row];
+    if (legadoFallback && ip.row >= 0 && ip.row < (NSInteger)use.count) {
+        id item = use[(NSUInteger)ip.row];
         NSString *title = LBChapterTitleFromItem(item) ?: [NSString stringWithFormat:@"章节 %ld", (long)ip.row + 1];
         UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"legado.catalog.cp"];
         if (!cell) {
@@ -1046,6 +1115,24 @@ static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView
         cell.textLabel.text = title;
         cell.textLabel.textColor = [UIColor labelColor];
         cell.backgroundColor = [UIColor clearColor];
+        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+        // 无障碍/坐标点常碰不到原生 didSelect：透明按钮铺满 cell 直接开 Bridge 阅读
+        const NSInteger kBtnTag = 0x4C424354; // LBCT
+        UIButton *btn = [cell.contentView viewWithTag:kBtnTag];
+        if (![btn isKindOfClass:[UIButton class]]) {
+            btn = [UIButton buttonWithType:UIButtonTypeCustom];
+            btn.tag = kBtnTag;
+            btn.backgroundColor = [UIColor clearColor];
+            [btn addTarget:LBCatalogCellProxy()
+                    action:@selector(openChapter:)
+          forControlEvents:UIControlEventTouchUpInside];
+            [cell.contentView addSubview:btn];
+        }
+        btn.frame = cell.contentView.bounds;
+        btn.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        btn.accessibilityLabel = title;
+        btn.accessibilityIdentifier = @"legado_catalog_chapter_btn";
+        objc_setAssociatedObject(btn, &kLBCatIdxKey, @(ip.row), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         return cell;
     }
     if (sOrigCatalogCellForRow) {
@@ -1571,6 +1658,11 @@ void LBNoteResetContentPosted(NSDictionary *userInfo) {
     LBBridgeReaderApplyContent(userInfo);
 }
 
+void LBBridgeReaderApplyPendingOnAppear(void) {
+    if (sPendingResetContent.count == 0) return;
+    LBBridgeReaderApplyContent(sPendingResetContent);
+}
+
 static void LBFlushPendingResetContent(NSString *phase) {
     if (sPendingResetContent.count == 0) return;
     NSDictionary *payload = [sPendingResetContent copy];
@@ -1624,80 +1716,24 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                     if (LBArrayLooksLegado(b)) use = b;
                 } @catch (__unused NSException *e) {}
             }
+            BOOL handled = NO;
             if (use.count > 0 && ip && ip.row >= 0 && ip.row < (NSInteger)use.count) {
+                // 确保 pending 有数据（cell 按钮路径依赖）
+                if (sPendingCatalogChapters.count == 0) {
+                    sPendingCatalogChapters = [use copy];
+                }
                 LBTrySetArrayKey(selfObj, @"arrCatalog", use);
-                id item = use[(NSUInteger)ip.row];
-                NSString *chUrl = nil;
-                if ([item isKindOfClass:[NSDictionary class]]) {
-                    NSDictionary *d = (NSDictionary *)item;
-                    chUrl = d[@"cpUrl"] ?: d[@"chapterUrl"] ?: d[@"url"];
-                }
-                NSString *bookUrl = sPendingCatalogBookUrl;
-                if (bookUrl.length == 0) {
+                if (LBOrig_catalogDidSelect) {
                     @try {
-                        id bu = [selfObj valueForKeyPath:@"dicBook.bookUrl"];
-                        if ([bu isKindOfClass:[NSString class]]) bookUrl = bu;
-                    } @catch (__unused NSException *e) {}
-                }
-                if (chUrl.length > 0 && bookUrl.length > 0) {
-                    LBInstallReaderContentAppearFlush();
-                    NSString *chTitle = nil;
-                    if ([item isKindOfClass:[NSDictionary class]]) {
-                        NSDictionary *d = (NSDictionary *)item;
-                        chTitle = d[@"cpTitle"] ?: d[@"title"] ?: d[@"name"] ?: d[@"chapterName"];
+                        LBOrig_catalogDidSelect(selfObj, selSel, tv, ip);
+                    } @catch (NSException *e) {
+                        NSLog(@"[LegadoBridge] catalog didSelect fail-open: %@", e);
                     }
-                    NSString *sourceName = nil;
-                    NSDictionary *book = LBBookDictForOpenReader(
-                        bookUrl, item, ip.row, chUrl, &sourceName
-                    );
-                    NSString *chCopy = [chUrl copy];
-                    NSString *buCopy = [bookUrl copy];
-                    NSString *titleCopy = [chTitle copy] ?: @"章节";
-                    // openReader 会对 book 做下标赋值；必须传可变副本，不能 [book copy]
-                    NSMutableDictionary *bookCopy = [book mutableCopy] ?: [NSMutableDictionary dictionary];
-                    NSString *srcCopy = [sourceName copy] ?: @"";
-                    NSString *msg = [NSString stringWithFormat:@"didSelect ch=%@ book=%@ idx=%ld title=%@",
-                                     chUrl, bookUrl, (long)ip.row, titleCopy];
-                    [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_select.txt"]
-                          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                    // 1) 原生 didSelect：关掉 CatalogCon / 详情回调
-                    if (LBOrig_catalogDidSelect) {
-                        @try {
-                            LBOrig_catalogDidSelect(selfObj, selSel, tv, ip);
-                        } @catch (NSException *e) {
-                            NSLog(@"[LegadoBridge] catalog didSelect fail-open: %@", e);
-                        }
-                    }
-                    // 2) 短延迟 present Bridge UITextView（等目录 dismiss；绕过 TextReadVC3 SIGABRT）
-                    //    原生 openReader/beginRead/push 函数仍保留，后续可再接
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
-                                   dispatch_get_main_queue(), ^{
-                        NSString *brMsg = nil;
-                        BOOL presented = LBPresentBridgeReader(titleCopy, chCopy, buCopy, &brMsg);
-                        NSString *line = [NSString stringWithFormat:
-                                         @"bridgeReader presented=%d | %@ || skipNativeOpen (crash-prone TextReadVC)",
-                                         presented ? 1 : 0, brMsg ?: @"?"];
-                        [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                        (void)bookCopy;
-                        (void)srcCopy;
-                    });
-                    // 3) 拉正文 → ResetContent → Bridge 页灌入；仍缓存 pending 供日后原生阅读器
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
-                                   dispatch_get_main_queue(), ^{
-                        LBHandleContentRequest(chCopy, buCopy, nil);
-                    });
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
-                                   dispatch_get_main_queue(), ^{
-                        if (sPendingResetContent.count > 0) {
-                            LBBridgeReaderApplyContent(sPendingResetContent);
-                            LBFlushPendingResetContent(@"bridge1.5s");
-                        }
-                    });
-                    return;
                 }
+                LBOpenLegadoChapterAtIndex(ip.row);
+                handled = YES;
             }
-            if (LBOrig_catalogDidSelect) {
+            if (!handled && LBOrig_catalogDidSelect) {
                 @try {
                     LBOrig_catalogDidSelect(selfObj, selSel, tv, ip);
                 } @catch (NSException *e) {

@@ -68,8 +68,8 @@ static __weak LBBridgeReaderVC *sVisibleBridgeReader = nil;
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     sVisibleBridgeReader = self;
-    // 若正文已先到（pending），立刻灌入
-    // 由 LBNoteResetContentPosted / LBBridgeReaderApplyPendingContent 触发
+    // 正文常早于 present 完成；appear 时重灌 pending
+    LBBridgeReaderApplyPendingOnAppear();
 }
 
 - (void)lb_close {

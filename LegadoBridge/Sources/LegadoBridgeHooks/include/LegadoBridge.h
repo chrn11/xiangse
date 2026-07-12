@@ -32,6 +32,8 @@ FOUNDATION_EXPORT BOOL LBPresentBridgeReader(NSString * _Nullable title,
                                              NSString * _Nullable * _Nullable outMsg);
 /// 把 ResetContent 载荷灌入可见的 Bridge 阅读页
 FOUNDATION_EXPORT void LBBridgeReaderApplyContent(NSDictionary * _Nullable userInfo);
+/// Bridge 阅读页 appear 时重灌 pending 正文（正文常早于 VC 可见）
+FOUNDATION_EXPORT void LBBridgeReaderApplyPendingOnAppear(void);
 
 FOUNDATION_EXPORT NSString *LBBridgeVersion(void);
 
