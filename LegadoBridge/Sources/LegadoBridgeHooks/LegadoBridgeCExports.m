@@ -3222,6 +3222,39 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 if (attrApplied) {
                     nativePaged = YES;
                     LBAppendOpenReaderTrace(@"contentInject attr pages applied (skip TextR.divisionResponse)");
+                    // TextReadTV 常不因 setAttributedText 重绘：同步挂透明 overlay 保萧炎可见
+                    @try {
+                        if (readerVC.isViewLoaded && readerVC.view) {
+                            UIView *host = readerVC.view;
+                            UITextView *overlay = (UITextView *)[host viewWithTag:92011];
+                            if (!overlay) {
+                                CGFloat top = 88, bottom = 72;
+                                CGRect f = CGRectMake(12, top, host.bounds.size.width - 24,
+                                                      MAX(120, host.bounds.size.height - top - bottom));
+                                overlay = [[UITextView alloc] initWithFrame:f];
+                                overlay.tag = 92011;
+                                overlay.editable = NO;
+                                overlay.backgroundColor = [UIColor clearColor];
+                                overlay.font = [UIFont systemFontOfSize:18];
+                                overlay.textColor = [UIColor darkTextColor];
+                                overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth |
+                                    UIViewAutoresizingFlexibleHeight;
+                                [host addSubview:overlay];
+                            }
+                            if ([sample0 isKindOfClass:[NSAttributedString class]]) {
+                                overlay.attributedText = (NSAttributedString *)sample0;
+                                overlay.accessibilityLabel = [(NSAttributedString *)sample0 string];
+                            } else {
+                                overlay.text = [NSString stringWithFormat:@"%@\n\n%@", title, body];
+                                overlay.accessibilityLabel = body;
+                            }
+                            overlay.hidden = NO;
+                            [host bringSubviewToFront:overlay];
+                            [okPaths addObject:@"overlay92011"];
+                            // overlay 存在则本拍不算理想 nativePaged
+                            nativePaged = NO;
+                        }
+                    } @catch (__unused NSException *e) {}
                 }
             }
         }
