@@ -2350,15 +2350,45 @@ static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, N
     void (^applyDicLater)(void) = ^{
         @try {
             LBAppendOpenReaderTrace(@"pushReader applyDic now");
-            if ([vcRef respondsToSelector:@selector(setDicBook:)]) {
-                ((void (*)(id, SEL, id))objc_msgSend)(vcRef, @selector(setDicBook:), dicCopy);
-            } else {
-                [vcRef setValue:dicCopy forKey:@"dicBook"];
+            // 禁止走 setDicBook:：原生 setter / LBSetDicBook_IMP 会牵出 load 链 SIGABRT
+            BOOL setOk = NO;
+            @try {
+                Ivar iv = class_getInstanceVariable([vcRef class], "_dicBook");
+                if (!iv) {
+                    Class c = class_getSuperclass([vcRef class]);
+                    while (c && !iv) {
+                        iv = class_getInstanceVariable(c, "_dicBook");
+                        c = class_getSuperclass(c);
+                    }
+                }
+                if (iv) {
+                    object_setIvar(vcRef, iv, dicCopy);
+                    setOk = YES;
+                    LBAppendOpenReaderTrace(@"pushReader ivar _dicBook ok");
+                }
+            } @catch (__unused NSException *e) {}
+            if (!setOk) {
+                @try {
+                    [vcRef setValue:dicCopy forKey:@"dicBook"];
+                    setOk = YES;
+                    LBAppendOpenReaderTrace(@"pushReader KVC dicBook ok");
+                } @catch (NSException *e) {
+                    LBAppendOpenReaderTrace([NSString stringWithFormat:@"pushReader KVCEx %@", e.reason ?: @""]);
+                }
             }
-            LBFlushPendingResetContent(@"pushAfterSetDic");
-            LBWriteOpenReaderMarker([NSString stringWithFormat:
-                                    @"nativeOpen pushSetDicDone readerVis=%d",
-                                    LBIsTextReaderVisible() ? 1 : 0]);
+            LBFlushPendingResetContent(@"pushAfterIvar");
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                LBFlushPendingResetContent(@"pushAfterIvar0.4");
+                if (LBIsTextReaderVisible()) {
+                    LBWriteOpenReaderMarker([NSString stringWithFormat:
+                                            @"nativeOpen keepTextRead readerVis=1 via=pushIvar"]);
+                } else {
+                    LBWriteOpenReaderMarker([NSString stringWithFormat:
+                                            @"nativeOpen pushIvarDone readerVis=0 setOk=%d",
+                                            setOk ? 1 : 0]);
+                }
+            });
         } @catch (NSException *e) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:@"pushReader setDicEx %@", e.reason ?: @""]);
             LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen pushSetDicEx %@",
