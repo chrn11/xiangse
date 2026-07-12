@@ -1335,7 +1335,7 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
 /// 点章：默认原生 openReader → TextReadVC；超时仍无原生页再 Bridge 兜底
 static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
     NSTimeInterval now = CFAbsoluteTimeGetCurrent();
-    if (now - sLastLegadoChapterOpenTs < 0.45) return;
+    if (now - sLastLegadoChapterOpenTs < 2.5) return;
     sLastLegadoChapterOpenTs = now;
     NSArray *use = sPendingCatalogChapters;
     if (use.count == 0) return;
@@ -1463,19 +1463,36 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
                           @"nativeOpen opened=%d readerVis=%d | %@ || via=alignedDict preferNative=1",
                           opened ? 1 : 0, LBIsTextReaderVisible() ? 1 : 0, orm ?: @"?"];
         LBWriteOpenReaderMarker(line);
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)),
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
-            if (LBIsTextReaderVisible()) {
-                if (sPendingCatalogChapters.count > 0) {
-                    LBApplyCatalogToUI(sPendingCatalogChapters, buCopy);
+            if (!LBIsTextReaderVisible()) return;
+            // 禁止 ResetContent；对前台 TextRead* 直接灌 UITextView
+            for (UIWindow *w in LBAllAppWindows()) {
+                UIViewController *root = w.rootViewController;
+                if (!root) continue;
+                NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+                while (stack.count > 0) {
+                    UIViewController *vc = stack.lastObject;
+                    [stack removeLastObject];
+                    NSString *cn = NSStringFromClass([vc class]);
+                    if ([cn containsString:@"TextReadVC"] || [cn containsString:@"ReadVCBase"]) {
+                        if (LBVCIsVisibleInWindow(vc)) {
+                            LBInjectPendingContentIntoReader(vc, @"go0.9");
+                        }
+                    }
+                    for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
+                    if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
+                    if ([vc isKindOfClass:[UINavigationController class]]) {
+                        for (UIViewController *c in [(UINavigationController *)vc viewControllers]) {
+                            [stack addObject:c];
+                        }
+                    }
                 }
-                LBFlushPendingResetContent(@"native0.7");
             }
         });
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.8 * NSEC_PER_SEC)),
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.2 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             if (LBIsTextReaderVisible()) {
-                LBFlushPendingResetContent(@"native1.8");
                 LBWriteOpenReaderMarker([NSString stringWithFormat:
                                         @"nativeOpen keepTextRead readerVis=1 ch=%@", chCopy]);
                 return;
@@ -2315,6 +2332,70 @@ static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString 
 }
 
 /// 不调 openReader：alloc TextReadVC 后 push/present，正文靠 ResetContent 灌入
+static void LBInjectPendingContentIntoReader(UIViewController *readerVC, NSString *phase) {
+    NSDictionary *payload = sPendingResetContent;
+    if (![payload isKindOfClass:[NSDictionary class]] || payload.count == 0) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"injectSkip empty phase=%@", phase ?: @""]);
+        return;
+    }
+    NSString *body = nil;
+    id c = payload[@"chapterContent"] ?: payload[@"content"];
+    if ([c isKindOfClass:[NSString class]]) body = (NSString *)c;
+    if (body.length == 0) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"injectSkip noBody phase=%@", phase ?: @""]);
+        return;
+    }
+    // 禁止 post ResetContent：裸 TextRead 收通知会 SIGABRT。直接灌 UITextView。
+    NSMutableArray *stack = [NSMutableArray array];
+    if (readerVC.isViewLoaded && readerVC.view) [stack addObject:readerVC.view];
+    UITextView *target = nil;
+    while (stack.count > 0) {
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        if ([v isKindOfClass:[UITextView class]]) {
+            target = (UITextView *)v;
+            // 偏好面积较大的正文视图
+            if (v.bounds.size.width >= 200 && v.bounds.size.height >= 200) break;
+        }
+        for (UIView *sub in v.subviews) [stack addObject:sub];
+    }
+    if (!target) {
+        // 再试 KVC 常见出口
+        for (NSString *k in @[@"textView", @"textViewL", @"tv", @"contentTextView"]) {
+            @try {
+                id tv = [readerVC valueForKey:k];
+                if ([tv isKindOfClass:[UITextView class]]) {
+                    target = (UITextView *)tv;
+                    break;
+                }
+            } @catch (__unused NSException *e) {}
+        }
+    }
+    if (!target) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"injectMiss noTV phase=%@", phase ?: @""]);
+        return;
+    }
+    @try {
+        NSString *title = payload[@"cpTitle"] ?: payload[@"title"] ?: @"";
+        if (![title isKindOfClass:[NSString class]]) title = @"";
+        target.text = title.length > 0
+            ? [NSString stringWithFormat:@"%@\n\n%@", title, body]
+            : body;
+        target.accessibilityLabel = body;
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"injectOK phase=%@ len=%lu tv=%@",
+                                 phase ?: @"", (unsigned long)body.length,
+                                 NSStringFromClass([target class])]);
+        if ([body containsString:@"萧炎"] || [body containsString:@"斗气"]) {
+            LBWriteOpenReaderMarker([NSString stringWithFormat:
+                                    @"nativeOpen keepTextRead readerVis=1 via=injectTV phase=%@",
+                                    phase ?: @""]);
+        }
+    } @catch (NSException *e) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"injectEx %@", e.reason ?: @""]);
+    }
+}
+
 static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, NSString **outMsg) {
     Class cls = NSClassFromString(@"TextReadVC3");
     if (!cls) cls = NSClassFromString(@"TextReadVC2");
@@ -2350,55 +2431,25 @@ static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, N
     void (^applyDicLater)(void) = ^{
         @try {
             LBAppendOpenReaderTrace(@"pushReader applyDic now");
-            BOOL setOk = NO;
-            // 穷举 ivar，避开 setValue/setDicBook（二者都会进原生 setter → SIGABRT）
-            Class probe = [vcRef class];
-            while (probe && !setOk) {
-                unsigned int n = 0;
-                Ivar *ivars = class_copyIvarList(probe, &n);
-                for (unsigned int i = 0; i < n; i++) {
-                    const char *nm = ivar_getName(ivars[i]);
-                    if (!nm) continue;
-                    if (strstr(nm, "dicBook") == NULL && strstr(nm, "DicBook") == NULL) continue;
-                    @try {
-#if __has_feature(objc_arc)
-                        object_setIvarWithStrongDefault(vcRef, ivars[i], dicCopy);
-#else
-                        object_setIvar(vcRef, ivars[i], dicCopy);
-#endif
-                        setOk = YES;
-                        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                @"pushReader ivar %s @%@ ok",
-                                                nm, NSStringFromClass(probe)]);
-                        break;
-                    } @catch (NSException *e) {
-                        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                @"pushReader ivar %s ex %@",
-                                                nm, e.reason ?: @""]);
-                    }
-                }
-                if (ivars) free(ivars);
-                probe = class_getSuperclass(probe);
-            }
-            if (!setOk) {
-                // 绝不 KVC/setter：空阅读页 + ResetContent 灌正文
-                LBAppendOpenReaderTrace(@"pushReader skipDicBook (no ivar) flushOnly");
-            }
-            LBFlushPendingResetContent(@"pushAfterIvarOrSkip");
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
+            // 不写 dicBook、不发 ResetContent（二者均曾致 SIGABRT）
+            LBAppendOpenReaderTrace(@"pushReader skipDicBook injectTVOnly");
+            UIViewController *rvc = (UIViewController *)vcRef;
+            LBInjectPendingContentIntoReader(rvc, @"t0");
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
-                LBFlushPendingResetContent(@"pushAfter0.5");
+                LBInjectPendingContentIntoReader(rvc, @"t0.8");
+            });
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.6 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                LBInjectPendingContentIntoReader(rvc, @"t1.6");
                 BOOL vis = LBIsTextReaderVisible();
                 if (vis) {
-                    LBWriteOpenReaderMarker(@"nativeOpen keepTextRead readerVis=1 via=pushIvarOrSkip");
+                    LBWriteOpenReaderMarker(@"nativeOpen keepTextRead readerVis=1 via=pushInject");
                 } else {
-                    LBWriteOpenReaderMarker([NSString stringWithFormat:
-                                            @"nativeOpen pushDone readerVis=0 setOk=%d",
-                                            setOk ? 1 : 0]);
+                    LBWriteOpenReaderMarker(@"nativeOpen pushDone readerVis=0");
                 }
                 LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                        @"pushReader settle vis=%d setOk=%d",
-                                        vis ? 1 : 0, setOk ? 1 : 0]);
+                                        @"pushReader settle vis=%d", vis ? 1 : 0]);
             });
         } @catch (NSException *e) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:@"pushReader setDicEx %@", e.reason ?: @""]);
