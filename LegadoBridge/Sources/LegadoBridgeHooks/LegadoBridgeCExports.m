@@ -2922,6 +2922,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
     }
 
     // 4) 原版排版入口：showContent → divisionText → divisionResponse（禁止先毁工具条）
+    // nativePaged 仅在正文真正交给 container / showContent 后置位（divisionText  alone 不算上屏）
     BOOL nativePaged = NO;
     id pageResult = nil;
     UIView *textReadTV = nil;
@@ -3051,7 +3052,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 [okPaths addObject:[NSString stringWithFormat:@"divisionText@%@",
                                     isCls ? NSStringFromClass((Class)tgt)
                                           : NSStringFromClass([tgt class])]];
-                nativePaged = YES;
+                // 注意：此处不置 nativePaged，须等 divisionResponse 上屏
                 break;
             }
         }
@@ -3073,7 +3074,6 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 if (pageResult) {
                     [okPaths addObject:[NSString stringWithFormat:@"divisionText@inst/%@",
                                         NSStringFromClass(c)]];
-                    nativePaged = YES;
                     break;
                 }
             }
@@ -3175,7 +3175,13 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 }
             }
             if (!responded) {
-                LBAppendOpenReaderTrace(@"contentInject noSel divisionResponse on containers");
+                NSMutableArray *names = [NSMutableArray array];
+                for (id h in containers) {
+                    [names addObject:NSStringFromClass([h class])];
+                }
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"contentInject noSel divisionResponse hosts=%@",
+                                         [names componentsJoinedByString:@","]]);
             }
 
             SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
@@ -3513,7 +3519,7 @@ static void LBInstallNativeResetContentHook(void) {
                         LBInjectPendingContentIntoReader((UIViewController *)selfObj, @"onResetFallback");
                     });
                 } else {
-                    // 无参：有 pending 正文时跳过 ORIG（空读「错误的书本」+ 异步失败曾致 SIGABRT）
+                    // 无参：有 pending 时跳过 ORIG 空读；延后到下一拍再 inject（等 view 树/TV 就绪）
                     static BOOL sOnResetNoArgBusy = NO;
                     void (*origNoArg)(id, SEL) = (void (*)(id, SEL))method_getImplementation(m);
                     hook = imp_implementationWithBlock(^void(id selfObj) {
@@ -3535,18 +3541,32 @@ static void LBInstallNativeResetContentHook(void) {
                                 LBAppendOpenReaderTrace([NSString stringWithFormat:
                                                          @"onReset noArg EX %@", ex.reason ?: @""]);
                             }
-                        } else {
-                            LBAppendOpenReaderTrace(@"onReset noArg SKIP_ORIG (pending content)");
+                            sOnResetNoArgBusy = NO;
+                            return;
+                        }
+                        // 先轻量跑 ORIG 建 TextReadTV/container，再立刻用缓存正文覆盖（避免长期空读）
+                        @try {
+                            if (origNoArg) origNoArg(selfObj, sel);
+                            LBAppendOpenReaderTrace(@"onReset noArg ORIG_OK (pending overlay)");
+                        } @catch (NSException *ex) {
+                            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                     @"onReset noArg EX %@", ex.reason ?: @""]);
+                        }
+                        __strong UIViewController *vcKeep = (UIViewController *)selfObj;
+                        NSDictionary *payloadKeep = sPendingResetContent;
+                        dispatch_async(dispatch_get_main_queue(), ^{
                             @try {
-                                LBInjectNativeChapterContent((UIViewController *)selfObj,
-                                                             sPendingResetContent,
-                                                             @"afterNoArgSkipOrig");
+                                if ([payloadKeep isKindOfClass:[NSDictionary class]] &&
+                                    payloadKeep.count > 0) {
+                                    LBInjectNativeChapterContent(vcKeep, payloadKeep,
+                                                                 @"afterNoArgDeferred");
+                                }
                             } @catch (NSException *ex2) {
                                 LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                         @"onReset afterInject EX %@",
+                                                         @"onReset deferredInject EX %@",
                                                          ex2.reason ?: @""]);
                             }
-                        }
+                        });
                         sOnResetNoArgBusy = NO;
                     });
                 }
