@@ -3141,17 +3141,21 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
         if (!pageResult) {
             LBAppendOpenReaderTrace(@"contentInject divisionText miss all targets");
         } else {
-            // PaibanManager 常返回 @[ pagesArray ]；解包到真正的分页数组
-            if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] == 1) {
+            // 多层 @[ @[ attr ] ] 解包到可消费结构
+            int unwrapN = 0;
+            while ([pageResult isKindOfClass:[NSArray class]] &&
+                   [(NSArray *)pageResult count] == 1 && unwrapN < 4) {
                 id first = [(NSArray *)pageResult firstObject];
-                if ([first isKindOfClass:[NSArray class]] && [(NSArray *)first count] > 0) {
-                    LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                             @"contentInject unwrap pageResult %@ -> %@ count=%lu",
-                                             NSStringFromClass([pageResult class]),
-                                             NSStringFromClass([first class]),
-                                             (unsigned long)[(NSArray *)first count]]);
-                    pageResult = first;
-                }
+                if (![first isKindOfClass:[NSArray class]]) break;
+                pageResult = first;
+                unwrapN++;
+            }
+            if (unwrapN > 0) {
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"contentInject unwrap x%d -> %@ count=%lu",
+                                         unwrapN, NSStringFromClass([pageResult class]),
+                                         [pageResult isKindOfClass:[NSArray class]]
+                                             ? (unsigned long)[(NSArray *)pageResult count] : 0]);
             }
             id sample = nil;
             NSString *fcls = @"-";
@@ -3167,8 +3171,63 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                      fcls]);
         }
 
-        // 4c) divisionResponse：优先 ReadPageContainer / ReadScrollContainer（避免误打 TextR）
-        if (pageResult) {
+        // 4c) 若分页结果已是 NSAttributedString：直接灌 TextReadTV，禁止 TextR.divisionResponse
+        BOOL attrApplied = NO;
+        if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] > 0) {
+            id sample0 = [(NSArray *)pageResult firstObject];
+            if ([sample0 isKindOfClass:[NSAttributedString class]] ||
+                [sample0 isKindOfClass:[NSString class]]) {
+                NSMutableArray *tvs = [NSMutableArray array];
+                if (textReadTV) [tvs addObject:textReadTV];
+                for (NSString *k in @[@"textViewL", @"textViewR", @"textView", @"curPageTV"]) {
+                    @try {
+                        id v = [readerVC valueForKey:k];
+                        if (v && ![tvs containsObject:v]) [tvs addObject:v];
+                    } @catch (__unused NSException *e) {}
+                }
+                for (id tv in tvs) {
+                    @try {
+                        if ([sample0 isKindOfClass:[NSAttributedString class]]) {
+                            if ([tv respondsToSelector:@selector(setAttributedText:)]) {
+                                ((void (*)(id, SEL, id))objc_msgSend)(
+                                    tv, @selector(setAttributedText:), sample0);
+                            } else {
+                                [tv setValue:sample0 forKey:@"attributedText"];
+                            }
+                            // 常见 CoreText 字段
+                            @try { [tv setValue:sample0 forKey:@"pageAttrStr"]; } @catch (__unused NSException *e) {}
+                            @try { [tv setValue:sample0 forKey:@"attrStr"]; } @catch (__unused NSException *e) {}
+                            @try { [tv setValue:sample0 forKey:@"contentAttr"]; } @catch (__unused NSException *e) {}
+                        } else {
+                            NSString *s = (NSString *)sample0;
+                            if ([tv respondsToSelector:@selector(setText:)]) {
+                                ((void (*)(id, SEL, id))objc_msgSend)(tv, @selector(setText:), s);
+                            }
+                        }
+                        if ([tv isKindOfClass:[UIView class]]) {
+                            ((UIView *)tv).hidden = NO;
+                            ((UIView *)tv).alpha = 1;
+                            [((UIView *)tv).superview bringSubviewToFront:(UIView *)tv];
+                            [((UIView *)tv) setNeedsDisplay];
+                        }
+                        attrApplied = YES;
+                        [okPaths addObject:[NSString stringWithFormat:@"attrToTV@%@",
+                                            NSStringFromClass([tv class])]];
+                    } @catch (NSException *ex) {
+                        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                 @"contentInject attrToTV EX %@",
+                                                 ex.reason ?: @""]);
+                    }
+                }
+                if (attrApplied) {
+                    nativePaged = YES;
+                    LBAppendOpenReaderTrace(@"contentInject attr pages applied (skip TextR.divisionResponse)");
+                }
+            }
+        }
+
+        // 4d) divisionResponse：仅当 page 元素不是纯字符串/Attr（避免错误类型 SIGABRT）
+        if (pageResult && !attrApplied) {
             NSMutableArray *raw = [NSMutableArray array];
             id cont = nil;
             @try { cont = [readerVC valueForKey:@"container"]; } @catch (__unused NSException *e) {}
