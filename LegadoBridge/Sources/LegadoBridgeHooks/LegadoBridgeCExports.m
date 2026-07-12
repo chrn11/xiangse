@@ -713,15 +713,6 @@ static void LBCatalogDumpVCTree(void) {
     [[lines componentsJoinedByString:@"\n"] writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 }
 
-static BOOL LBObjectHasCatalogArray(id obj) {
-    if (!obj) return NO;
-    if ([obj respondsToSelector:@selector(setArrCatalog:)]) return YES;
-    if (class_getInstanceVariable(object_getClass(obj), "_arrCatalog") != NULL) return YES;
-    if ([obj respondsToSelector:@selector(setArrBaseData:)]) return YES;
-    if (class_getInstanceVariable(object_getClass(obj), "_arrBaseData") != NULL) return YES;
-    return NO;
-}
-
 static BOOL LBVCIsSearchTableContext(id selfObj);
 static BOOL LBVCIsCatalogTableContext(id selfObj);
 
