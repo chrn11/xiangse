@@ -2663,7 +2663,6 @@ static void LBOnBeginEvent_KillIMP(id self, SEL _cmd, id note) {
     }
 }
 
-static void (*LBOrig_tryOpenRecord)(id, SEL, id, id) = NULL;
 static void LBTryOpenRecord_KillIMP(id self, SEL _cmd, id record, id sourceName) {
     NSString *bu = nil, *ch = nil, *title = nil;
     if (LBBookLooksLegadoForKillSwitch(record, &bu, &ch, &title)) {
