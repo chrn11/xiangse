@@ -2279,6 +2279,67 @@ void LBInstallCatalogUIAppearFlush(void) {
     sCatalogUIAppearHooked = YES;
     LBInstallReaderContentAppearFlush();
     LBInstallLegadoReaderKillSwitch();
+    // 搜索页常有独立 didSelect，不经 Catalog 公共基类 hook → 原生点书杀进程
+    static NSMutableSet *sSearchSelHooked = nil;
+    static dispatch_once_t onceSearchSel;
+    dispatch_once(&onceSearchSel, ^{ sSearchSelHooked = [NSMutableSet set]; });
+    SEL selSel = @selector(tableView:didSelectRowAtIndexPath:);
+    for (NSString *cn in @[@"BookSearchController", @"BookSearchVCBase1", @"BookSearchVCBase2"]) {
+        Class cls = NSClassFromString(cn);
+        if (!cls) continue;
+        Class owner = LBClassOwningInstanceMethod(cls, selSel) ?: cls;
+        NSString *key = [NSString stringWithFormat:@"searchSel:%@", NSStringFromClass(owner)];
+        if ([sSearchSelHooked containsObject:key]) continue;
+        Method m = class_getInstanceMethod(owner, selSel);
+        if (!m) continue;
+        void (*prev)(id, SEL, UITableView *, NSIndexPath *) =
+            (void (*)(id, SEL, UITableView *, NSIndexPath *))method_getImplementation(m);
+        IMP hook = imp_implementationWithBlock(^void(id selfObj, UITableView *tv, NSIndexPath *ip) {
+            [[NSString stringWithFormat:@"searchDidSelect hit class=%@ row=%ld",
+              NSStringFromClass([selfObj class]), (long)(ip ? ip.row : -1)]
+                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_select.txt"]
+                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            @try {
+                id b = [selfObj valueForKey:@"arrBaseData"];
+                if ([b isKindOfClass:[NSArray class]] && ip &&
+                    ip.row >= 0 && ip.row < (NSInteger)[(NSArray *)b count]) {
+                    id item = ((NSArray *)b)[(NSUInteger)ip.row];
+                    BOOL legadoBook = NO;
+                    if ([item isKindOfClass:[NSDictionary class]]) {
+                        NSDictionary *d = (NSDictionary *)item;
+                        legadoBook = (d[@"legadoBridge"] != nil || d[@"fromLegadoBridge"] != nil) &&
+                                     !LBItemLooksLikeChapter(item);
+                        if (!legadoBook) {
+                            // 无标记时：有 bookUrl 且像 mock/legado 源也当书
+                            id bu = d[@"bookUrl"] ?: d[@"url"];
+                            if ([bu isKindOfClass:[NSString class]] &&
+                                ([(NSString *)bu containsString:@"192.168."] ||
+                                 [(NSString *)bu containsString:@"legado"] ||
+                                 d[@"sourceUrl"] != nil)) {
+                                legadoBook = !LBItemLooksLikeChapter(item);
+                            }
+                        }
+                    }
+                    if (legadoBook && LBPushLegadoBookDetailFromSearch(selfObj, item)) {
+                        if (tv && ip) {
+                            @try { [tv deselectRowAtIndexPath:ip animated:YES]; } @catch (__unused NSException *e) {}
+                        }
+                        return;
+                    }
+                }
+            } @catch (NSException *e) {
+                NSLog(@"[LegadoBridge] BookSearch didSelect fail-open: %@", e);
+            }
+            if (prev) {
+                @try { prev(selfObj, selSel, tv, ip); } @catch (NSException *e) {
+                    NSLog(@"[LegadoBridge] BookSearch native didSelect fail-open: %@", e);
+                }
+            }
+        });
+        method_setImplementation(m, hook);
+        [sSearchSelHooked addObject:key];
+        NSLog(@"[LegadoBridge] hooked BookSearch didSelect @%@", NSStringFromClass(owner));
+    }
     NSArray *names = @[@"CatalogCon", @"BookDetailController", @"BookDetailVCBase"];
     for (NSString *cn in names) {
         Class cls = NSClassFromString(cn);
