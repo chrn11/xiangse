@@ -1100,8 +1100,10 @@ static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv,
     return orig;
 }
 
-/// TextReadVC viewDidAppear 会对 @[...] 中的 nil 直接 abort；对齐本地书/已导入源字段
-static void LBSanitizeBookDictForReader(NSMutableDictionary *dic) {
+/// TextReadVC viewDidAppear 会对 @[...] 中的 nil 直接 abort。
+/// injectChapters=NO：openReader 瘦身（灌满章节数组曾致 callingOrig 后静默杀进程）
+/// keepBridge=YES：保留 legadoBridge，便于 setDicBook/loadCurCp 走桥接短路而非原生 abort
+static void LBSanitizeBookDictForReaderEx(NSMutableDictionary *dic, BOOL injectChapters, BOOL keepBridge) {
     if (![dic isKindOfClass:[NSMutableDictionary class]]) return;
     NSArray *strKeys = @[
         @"name", @"bookName", @"author", @"coverUrl", @"intro",
@@ -1143,7 +1145,7 @@ static void LBSanitizeBookDictForReader(NSMutableDictionary *dic) {
         [(NSString *)dic[@"sourceType"] length] == 0) {
         dic[@"sourceType"] = @"text";
     }
-    // 站点数组：enable 统一字符串，去掉易炸的 BOOL/桥接字段
+    // 站点数组：enable 统一字符串；站点可留 bridge 标记供识别
     for (NSString *siteKey in @[@"arrSource", @"arrSourceInfoRequired", @"arrSourceInfoOptional"]) {
         id arr = dic[siteKey];
         if (![arr isKindOfClass:[NSArray class]]) continue;
@@ -1168,8 +1170,10 @@ static void LBSanitizeBookDictForReader(NSMutableDictionary *dic) {
             if ([(NSString *)site[@"enable"] length] == 0) site[@"enable"] = @"1";
             [site removeObjectForKey:@"enabled"];
             [site removeObjectForKey:@"isEnabled"];
-            [site removeObjectForKey:@"legadoBridge"];
-            [site removeObjectForKey:@"fromLegadoBridge"];
+            if (!keepBridge) {
+                [site removeObjectForKey:@"legadoBridge"];
+                [site removeObjectForKey:@"fromLegadoBridge"];
+            }
             [cleanSites addObject:site];
         }
         if (cleanSites.count > 0) dic[siteKey] = cleanSites;
@@ -1178,46 +1182,78 @@ static void LBSanitizeBookDictForReader(NSMutableDictionary *dic) {
         [(NSArray *)dic[@"arrSourceType"] count] == 0) {
         dic[@"arrSourceType"] = @[@"text"];
     }
-    NSArray *chapterSrc = nil;
-    if (sPendingCatalogChapters.count > 0) {
-        chapterSrc = sPendingCatalogChapters;
-    } else if ([dic[@"arrCatalog"] isKindOfClass:[NSArray class]]) {
-        chapterSrc = dic[@"arrCatalog"];
-    }
-    if (chapterSrc.count > 0) {
-        NSMutableArray *clean = [NSMutableArray arrayWithCapacity:chapterSrc.count];
-        NSInteger i = 0;
-        for (id item in chapterSrc) {
-            if (![item isKindOfClass:[NSDictionary class]]) continue;
-            NSMutableDictionary *ch = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)item];
-            for (NSString *k in @[@"cpTitle", @"title", @"name", @"chapterName",
-                                  @"cpUrl", @"chapterUrl", @"url"]) {
-                id v = ch[k];
-                if (v == nil || v == [NSNull null]) ch[k] = @"";
-                else if (![v isKindOfClass:[NSString class]]) ch[k] = [[v description] copy] ?: @"";
-            }
-            id cpi = ch[@"cpIndex"] ?: ch[@"index"] ?: @(i);
-            if ([cpi respondsToSelector:@selector(integerValue)]) {
-                ch[@"cpIndex"] = @([cpi integerValue]);
-            } else {
-                ch[@"cpIndex"] = @(i);
-            }
-            [ch removeObjectForKey:@"legadoBridge"];
-            [ch removeObjectForKey:@"fromLegadoBridge"];
-            [clean addObject:ch];
-            i++;
+    if (injectChapters) {
+        NSArray *chapterSrc = nil;
+        if (sPendingCatalogChapters.count > 0) {
+            chapterSrc = sPendingCatalogChapters;
+        } else if ([dic[@"arrCatalog"] isKindOfClass:[NSArray class]]) {
+            chapterSrc = dic[@"arrCatalog"];
         }
-        if (clean.count > 0) {
-            dic[@"arrCatalog"] = clean;
-            dic[@"arrChapter"] = clean;
-            dic[@"arrBaseData"] = clean;
-            dic[@"arrCpInfo"] = clean;
-            dic[@"chapterList"] = clean;
+        if (chapterSrc.count > 0) {
+            NSMutableArray *clean = [NSMutableArray arrayWithCapacity:chapterSrc.count];
+            NSInteger i = 0;
+            for (id item in chapterSrc) {
+                if (![item isKindOfClass:[NSDictionary class]]) continue;
+                NSMutableDictionary *ch = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)item];
+                for (NSString *k in @[@"cpTitle", @"title", @"name", @"chapterName",
+                                      @"cpUrl", @"chapterUrl", @"url"]) {
+                    id v = ch[k];
+                    if (v == nil || v == [NSNull null]) ch[k] = @"";
+                    else if (![v isKindOfClass:[NSString class]]) ch[k] = [[v description] copy] ?: @"";
+                }
+                id cpi = ch[@"cpIndex"] ?: ch[@"index"] ?: @(i);
+                if ([cpi respondsToSelector:@selector(integerValue)]) {
+                    ch[@"cpIndex"] = @([cpi integerValue]);
+                } else {
+                    ch[@"cpIndex"] = @(i);
+                }
+                if (!keepBridge) {
+                    [ch removeObjectForKey:@"legadoBridge"];
+                    [ch removeObjectForKey:@"fromLegadoBridge"];
+                }
+                [clean addObject:ch];
+                i++;
+            }
+            if (clean.count > 0) {
+                dic[@"arrCatalog"] = clean;
+                dic[@"arrChapter"] = clean;
+                dic[@"arrBaseData"] = clean;
+                dic[@"arrCpInfo"] = clean;
+                dic[@"chapterList"] = clean;
+            }
+        }
+    } else {
+        // openReader 瘦身：去掉章节大数组，只留当前章标量字段
+        for (NSString *k in @[@"arrCatalog", @"arrChapter", @"arrBaseData", @"arrCpInfo", @"chapterList"]) {
+            [dic removeObjectForKey:k];
         }
     }
-    // 给原生 openReader 的模型去掉桥接标记，避免误入自定义分支
-    [dic removeObjectForKey:@"legadoBridge"];
-    [dic removeObjectForKey:@"fromLegadoBridge"];
+    if (keepBridge) {
+        dic[@"legadoBridge"] = @"1";
+        dic[@"fromLegadoBridge"] = @"1";
+    } else {
+        [dic removeObjectForKey:@"legadoBridge"];
+        [dic removeObjectForKey:@"fromLegadoBridge"];
+    }
+}
+
+static void LBSanitizeBookDictForReader(NSMutableDictionary *dic) {
+    // 默认：给 TextRead appear 消毒时灌章节 + 保留 bridge（阅读 hook 依赖）
+    LBSanitizeBookDictForReaderEx(dic, YES, YES);
+}
+
+static void LBAppendOpenReaderTrace(NSString *msg) {
+    if (msg.length == 0) return;
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_openreader_trace.txt"];
+    NSString *line = [NSString stringWithFormat:@"%@ | %@\n", [NSDate date], msg];
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!fh) {
+        [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return;
+    }
+    [fh seekToEndOfFile];
+    [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    [fh closeFile];
 }
 
 static void LBWriteOpenReaderMarker(NSString *msg) {
@@ -1399,15 +1435,16 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         book[@"arrSourceInfoOptional"] = @[site];
         book[@"arrSourceType"] = @[@"text"];
         @try {
-            LBSanitizeBookDictForReader(book);
+            LBSanitizeBookDictForReaderEx(book, NO, YES);
         } @catch (NSException *e) {
             LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen fail sanitize: %@", e.reason ?: @""]);
             return;
         }
         LBDumpBookDictForOpenReader(book, @"nativeOpen phase=bookDictOK");
+        LBAppendOpenReaderTrace(@"goStart leanDict ready");
         LBInstallReaderContentAppearFlush();
         LBHandleContentRequest(chCopy, buCopy, nil);
-        LBWriteOpenReaderMarker(@"nativeOpen beforeCall alignedSource=1");
+        LBWriteOpenReaderMarker(@"nativeOpen beforeCall leanBridge=1");
         NSString *orm = nil;
         BOOL opened = NO;
         @try {
@@ -2096,19 +2133,70 @@ static BOOL LBTryAddBookToShelf(NSDictionary *book) {
             ((void (*)(id, SEL, id, id, id))objc_msgSend)(t, addSel, book, @"", book);
             LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen addBook ok on %@",
                                      NSStringFromClass([t class])]);
+            LBAppendOpenReaderTrace([NSString stringWithFormat:@"addBook ok %@",
+                                     NSStringFromClass([t class])]);
             return YES;
         } @catch (NSException *e) {
             LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen addBook fail %@ %@",
                                      NSStringFromClass([t class]), e.reason ?: @""]);
+            LBAppendOpenReaderTrace([NSString stringWithFormat:@"addBook fail %@ %@",
+                                     NSStringFromClass([t class]), e.reason ?: @""]);
         }
     }
     LBWriteOpenReaderMarker(@"nativeOpen addBook miss");
+    LBAppendOpenReaderTrace(@"addBook miss");
     return NO;
+}
+
+static id LBGetFullBookFromShelf(NSDictionary *book, NSString *sourceName) {
+    SEL getSel = NSSelectorFromString(@"getFullBook:sourceName:");
+    NSString *key = nil;
+    id bk = book[@"bookKey"];
+    if ([bk isKindOfClass:[NSString class]] && [(NSString *)bk length] > 0) key = bk;
+    if (key.length == 0) {
+        NSString *nm = [book[@"name"] isKindOfClass:[NSString class]] ? book[@"name"] : @"";
+        NSString *au = [book[@"author"] isKindOfClass:[NSString class]] ? book[@"author"] : @"";
+        if (nm.length > 0) key = au.length > 0 ? [NSString stringWithFormat:@"%@|%@", nm, au] : nm;
+    }
+    if (key.length == 0) key = [book[@"bookUrl"] isKindOfClass:[NSString class]] ? book[@"bookUrl"] : @"";
+    NSMutableArray *targets = [NSMutableArray array];
+    id appDel = [UIApplication sharedApplication].delegate;
+    if (appDel) [targets addObject:appDel];
+    for (NSString *cn in @[@"BookShelfManager", @"LCRecordGroupManagerV3", @"AppDelegate"]) {
+        Class cls = NSClassFromString(cn);
+        if (!cls) continue;
+        id shared = nil;
+        @try {
+            if ([cls respondsToSelector:@selector(shared)]) {
+                shared = ((id (*)(id, SEL))objc_msgSend)(cls, @selector(shared));
+            } else if ([cls respondsToSelector:@selector(sharedInstance)]) {
+                shared = ((id (*)(id, SEL))objc_msgSend)(cls, @selector(sharedInstance));
+            }
+        } @catch (__unused NSException *e) {}
+        if (shared) [targets addObject:shared];
+        [targets addObject:cls];
+    }
+    for (id t in targets) {
+        if (![t respondsToSelector:getSel]) continue;
+        @try {
+            id full = ((id (*)(id, SEL, id, id))objc_msgSend)(t, getSel, key ?: book, sourceName ?: @"");
+            if (full) {
+                LBAppendOpenReaderTrace([NSString stringWithFormat:@"getFullBook ok %@ cls=%@",
+                                         NSStringFromClass([t class]),
+                                         NSStringFromClass([full class])]);
+                return full;
+            }
+        } @catch (NSException *e) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:@"getFullBook ex %@ %@",
+                                     NSStringFromClass([t class]), e.reason ?: @""]);
+        }
+    }
+    LBAppendOpenReaderTrace(@"getFullBook miss");
+    return nil;
 }
 
 static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString **outMsg) {
     SEL openSel = NSSelectorFromString(@"openReader:sourceName:record:");
-    SEL trySel = NSSelectorFromString(@"tryOpenRecord:sourceName:");
     NSMutableDictionary *mutableBook = nil;
     if ([book isKindOfClass:[NSMutableDictionary class]]) {
         mutableBook = (NSMutableDictionary *)book;
@@ -2117,18 +2205,36 @@ static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString 
     } else {
         mutableBook = [NSMutableDictionary dictionary];
     }
-    LBSanitizeBookDictForReader(mutableBook);
+    // lean：不灌章节大数组；keepBridge：阅读 hook 可识别
+    LBSanitizeBookDictForReaderEx(mutableBook, NO, YES);
+    LBReadingRememberBook(mutableBook);
     LBTryAddBookToShelf(mutableBook);
-    NSMutableDictionary *record = [NSMutableDictionary dictionary];
-    for (NSString *k in @[@"cpIndex", @"chapterIndex", @"cpTitle", @"chapterName", @"title",
-                          @"cpUrl", @"chapterUrl", @"curChapterUrl", @"bookUrl", @"url",
-                          @"bookKey", @"name", @"bookName", @"author", @"sourceName",
-                          @"sourceUrl"]) {
-        id v = mutableBook[k];
-        if (v != nil && v != [NSNull null]) record[k] = v;
+    id fullBook = LBGetFullBookFromShelf(mutableBook, sourceName);
+    id openBook = mutableBook;
+    if ([fullBook isKindOfClass:[NSDictionary class]]) {
+        NSMutableDictionary *merged = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)fullBook];
+        for (NSString *k in @[@"cpUrl", @"chapterUrl", @"curChapterUrl", @"cpTitle", @"chapterName",
+                              @"title", @"cpIndex", @"chapterIndex", @"sourceName", @"sourceUrl",
+                              @"bookUrl", @"url", @"bookKey", @"name", @"author"]) {
+            id v = mutableBook[k];
+            if (v != nil && v != [NSNull null]) merged[k] = v;
+        }
+        LBSanitizeBookDictForReaderEx(merged, NO, YES);
+        openBook = merged;
+        LBAppendOpenReaderTrace(@"openBook=mergedFull");
+    } else if (fullBook != nil) {
+        // 非字典书架对象：仍用 lean dict 调 openReader，record 传 fullBook
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"openBook=lean recordCls=%@",
+                                 NSStringFromClass([fullBook class])]);
+    } else {
+        LBAppendOpenReaderTrace(@"openBook=leanDict record=nil");
     }
-    if (sourceName.length > 0) record[@"sourceName"] = sourceName;
-    LBDumpBookDictForOpenReader(mutableBook, @"nativeOpen preCall");
+    LBDumpBookDictForOpenReader(
+        [openBook isKindOfClass:[NSDictionary class]] ? (NSDictionary *)openBook : mutableBook,
+        @"nativeOpen preCallLean"
+    );
+    LBAppendOpenReaderTrace([NSString stringWithFormat:@"preCallLean keys=%lu src=%@",
+                             (unsigned long)mutableBook.count, sourceName ?: @""]);
     NSMutableArray *targets = [NSMutableArray array];
     id appDel = [UIApplication sharedApplication].delegate;
     if (appDel) [targets addObject:appDel];
@@ -2156,54 +2262,36 @@ static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString 
             }
         }
     }
+    // record：优先书架 fullBook 对象；否则 nil（自制章节 dict 曾致 callingOrig 后杀进程）
+    id recordArg = ([fullBook isKindOfClass:[NSDictionary class]]) ? nil : fullBook;
     NSMutableArray *tried = [NSMutableArray array];
-    // 先 tryOpenRecord（部分机型 openReader+nil record 会无 ips 杀进程）
-    for (id t in targets) {
-        if (![t respondsToSelector:trySel]) continue;
-        NSString *cn = NSStringFromClass([t class]);
-        [tried addObject:[@"try:" stringByAppendingString:cn]];
-        @try {
-            LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen callingTry on %@", cn]);
-            if (LBOrig_tryOpenRecord) {
-                LBOrig_tryOpenRecord(t, trySel, record, sourceName ?: @"");
-            } else {
-                ((void (*)(id, SEL, id, id))objc_msgSend)(t, trySel, record, sourceName ?: @"");
-            }
-            if (LBIsTextReaderVisible()) {
-                if (outMsg) {
-                    *outMsg = [NSString stringWithFormat:@"tryOpenRecord ok on %@ src=%@",
-                               cn, sourceName ?: @""];
-                }
-                return YES;
-            }
-            LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen tryReturned noVis on %@", cn]);
-        } @catch (NSException *e) {
-            LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen tryEx %@ %@",
-                                     cn, e.reason ?: @""]);
-        }
-    }
     for (id t in targets) {
         NSString *cn = NSStringFromClass([t class]);
         [tried addObject:cn];
         if (![t respondsToSelector:openSel]) continue;
         @try {
-            LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen callingOrig on %@ rec=1", cn]);
-            // 带非空 record；优先走已保存的 orig
+            NSString *mark = [NSString stringWithFormat:@"nativeOpen callingOrig on %@ lean=1 rec=%@",
+                              cn, recordArg ? NSStringFromClass([recordArg class]) : @"nil"];
+            LBWriteOpenReaderMarker(mark);
+            LBAppendOpenReaderTrace(mark);
             if (LBOrig_openReader && t == appDel) {
-                LBOrig_openReader(t, openSel, mutableBook, sourceName ?: @"", record);
+                LBOrig_openReader(t, openSel, openBook, sourceName ?: @"", recordArg);
             } else {
                 ((void (*)(id, SEL, id, id, id))objc_msgSend)(
-                    t, openSel, mutableBook, sourceName ?: @"", record
+                    t, openSel, openBook, sourceName ?: @"", recordArg
                 );
             }
             if (outMsg) {
-                *outMsg = [NSString stringWithFormat:@"openReader ok on %@ src=%@",
+                *outMsg = [NSString stringWithFormat:@"openReader ok on %@ src=%@ lean=1",
                            cn, sourceName ?: @""];
             }
+            LBAppendOpenReaderTrace([NSString stringWithFormat:@"openReader returned %@", cn]);
             return YES;
         } @catch (NSException *e) {
             NSLog(@"[LegadoBridge] openReader on %@ fail-open: %@", cn, e);
             LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen openEx %@ %@",
+                                     cn, e.reason ?: @""]);
+            LBAppendOpenReaderTrace([NSString stringWithFormat:@"openEx %@ %@",
                                      cn, e.reason ?: @""]);
         }
     }
