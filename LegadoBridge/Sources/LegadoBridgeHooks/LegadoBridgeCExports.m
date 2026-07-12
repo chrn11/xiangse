@@ -681,6 +681,10 @@ static void (*LBOrig_setArrCatalog)(id, SEL, id) = NULL;
 static id (*LBOrig_getArrCatalog)(id, SEL) = NULL;
 static void (*LBOrig_catalogDidSelect)(id, SEL, UITableView *, NSIndexPath *) = NULL;
 static NSTimeInterval sLastLegadoChapterOpenTs = 0;
+/// 最近一次原生分页成功（防 deliver 重复 divisionResponse 撞崩）
+static NSTimeInterval sLastNativePagedOkTs = 0;
+static NSString *sLastNativePagedKey = nil;
+static BOOL sContentInjectBusy = NO;
 static UIViewController *sHiddenBookDetail = nil;
 
 static void LBFlushPendingResetContent(NSString *phase);
@@ -1346,7 +1350,13 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
 /// 点章：默认原生 openReader → TextReadVC；超时仍无原生页再 Bridge 兜底
 static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
     NSTimeInterval now = CFAbsoluteTimeGetCurrent();
-    if (now - sLastLegadoChapterOpenTs < 2.5) return;
+    // 已在 nativeFull 阅读页：只补投正文，禁止二次 push（真机曾双开 → SIGABRT）
+    if (sLegadoReaderMode == 1 && LBIsTextReaderVisible()) {
+        LBAppendOpenReaderTrace(@"goStart skipPush alreadyVisible deliverOnly");
+        LBDeliverContentToVisibleReaders(@"alreadyVisible");
+        return;
+    }
+    if (now - sLastLegadoChapterOpenTs < 3.5) return;
     sLastLegadoChapterOpenTs = now;
     NSArray *use = sPendingCatalogChapters;
     if (use.count == 0) return;
@@ -2711,6 +2721,11 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                          NSDictionary *payload,
                                          NSString *phase) {
     if (!readerVC || ![payload isKindOfClass:[NSDictionary class]]) return NO;
+    if (sContentInjectBusy) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject busy skip phase=%@", phase ?: @"?"]);
+        return NO;
+    }
     NSString *body = nil;
     id c = payload[@"chapterContent"] ?: payload[@"content"];
     if ([c isKindOfClass:[NSString class]]) body = (NSString *)c;
@@ -2730,6 +2745,29 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
         if ([cur respondsToSelector:@selector(integerValue)]) cpIndex = [cur integerValue];
     } @catch (__unused NSException *e) {}
 
+    // 同章近期已原生分页成功：只藏错误页，避免重复 divisionResponse 撞崩
+    NSString *dedupeKey = [NSString stringWithFormat:@"%@|%ld|%lu",
+                           title, (long)cpIndex, (unsigned long)body.length];
+    NSTimeInterval nowTs = CFAbsoluteTimeGetCurrent();
+    if (sLastNativePagedOkTs > 0 &&
+        (nowTs - sLastNativePagedOkTs) < 8.0 &&
+        [sLastNativePagedKey isEqualToString:dedupeKey]) {
+        @try {
+            if ([readerVC respondsToSelector:NSSelectorFromString(@"hideErrorView")]) {
+                ((void (*)(id, SEL))objc_msgSend)(readerVC, NSSelectorFromString(@"hideErrorView"));
+            }
+            id ev = nil;
+            @try { ev = [readerVC valueForKey:@"errorView"]; } @catch (__unused NSException *e) {}
+            if ([ev isKindOfClass:[UIView class]]) ((UIView *)ev).hidden = YES;
+            UIView *ov = readerVC.isViewLoaded ? [readerVC.view viewWithTag:92011] : nil;
+            if (ov) [ov removeFromSuperview];
+        } @catch (__unused NSException *e) {}
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject dedupeOK phase=%@ key=%@", phase ?: @"?", dedupeKey]);
+        return YES;
+    }
+    sContentInjectBusy = YES;
+    @try {
     NSDictionary *dicBook = nil;
     @try {
         id d = [readerVC valueForKey:@"dicBook"];
@@ -3050,44 +3088,63 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                          ? (unsigned long)[(NSArray *)pageResult count] : 0]);
         }
 
-        // 4c) divisionResponse 在 ReadPageContainer / ReadScrollContainer（非 TextReadVC）
+        // 4c) divisionResponse：优先 ReadPageContainer / ReadScrollContainer（避免误打 TextR）
         if (pageResult) {
-            NSMutableArray *containers = [NSMutableArray array];
+            NSMutableArray *raw = [NSMutableArray array];
             id cont = nil;
             @try { cont = [readerVC valueForKey:@"container"]; } @catch (__unused NSException *e) {}
-            if (cont) [containers addObject:cont];
+            if (cont) [raw addObject:cont];
             for (UIViewController *ch in readerVC.childViewControllers) {
                 NSString *cn = NSStringFromClass([ch class]);
                 if ([cn containsString:@"PageContainer"] || [cn containsString:@"ScrollContainer"] ||
                     [cn containsString:@"RPage"]) {
-                    [containers addObject:ch];
+                    [raw addObject:ch];
                 }
             }
-            // 再扫 view 树找 container
             NSMutableArray *vs = [NSMutableArray array];
             if (readerVC.isViewLoaded && readerVC.view) [vs addObject:readerVC.view];
-            while (vs.count > 0 && containers.count < 6) {
+            while (vs.count > 0 && raw.count < 8) {
                 UIView *v = vs.lastObject;
                 [vs removeLastObject];
                 NSString *vn = NSStringFromClass([v class]);
                 if ([vn containsString:@"PageContainer"] || [vn containsString:@"ScrollContainer"]) {
-                    if (![containers containsObject:v]) [containers addObject:v];
+                    if (![raw containsObject:v]) [raw addObject:v];
                 }
                 for (UIView *sub in v.subviews) [vs addObject:sub];
             }
-            [containers addObject:readerVC]; // 兜底
+            // 排序：ReadPage > ReadScroll > TextR > 其它 > readerVC 兜底
+            NSInteger (^prio)(id) = ^NSInteger(id obj) {
+                NSString *n = NSStringFromClass([obj class]);
+                if ([n isEqualToString:@"ReadPageContainer"]) return 0;
+                if ([n containsString:@"ReadPageContainer"]) return 1;
+                if ([n containsString:@"ReadScrollContainer"]) return 2;
+                if ([n containsString:@"TextRPageContainer"]) return 5;
+                if ([n containsString:@"PageContainer"]) return 3;
+                return 4;
+            };
+            NSArray *sorted = [raw sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
+                NSInteger pa = prio(a), pb = prio(b);
+                if (pa < pb) return NSOrderedAscending;
+                if (pa > pb) return NSOrderedDescending;
+                return NSOrderedSame;
+            }];
+            NSMutableArray *containers = [sorted mutableCopy] ?: [NSMutableArray array];
+            [containers addObject:readerVC];
 
             SEL dr = NSSelectorFromString(@"divisionResponse:cpTitle:cpIndex:");
             SEL dr2 = NSSelectorFromString(@"divisionResponse:cpTitle:cpIndex:heights:");
             BOOL responded = NO;
             for (id host in containers) {
+                NSString *hn = NSStringFromClass([host class]);
+                // 已有更高优先级容器时跳过 TextR，避免双容器互踩
+                if ([hn containsString:@"TextRPageContainer"] && responded) continue;
                 if ([host respondsToSelector:dr2]) {
-                    NSArray *heights = @[@(0)];
+                    NSMutableArray *heights = [NSMutableArray array];
                     @try {
                         id ret = ((id (*)(id, SEL, id, id, NSInteger, id))objc_msgSend)(
                             host, dr2, pageResult, title, cpIndex, heights);
                         [okPaths addObject:[NSString stringWithFormat:@"divisionResponseHeights@%@",
-                                            NSStringFromClass([host class])]];
+                                            hn]];
                         if (ret) {
                             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                                      @"contentInject dr2ret cls=%@",
@@ -3099,22 +3156,21 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                     } @catch (NSException *ex) {
                         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                                  @"contentInject dr2 EX %@ %@",
-                                                 NSStringFromClass([host class]), ex.reason ?: @""]);
+                                                 hn, ex.reason ?: @""]);
                     }
                 }
                 if ([host respondsToSelector:dr]) {
                     @try {
                         ((void (*)(id, SEL, id, id, NSInteger))objc_msgSend)(
                             host, dr, pageResult, title, cpIndex);
-                        [okPaths addObject:[NSString stringWithFormat:@"divisionResponse@%@",
-                                            NSStringFromClass([host class])]];
+                        [okPaths addObject:[NSString stringWithFormat:@"divisionResponse@%@", hn]];
                         nativePaged = YES;
                         responded = YES;
                         break;
                     } @catch (NSException *ex) {
                         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                                  @"contentInject dr EX %@ %@",
-                                                 NSStringFromClass([host class]), ex.reason ?: @""]);
+                                                 hn, ex.reason ?: @""]);
                     }
                 }
             }
@@ -3131,6 +3187,8 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                     nativePaged = YES;
                 } @catch (__unused NSException *e) {}
             }
+            // divisionResponse 已成功则不再 processPageData（双写易崩）
+            if (!responded) {
             SEL pp = NSSelectorFromString(@"processPageData:userInfo:cpTitle:");
             for (id host in containers) {
                 if (![host respondsToSelector:pp]) continue;
@@ -3153,6 +3211,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                              ex.reason ?: @""]);
                 }
             }
+            } // !responded processPageData
         } else {
             LBAppendOpenReaderTrace(@"contentInject skip divisionResponse (no pageResult)");
         }
@@ -3204,25 +3263,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 [okPaths addObject:@"errorViewHidden"];
             }
         } @catch (__unused NSException *e) {}
-        @try {
-            SEL gotoCp = NSSelectorFromString(@"gotoCp:page:directShow:direction:animated:");
-            if ([readerVC respondsToSelector:gotoCp]) {
-                ((void (*)(id, SEL, NSInteger, NSInteger, BOOL, NSInteger, BOOL))objc_msgSend)(
-                    readerVC, gotoCp, cpIndex, 0, YES, 0, NO);
-                [okPaths addObject:@"gotoCp"];
-            }
-        } @catch (NSException *ex) {
-            LBAppendOpenReaderTrace([NSString stringWithFormat:@"contentInject gotoCp EX %@",
-                                     ex.reason ?: @""]);
-        }
-        @try {
-            SEL showPage = NSSelectorFromString(@"showPage:direction:animated:");
-            if ([readerVC respondsToSelector:showPage]) {
-                ((void (*)(id, SEL, NSInteger, NSInteger, BOOL))objc_msgSend)(
-                    readerVC, showPage, 0, 0, NO);
-                [okPaths addObject:@"showPage"];
-            }
-        } @catch (__unused NSException *e) {}
+        // 不主动 gotoCp/showPage：divisionResponse 已上屏；误调易二次布局 SIGABRT
         @try {
             UIView *ov = [readerVC.view viewWithTag:92011];
             if (ov) {
@@ -3230,6 +3271,8 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 [okPaths addObject:@"overlayRemoved"];
             }
         } @catch (__unused NSException *e) {}
+        sLastNativePagedOkTs = CFAbsoluteTimeGetCurrent();
+        sLastNativePagedKey = [dedupeKey copy];
     } else {
         LBAppendOpenReaderTrace(@"contentInject fallback KVC/overlay native-page-miss");
         @try {
@@ -3289,6 +3332,13 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                  pathStr, nativePaged ? 1 : 0, phase ?: @""]);
     }
     return okPaths.count > 0;
+    } @catch (NSException *exTop) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"contentInject TOP_EX %@",
+                                 exTop.reason ?: @""]);
+        return NO;
+    } @finally {
+        sContentInjectBusy = NO;
+    }
 }
 
 /// 向可见 TextRead 交付正文：nativeFull 优先原生缓存/排版；禁止无参 onReset 空读「错误的书本」
@@ -3463,29 +3513,34 @@ static void LBInstallNativeResetContentHook(void) {
                         LBInjectPendingContentIntoReader((UIViewController *)selfObj, @"onResetFallback");
                     });
                 } else {
-                    // 无参：ORIG 常读空缓存显示「错误的书本」；ORIG 后立刻 contentInject 覆盖
+                    // 无参：有 pending 正文时跳过 ORIG（空读「错误的书本」+ 异步失败曾致 SIGABRT）
                     static BOOL sOnResetNoArgBusy = NO;
                     void (*origNoArg)(id, SEL) = (void (*)(id, SEL))method_getImplementation(m);
                     hook = imp_implementationWithBlock(^void(id selfObj) {
                         if (sOnResetNoArgBusy) return;
                         sOnResetNoArgBusy = YES;
+                        BOOL hasPending =
+                            (sLegadoReaderMode == 1 &&
+                             [sPendingResetContent isKindOfClass:[NSDictionary class]] &&
+                             sPendingResetContent.count > 0);
                         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                 @"onReset noArg enter cls=%@ mode=%d",
-                                                 NSStringFromClass([selfObj class]), sLegadoReaderMode]);
-                        @try {
-                            if (origNoArg) origNoArg(selfObj, sel);
-                            LBAppendOpenReaderTrace(@"onReset noArg ORIG_OK");
-                        } @catch (NSException *ex) {
-                            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                     @"onReset noArg EX %@", ex.reason ?: @""]);
-                        }
-                        if (sLegadoReaderMode == 1 &&
-                            [sPendingResetContent isKindOfClass:[NSDictionary class]] &&
-                            sPendingResetContent.count > 0) {
+                                                 @"onReset noArg enter cls=%@ mode=%d pending=%d",
+                                                 NSStringFromClass([selfObj class]),
+                                                 sLegadoReaderMode, hasPending ? 1 : 0]);
+                        if (!hasPending) {
+                            @try {
+                                if (origNoArg) origNoArg(selfObj, sel);
+                                LBAppendOpenReaderTrace(@"onReset noArg ORIG_OK");
+                            } @catch (NSException *ex) {
+                                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                         @"onReset noArg EX %@", ex.reason ?: @""]);
+                            }
+                        } else {
+                            LBAppendOpenReaderTrace(@"onReset noArg SKIP_ORIG (pending content)");
                             @try {
                                 LBInjectNativeChapterContent((UIViewController *)selfObj,
                                                              sPendingResetContent,
-                                                             @"afterNoArg");
+                                                             @"afterNoArgSkipOrig");
                             } @catch (NSException *ex2) {
                                 LBAppendOpenReaderTrace([NSString stringWithFormat:
                                                          @"onReset afterInject EX %@",
