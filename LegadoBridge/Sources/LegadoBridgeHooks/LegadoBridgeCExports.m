@@ -1482,19 +1482,13 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
                         LBIsTextReaderVisible() ? 1 : 0, sLegadoReaderMode]);
                 }
             }
-            // 2) 仅当 push 本身失败时才试 openReader
+            // 2) 禁止对 Legado 再调 openReader（callingOrig 后 SIGABRT，且会打断 nativeFull）
+            // 3) push/loadView 失败 → 直接 safeShell（验收不算过关）
             if (!opened) {
-                LBWriteOpenReaderMarker(@"nativeOpen callingOpenReader nativeFull");
-                BOOL orOk = LBCallOpenReader(book, sourceName, &orm);
-                if (orOk && LBIsTextReaderVisible()) {
-                    opened = YES;
-                    sLegadoReaderMode = 1;
-                    LBAppendOpenReaderTrace(@"openReader visible nativeFull");
-                }
-            }
-            // 3) safeShell 延后兜底：切勿在 push 刚返回、动画未完成时同步切换 mode=2
-            //    （真机证据：过早切 mode 会导致 TextRead viewDidLoad 直接进 safeShell）
-            if (opened && sLegadoReaderMode == 1) {
+                sLegadoReaderMode = 2;
+                LBWriteOpenReaderMarker(@"nativeOpen callingPushSafeShell fallback (skipOpenReader)");
+                opened = LBPushTextReaderFallback(book, sourceName, &orm);
+            } else if (opened && sLegadoReaderMode == 1) {
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.8 * NSEC_PER_SEC)),
                                dispatch_get_main_queue(), ^{
                     if (LBIsTextReaderVisible() && sLegadoReaderMode == 1) {
@@ -1509,10 +1503,6 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
                     LBWriteOpenReaderMarker([NSString stringWithFormat:
                                             @"nativeOpen delayedSafeShell | %@", fbMsg ?: @"?"]);
                 });
-            } else if (!opened) {
-                sLegadoReaderMode = 2;
-                LBWriteOpenReaderMarker(@"nativeOpen callingPushSafeShell fallback");
-                opened = LBPushTextReaderFallback(book, sourceName, &orm);
             }
             LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen origReturned opened=%d mode=%d vis=%d | %@",
                                      opened ? 1 : 0, sLegadoReaderMode,
@@ -2482,15 +2472,30 @@ static void LBPrepareTextReadNativeFull(id readerVC, NSDictionary *book) {
     }
     LBSanitizeBookDictForReaderEx(dic, YES, YES);
     sPendingNativeFullBook = [dic mutableCopy];
-    LBSeedNilStringProperties(readerVC);
+    // 注意：禁止把所有 nil NSString 填成 @""——真机 loadView 会断言
+    // (name != nil) && ([name length] > 0)。只灌已知安全字段。
 
     // 字符串属性兜底（viewDidLoad/appear 里 @[prop] 遇 nil 会 abort）
     for (NSString *k in @[@"bookKey", @"sourceName", @"lastSourceName", @"name", @"author"]) {
         id cur = nil;
         @try { cur = [readerVC valueForKey:k]; } @catch (__unused NSException *e) {}
-        if (cur == nil || cur == [NSNull null]) {
+        if (cur == nil || cur == [NSNull null] ||
+            ([cur isKindOfClass:[NSString class]] && [(NSString *)cur length] == 0)) {
             id fromBook = dic[k];
-            LBForceSetIvar(readerVC, k, [fromBook isKindOfClass:[NSString class]] ? fromBook : @"");
+            NSString *fill = [fromBook isKindOfClass:[NSString class]] ? (NSString *)fromBook : @"";
+            if ([k isEqualToString:@"name"] && fill.length == 0) {
+                fill = [dic[@"bookName"] isKindOfClass:[NSString class]] ? dic[@"bookName"] : @"书";
+            }
+            if ([k isEqualToString:@"bookKey"] && fill.length == 0) {
+                NSString *nm = [dic[@"name"] isKindOfClass:[NSString class]] ? dic[@"name"] : @"书";
+                NSString *au = [dic[@"author"] isKindOfClass:[NSString class]] ? dic[@"author"] : @"";
+                fill = au.length > 0 ? [NSString stringWithFormat:@"%@|%@", nm, au] : nm;
+            }
+            if (fill.length == 0 && ([k isEqualToString:@"sourceName"] ||
+                                     [k isEqualToString:@"lastSourceName"])) {
+                fill = @"本地静态测试源";
+            }
+            if (fill.length > 0) LBForceSetIvar(readerVC, k, fill);
         }
     }
     // 数组/字典属性兜底
@@ -2687,6 +2692,25 @@ static void LBInstallNativeResetContentHook(void) {
             if (hooked) break;
         }
         if (!hooked) {
+            // 诊断：列出候选类上含 Reset/Content 的方法名
+            for (NSString *cn in names) {
+                Class cls = NSClassFromString(cn);
+                while (cls && cls != [NSObject class]) {
+                    unsigned int n = 0;
+                    Method *ms = class_copyMethodList(cls, &n);
+                    for (unsigned int i = 0; i < n; i++) {
+                        NSString *mn = NSStringFromSelector(method_getName(ms[i]));
+                        NSString *low = mn.lowercaseString;
+                        if ([low containsString:@"reset"] || [low containsString:@"content"]) {
+                            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                     @"nativeReset cand %@::%@",
+                                                     NSStringFromClass(cls), mn]);
+                        }
+                    }
+                    if (ms) free(ms);
+                    cls = class_getSuperclass(cls);
+                }
+            }
             LBAppendOpenReaderTrace(@"nativeReset HOOK_MISS all candidates");
         }
     });
@@ -2875,7 +2899,6 @@ static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
         LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
-        LBSeedNilStringProperties(self);
         @try {
             if (LBOrig_TR_viewWillAppear) LBOrig_TR_viewWillAppear(self, _cmd, animated);
             else {
@@ -2910,7 +2933,6 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
-        LBSeedNilStringProperties(self);
         @try {
             if (LBOrig_TR_viewDidAppear) LBOrig_TR_viewDidAppear(self, _cmd, animated);
             else {
