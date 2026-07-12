@@ -1664,15 +1664,19 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                         BOOL opened = LBCallOpenReader(bookCopy, srcCopy, &orm);
                         BOOL vis2 = LBIsTextReaderVisible();
                         BOOL began = NO;
-                        NSString *beginMsg = @"skipBegin (readerVis)";
+                        BOOL pushed = NO;
+                        NSString *beginMsg = @"skipBegin (crash-prone)";
+                        NSString *pushMsg = @"skipPush";
+                        // 禁止 beginRead/点按钮：会进原生阅读初始化并 SIGABRT
+                        // appear 钩已禁用，可兜底 push TextReadVC 再靠 ResetContent 灌正文
                         if (!vis2) {
-                            began = LBInvokeBeginReadOnDetail(bookCopy, srcCopy, &beginMsg);
+                            pushed = LBPushTextReaderFallback(bookCopy, srcCopy, &pushMsg);
                         }
                         NSString *line = [NSString stringWithFormat:
-                                         @"%@ || lateOpen opened=%d began=%d readerVis=%d/%d | %@ || %@",
-                                         prev, opened ? 1 : 0, began ? 1 : 0,
+                                         @"%@ || lateOpen opened=%d began=%d pushed=%d readerVis=%d/%d | %@ || %@ || %@",
+                                         prev, opened ? 1 : 0, began ? 1 : 0, pushed ? 1 : 0,
                                          vis2 ? 1 : 0, LBIsTextReaderVisible() ? 1 : 0,
-                                         orm ?: @"openReader ?", beginMsg ?: @"beginRead ?"];
+                                         orm ?: @"openReader ?", beginMsg, pushMsg ?: @"push ?"];
                         [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
                                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                     });
