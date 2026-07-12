@@ -3141,11 +3141,18 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
         if (!pageResult) {
             LBAppendOpenReaderTrace(@"contentInject divisionText miss all targets");
         } else {
+            id first = nil;
+            NSString *fcls = @"-";
+            if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] > 0) {
+                first = [(NSArray *)pageResult firstObject];
+                fcls = NSStringFromClass([first class]);
+            }
             LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"contentInject pageResult cls=%@ count=%lu",
+                                     @"contentInject pageResult cls=%@ count=%lu first=%@",
                                      NSStringFromClass([pageResult class]),
                                      [pageResult isKindOfClass:[NSArray class]]
-                                         ? (unsigned long)[(NSArray *)pageResult count] : 0]);
+                                         ? (unsigned long)[(NSArray *)pageResult count] : 0,
+                                     fcls]);
         }
 
         // 4c) divisionResponse：优先 ReadPageContainer / ReadScrollContainer（避免误打 TextR）
@@ -3262,9 +3269,52 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                              ex.reason ?: @""]);
                 }
             }
+            // TextR.divisionResponse：延后单独调用，避免与 nPageCount/藏错误页同拍撞崩
             if (!responded) {
-                // 不再 kvc arrPages：会生成空白翻页层盖住正文（8ce38c3/3ec07df 实证）
-                LBAppendOpenReaderTrace(@"contentInject skip kvcPages (blank page risk)");
+                id textROnly = nil;
+                for (id h in containers) {
+                    if ([NSStringFromClass([h class]) containsString:@"TextRPageContainer"]) {
+                        textROnly = h;
+                        break;
+                    }
+                }
+                if (textROnly && [textROnly respondsToSelector:dr]) {
+                    __strong id trKeep = textROnly;
+                    __strong id pagesKeep = pageResult;
+                    NSString *titleKeep = [title copy];
+                    NSInteger idxKeep = cpIndex;
+                    __strong UIViewController *vcKeep2 = readerVC;
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                                   dispatch_get_main_queue(), ^{
+                        @try {
+                            ((void (*)(id, SEL, id, id, NSInteger))objc_msgSend)(
+                                trKeep, dr, pagesKeep, titleKeep, idxKeep);
+                            LBAppendOpenReaderTrace(@"contentInject delayed TextR.divisionResponse OK");
+                            @try {
+                                if ([vcKeep2 respondsToSelector:NSSelectorFromString(@"hideErrorView")]) {
+                                    ((void (*)(id, SEL))objc_msgSend)(
+                                        vcKeep2, NSSelectorFromString(@"hideErrorView"));
+                                }
+                                id ev = nil;
+                                @try { ev = [vcKeep2 valueForKey:@"errorView"]; } @catch (__unused NSException *e) {}
+                                if ([ev isKindOfClass:[UIView class]]) {
+                                    ((UIView *)ev).hidden = YES;
+                                    ((UIView *)ev).alpha = 0;
+                                }
+                                UIView *ov = [vcKeep2.view viewWithTag:92011];
+                                if (ov) [ov removeFromSuperview];
+                            } @catch (__unused NSException *e) {}
+                            LBWriteOpenReaderMarker(
+                                @"nativeOpen keepTextRead readerVis=1 via=nativeFull contentInject=delayedTextR nativePaged=1");
+                        } @catch (NSException *ex) {
+                            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                     @"contentInject delayed TextR EX %@",
+                                                     ex.reason ?: @""]);
+                        }
+                    });
+                    [okPaths addObject:@"delayedTextR.divisionResponse"];
+                    // 先不算 nativePaged，等延迟成功写 marker；本拍走 overlay 保萧炎
+                }
             }
             // divisionResponse 已成功则不再 processPageData（双写易崩）
             if (!responded) {
