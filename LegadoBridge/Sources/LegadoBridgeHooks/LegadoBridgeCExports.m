@@ -668,6 +668,7 @@ static void (*LBOrig_setArrCatalog)(id, SEL, id) = NULL;
 static id (*LBOrig_getArrCatalog)(id, SEL) = NULL;
 static void (*LBOrig_catalogDidSelect)(id, SEL, UITableView *, NSIndexPath *) = NULL;
 static NSTimeInterval sLastLegadoChapterOpenTs = 0;
+static UIViewController *sHiddenBookDetail = nil;
 
 static void LBFlushPendingResetContent(NSString *phase);
 static const char kLBCatIdxKey;
@@ -1184,6 +1185,9 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
     [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_select.txt"]
            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     void (^go)(void) = ^{
+        [[NSString stringWithFormat:@"nativeOpen phase=goStart ch=%@", chCopy]
+            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         LBInstallReaderContentAppearFlush();
         NSString *sourceName = nil;
         NSMutableDictionary *book = LBBookDictForOpenReader(
@@ -1192,8 +1196,11 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         LBSanitizeBookDictForReader(book);
         NSString *prepMsg = nil;
         BOOL prepped = LBPrepareDetailForOpenReader(book, sourceName, &prepMsg);
-        // 无详情时已尝试插入 BookDetail；仍失败才 Bridge。有详情则优先原生 openReader→TextRead*
-        if (!prepped || !LBFindBookDetailVC()) {
+        [[NSString stringWithFormat:@"nativeOpen phase=prepDone ok=%d | %@", prepped ? 1 : 0, prepMsg ?: @"?"]
+            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        // 隐藏详情即可；无详情类才 Bridge
+        if (!prepped) {
             NSString *skip = [NSString stringWithFormat:
                               @"nativeSkip noDetail→bridge | %@ ch=%@", prepMsg ?: @"?", chCopy];
             [skip writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
@@ -1517,6 +1524,7 @@ static UIViewController *LBFindBookDetailVC(void) {
             }
         }
     }
+    if (sHiddenBookDetail) return sHiddenBookDetail;
     return nil;
 }
 
@@ -1597,6 +1605,19 @@ static UINavigationController *LBFindBestNavigationController(UIViewController *
     }
     cell.textLabel.text = t;
     cell.textLabel.numberOfLines = 2;
+    // 覆盖透明按钮：MCP tap 常点到 table 容器而不触发 didSelect
+    for (UIView *v in cell.contentView.subviews) {
+        if (v.tag == 91001) [v removeFromSuperview];
+    }
+    UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
+    btn.tag = 91001;
+    btn.frame = cell.contentView.bounds;
+    btn.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    btn.accessibilityLabel = t;
+    objc_setAssociatedObject(btn, &kLBCatIdxKey, @(ip.row), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [btn addTarget:LBCatalogCellProxy() action:@selector(openChapter:)
+      forControlEvents:UIControlEventTouchUpInside];
+    [cell.contentView addSubview:btn];
     return cell;
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)ip {
@@ -1740,68 +1761,31 @@ static BOOL LBBookLooksLegadoForKillSwitch(id bookOrRecord, NSString **outBookUr
 static void LBKillSwitchPresentBridge(NSString *phase, NSString *bookUrl, NSString *chUrl, NSString *title);
 static void (*LBOrig_openReader)(id, SEL, id, id, id) = NULL;
 
-/// 写回详情书/站点（仅 KVC，禁 setDicBook）；无详情则插入导航栈（在顶页之下）
+/// 写回详情书/站点：用隐藏 BookDetail 实例（绝不插入导航栈——插入真机会无 ips 杀进程）
 static BOOL LBPrepareDetailForOpenReader(NSMutableDictionary *book, NSString *sourceName, NSString **outMsg) {
     LBSanitizeBookDictForReader(book);
     UIViewController *detail = LBFindBookDetailVC();
     if (!detail) {
-        Class cls = NSClassFromString(@"BookDetailController");
-        if (!cls) cls = NSClassFromString(@"BookDetailVCBase");
-        if (!cls) {
-            if (outMsg) *outMsg = @"prep miss: no BookDetail class";
-            return NO;
+        if (!sHiddenBookDetail) {
+            Class cls = NSClassFromString(@"BookDetailController");
+            if (!cls) cls = NSClassFromString(@"BookDetailVCBase");
+            if (!cls) {
+                if (outMsg) *outMsg = @"prep miss: no BookDetail class";
+                return NO;
+            }
+            @try {
+                sHiddenBookDetail = [[cls alloc] init];
+            } @catch (NSException *e) {
+                if (outMsg) *outMsg = [NSString stringWithFormat:@"prep alloc fail: %@", e.reason ?: @""];
+                return NO;
+            }
         }
-        @try {
-            detail = [[cls alloc] init];
-        } @catch (NSException *e) {
-            if (outMsg) *outMsg = [NSString stringWithFormat:@"prep alloc fail: %@", e.reason ?: @""];
-            return NO;
-        }
+        detail = sHiddenBookDetail;
         if (!detail) {
             if (outMsg) *outMsg = @"prep miss: detail nil";
             return NO;
         }
-        UINavigationController *nav = nil;
-        for (UIWindow *w in LBAllAppWindows()) {
-            UIViewController *root = w.rootViewController;
-            if (!root) continue;
-            NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
-            while (stack.count) {
-                UIViewController *vc = stack.lastObject;
-                [stack removeLastObject];
-                if ([vc isKindOfClass:[UINavigationController class]] &&
-                    [(UINavigationController *)vc viewControllers].count > 0) {
-                    nav = (UINavigationController *)vc;
-                    break;
-                }
-                if (vc.navigationController) { nav = vc.navigationController; break; }
-                for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
-                if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
-                if ([vc isKindOfClass:[UITabBarController class]]) {
-                    for (UIViewController *c in ((UITabBarController *)vc).viewControllers ?: @[]) {
-                        [stack addObject:c];
-                    }
-                }
-            }
-            if (nav) break;
-        }
-        if (!nav) {
-            if (outMsg) *outMsg = @"prep miss: no nav to host BookDetail";
-            return NO;
-        }
-        @try {
-            NSMutableArray *vcs = [nav.viewControllers mutableCopy] ?: [NSMutableArray array];
-            NSUInteger insertAt = vcs.count > 0 ? (vcs.count - 1) : 0;
-            if (![vcs containsObject:detail]) {
-                [vcs insertObject:detail atIndex:insertAt];
-                [nav setViewControllers:vcs animated:NO];
-            }
-        } @catch (NSException *e) {
-            if (outMsg) *outMsg = [NSString stringWithFormat:@"prep insert fail: %@", e.reason ?: @""];
-            return NO;
-        }
     }
-    // 仅 KVC：原生 setDicBook 在搜索/自建目录路径会无 ips 杀进程
     @try {
         [detail setValue:book forKey:@"dicBook"];
     } @catch (__unused NSException *e) {}
@@ -1813,7 +1797,9 @@ static BOOL LBPrepareDetailForOpenReader(NSMutableDictionary *book, NSString *so
         @try { [detail setValue:sourceName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
     }
     if (outMsg) {
-        *outMsg = [NSString stringWithFormat:@"prep ok on %@ (kvc)", NSStringFromClass([detail class])];
+        *outMsg = [NSString stringWithFormat:@"prep ok on %@ hidden=%d",
+                   NSStringFromClass([detail class]),
+                   (detail == sHiddenBookDetail) ? 1 : 0];
     }
     return YES;
 }
