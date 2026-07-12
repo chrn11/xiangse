@@ -1192,7 +1192,7 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         LBSanitizeBookDictForReader(book);
         NSString *prepMsg = nil;
         BOOL prepped = LBPrepareDetailForOpenReader(book, sourceName, &prepMsg);
-        // 无详情页时强调 openReader 会杀进程且无 ips；先 Bridge 保正文，详情点章再走原生
+        // 无详情时已尝试插入 BookDetail；仍失败才 Bridge。有详情则优先原生 openReader→TextRead*
         if (!prepped || !LBFindBookDetailVC()) {
             NSString *skip = [NSString stringWithFormat:
                               @"nativeSkip noDetail→bridge | %@ ch=%@", prepMsg ?: @"?", chCopy];
@@ -1740,43 +1740,80 @@ static BOOL LBBookLooksLegadoForKillSwitch(id bookOrRecord, NSString **outBookUr
 static void LBKillSwitchPresentBridge(NSString *phase, NSString *bookUrl, NSString *chUrl, NSString *title);
 static void (*LBOrig_openReader)(id, SEL, id, id, id) = NULL;
 
-/// 写回详情书/站点，再调 openReader（避免详情站点为空）
+/// 写回详情书/站点（仅 KVC，禁 setDicBook）；无详情则插入导航栈（在顶页之下）
 static BOOL LBPrepareDetailForOpenReader(NSMutableDictionary *book, NSString *sourceName, NSString **outMsg) {
+    LBSanitizeBookDictForReader(book);
     UIViewController *detail = LBFindBookDetailVC();
     if (!detail) {
-        if (outMsg) *outMsg = @"prep miss: no BookDetail";
-        return NO;
-    }
-    LBSanitizeBookDictForReader(book);
-    @try {
-        if ([detail respondsToSelector:@selector(setDicBook:)]) {
-            ((void (*)(id, SEL, id))objc_msgSend)(detail, @selector(setDicBook:), book);
-        } else {
-            [detail setValue:book forKey:@"dicBook"];
+        Class cls = NSClassFromString(@"BookDetailController");
+        if (!cls) cls = NSClassFromString(@"BookDetailVCBase");
+        if (!cls) {
+            if (outMsg) *outMsg = @"prep miss: no BookDetail class";
+            return NO;
         }
+        @try {
+            detail = [[cls alloc] init];
+        } @catch (NSException *e) {
+            if (outMsg) *outMsg = [NSString stringWithFormat:@"prep alloc fail: %@", e.reason ?: @""];
+            return NO;
+        }
+        if (!detail) {
+            if (outMsg) *outMsg = @"prep miss: detail nil";
+            return NO;
+        }
+        UINavigationController *nav = nil;
+        for (UIWindow *w in LBAllAppWindows()) {
+            UIViewController *root = w.rootViewController;
+            if (!root) continue;
+            NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+            while (stack.count) {
+                UIViewController *vc = stack.lastObject;
+                [stack removeLastObject];
+                if ([vc isKindOfClass:[UINavigationController class]] &&
+                    [(UINavigationController *)vc viewControllers].count > 0) {
+                    nav = (UINavigationController *)vc;
+                    break;
+                }
+                if (vc.navigationController) { nav = vc.navigationController; break; }
+                for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
+                if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
+                if ([vc isKindOfClass:[UITabBarController class]]) {
+                    for (UIViewController *c in ((UITabBarController *)vc).viewControllers ?: @[]) {
+                        [stack addObject:c];
+                    }
+                }
+            }
+            if (nav) break;
+        }
+        if (!nav) {
+            if (outMsg) *outMsg = @"prep miss: no nav to host BookDetail";
+            return NO;
+        }
+        @try {
+            NSMutableArray *vcs = [nav.viewControllers mutableCopy] ?: [NSMutableArray array];
+            NSUInteger insertAt = vcs.count > 0 ? (vcs.count - 1) : 0;
+            if (![vcs containsObject:detail]) {
+                [vcs insertObject:detail atIndex:insertAt];
+                [nav setViewControllers:vcs animated:NO];
+            }
+        } @catch (NSException *e) {
+            if (outMsg) *outMsg = [NSString stringWithFormat:@"prep insert fail: %@", e.reason ?: @""];
+            return NO;
+        }
+    }
+    // 仅 KVC：原生 setDicBook 在搜索/自建目录路径会无 ips 杀进程
+    @try {
+        [detail setValue:book forKey:@"dicBook"];
     } @catch (__unused NSException *e) {}
     id arrSource = book[@"arrSource"];
     if ([arrSource isKindOfClass:[NSArray class]]) {
-        @try {
-            SEL setSrc = NSSelectorFromString(@"setArrSource:");
-            if ([detail respondsToSelector:setSrc]) {
-                ((void (*)(id, SEL, id))objc_msgSend)(detail, setSrc, arrSource);
-            } else {
-                [detail setValue:arrSource forKey:@"arrSource"];
-            }
-        } @catch (__unused NSException *e) {}
-        @try {
-            SEL resetSrc = NSSelectorFromString(@"resetSourceInfo");
-            if ([detail respondsToSelector:resetSrc]) {
-                ((void (*)(id, SEL))objc_msgSend)(detail, resetSrc);
-            }
-        } @catch (__unused NSException *e) {}
+        @try { [detail setValue:arrSource forKey:@"arrSource"]; } @catch (__unused NSException *e) {}
     }
     if (sourceName.length > 0) {
         @try { [detail setValue:sourceName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
     }
     if (outMsg) {
-        *outMsg = [NSString stringWithFormat:@"prep ok on %@", NSStringFromClass([detail class])];
+        *outMsg = [NSString stringWithFormat:@"prep ok on %@ (kvc)", NSStringFromClass([detail class])];
     }
     return YES;
 }
