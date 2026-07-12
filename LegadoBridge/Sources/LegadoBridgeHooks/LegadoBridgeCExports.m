@@ -1469,37 +1469,47 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
             LBWriteOpenReaderMarker(@"nativeOpen callingPushNativeFull");
             opened = LBPushTextReaderNativeFull(book, sourceName, &orm);
             if (opened) {
-                // 给 push/appear 一点时间；仍不可见再考虑兜底
-                for (int wi = 0; wi < 8 && !LBIsTextReaderVisible(); wi++) {
+                // push 已触发（或强制 loadView）；给 appear 时间，但不要同步切 safeShell
+                for (int wi = 0; wi < 20 && !LBIsTextReaderVisible(); wi++) {
                     [[NSRunLoop currentRunLoop] runUntilDate:
-                        [NSDate dateWithTimeIntervalSinceNow:0.15]];
+                        [NSDate dateWithTimeIntervalSinceNow:0.1]];
                 }
-                if (LBIsTextReaderVisible()) {
-                    LBAppendOpenReaderTrace(@"pushNativeFull visible");
+                if (LBIsTextReaderVisible() && sLegadoReaderMode == 1) {
+                    LBAppendOpenReaderTrace(@"pushNativeFull visible mode=1");
                 } else {
-                    LBAppendOpenReaderTrace(@"pushNativeFull returned but not yet visible");
+                    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                        @"pushNativeFull waitDone vis=%d mode=%d (deferSafeShell)",
+                        LBIsTextReaderVisible() ? 1 : 0, sLegadoReaderMode]);
                 }
             }
-            // 2) 仅当 push 本身失败时才试 openReader（成功 push 后禁止再调，防杀进程）
+            // 2) 仅当 push 本身失败时才试 openReader
             if (!opened) {
                 LBWriteOpenReaderMarker(@"nativeOpen callingOpenReader nativeFull");
                 BOOL orOk = LBCallOpenReader(book, sourceName, &orm);
-                if (orOk) {
-                    for (int wi = 0; wi < 8 && !LBIsTextReaderVisible(); wi++) {
-                        [[NSRunLoop currentRunLoop] runUntilDate:
-                            [NSDate dateWithTimeIntervalSinceNow:0.15]];
-                    }
-                    if (LBIsTextReaderVisible()) {
-                        opened = YES;
-                        sLegadoReaderMode = 1;
-                        LBAppendOpenReaderTrace(@"openReader visible nativeFull");
-                    } else {
-                        LBAppendOpenReaderTrace(@"openReader returned but reader not visible");
-                    }
+                if (orOk && LBIsTextReaderVisible()) {
+                    opened = YES;
+                    sLegadoReaderMode = 1;
+                    LBAppendOpenReaderTrace(@"openReader visible nativeFull");
                 }
             }
-            // 3) 仍无阅读页：safeShell 仅兜底（验收不算过关）
-            if (!LBIsTextReaderVisible()) {
+            // 3) safeShell 延后兜底：切勿在 push 刚返回、动画未完成时同步切换 mode=2
+            //    （真机证据：过早切 mode 会导致 TextRead viewDidLoad 直接进 safeShell）
+            if (opened && sLegadoReaderMode == 1) {
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.8 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    if (LBIsTextReaderVisible() && sLegadoReaderMode == 1) {
+                        LBAppendOpenReaderTrace(@"nativeFull settle keep mode=1");
+                        return;
+                    }
+                    if (sLegadoReaderMode != 1) return;
+                    LBAppendOpenReaderTrace(@"nativeFull timeout -> safeShell fallback");
+                    sLegadoReaderMode = 2;
+                    NSString *fbMsg = nil;
+                    LBPushTextReaderFallback(book, sourceName, &fbMsg);
+                    LBWriteOpenReaderMarker([NSString stringWithFormat:
+                                            @"nativeOpen delayedSafeShell | %@", fbMsg ?: @"?"]);
+                });
+            } else if (!opened) {
                 sLegadoReaderMode = 2;
                 LBWriteOpenReaderMarker(@"nativeOpen callingPushSafeShell fallback");
                 opened = LBPushTextReaderFallback(book, sourceName, &orm);
@@ -2680,6 +2690,10 @@ static void (*LBOrig_TR_viewWillAppear)(id, SEL, BOOL) = NULL;
 static void (*LBOrig_TR_viewDidAppear)(id, SEL, BOOL) = NULL;
 
 static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"TR viewDidLoad enter mode=%d shell=%d cls=%@",
+                             sLegadoReaderMode, sLegadoSafeTextReadShell ? 1 : 0,
+                             NSStringFromClass([self class])]);
     // 仅对带 legadoBridge 的阅读页走 shell/nativeFull；本地书始终 ORIG
     BOOL isLegadoReader = NO;
     id dicProbe = nil;
@@ -2689,6 +2703,11 @@ static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
         (dicProbe[@"legadoBridge"] || dicProbe[@"fromLegadoBridge"])) {
         isLegadoReader = YES;
     }
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"TR viewDidLoad legado=%d dicKeys=%lu",
+                             isLegadoReader ? 1 : 0,
+                             [dicProbe isKindOfClass:[NSDictionary class]]
+                                 ? (unsigned long)[(NSDictionary *)dicProbe count] : 0]);
     // mode 2 / 显式 safeShell：跳过原生，自挂 UITextView
     if (isLegadoReader && (sLegadoReaderMode == 2 || sLegadoSafeTextReadShell)) {
         LBAppendOpenReaderTrace(@"safeShell viewDidLoad");
@@ -2891,10 +2910,29 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
     LBSanitizeBookDictForReaderEx(dic, YES, YES);
     sPendingNativeFullBook = [dic mutableCopy];
     LBReadingRememberBook(dic);
-    // push 前先 prep（loadView 前写 dicBook）
+    // push 前先 prep + 强制 loadView，确保 viewDidLoad 在 mode=1 下执行
     LBPrepareTextReadNativeFull(vc, dic);
     LBAppendOpenReaderTrace([NSString stringWithFormat:@"pushNativeFull %@ keys=%lu",
                              NSStringFromClass(cls), (unsigned long)dic.count]);
+    @try {
+        // 同步触发 viewDidLoad（animated push 前），避免 go() 过早改 mode
+        [(UIViewController *)vc loadViewIfNeeded];
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"pushNativeFull loadViewIfNeeded done mode=%d loaded=%d",
+                                 sLegadoReaderMode,
+                                 ((UIViewController *)vc).isViewLoaded ? 1 : 0]);
+    } @catch (NSException *ex) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"pushNativeFull loadView EX %@", ex.reason ?: @""]);
+        // loadView 异常：本路径失败，交 go() 兜底
+        if (outMsg) *outMsg = [NSString stringWithFormat:@"pushNativeFull loadView fail: %@",
+                                ex.reason ?: @""];
+        return NO;
+    }
+    if (sLegadoReaderMode != 1) {
+        // viewDidLoad 内已降级 safeShell
+        LBAppendOpenReaderTrace(@"pushNativeFull mode downgraded during loadView");
+    }
     id vcRef = vc;
     void (^afterPush)(void) = ^{
         LBDeliverContentToVisibleReaders(@"nativePush0.4");
