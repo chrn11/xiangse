@@ -664,6 +664,7 @@ static IMP sOrigCatalogCellForRow = NULL;
 static void (*LBOrig_setArrCatalog)(id, SEL, id) = NULL;
 static id (*LBOrig_getArrCatalog)(id, SEL) = NULL;
 static void (*LBOrig_catalogDidSelect)(id, SEL, UITableView *, NSIndexPath *) = NULL;
+static NSTimeInterval sLastLegadoChapterOpenTs = 0;
 
 static void LBFlushPendingResetContent(NSString *phase);
 static const char kLBCatIdxKey;
@@ -1025,6 +1026,9 @@ static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv,
 
 /// 点章打开 Bridge 阅读页（目录 didSelect 与自定义 cell 按钮共用）
 static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
+    NSTimeInterval now = CFAbsoluteTimeGetCurrent();
+    if (now - sLastLegadoChapterOpenTs < 0.45) return;
+    sLastLegadoChapterOpenTs = now;
     NSArray *use = sPendingCatalogChapters;
     if (use.count == 0) return;
     if (idx < 0 || idx >= (NSInteger)use.count) return;
@@ -1723,14 +1727,11 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                     sPendingCatalogChapters = [use copy];
                 }
                 LBTrySetArrayKey(selfObj, @"arrCatalog", use);
-                if (LBOrig_catalogDidSelect) {
-                    @try {
-                        LBOrig_catalogDidSelect(selfObj, selSel, tv, ip);
-                    } @catch (NSException *e) {
-                        NSLog(@"[LegadoBridge] catalog didSelect fail-open: %@", e);
-                    }
-                }
+                // Legado 点章：禁止走原生 didSelect（openReader/beginRead → SIGABRT）
                 LBOpenLegadoChapterAtIndex(ip.row);
+                if (tv && ip) {
+                    @try { [tv deselectRowAtIndexPath:ip animated:YES]; } @catch (__unused NSException *e) {}
+                }
                 handled = YES;
             }
             if (!handled && LBOrig_catalogDidSelect) {
