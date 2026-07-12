@@ -2745,7 +2745,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
         if ([cur respondsToSelector:@selector(integerValue)]) cpIndex = [cur integerValue];
     } @catch (__unused NSException *e) {}
 
-    // 同章近期已原生分页成功：只藏错误页，避免重复 divisionResponse 撞崩
+    // 同章近期已原生分页成功：仍补 TV 正文（kvcPages 曾致空白页）
     NSString *dedupeKey = [NSString stringWithFormat:@"%@|%ld|%lu",
                            title, (long)cpIndex, (unsigned long)body.length];
     NSTimeInterval nowTs = CFAbsoluteTimeGetCurrent();
@@ -2758,12 +2758,37 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
             }
             id ev = nil;
             @try { ev = [readerVC valueForKey:@"errorView"]; } @catch (__unused NSException *e) {}
-            if ([ev isKindOfClass:[UIView class]]) ((UIView *)ev).hidden = YES;
+            if ([ev isKindOfClass:[UIView class]]) {
+                ((UIView *)ev).hidden = YES;
+                ((UIView *)ev).alpha = 0;
+            }
             UIView *ov = readerVC.isViewLoaded ? [readerVC.view viewWithTag:92011] : nil;
             if (ov) [ov removeFromSuperview];
+            // 找 TextReadTV 补字
+            UIView *tv = nil;
+            NSMutableArray *st = [NSMutableArray array];
+            if (readerVC.isViewLoaded && readerVC.view) [st addObject:readerVC.view];
+            while (st.count > 0) {
+                UIView *v = st.lastObject;
+                [st removeLastObject];
+                if ([NSStringFromClass([v class]) containsString:@"TextReadTV"]) {
+                    tv = v;
+                    break;
+                }
+                for (UIView *sub in v.subviews) [st addObject:sub];
+            }
+            if (tv && body.length > 0) {
+                NSString *full = [NSString stringWithFormat:@"%@\n\n%@", title, body];
+                if ([tv respondsToSelector:@selector(setText:)]) {
+                    ((void (*)(id, SEL, id))objc_msgSend)(tv, @selector(setText:), full);
+                } else {
+                    [tv setValue:full forKey:@"text"];
+                }
+            }
         } @catch (__unused NSException *e) {}
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"contentInject dedupeOK phase=%@ key=%@", phase ?: @"?", dedupeKey]);
+                                 @"contentInject dedupeOK+tvFill phase=%@ key=%@",
+                                 phase ?: @"?", dedupeKey]);
         return YES;
     }
     sContentInjectBusy = YES;
@@ -3328,6 +3353,49 @@ LB_INJECT_FINISH:
                 LBForceSetIvar(readerVC, @"nPageCount", @(pc));
             }
             [okPaths addObject:[NSString stringWithFormat:@"nPageCount=%ld", (long)pc]];
+        }
+    } @catch (__unused NSException *e) {}
+
+    // kvcPages  alone 常不绘字：无论是否 nativePaged，有 TV 则补正文（避免空白页）
+    @try {
+        if (textReadTV && body.length > 0) {
+            NSString *curTxt = nil;
+            @try {
+                if ([textReadTV respondsToSelector:@selector(text)]) {
+                    curTxt = ((id (*)(id, SEL))objc_msgSend)(textReadTV, @selector(text));
+                } else {
+                    curTxt = [textReadTV valueForKey:@"text"];
+                }
+            } @catch (__unused NSException *e) {}
+            BOOL needFill = ![curTxt isKindOfClass:[NSString class]] ||
+                            curTxt.length < 20 ||
+                            !([curTxt containsString:@"萧炎"] || [curTxt containsString:@"斗气"]);
+            if (needFill) {
+                NSString *pageTxt = nil;
+                if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] > 0) {
+                    id first = [(NSArray *)pageResult firstObject];
+                    if ([first isKindOfClass:[NSString class]]) {
+                        pageTxt = (NSString *)first;
+                    } else if ([first isKindOfClass:[NSDictionary class]]) {
+                        id t = first[@"content"] ?: first[@"text"] ?: first[@"pageText"];
+                        if ([t isKindOfClass:[NSString class]]) pageTxt = t;
+                    } else {
+                        @try {
+                            id t = [first valueForKey:@"content"];
+                            if (![t isKindOfClass:[NSString class]]) t = [first valueForKey:@"text"];
+                            if ([t isKindOfClass:[NSString class]]) pageTxt = t;
+                        } @catch (__unused NSException *e) {}
+                    }
+                }
+                NSString *full = pageTxt.length > 0 ? pageTxt
+                    : [NSString stringWithFormat:@"%@\n\n%@", title, body];
+                if ([textReadTV respondsToSelector:@selector(setText:)]) {
+                    ((void (*)(id, SEL, id))objc_msgSend)(textReadTV, @selector(setText:), full);
+                } else {
+                    [textReadTV setValue:full forKey:@"text"];
+                }
+                [okPaths addObject:@"tvFillAssist"];
+            }
         }
     } @catch (__unused NSException *e) {}
 
