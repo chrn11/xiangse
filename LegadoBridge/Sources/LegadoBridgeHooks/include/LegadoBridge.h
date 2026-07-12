@@ -25,7 +25,7 @@ FOUNDATION_EXPORT void LBHandleContentRequest(NSString *chapterUrl, NSString *bo
 FOUNDATION_EXPORT void LBNoteResetContentPosted(NSDictionary * _Nullable userInfo);
 /// 安装 TextRead/ReadVC appear 冲刷 pending 正文
 FOUNDATION_EXPORT void LBInstallReaderContentAppearFlush(void);
-/// 点章兜底：present Bridge UITextView 阅读页（绕过 TextReadVC3 SIGABRT）；后续可再接原生阅读器
+/// 点章兜底：present Bridge UITextView（仅原生 TextReadVC 未出现时）
 FOUNDATION_EXPORT BOOL LBPresentBridgeReader(NSString * _Nullable title,
                                              NSString *chapterUrl,
                                              NSString *bookUrl,

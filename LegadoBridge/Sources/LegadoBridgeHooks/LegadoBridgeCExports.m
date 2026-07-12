@@ -1024,7 +1024,71 @@ static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv,
     return orig;
 }
 
-/// 点章打开 Bridge 阅读页（目录 didSelect 与自定义 cell 按钮共用）
+/// TextReadVC viewDidAppear 会对 @[...] 中的 nil 直接 abort；字符串缺省填空串，并挂上章节/站点
+static void LBSanitizeBookDictForReader(NSMutableDictionary *dic) {
+    if (![dic isKindOfClass:[NSMutableDictionary class]]) return;
+    NSArray *strKeys = @[
+        @"name", @"bookName", @"author", @"coverUrl", @"intro",
+        @"sourceName", @"bookSourceName", @"querySourceName", @"sourceUrl",
+        @"chapterUrl", @"cpUrl", @"cpTitle", @"title", @"lastChapterTitle",
+        @"url", @"bookUrl", @"curChapterUrl"
+    ];
+    for (NSString *k in strKeys) {
+        id v = dic[k];
+        if (v == nil || v == [NSNull null]) {
+            dic[k] = @"";
+        } else if (![v isKindOfClass:[NSString class]] &&
+                   ![v isKindOfClass:[NSNumber class]] &&
+                   ![v isKindOfClass:[NSArray class]] &&
+                   ![v isKindOfClass:[NSDictionary class]]) {
+            dic[k] = [[v description] copy] ?: @"";
+        }
+    }
+    id name = dic[@"name"];
+    id bookName = dic[@"bookName"];
+    if ([name isKindOfClass:[NSString class]] && [(NSString *)name length] == 0) {
+        if ([bookName isKindOfClass:[NSString class]] && [(NSString *)bookName length] > 0) {
+            dic[@"name"] = bookName;
+        } else {
+            dic[@"name"] = @"书";
+        }
+    }
+    if ([dic[@"bookName"] isKindOfClass:[NSString class]] &&
+        [(NSString *)dic[@"bookName"] length] == 0) {
+        dic[@"bookName"] = dic[@"name"] ?: @"书";
+    }
+    if (sPendingCatalogChapters.count > 0) {
+        NSMutableArray *clean = [NSMutableArray arrayWithCapacity:sPendingCatalogChapters.count];
+        for (id item in sPendingCatalogChapters) {
+            if (![item isKindOfClass:[NSDictionary class]]) continue;
+            NSMutableDictionary *ch = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)item];
+            for (NSString *k in @[@"cpTitle", @"title", @"name", @"chapterName",
+                                  @"cpUrl", @"chapterUrl", @"url"]) {
+                id v = ch[k];
+                if (v == nil || v == [NSNull null]) ch[k] = @"";
+            }
+            [clean addObject:ch];
+        }
+        if (clean.count > 0) {
+            dic[@"arrCatalog"] = clean;
+            dic[@"arrChapter"] = clean;
+            dic[@"arrBaseData"] = clean;
+            dic[@"chapterList"] = clean;
+        }
+    }
+}
+
+static NSMutableDictionary *LBBookDictForOpenReader(NSString *bookUrl,
+                                                    id chapterItem,
+                                                    NSInteger idx,
+                                                    NSString *chUrl,
+                                                    NSString **outSourceName);
+static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString **outMsg);
+static BOOL LBPrepareDetailForOpenReader(NSMutableDictionary *book, NSString *sourceName, NSString **outMsg);
+static void LBFlushPendingResetContent(NSString *phase);
+static BOOL LBIsTextReaderVisible(void);
+
+/// 点章：默认原生 openReader → TextReadVC；超时仍无原生页再 Bridge 兜底
 static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
     NSTimeInterval now = CFAbsoluteTimeGetCurrent();
     if (now - sLastLegadoChapterOpenTs < 0.45) return;
@@ -1045,30 +1109,65 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
     NSString *titleCopy = chTitle.length > 0 ? [chTitle copy] : @"章节";
     NSString *chCopy = [chUrl copy];
     NSString *buCopy = [bookUrl copy];
+    id itemCopy = item;
+    NSInteger idxCopy = idx;
     NSString *msg = [NSString stringWithFormat:@"didSelect ch=%@ book=%@ idx=%ld title=%@",
                      chUrl, bookUrl, (long)idx, titleCopy];
     [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_select.txt"]
            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    // 主线程立即 present Bridge；禁止任何 openReader / beginRead / TextReadVC
     void (^go)(void) = ^{
-        NSString *brMsg = nil;
-        BOOL presented = LBPresentBridgeReader(titleCopy, chCopy, buCopy, &brMsg);
+        LBInstallReaderContentAppearFlush();
+        NSString *sourceName = nil;
+        NSMutableDictionary *book = LBBookDictForOpenReader(
+            buCopy, itemCopy, idxCopy, chCopy, &sourceName
+        );
+        LBSanitizeBookDictForReader(book);
+        NSString *prepMsg = nil;
+        LBPrepareDetailForOpenReader(book, sourceName, &prepMsg);
+        NSString *orm = nil;
+        BOOL opened = LBCallOpenReader(book, sourceName, &orm);
+        LBHandleContentRequest(chCopy, buCopy, nil);
         NSString *line = [NSString stringWithFormat:
-                         @"bridgeReader presented=%d | %@ || via=cellOrSelect killNative=1",
-                         presented ? 1 : 0, brMsg ?: @"?"];
+                          @"nativeOpen opened=%d readerVis=%d | %@ | %@ || via=cellOrSelect preferNative=1",
+                          opened ? 1 : 0, LBIsTextReaderVisible() ? 1 : 0,
+                          orm ?: @"?", prepMsg ?: @""];
         [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        LBHandleContentRequest(chCopy, buCopy, nil);
+        // 原生页出现后灌正文
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            if (LBIsTextReaderVisible()) {
+                if (sPendingCatalogChapters.count > 0) {
+                    LBApplyCatalogToUI(sPendingCatalogChapters, buCopy);
+                }
+                LBFlushPendingResetContent(@"native0.7");
+            }
+        });
+        // 超时无 TextRead*：Bridge 兜底（保留正文体验）
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.8 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            if (LBIsTextReaderVisible()) {
+                LBFlushPendingResetContent(@"native1.8");
+                NSString *ok = [NSString stringWithFormat:
+                                @"nativeOpen keep TextRead readerVis=1 ch=%@", chCopy];
+                [ok writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                return;
+            }
+            NSString *brMsg = nil;
+            BOOL presented = LBPresentBridgeReader(titleCopy, chCopy, buCopy, &brMsg);
+            NSString *fb = [NSString stringWithFormat:
+                            @"bridgeFallback presented=%d | %@ || nativeMiss ch=%@",
+                            presented ? 1 : 0, brMsg ?: @"?", chCopy];
+            [fb writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            if (sPendingResetContent.count > 0) {
+                LBBridgeReaderApplyContent(sPendingResetContent);
+            }
+        });
     };
     if ([NSThread isMainThread]) go();
     else dispatch_async(dispatch_get_main_queue(), go);
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        if (sPendingResetContent.count > 0) {
-            // 只灌 Bridge，不再 post 原生 ResetContent（避免惊动 TextReadVC）
-            LBBridgeReaderApplyContent(sPendingResetContent);
-        }
-    });
 }
 
 @interface LBCatalogCellOpenProxy : NSObject
@@ -1119,9 +1218,9 @@ static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView
         cell.textLabel.text = title;
         cell.textLabel.textColor = [UIColor labelColor];
         cell.backgroundColor = [UIColor clearColor];
-        // 禁选：点章只走透明按钮 → Bridge，避免原生 selection → didSelect → openReader
+        // 禁选：点章走透明按钮 → 原生 openReader（失败再 Bridge）
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        // 无障碍/坐标点常碰不到原生 didSelect：透明按钮铺满 cell 直接开 Bridge 阅读
+        // 无障碍/坐标点常碰不到原生 didSelect：透明按钮铺满 cell
         const NSInteger kBtnTag = 0x4C424354; // LBCT
         UIButton *btn = [cell.contentView viewWithTag:kBtnTag];
         if (![btn isKindOfClass:[UIButton class]]) {
@@ -1167,7 +1266,7 @@ static void LBCatalogSetArrCatalog_IMP(id self, SEL _cmd, id arr) {
 }
 
 /// 组装 openReader 所需书本字典（优先详情 dicBook，避免把章节 dict 当书）
-static NSMutableDictionary * __attribute__((unused)) LBBookDictForOpenReader(NSString *bookUrl,
+static NSMutableDictionary *LBBookDictForOpenReader(NSString *bookUrl,
                                                     id chapterItem,
                                                     NSInteger idx,
                                                     NSString *chUrl,
@@ -1204,16 +1303,29 @@ static NSMutableDictionary * __attribute__((unused)) LBBookDictForOpenReader(NSS
             } @catch (__unused NSException *e) {}
         }
     }
-    // 章节字段叠上去，但 bookUrl/url 必须保持书籍地址
+    // 保留书名，勿被章节 title/name 覆盖（TextReadVC 用 name 组数组）
+    NSString *preservedBookName = nil;
+    id bn0 = book[@"name"] ?: book[@"bookName"];
+    if ([bn0 isKindOfClass:[NSString class]] && [(NSString *)bn0 length] > 0) {
+        preservedBookName = bn0;
+    }
     if ([chapterItem isKindOfClass:[NSDictionary class]]) {
         NSDictionary *ch = (NSDictionary *)chapterItem;
-        for (NSString *k in @[@"cpTitle", @"title", @"name", @"chapterName", @"cpIndex", @"index"]) {
-            if (ch[k]) book[k] = ch[k];
+        id cpTitle = ch[@"cpTitle"] ?: ch[@"title"] ?: ch[@"name"] ?: ch[@"chapterName"];
+        if (cpTitle) {
+            book[@"cpTitle"] = cpTitle;
+            book[@"chapterName"] = cpTitle;
         }
+        id cpi = ch[@"cpIndex"] ?: ch[@"index"];
+        if (cpi) book[@"cpIndex"] = cpi;
         if (!sourceName) {
             id sn = ch[@"sourceName"];
             if ([sn isKindOfClass:[NSString class]]) sourceName = sn;
         }
+    }
+    if (preservedBookName.length > 0) {
+        book[@"name"] = preservedBookName;
+        book[@"bookName"] = preservedBookName;
     }
     if (bookUrl.length > 0) {
         book[@"bookUrl"] = bookUrl;
@@ -1274,6 +1386,7 @@ static NSMutableDictionary * __attribute__((unused)) LBBookDictForOpenReader(NSS
         book[@"arrSourceInfoOptional"] = @[site];
         book[@"arrSourceType"] = @[@"text"];
     }
+    LBSanitizeBookDictForReader(book);
     if (outSourceName) *outSourceName = sourceName ?: @"";
     return book;
 }
@@ -1306,14 +1419,16 @@ static UIViewController *LBFindBookDetailVC(void) {
 
 static BOOL LBBookLooksLegadoForKillSwitch(id bookOrRecord, NSString **outBookUrl, NSString **outChUrl, NSString **outTitle);
 static void LBKillSwitchPresentBridge(NSString *phase, NSString *bookUrl, NSString *chUrl, NSString *title);
+static void (*LBOrig_openReader)(id, SEL, id, id, id) = NULL;
 
-/// 仅写回详情书/站点，不触发「开始阅读」（避免与 openReader 双开闪退）
-static BOOL __attribute__((unused)) LBPrepareDetailForOpenReader(NSMutableDictionary *book, NSString *sourceName, NSString **outMsg) {
+/// 写回详情书/站点，再调 openReader（避免详情站点为空）
+static BOOL LBPrepareDetailForOpenReader(NSMutableDictionary *book, NSString *sourceName, NSString **outMsg) {
     UIViewController *detail = LBFindBookDetailVC();
     if (!detail) {
         if (outMsg) *outMsg = @"prep miss: no BookDetail";
         return NO;
     }
+    LBSanitizeBookDictForReader(book);
     @try {
         if ([detail respondsToSelector:@selector(setDicBook:)]) {
             ((void (*)(id, SEL, id))objc_msgSend)(detail, @selector(setDicBook:), book);
@@ -1347,20 +1462,35 @@ static BOOL __attribute__((unused)) LBPrepareDetailForOpenReader(NSMutableDictio
     return YES;
 }
 
-/// 已废弃：禁止触发原生开始阅读
+/// 详情「开始阅读」：消毒后回原生（点章主路径仍优先 openReader）
 static BOOL __attribute__((unused)) LBInvokeBeginReadOnDetail(NSMutableDictionary *book, NSString *sourceName, NSString **outMsg) {
-    (void)sourceName;
-    NSString *bu = nil, *ch = nil, *title = nil;
-    if (LBBookLooksLegadoForKillSwitch(book, &bu, &ch, &title)) {
-        LBKillSwitchPresentBridge(@"legacyBeginRead", bu, ch, title);
-        if (outMsg) *outMsg = @"redirected to bridgeReader (beginRead disabled)";
-        return YES;
+    LBPrepareDetailForOpenReader(book, sourceName, NULL);
+    UIViewController *detail = LBFindBookDetailVC();
+    if (!detail) {
+        if (outMsg) *outMsg = @"beginRead miss: no BookDetail";
+        return NO;
     }
-    if (outMsg) *outMsg = @"beginRead disabled";
-    return NO;
+    SEL beginSel = NSSelectorFromString(@"onBeginReadEvent:");
+    if (![detail respondsToSelector:beginSel]) {
+        beginSel = NSSelectorFromString(@"onBeginEvent:");
+    }
+    if (![detail respondsToSelector:beginSel]) {
+        if (outMsg) *outMsg = @"beginRead miss: no selector";
+        return NO;
+    }
+    @try {
+        ((void (*)(id, SEL, id))objc_msgSend)(detail, beginSel, nil);
+        if (outMsg) {
+            *outMsg = [NSString stringWithFormat:@"beginRead ok on %@", NSStringFromClass([detail class])];
+        }
+        return YES;
+    } @catch (NSException *e) {
+        if (outMsg) *outMsg = [NSString stringWithFormat:@"beginRead fail: %@", e.reason ?: @""];
+        return NO;
+    }
 }
 
-static BOOL __attribute__((unused)) LBIsTextReaderVisible(void) {
+static BOOL LBIsTextReaderVisible(void) {
     for (UIWindow *w in LBAllAppWindows()) {
         UIViewController *root = w.rootViewController;
         if (!root) continue;
@@ -1389,29 +1519,79 @@ static BOOL __attribute__((unused)) LBIsTextReaderVisible(void) {
     return NO;
 }
 
-/// 已废弃：禁止再调原生 openReader（保留符号防链接，内部改走 Bridge 杀开关）
-static BOOL __attribute__((unused)) LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString **outMsg) {
-    (void)sourceName;
-    NSString *bu = nil, *ch = nil, *title = nil;
-    if (LBBookLooksLegadoForKillSwitch(book, &bu, &ch, &title)) {
-        LBKillSwitchPresentBridge(@"legacyCallOpenReader", bu, ch, title);
-        if (outMsg) *outMsg = @"redirected to bridgeReader (openReader disabled)";
-        return YES;
+/// 调用 AppDelegate.openReader:sourceName:record:（经护栏消毒后进原生）
+static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString **outMsg) {
+    SEL openSel = NSSelectorFromString(@"openReader:sourceName:record:");
+    NSMutableDictionary *mutableBook = nil;
+    if ([book isKindOfClass:[NSMutableDictionary class]]) {
+        mutableBook = (NSMutableDictionary *)book;
+    } else if ([book isKindOfClass:[NSDictionary class]]) {
+        mutableBook = [NSMutableDictionary dictionaryWithDictionary:book];
+    } else {
+        mutableBook = [NSMutableDictionary dictionary];
     }
-    if (outMsg) *outMsg = @"openReader disabled for non-detection path";
+    LBSanitizeBookDictForReader(mutableBook);
+    NSMutableArray *targets = [NSMutableArray array];
+    id appDel = [UIApplication sharedApplication].delegate;
+    if (appDel) [targets addObject:appDel];
+    for (UIViewController *vc in LBFindCatalogVCs()) {
+        if ([vc respondsToSelector:openSel] && ![targets containsObject:vc]) {
+            [targets addObject:vc];
+        }
+    }
+    for (UIWindow *w in LBAllAppWindows()) {
+        UIViewController *root = w.rootViewController;
+        if (!root) continue;
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+        while (stack.count > 0) {
+            UIViewController *vc = stack.lastObject;
+            [stack removeLastObject];
+            if ([vc respondsToSelector:openSel] && ![targets containsObject:vc]) {
+                [targets addObject:vc];
+            }
+            for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
+            if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
+            if ([vc isKindOfClass:[UINavigationController class]]) {
+                for (UIViewController *c in [(UINavigationController *)vc viewControllers]) {
+                    [stack addObject:c];
+                }
+            }
+        }
+    }
+    NSMutableArray *tried = [NSMutableArray array];
+    for (id t in targets) {
+        NSString *cn = NSStringFromClass([t class]);
+        [tried addObject:cn];
+        if (![t respondsToSelector:openSel]) continue;
+        @try {
+            // 优先走已保存的 orig，避开护栏二次加工；无 orig 则走消息派发
+            if (LBOrig_openReader && t == appDel) {
+                LBOrig_openReader(t, openSel, mutableBook, sourceName ?: @"", nil);
+            } else {
+                ((void (*)(id, SEL, id, id, id))objc_msgSend)(
+                    t, openSel, mutableBook, sourceName ?: @"", nil
+                );
+            }
+            if (outMsg) {
+                *outMsg = [NSString stringWithFormat:@"openReader ok on %@ src=%@",
+                           cn, sourceName ?: @""];
+            }
+            return YES;
+        } @catch (NSException *e) {
+            NSLog(@"[LegadoBridge] openReader on %@ fail-open: %@", cn, e);
+        }
+    }
+    if (outMsg) {
+        *outMsg = [NSString stringWithFormat:@"openReader miss tried=%@",
+                   [tried componentsJoinedByString:@","]];
+    }
     return NO;
 }
 
-/// 已废弃：禁止 push TextReadVC（Legado 必崩）
+/// 裸 push TextReadVC 易崩；仅作内部保留（点章路径默认不用）
 static BOOL __attribute__((unused)) LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, NSString **outMsg) {
-    (void)sourceName;
-    NSString *bu = nil, *ch = nil, *title = nil;
-    if (LBBookLooksLegadoForKillSwitch(book, &bu, &ch, &title)) {
-        LBKillSwitchPresentBridge(@"legacyPushTextReader", bu, ch, title);
-        if (outMsg) *outMsg = @"redirected to bridgeReader (push TextReadVC disabled)";
-        return YES;
-    }
-    if (outMsg) *outMsg = @"pushReader disabled";
+    (void)book; (void)sourceName;
+    if (outMsg) *outMsg = @"pushReader disabled (prefer openReader / bridge fallback)";
     return NO;
 }
 
@@ -1423,8 +1603,12 @@ void LBNoteResetContentPosted(NSDictionary *userInfo) {
                         ch, (unsigned long)userInfo.count];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_content_pending.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    // Bridge 阅读页：正文到达即灌入（不依赖原生 TextReadVC）
-    LBBridgeReaderApplyContent(userInfo);
+    if (LBIsTextReaderVisible()) {
+        LBFlushPendingResetContent(@"notePosted");
+    } else {
+        // Bridge 可见时同步灌入；否则等 appear / delay flush
+        LBBridgeReaderApplyContent(userInfo);
+    }
 }
 
 void LBBridgeReaderApplyPendingOnAppear(void) {
@@ -1432,7 +1616,7 @@ void LBBridgeReaderApplyPendingOnAppear(void) {
     LBBridgeReaderApplyContent(sPendingResetContent);
 }
 
-static void __attribute__((unused)) LBFlushPendingResetContent(NSString *phase) {
+static void LBFlushPendingResetContent(NSString *phase) {
     if (sPendingResetContent.count == 0) return;
     NSDictionary *payload = [sPendingResetContent copy];
     void (^post)(void) = ^{
@@ -1444,16 +1628,49 @@ static void __attribute__((unused)) LBFlushPendingResetContent(NSString *phase) 
                             phase ?: @"", payload[@"chapterUrl"] ?: @""];
         [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_content_flush.txt"]
                  atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        // Bridge 若仍可见也灌一份（兜底页）
+        LBBridgeReaderApplyContent(payload);
     };
     if ([NSThread isMainThread]) post();
     else dispatch_async(dispatch_get_main_queue(), post);
 }
 
 void LBInstallReaderContentAppearFlush(void) {
-    // 禁用：对共享 viewDidAppear 多层替换会在阅读页 appear 时递归 SIGABRT
-    // （见 CrashReporter StandarReader-2026-07-12-002153）。正文改走 delay flush。
     if (sReaderContentAppearHooked) return;
     sReaderContentAppearHooked = YES;
+    // 仅在 appear 后重投 ResetContent；禁止在 hook 内构造含 nil 的 NSArray
+    NSArray *names = @[
+        @"ReadVCBase1", @"ReadVCBase2",
+        @"TextReadVC1", @"TextReadVC2", @"TextReadVC3"
+    ];
+    for (NSString *cn in names) {
+        Class cls = NSClassFromString(cn);
+        if (!cls) continue;
+        SEL sel = @selector(viewDidAppear:);
+        Method m = class_getInstanceMethod(cls, sel);
+        if (!m) continue;
+        IMP orig = method_getImplementation(m);
+        IMP hook = imp_implementationWithBlock(^void(id selfObj, BOOL animated) {
+            ((void (*)(id, SEL, BOOL))orig)(selfObj, sel, animated);
+            // 仅写章节数组到本 VC，避免 appear 内再调 LBApplyCatalogToUI 重入
+            if (sPendingCatalogChapters.count > 0) {
+                @try {
+                    SEL setCat = NSSelectorFromString(@"setArrCatalog:");
+                    if ([selfObj respondsToSelector:setCat]) {
+                        ((void (*)(id, SEL, id))objc_msgSend)(
+                            selfObj, setCat, sPendingCatalogChapters
+                        );
+                    }
+                } @catch (__unused NSException *e) {}
+            }
+            if (sPendingResetContent.count == 0) return;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                LBFlushPendingResetContent([NSString stringWithFormat:@"appear:%@",
+                                            NSStringFromClass([selfObj class])]);
+            });
+        });
+        method_setImplementation(m, hook);
+    }
 }
 
 static void LBInstallCatalogTableHooksOnClass(Class cls) {
@@ -1515,7 +1732,7 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                     sPendingCatalogChapters = [use copy];
                 }
                 LBTrySetArrayKey(selfObj, @"arrCatalog", use);
-                // Legado 点章：禁止走原生 didSelect（openReader/beginRead → SIGABRT）
+                // Legado 点章：走受控原生 openReader（失败 Bridge），不调原生 didSelect
                 LBOpenLegadoChapterAtIndex(ip.row);
                 if (tv && ip) {
                     @try { [tv deselectRowAtIndexPath:ip animated:YES]; } @catch (__unused NSException *e) {}
@@ -1617,13 +1834,12 @@ static BOOL LBBookLooksLegadoForKillSwitch(id bookOrRecord, NSString **outBookUr
     return YES;
 }
 
-static void LBKillSwitchPresentBridge(NSString *phase, NSString *bookUrl, NSString *chUrl, NSString *title) {
-    NSString *marker = [NSString stringWithFormat:@"killSwitch %@ book=%@ ch=%@",
+static void __attribute__((unused)) LBKillSwitchPresentBridge(NSString *phase, NSString *bookUrl, NSString *chUrl, NSString *title) {
+    NSString *marker = [NSString stringWithFormat:@"bridgeFallback %@ book=%@ ch=%@",
                         phase ?: @"?", bookUrl ?: @"", chUrl ?: @""];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     if (bookUrl.length == 0) return;
-    // 无章节：仍禁止回原生；拉目录后打开第一章
     if (chUrl.length == 0) {
         NSString *su = LBReadingSourceUrlForBookUrl(bookUrl);
         sPendingCatalogBookUrl = [bookUrl copy];
@@ -1636,18 +1852,7 @@ static void LBKillSwitchPresentBridge(NSString *phase, NSString *bookUrl, NSStri
                 return;
             }
             if (sPendingCatalogChapters.count > 0) {
-                NSString *line = [NSString stringWithFormat:
-                                  @"killSwitch %@ deferredOpen ch0 n=%lu",
-                                  phase ?: @"?", (unsigned long)sPendingCatalogChapters.count];
-                [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                       atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 LBOpenLegadoChapterAtIndex(0);
-            } else {
-                NSString *line = [NSString stringWithFormat:
-                                  @"killSwitch %@ blocked no-chapter book=%@",
-                                  phase ?: @"?", buCopy];
-                [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                       atomically:YES encoding:NSUTF8StringEncoding error:NULL];
             }
         });
         return;
@@ -1659,23 +1864,60 @@ static void LBKillSwitchPresentBridge(NSString *phase, NSString *bookUrl, NSStri
         NSString *brMsg = nil;
         BOOL ok = LBPresentBridgeReader(titleCopy, chCopy, buCopy, &brMsg);
         NSString *line = [NSString stringWithFormat:
-                          @"bridgeReader presented=%d | %@ || via=%@ killNative=1",
-                          ok ? 1 : 0, brMsg ?: @"?", phase ?: @"kill"];
+                          @"bridgeReader presented=%d | %@ || via=%@",
+                          ok ? 1 : 0, brMsg ?: @"?", phase ?: @"fallback"];
         [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         LBHandleContentRequest(chCopy, buCopy, nil);
     };
     if ([NSThread isMainThread]) go();
     else dispatch_async(dispatch_get_main_queue(), go);
 }
 
-static void (*LBOrig_openReader)(id, SEL, id, id, id) = NULL;
 static void LBOpenReader_KillIMP(id self, SEL _cmd, id book, id sourceName, id record) {
     NSString *bu = nil, *ch = nil, *title = nil;
-    if (LBBookLooksLegadoForKillSwitch(book, &bu, &ch, &title) ||
-        LBBookLooksLegadoForKillSwitch(record, &bu, &ch, &title)) {
-        LBKillSwitchPresentBridge(@"openReader", bu, ch, title);
-        return; // 绝不回原生
+    BOOL isLegado = LBBookLooksLegadoForKillSwitch(book, &bu, &ch, &title) ||
+                    LBBookLooksLegadoForKillSwitch(record, &bu, &ch, &title);
+    if (isLegado) {
+        NSString *src = [sourceName isKindOfClass:[NSString class]] ? (NSString *)sourceName : nil;
+        NSMutableDictionary *m = nil;
+        if ([book isKindOfClass:[NSDictionary class]]) {
+            m = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)book];
+        } else {
+            m = [NSMutableDictionary dictionary];
+        }
+        NSInteger cpIdx = 0;
+        id cpi = m[@"cpIndex"] ?: m[@"chapterIndex"];
+        if ([cpi respondsToSelector:@selector(integerValue)]) {
+            cpIdx = [cpi integerValue];
+        }
+        NSMutableDictionary *built = LBBookDictForOpenReader(bu, nil, cpIdx, ch, &src);
+        [built addEntriesFromDictionary:m];
+        if (bu.length > 0) {
+            built[@"bookUrl"] = bu;
+            built[@"url"] = bu;
+        }
+        if (ch.length > 0) {
+            built[@"chapterUrl"] = ch;
+            built[@"cpUrl"] = ch;
+            built[@"curChapterUrl"] = ch;
+        }
+        if (title.length > 0) {
+            id cpt = built[@"cpTitle"];
+            if (![cpt isKindOfClass:[NSString class]] || [(NSString *)cpt length] == 0) {
+                built[@"cpTitle"] = title;
+            }
+        }
+        LBSanitizeBookDictForReader(built);
+        NSString *marker = [NSString stringWithFormat:
+                            @"nativeGuard openReader book=%@ ch=%@ src=%@",
+                            bu ?: @"", ch ?: @"", src ?: @""];
+        [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        if (LBOrig_openReader) {
+            LBOrig_openReader(self, _cmd, built, src.length > 0 ? src : (sourceName ?: @""), record);
+        }
+        return;
     }
     if (LBOrig_openReader) {
         LBOrig_openReader(self, _cmd, book, sourceName, record);
@@ -1687,11 +1929,25 @@ static void LBOnBeginReadEvent_KillIMP(id self, SEL _cmd, id note) {
     NSString *bu = nil, *ch = nil, *title = nil;
     id dicBook = nil;
     @try { dicBook = [self valueForKey:@"dicBook"]; } @catch (__unused NSException *e) {}
-    if (LBBookLooksLegadoForKillSwitch(dicBook, &bu, &ch, &title) ||
-        LBBookLooksLegadoForKillSwitch(note, &bu, &ch, &title) ||
-        (sPendingCatalogChapters.count > 0 && sPendingCatalogBookUrl.length > 0)) {
-        if (bu.length == 0) bu = sPendingCatalogBookUrl;
-        LBKillSwitchPresentBridge(@"onBeginReadEvent", bu, ch, title);
+    BOOL isLegado = LBBookLooksLegadoForKillSwitch(dicBook, &bu, &ch, &title) ||
+                    LBBookLooksLegadoForKillSwitch(note, &bu, &ch, &title) ||
+                    (sPendingCatalogChapters.count > 0 && sPendingCatalogBookUrl.length > 0);
+    if (isLegado) {
+        @try {
+            if ([dicBook isKindOfClass:[NSDictionary class]]) {
+                NSMutableDictionary *m = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)dicBook];
+                LBSanitizeBookDictForReader(m);
+                if ([self respondsToSelector:@selector(setDicBook:)]) {
+                    ((void (*)(id, SEL, id))objc_msgSend)(self, @selector(setDicBook:), m);
+                } else {
+                    [self setValue:m forKey:@"dicBook"];
+                }
+            }
+        } @catch (__unused NSException *e) {}
+        // 消毒后回原生；若仍崩，点章路径有 Bridge 兜底
+        if (LBOrig_onBeginReadEvent) {
+            LBOrig_onBeginReadEvent(self, _cmd, note);
+        }
         return;
     }
     if (LBOrig_onBeginReadEvent) {
@@ -1704,11 +1960,24 @@ static void LBOnBeginEvent_KillIMP(id self, SEL _cmd, id note) {
     NSString *bu = nil, *ch = nil, *title = nil;
     id dicBook = nil;
     @try { dicBook = [self valueForKey:@"dicBook"]; } @catch (__unused NSException *e) {}
-    if (LBBookLooksLegadoForKillSwitch(dicBook, &bu, &ch, &title) ||
-        LBBookLooksLegadoForKillSwitch(note, &bu, &ch, &title) ||
-        (sPendingCatalogChapters.count > 0 && sPendingCatalogBookUrl.length > 0)) {
-        if (bu.length == 0) bu = sPendingCatalogBookUrl;
-        LBKillSwitchPresentBridge(@"onBeginEvent", bu, ch, title);
+    BOOL isLegado = LBBookLooksLegadoForKillSwitch(dicBook, &bu, &ch, &title) ||
+                    LBBookLooksLegadoForKillSwitch(note, &bu, &ch, &title) ||
+                    (sPendingCatalogChapters.count > 0 && sPendingCatalogBookUrl.length > 0);
+    if (isLegado) {
+        @try {
+            if ([dicBook isKindOfClass:[NSDictionary class]]) {
+                NSMutableDictionary *m = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)dicBook];
+                LBSanitizeBookDictForReader(m);
+                if ([self respondsToSelector:@selector(setDicBook:)]) {
+                    ((void (*)(id, SEL, id))objc_msgSend)(self, @selector(setDicBook:), m);
+                } else {
+                    [self setValue:m forKey:@"dicBook"];
+                }
+            }
+        } @catch (__unused NSException *e) {}
+        if (LBOrig_onBeginEvent) {
+            LBOrig_onBeginEvent(self, _cmd, note);
+        }
         return;
     }
     if (LBOrig_onBeginEvent) {
@@ -1720,7 +1989,17 @@ static void (*LBOrig_tryOpenRecord)(id, SEL, id, id) = NULL;
 static void LBTryOpenRecord_KillIMP(id self, SEL _cmd, id record, id sourceName) {
     NSString *bu = nil, *ch = nil, *title = nil;
     if (LBBookLooksLegadoForKillSwitch(record, &bu, &ch, &title)) {
-        LBKillSwitchPresentBridge(@"tryOpenRecord", bu, ch, title);
+        NSString *src = [sourceName isKindOfClass:[NSString class]] ? (NSString *)sourceName : nil;
+        NSMutableDictionary *built = LBBookDictForOpenReader(bu, nil, 0, ch, &src);
+        LBSanitizeBookDictForReader(built);
+        @try {
+            if ([self respondsToSelector:@selector(setDicBook:)]) {
+                ((void (*)(id, SEL, id))objc_msgSend)(self, @selector(setDicBook:), built);
+            }
+        } @catch (__unused NSException *e) {}
+        if (LBOrig_tryOpenRecord) {
+            LBOrig_tryOpenRecord(self, _cmd, built, src.length > 0 ? src : sourceName);
+        }
         return;
     }
     if (LBOrig_tryOpenRecord) {
@@ -1733,7 +2012,7 @@ void LBInstallLegadoReaderKillSwitch(void) {
     if (sOnce) return;
     sOnce = YES;
     @try {
-        // AppDelegate.openReader:sourceName:record:
+        // AppDelegate.openReader:sourceName:record: — Legado 消毒后走原生
         id appDel = [UIApplication sharedApplication].delegate;
         Class openCls = appDel ? object_getClass(appDel) : Nil;
         SEL openSel = NSSelectorFromString(@"openReader:sourceName:record:");
@@ -1746,10 +2025,9 @@ void LBInstallLegadoReaderKillSwitch(void) {
             if (m && !LBOrig_openReader) {
                 LBOrig_openReader = (void (*)(id, SEL, id, id, id))method_getImplementation(m);
                 method_setImplementation(m, (IMP)LBOpenReader_KillIMP);
-                NSLog(@"[LegadoBridge] killSwitch hooked openReader @%@", NSStringFromClass(owner));
+                NSLog(@"[LegadoBridge] nativeGuard hooked openReader @%@", NSStringFromClass(owner));
             }
         }
-        // BookDetail onBeginReadEvent / onBeginEvent / tryOpenRecord
         for (NSString *cn in @[@"BookDetailController", @"BookDetailVCBase"]) {
             Class cls = NSClassFromString(cn);
             if (!cls) continue;
@@ -1760,7 +2038,7 @@ void LBInstallLegadoReaderKillSwitch(void) {
                 if (m && !LBOrig_onBeginReadEvent) {
                     LBOrig_onBeginReadEvent = (void (*)(id, SEL, id))method_getImplementation(m);
                     method_setImplementation(m, (IMP)LBOnBeginReadEvent_KillIMP);
-                    NSLog(@"[LegadoBridge] killSwitch hooked onBeginReadEvent: @%@",
+                    NSLog(@"[LegadoBridge] nativeGuard hooked onBeginReadEvent: @%@",
                           NSStringFromClass(beginReadOwner));
                 }
             }
@@ -1771,7 +2049,7 @@ void LBInstallLegadoReaderKillSwitch(void) {
                 if (m && !LBOrig_onBeginEvent) {
                     LBOrig_onBeginEvent = (void (*)(id, SEL, id))method_getImplementation(m);
                     method_setImplementation(m, (IMP)LBOnBeginEvent_KillIMP);
-                    NSLog(@"[LegadoBridge] killSwitch hooked onBeginEvent: @%@",
+                    NSLog(@"[LegadoBridge] nativeGuard hooked onBeginEvent: @%@",
                           NSStringFromClass(beginOwner));
                 }
             }
@@ -1782,15 +2060,15 @@ void LBInstallLegadoReaderKillSwitch(void) {
                 if (m && !LBOrig_tryOpenRecord) {
                     LBOrig_tryOpenRecord = (void (*)(id, SEL, id, id))method_getImplementation(m);
                     method_setImplementation(m, (IMP)LBTryOpenRecord_KillIMP);
-                    NSLog(@"[LegadoBridge] killSwitch hooked tryOpenRecord @%@",
+                    NSLog(@"[LegadoBridge] nativeGuard hooked tryOpenRecord @%@",
                           NSStringFromClass(tryOwner));
                 }
             }
         }
         NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_reader_killswitch.txt"];
-        [@"installed" writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        [@"nativeGuard" writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     } @catch (NSException *e) {
-        NSLog(@"[LegadoBridge] killSwitch install fail-open: %@", e);
+        NSLog(@"[LegadoBridge] nativeGuard install fail-open: %@", e);
     }
 }
 

@@ -108,9 +108,6 @@ static BOOL LBReadingObjectIsLegado(id object, NSString **outBookUrl, NSString *
 
 static void (*LBOrig_setDicBook)(id, SEL, id) = NULL;
 static void LBSetDicBook_IMP(id self, SEL _cmd, id dicBook) {
-    if (LBOrig_setDicBook) {
-        LBOrig_setDicBook(self, _cmd, dicBook);
-    }
     NSDictionary *dic = nil;
     if ([dicBook isKindOfClass:[NSDictionary class]]) {
         dic = dicBook;
@@ -136,6 +133,30 @@ static void LBSetDicBook_IMP(id self, SEL _cmd, id dicBook) {
             }
             dic = enriched;
         }
+    }
+    id passBook = dicBook;
+    if (LBReadingDicLooksLegado(dic)) {
+        NSMutableDictionary *safe = [NSMutableDictionary dictionaryWithDictionary:dic];
+        // 调用原生前消毒：TextReadVC appear 对 nil 字段 @[...] 会 abort
+        for (NSString *k in @[
+                 @"name", @"bookName", @"author", @"coverUrl", @"intro",
+                 @"sourceName", @"bookSourceName", @"querySourceName", @"sourceUrl",
+                 @"chapterUrl", @"cpUrl", @"cpTitle", @"title", @"url", @"bookUrl"
+             ]) {
+            id v = safe[k];
+            if (v == nil || v == [NSNull null]) safe[k] = @"";
+        }
+        if ([safe[@"name"] length] == 0) {
+            safe[@"name"] = [safe[@"bookName"] length] > 0 ? safe[@"bookName"] : @"书";
+        }
+        if ([safe[@"bookName"] length] == 0) {
+            safe[@"bookName"] = safe[@"name"] ?: @"书";
+        }
+        dic = safe;
+        passBook = safe;
+    }
+    if (LBOrig_setDicBook) {
+        LBOrig_setDicBook(self, _cmd, passBook);
     }
     if (LBReadingDicLooksLegado(dic)) {
         LBReadingRememberBook(dic);
@@ -240,19 +261,34 @@ void LBInstallReadingHooks(void) {
     @try {
         NSMutableArray *installed = [NSMutableArray array];
 
-        // 1) setDicBook: — 生产锚点（类型编码校验：void + 对象参数）
-        Class detailCls = NSClassFromString(@"BookDetailController");
+        // 1) setDicBook: — 生产锚点（详情 + 阅读页；按真正实现类去重，防把 hook 当 orig）
+        NSArray *dicBookOwners = @[
+            @"BookDetailController", @"BookDetailVCBase",
+            @"TextReadVC1", @"TextReadVC2", @"TextReadVC3",
+            @"ReadVCBase1", @"ReadVCBase2"
+        ];
         SEL setDicSel = @selector(setDicBook:);
         NSString *enc = nil;
         NSString *reason = nil;
-        // 期望包含 @16（首个对象参数偏移）；不强制完整串，避免 ABI 细微差导致全组跳过
-        if (LBValidateInstanceMethod(detailCls, setDicSel, "@16", &enc, &reason)) {
-            Method m = class_getInstanceMethod(detailCls, setDicSel);
-            LBOrig_setDicBook = (void (*)(id, SEL, id))method_getImplementation(m);
+        NSMutableSet *dicBookHooked = [NSMutableSet set];
+        for (NSString *cn in dicBookOwners) {
+            Class detailCls = NSClassFromString(cn);
+            if (!detailCls) continue;
+            Class owner = LBClassOwningInstanceMethod(detailCls, setDicSel) ?: detailCls;
+            NSString *ownerKey = NSStringFromClass(owner);
+            if ([dicBookHooked containsObject:ownerKey]) continue;
+            if (!LBValidateInstanceMethod(owner, setDicSel, "@16", &enc, &reason)) {
+                LBReadingDiagLog([NSString stringWithFormat:@"setDicBook skip %@: %@", ownerKey, reason ?: @""]);
+                continue;
+            }
+            Method m = class_getInstanceMethod(owner, setDicSel);
+            if (!m) continue;
+            if (!LBOrig_setDicBook) {
+                LBOrig_setDicBook = (void (*)(id, SEL, id))method_getImplementation(m);
+            }
             method_setImplementation(m, (IMP)LBSetDicBook_IMP);
-            [installed addObject:[NSString stringWithFormat:@"setDicBook enc=%@", enc]];
-        } else {
-            LBReadingDiagLog([NSString stringWithFormat:@"setDicBook skip: %@", reason ?: @""]);
+            [dicBookHooked addObject:ownerKey];
+            [installed addObject:[NSString stringWithFormat:@"setDicBook@%@ enc=%@", ownerKey, enc ?: @""]];
         }
 
         // 2) loadCatalog:ignoringCache:
@@ -338,9 +374,9 @@ void LBInstallReadingHooks(void) {
         // 正文：ReadVC appear 时重投 ResetContent（openReader 后才有监听者）
         LBInstallReaderContentAppearFlush();
         [installed addObject:@"readerContentAppearFlush"];
-        // 硬短路：openReader / onBeginReadEvent → Bridge，杜绝 TextReadVC SIGABRT
+        // 原生护栏：Legado openReader/beginRead 消毒模型后走原生；点章失败再 Bridge
         LBInstallLegadoReaderKillSwitch();
-        [installed addObject:@"readerKillSwitch"];
+        [installed addObject:@"readerNativeGuard"];
 
         if (installed.count == 0) {
             LBCapabilityMarkSkipped(LBHookGroupReading, @"no production reading anchors");

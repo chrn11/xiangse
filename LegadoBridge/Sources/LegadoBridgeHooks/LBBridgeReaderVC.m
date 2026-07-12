@@ -1,8 +1,7 @@
 #import <UIKit/UIKit.h>
 #import "LegadoBridge.h"
 
-/// 临时 Bridge 阅读页：绕过会 SIGABRT 的 TextReadVC3，直接显示 handleContentRequest 正文。
-/// 保留原生阅读器接入路径：后续可在此 VC 消失后改走 openReader / TextReadVC。
+/// Bridge 阅读页：仅作原生 TextReadVC 失败时的兜底；主路径应走 openReader。
 @interface LBBridgeReaderVC : UIViewController
 @property (nonatomic, strong) UITextView *textView;
 @property (nonatomic, copy) NSString *chapterUrl;
