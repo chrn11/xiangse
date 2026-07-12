@@ -3141,11 +3141,23 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
         if (!pageResult) {
             LBAppendOpenReaderTrace(@"contentInject divisionText miss all targets");
         } else {
-            id first = nil;
+            // PaibanManager 常返回 @[ pagesArray ]；解包到真正的分页数组
+            if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] == 1) {
+                id first = [(NSArray *)pageResult firstObject];
+                if ([first isKindOfClass:[NSArray class]] && [(NSArray *)first count] > 0) {
+                    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                             @"contentInject unwrap pageResult %@ -> %@ count=%lu",
+                                             NSStringFromClass([pageResult class]),
+                                             NSStringFromClass([first class]),
+                                             (unsigned long)[(NSArray *)first count]]);
+                    pageResult = first;
+                }
+            }
+            id sample = nil;
             NSString *fcls = @"-";
             if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] > 0) {
-                first = [(NSArray *)pageResult firstObject];
-                fcls = NSStringFromClass([first class]);
+                sample = [(NSArray *)pageResult firstObject];
+                fcls = NSStringFromClass([sample class]);
             }
             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                      @"contentInject pageResult cls=%@ count=%lu first=%@",
@@ -3203,11 +3215,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
             BOOL responded = NO;
             for (id host in containers) {
                 NSString *hn = NSStringFromClass([host class]);
-                // fb79d05：seed 后 TextR.divisionResponse 仍 SIGABRT，永久禁调
-                if ([hn containsString:@"TextRPageContainer"]) {
-                    LBAppendOpenReaderTrace(@"contentInject ban TextR.divisionResponse (sigabort)");
-                    continue;
-                }
+                // 解包后允许 TextR；未解包嵌套数组曾 SIGABRT（first=__NSSingleObjectArrayI）
                 if ([host respondsToSelector:dr2]) {
                     NSMutableArray *heights = [NSMutableArray array];
                     @try {
@@ -3267,53 +3275,6 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                     LBAppendOpenReaderTrace([NSString stringWithFormat:
                                              @"contentInject onDivisionTextFinish EX %@",
                                              ex.reason ?: @""]);
-                }
-            }
-            // TextR.divisionResponse：延后单独调用，避免与 nPageCount/藏错误页同拍撞崩
-            if (!responded) {
-                id textROnly = nil;
-                for (id h in containers) {
-                    if ([NSStringFromClass([h class]) containsString:@"TextRPageContainer"]) {
-                        textROnly = h;
-                        break;
-                    }
-                }
-                if (textROnly && [textROnly respondsToSelector:dr]) {
-                    __strong id trKeep = textROnly;
-                    __strong id pagesKeep = pageResult;
-                    NSString *titleKeep = [title copy];
-                    NSInteger idxKeep = cpIndex;
-                    __strong UIViewController *vcKeep2 = readerVC;
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
-                                   dispatch_get_main_queue(), ^{
-                        @try {
-                            ((void (*)(id, SEL, id, id, NSInteger))objc_msgSend)(
-                                trKeep, dr, pagesKeep, titleKeep, idxKeep);
-                            LBAppendOpenReaderTrace(@"contentInject delayed TextR.divisionResponse OK");
-                            @try {
-                                if ([vcKeep2 respondsToSelector:NSSelectorFromString(@"hideErrorView")]) {
-                                    ((void (*)(id, SEL))objc_msgSend)(
-                                        vcKeep2, NSSelectorFromString(@"hideErrorView"));
-                                }
-                                id ev = nil;
-                                @try { ev = [vcKeep2 valueForKey:@"errorView"]; } @catch (__unused NSException *e) {}
-                                if ([ev isKindOfClass:[UIView class]]) {
-                                    ((UIView *)ev).hidden = YES;
-                                    ((UIView *)ev).alpha = 0;
-                                }
-                                UIView *ov = [vcKeep2.view viewWithTag:92011];
-                                if (ov) [ov removeFromSuperview];
-                            } @catch (__unused NSException *e) {}
-                            LBWriteOpenReaderMarker(
-                                @"nativeOpen keepTextRead readerVis=1 via=nativeFull contentInject=delayedTextR nativePaged=1");
-                        } @catch (NSException *ex) {
-                            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                     @"contentInject delayed TextR EX %@",
-                                                     ex.reason ?: @""]);
-                        }
-                    });
-                    [okPaths addObject:@"delayedTextR.divisionResponse"];
-                    // 先不算 nativePaged，等延迟成功写 marker；本拍走 overlay 保萧炎
                 }
             }
             // divisionResponse 已成功则不再 processPageData（双写易崩）
