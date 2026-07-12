@@ -1441,11 +1441,39 @@ static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, N
         dic[@"querySourceName"] = sourceName;
     }
     dic[@"legadoBridge"] = @"1";
+    // TextReadVC viewDidAppear 对 @[..] 中 nil 会直接 abort；缺省填空串
+    for (NSString *k in @[
+             @"name", @"bookName", @"author", @"coverUrl", @"intro",
+             @"sourceName", @"bookSourceName", @"querySourceName", @"sourceUrl",
+             @"chapterUrl", @"cpUrl", @"cpTitle", @"title", @"lastChapterTitle", @"url", @"bookUrl"
+         ]) {
+        id v = dic[k];
+        if (v == nil || v == [NSNull null]) {
+            dic[k] = @"";
+        }
+    }
+    if ([dic[@"name"] length] == 0 && [dic[@"bookName"] length] > 0) {
+        dic[@"name"] = dic[@"bookName"];
+    }
+    if ([dic[@"name"] length] == 0) dic[@"name"] = @"书";
+    if ([dic[@"bookName"] length] == 0) dic[@"bookName"] = dic[@"name"];
+    if (sPendingCatalogChapters.count > 0) {
+        dic[@"arrCatalog"] = sPendingCatalogChapters;
+        dic[@"arrBaseData"] = sPendingCatalogChapters;
+    }
     @try {
         if ([vc respondsToSelector:@selector(setDicBook:)]) {
             ((void (*)(id, SEL, id))objc_msgSend)(vc, @selector(setDicBook:), dic);
         } else {
             [vc setValue:dic forKey:@"dicBook"];
+        }
+    } @catch (__unused NSException *e) {}
+    @try {
+        if (sPendingCatalogChapters.count > 0) {
+            SEL setCat = NSSelectorFromString(@"setArrCatalog:");
+            if ([vc respondsToSelector:setCat]) {
+                ((void (*)(id, SEL, id))objc_msgSend)(vc, setCat, sPendingCatalogChapters);
+            }
         }
     } @catch (__unused NSException *e) {}
     // 关掉可见 CatalogCon
