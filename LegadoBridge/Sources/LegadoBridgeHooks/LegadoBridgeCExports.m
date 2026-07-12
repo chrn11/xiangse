@@ -1567,6 +1567,8 @@ void LBNoteResetContentPosted(NSDictionary *userInfo) {
                         ch, (unsigned long)userInfo.count];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_content_pending.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    // Bridge 阅读页：正文到达即灌入（不依赖原生 TextReadVC）
+    LBBridgeReaderApplyContent(userInfo);
 }
 
 static void LBFlushPendingResetContent(NSString *phase) {
@@ -1638,23 +1640,27 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                     } @catch (__unused NSException *e) {}
                 }
                 if (chUrl.length > 0 && bookUrl.length > 0) {
-                    NSString *msg = [NSString stringWithFormat:@"didSelect ch=%@ book=%@ idx=%ld",
-                                     chUrl, bookUrl, (long)ip.row];
-                    [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_select.txt"]
-                          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                     LBInstallReaderContentAppearFlush();
+                    NSString *chTitle = nil;
+                    if ([item isKindOfClass:[NSDictionary class]]) {
+                        NSDictionary *d = (NSDictionary *)item;
+                        chTitle = d[@"cpTitle"] ?: d[@"title"] ?: d[@"name"] ?: d[@"chapterName"];
+                    }
                     NSString *sourceName = nil;
                     NSDictionary *book = LBBookDictForOpenReader(
                         bookUrl, item, ip.row, chUrl, &sourceName
                     );
                     NSString *chCopy = [chUrl copy];
                     NSString *buCopy = [bookUrl copy];
+                    NSString *titleCopy = [chTitle copy] ?: @"章节";
                     // openReader 会对 book 做下标赋值；必须传可变副本，不能 [book copy]
                     NSMutableDictionary *bookCopy = [book mutableCopy] ?: [NSMutableDictionary dictionary];
                     NSString *srcCopy = [sourceName copy] ?: @"";
+                    NSString *msg = [NSString stringWithFormat:@"didSelect ch=%@ book=%@ idx=%ld title=%@",
+                                     chUrl, bookUrl, (long)ip.row, titleCopy];
+                    [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_select.txt"]
+                          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                     // 1) 原生 didSelect：关掉 CatalogCon / 详情回调
-                    // 2) 延迟 AppDelegate.openReader（立即调常被目录 dismiss 冲掉）
-                    // 3) 再取正文 + appear/delay 重投 ResetContent
                     if (LBOrig_catalogDidSelect) {
                         @try {
                             LBOrig_catalogDidSelect(selfObj, selSel, tv, ip);
@@ -1662,55 +1668,31 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                             NSLog(@"[LegadoBridge] catalog didSelect fail-open: %@", e);
                         }
                     }
-                    // 诊断：先不调 openReader/beginRead/push，只灌正文；避免与原生 didSelect 双开闪退
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
+                    // 2) 短延迟 present Bridge UITextView（等目录 dismiss；绕过 TextReadVC3 SIGABRT）
+                    //    原生 openReader/beginRead/push 函数仍保留，后续可再接
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
                                    dispatch_get_main_queue(), ^{
-                        NSString *prepMsg = nil;
-                        BOOL prepped = LBPrepareDetailForOpenReader(bookCopy, srcCopy, &prepMsg);
-                        BOOL vis = LBIsTextReaderVisible();
+                        NSString *brMsg = nil;
+                        BOOL presented = LBPresentBridgeReader(titleCopy, chCopy, buCopy, &brMsg);
                         NSString *line = [NSString stringWithFormat:
-                                         @"prep=%d opened=0 began=0 pushed=0 readerVis=%d | %@ || skipOpen (native-only) || skipBegin || skipPush",
-                                         prepped ? 1 : 0, vis ? 1 : 0, prepMsg ?: @"prep ?"];
+                                         @"bridgeReader presented=%d | %@ || skipNativeOpen (crash-prone TextReadVC)",
+                                         presented ? 1 : 0, brMsg ?: @"?"];
                         [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
                                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                        (void)bookCopy;
+                        (void)srcCopy;
                     });
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
-                                   dispatch_get_main_queue(), ^{
-                        BOOL vis = LBIsTextReaderVisible();
-                        NSString *prev = [NSString stringWithContentsOfFile:
-                                          [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                                          encoding:NSUTF8StringEncoding error:NULL] ?: @"";
-                        if (vis) {
-                            NSString *line = [NSString stringWithFormat:@"%@ || postNative readerVis=1", prev];
-                            [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                                   atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                            return;
-                        }
-                        // 再 prep 一次站点（详情常显示 站点(0+)）
-                        LBPrepareDetailForOpenReader(bookCopy, srcCopy, NULL);
-                        NSString *orm = nil;
-                        BOOL opened = LBCallOpenReader(bookCopy, srcCopy, &orm);
-                        // 禁止 beginRead / 点按钮 / 裸 push：均会在 TextReadVC appear 时 SIGABRT
-                        // （即使 dicBook 已消毒）。当前仅能 openReader 空转 + 正文 pending。
-                        NSString *line = [NSString stringWithFormat:
-                                         @"%@ || lateOpen opened=%d began=0 pushed=0 readerVis=%d/%d | %@ || skipBegin || skipPush (native-crash)",
-                                         prev, opened ? 1 : 0,
-                                         LBIsTextReaderVisible() ? 1 : 0, LBIsTextReaderVisible() ? 1 : 0,
-                                         orm ?: @"openReader ?"];
-                        [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                    });
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.8 * NSEC_PER_SEC)),
+                    // 3) 拉正文 → ResetContent → Bridge 页灌入；仍缓存 pending 供日后原生阅读器
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
                                    dispatch_get_main_queue(), ^{
                         LBHandleContentRequest(chCopy, buCopy, nil);
                     });
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.6 * NSEC_PER_SEC)),
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
                                    dispatch_get_main_queue(), ^{
-                        LBFlushPendingResetContent(@"delay2.6s");
-                    });
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4.0 * NSEC_PER_SEC)),
-                                   dispatch_get_main_queue(), ^{
-                        LBFlushPendingResetContent(@"delay4.0s");
+                        if (sPendingResetContent.count > 0) {
+                            LBBridgeReaderApplyContent(sPendingResetContent);
+                            LBFlushPendingResetContent(@"bridge1.5s");
+                        }
                     });
                     return;
                 }
