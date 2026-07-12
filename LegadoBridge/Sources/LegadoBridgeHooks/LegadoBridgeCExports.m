@@ -3,6 +3,7 @@
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <string.h>
+#import <signal.h>
 #import "LegadoBridge.h"
 #import "LBInternal.h"
 
@@ -655,6 +656,8 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
 
 static NSArray *sPendingCatalogChapters = nil;
 static NSString *sPendingCatalogBookUrl = nil;
+static NSString *sPendingCatalogSourceName = nil;
+static NSString *sPendingCatalogSourceUrl = nil;
 /// legado://nativeRead 等待目录返回后再点章
 static NSInteger sDeferredNativeOpenIdx = -1;
 static NSString *sDeferredNativeOpenBookUrl = nil;
@@ -662,6 +665,7 @@ static NSDictionary *sPendingResetContent = nil;
 static BOOL sReaderContentAppearHooked = NO;
 static BOOL sCatalogUIAppearHooked = NO;
 static BOOL sCatalogInjectReentrant = NO;
+static BOOL sNativeOpenCrashGuardsInstalled = NO;
 static IMP sOrigCatalogNumberOfRows = NULL;
 static IMP sOrigCatalogCellForRow = NULL;
 static void (*LBOrig_setArrCatalog)(id, SEL, id) = NULL;
@@ -1091,14 +1095,14 @@ static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv,
     return orig;
 }
 
-/// TextReadVC viewDidAppear 会对 @[...] 中的 nil 直接 abort；字符串缺省填空串，并挂上章节/站点
+/// TextReadVC viewDidAppear 会对 @[...] 中的 nil 直接 abort；对齐本地书/已导入源字段
 static void LBSanitizeBookDictForReader(NSMutableDictionary *dic) {
     if (![dic isKindOfClass:[NSMutableDictionary class]]) return;
     NSArray *strKeys = @[
         @"name", @"bookName", @"author", @"coverUrl", @"intro",
-        @"sourceName", @"bookSourceName", @"querySourceName", @"sourceUrl",
-        @"chapterUrl", @"cpUrl", @"cpTitle", @"title", @"lastChapterTitle",
-        @"url", @"bookUrl", @"curChapterUrl"
+        @"sourceName", @"bookSourceName", @"querySourceName", @"sourceUrl", @"bookSourceUrl",
+        @"chapterUrl", @"cpUrl", @"cpTitle", @"title", @"lastChapterTitle", @"chapterName",
+        @"url", @"bookUrl", @"curChapterUrl", @"bookKey", @"sourceType", @"type"
     ];
     for (NSString *k in strKeys) {
         id v = dic[k];
@@ -1124,25 +1128,147 @@ static void LBSanitizeBookDictForReader(NSMutableDictionary *dic) {
         [(NSString *)dic[@"bookName"] length] == 0) {
         dic[@"bookName"] = dic[@"name"] ?: @"书";
     }
+    NSString *nm = [dic[@"name"] isKindOfClass:[NSString class]] ? dic[@"name"] : @"";
+    NSString *au = [dic[@"author"] isKindOfClass:[NSString class]] ? dic[@"author"] : @"";
+    NSString *bk = [dic[@"bookKey"] isKindOfClass:[NSString class]] ? dic[@"bookKey"] : @"";
+    if (bk.length == 0 && nm.length > 0) {
+        dic[@"bookKey"] = au.length > 0 ? [NSString stringWithFormat:@"%@|%@", nm, au] : nm;
+    }
+    if (![dic[@"sourceType"] isKindOfClass:[NSString class]] ||
+        [(NSString *)dic[@"sourceType"] length] == 0) {
+        dic[@"sourceType"] = @"text";
+    }
+    // 站点数组：enable 统一字符串，去掉易炸的 BOOL/桥接字段
+    for (NSString *siteKey in @[@"arrSource", @"arrSourceInfoRequired", @"arrSourceInfoOptional"]) {
+        id arr = dic[siteKey];
+        if (![arr isKindOfClass:[NSArray class]]) continue;
+        NSMutableArray *cleanSites = [NSMutableArray arrayWithCapacity:[(NSArray *)arr count]];
+        for (id s in (NSArray *)arr) {
+            if (![s isKindOfClass:[NSDictionary class]]) continue;
+            NSMutableDictionary *site = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)s];
+            for (NSString *k in @[@"sourceName", @"bookSourceName", @"title", @"name",
+                                  @"sourceUrl", @"url", @"bookSourceUrl", @"bookUrl",
+                                  @"sourceType", @"type", @"enable"]) {
+                id v = site[k];
+                if (v == nil || v == [NSNull null]) {
+                    site[k] = @"";
+                } else if ([v isKindOfClass:[NSNumber class]]) {
+                    site[k] = [(NSNumber *)v stringValue] ?: @"";
+                } else if (![v isKindOfClass:[NSString class]]) {
+                    site[k] = [[v description] copy] ?: @"";
+                }
+            }
+            if ([(NSString *)site[@"sourceType"] length] == 0) site[@"sourceType"] = @"text";
+            if ([(NSString *)site[@"type"] length] == 0) site[@"type"] = @"text";
+            if ([(NSString *)site[@"enable"] length] == 0) site[@"enable"] = @"1";
+            [site removeObjectForKey:@"enabled"];
+            [site removeObjectForKey:@"isEnabled"];
+            [site removeObjectForKey:@"legadoBridge"];
+            [site removeObjectForKey:@"fromLegadoBridge"];
+            [cleanSites addObject:site];
+        }
+        if (cleanSites.count > 0) dic[siteKey] = cleanSites;
+    }
+    if (![dic[@"arrSourceType"] isKindOfClass:[NSArray class]] ||
+        [(NSArray *)dic[@"arrSourceType"] count] == 0) {
+        dic[@"arrSourceType"] = @[@"text"];
+    }
+    NSArray *chapterSrc = nil;
     if (sPendingCatalogChapters.count > 0) {
-        NSMutableArray *clean = [NSMutableArray arrayWithCapacity:sPendingCatalogChapters.count];
-        for (id item in sPendingCatalogChapters) {
+        chapterSrc = sPendingCatalogChapters;
+    } else if ([dic[@"arrCatalog"] isKindOfClass:[NSArray class]]) {
+        chapterSrc = dic[@"arrCatalog"];
+    }
+    if (chapterSrc.count > 0) {
+        NSMutableArray *clean = [NSMutableArray arrayWithCapacity:chapterSrc.count];
+        NSInteger i = 0;
+        for (id item in chapterSrc) {
             if (![item isKindOfClass:[NSDictionary class]]) continue;
             NSMutableDictionary *ch = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)item];
             for (NSString *k in @[@"cpTitle", @"title", @"name", @"chapterName",
                                   @"cpUrl", @"chapterUrl", @"url"]) {
                 id v = ch[k];
                 if (v == nil || v == [NSNull null]) ch[k] = @"";
+                else if (![v isKindOfClass:[NSString class]]) ch[k] = [[v description] copy] ?: @"";
             }
+            id cpi = ch[@"cpIndex"] ?: ch[@"index"] ?: @(i);
+            if ([cpi respondsToSelector:@selector(integerValue)]) {
+                ch[@"cpIndex"] = @([cpi integerValue]);
+            } else {
+                ch[@"cpIndex"] = @(i);
+            }
+            [ch removeObjectForKey:@"legadoBridge"];
+            [ch removeObjectForKey:@"fromLegadoBridge"];
             [clean addObject:ch];
+            i++;
         }
         if (clean.count > 0) {
             dic[@"arrCatalog"] = clean;
             dic[@"arrChapter"] = clean;
             dic[@"arrBaseData"] = clean;
+            dic[@"arrCpInfo"] = clean;
             dic[@"chapterList"] = clean;
         }
     }
+    // 给原生 openReader 的模型去掉桥接标记，避免误入自定义分支
+    [dic removeObjectForKey:@"legadoBridge"];
+    [dic removeObjectForKey:@"fromLegadoBridge"];
+}
+
+static void LBWriteOpenReaderMarker(NSString *msg) {
+    if (msg.length == 0) return;
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"];
+    [msg writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+}
+
+static void LBDumpBookDictForOpenReader(NSDictionary *book, NSString *phase) {
+    if (![book isKindOfClass:[NSDictionary class]]) {
+        LBWriteOpenReaderMarker([NSString stringWithFormat:@"%@ dump: nil", phase ?: @"?"]);
+        return;
+    }
+    NSMutableArray *parts = [NSMutableArray array];
+    [parts addObject:[NSString stringWithFormat:@"%@ keys=%lu", phase ?: @"dump", (unsigned long)book.count]];
+    for (NSString *k in @[@"name", @"author", @"bookKey", @"bookUrl", @"sourceName", @"sourceUrl",
+                          @"cpTitle", @"cpUrl", @"cpIndex", @"sourceType"]) {
+        id v = book[k];
+        NSString *cls = v ? NSStringFromClass([v class]) : @"nil";
+        NSString *s = [v isKindOfClass:[NSString class]] ? (NSString *)v
+            : ([v isKindOfClass:[NSNumber class]] ? [(NSNumber *)v stringValue] : cls);
+        if (s.length > 80) s = [[s substringToIndex:80] stringByAppendingString:@"…"];
+        [parts addObject:[NSString stringWithFormat:@"%@=%@(%@)", k, s ?: @"", cls]];
+    }
+    id ac = book[@"arrCatalog"];
+    id as = book[@"arrSource"];
+    [parts addObject:[NSString stringWithFormat:@"arrCatalog=%lu arrSource=%lu",
+                      [ac isKindOfClass:[NSArray class]] ? (unsigned long)[(NSArray *)ac count] : 0,
+                      [as isKindOfClass:[NSArray class]] ? (unsigned long)[(NSArray *)as count] : 0]];
+    LBWriteOpenReaderMarker([parts componentsJoinedByString:@" | "]);
+}
+
+static void LBNativeOpenSignalHandler(int sig) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "nativeOpen SIGNAL sig=%d", sig);
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"];
+    NSString *msg = [NSString stringWithUTF8String:buf];
+    [msg writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+static void LBNativeOpenExceptionHandler(NSException *exception) {
+    NSString *msg = [NSString stringWithFormat:@"nativeOpen UNCAUGHT %@ %@",
+                     exception.name ?: @"?", exception.reason ?: @""];
+    LBWriteOpenReaderMarker(msg);
+}
+
+static void LBInstallNativeOpenCrashGuards(void) {
+    if (sNativeOpenCrashGuardsInstalled) return;
+    sNativeOpenCrashGuardsInstalled = YES;
+    NSSetUncaughtExceptionHandler(&LBNativeOpenExceptionHandler);
+    signal(SIGABRT, LBNativeOpenSignalHandler);
+    signal(SIGSEGV, LBNativeOpenSignalHandler);
+    signal(SIGBUS, LBNativeOpenSignalHandler);
+    signal(SIGILL, LBNativeOpenSignalHandler);
 }
 
 static NSMutableDictionary *LBBookDictForOpenReader(NSString *bookUrl,
@@ -1185,13 +1311,15 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
     [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_select.txt"]
            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     void (^go)(void) = ^{
-        [[NSString stringWithFormat:@"nativeOpen phase=goStart ch=%@", chCopy]
-            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        // 禁止 detailDictForBookUrl / sourceUrlForBookUrl：主线程 sync 会死锁，旁路永停 goStart
-        NSString *sourceName = @"本地 mock";
-        NSString *sourceUrl = @"http://192.168.1.4:8765/source.json";
+        LBInstallNativeOpenCrashGuards();
+        LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen phase=goStart ch=%@", chCopy]);
+        // 对齐已导入书源：本地静态测试源 / http://192.168.1.4:8765（勿用 404 的 source.json、勿用「本地 mock」）
+        NSString *sourceName = sPendingCatalogSourceName.length > 0
+            ? sPendingCatalogSourceName : @"本地静态测试源";
+        NSString *sourceUrl = sPendingCatalogSourceUrl.length > 0
+            ? sPendingCatalogSourceUrl : @"http://192.168.1.4:8765";
         NSString *bookName = @"斗破苍穹";
+        NSString *author = @"天蚕土豆";
         for (UIViewController *vc in LBFindCatalogVCs()) {
             NSString *cn = NSStringFromClass([vc class]);
             if (![cn containsString:@"LBLegadoCatalogListVC"]) continue;
@@ -1210,6 +1338,10 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         NSMutableDictionary *book = [NSMutableDictionary dictionary];
         book[@"name"] = bookName;
         book[@"bookName"] = bookName;
+        book[@"author"] = author;
+        book[@"bookKey"] = [NSString stringWithFormat:@"%@|%@", bookName, author];
+        book[@"coverUrl"] = @"";
+        book[@"intro"] = @"这里是斗气的世界，没有花俏的魔法，有的，只是繁衍到巅峰的斗气！";
         book[@"bookUrl"] = buCopy ?: @"";
         book[@"url"] = buCopy ?: @"";
         book[@"chapterUrl"] = chCopy ?: @"";
@@ -1217,21 +1349,26 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         book[@"curChapterUrl"] = chCopy ?: @"";
         book[@"cpIndex"] = @(idxCopy);
         book[@"chapterIndex"] = @(idxCopy);
-        book[@"legadoBridge"] = @"1";
         book[@"sourceName"] = sourceName;
         book[@"bookSourceName"] = sourceName;
         book[@"querySourceName"] = sourceName;
         book[@"sourceUrl"] = sourceUrl;
+        book[@"bookSourceUrl"] = sourceUrl;
+        book[@"sourceType"] = @"text";
+        book[@"type"] = @"text";
+        book[@"lastChapterTitle"] = titleCopy ?: @"";
         if ([itemCopy isKindOfClass:[NSDictionary class]]) {
             NSDictionary *ch = (NSDictionary *)itemCopy;
             id cpTitle = ch[@"cpTitle"] ?: ch[@"title"] ?: ch[@"name"] ?: ch[@"chapterName"];
             if (cpTitle) {
                 book[@"cpTitle"] = cpTitle;
                 book[@"chapterName"] = cpTitle;
+                book[@"title"] = cpTitle;
             }
         } else if (titleCopy.length > 0) {
             book[@"cpTitle"] = titleCopy;
             book[@"chapterName"] = titleCopy;
+            book[@"title"] = titleCopy;
         }
         NSMutableDictionary *site = [NSMutableDictionary dictionary];
         site[@"sourceName"] = sourceName;
@@ -1244,9 +1381,6 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         site[@"sourceType"] = @"text";
         site[@"type"] = @"text";
         site[@"enable"] = @"1";
-        site[@"enabled"] = @YES;
-        site[@"isEnabled"] = @YES;
-        site[@"legadoBridge"] = @"1";
         site[@"bookUrl"] = buCopy ?: @"";
         book[@"arrSource"] = @[site];
         book[@"arrSourceInfoRequired"] = @[site];
@@ -1255,38 +1389,29 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         @try {
             LBSanitizeBookDictForReader(book);
         } @catch (NSException *e) {
-            [[NSString stringWithFormat:@"nativeOpen fail sanitize: %@", e.reason ?: @""]
-                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen fail sanitize: %@", e.reason ?: @""]);
             return;
         }
-        [[NSString stringWithFormat:@"nativeOpen phase=bookDictOK src=%@ fast=1", sourceName]
-            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        LBDumpBookDictForOpenReader(book, @"nativeOpen phase=bookDictOK");
         LBInstallReaderContentAppearFlush();
         LBHandleContentRequest(chCopy, buCopy, nil);
-        [[NSString stringWithFormat:@"nativeOpen beforeCall skipPrep=1 fast=1"]
-            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        LBWriteOpenReaderMarker(@"nativeOpen beforeCall alignedSource=1");
         NSString *orm = nil;
         BOOL opened = NO;
         @try {
-            [@"nativeOpen callingOrig"
-                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            LBWriteOpenReaderMarker(@"nativeOpen callingOrig");
             opened = LBCallOpenReader(book, sourceName, &orm);
-            [[NSString stringWithFormat:@"nativeOpen origReturned opened=%d", opened ? 1 : 0]
-                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen origReturned opened=%d | %@",
+                                     opened ? 1 : 0, orm ?: @"?"]);
         } @catch (NSException *e) {
             orm = [NSString stringWithFormat:@"openReader exception: %@", e.reason ?: @""];
             opened = NO;
+            LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen catch %@", orm]);
         }
         NSString *line = [NSString stringWithFormat:
-                          @"nativeOpen opened=%d readerVis=%d | %@ || via=fastDict preferNative=1",
+                          @"nativeOpen opened=%d readerVis=%d | %@ || via=alignedDict preferNative=1",
                           opened ? 1 : 0, LBIsTextReaderVisible() ? 1 : 0, orm ?: @"?"];
-        [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        LBWriteOpenReaderMarker(line);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             if (LBIsTextReaderVisible()) {
@@ -1300,19 +1425,15 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
                        dispatch_get_main_queue(), ^{
             if (LBIsTextReaderVisible()) {
                 LBFlushPendingResetContent(@"native1.8");
-                NSString *ok = [NSString stringWithFormat:
-                                @"nativeOpen keepTextRead readerVis=1 ch=%@", chCopy];
-                [ok writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                LBWriteOpenReaderMarker([NSString stringWithFormat:
+                                        @"nativeOpen keepTextRead readerVis=1 ch=%@", chCopy]);
                 return;
             }
             NSString *brMsg = nil;
             BOOL presented = LBPresentBridgeReader(titleCopy, chCopy, buCopy, &brMsg);
-            NSString *fb = [NSString stringWithFormat:
-                            @"bridgeFallback presented=%d | %@ || nativeMiss ch=%@",
-                            presented ? 1 : 0, brMsg ?: @"?", chCopy];
-            [fb writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            LBWriteOpenReaderMarker([NSString stringWithFormat:
+                                    @"bridgeFallback presented=%d | %@ || nativeMiss ch=%@",
+                                    presented ? 1 : 0, brMsg ?: @"?", chCopy]);
             if (sPendingResetContent.count > 0) {
                 LBBridgeReaderApplyContent(sPendingResetContent);
             }
@@ -1762,6 +1883,18 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
         mark(@"searchPush fail: no bookUrl");
         return NO;
     }
+    sPendingCatalogBookUrl = [bu copy];
+    if (su.length > 0) sPendingCatalogSourceUrl = [su copy];
+    else if (sPendingCatalogSourceUrl.length == 0) {
+        sPendingCatalogSourceUrl = @"http://192.168.1.4:8765";
+    }
+    id sn0 = safe[@"sourceName"] ?: safe[@"bookSourceName"] ?: safe[@"querySourceName"];
+    if ([sn0 isKindOfClass:[NSString class]] && [(NSString *)sn0 length] > 0) {
+        sPendingCatalogSourceName = [(NSString *)sn0 copy];
+    } else if (sPendingCatalogSourceName.length == 0) {
+        sPendingCatalogSourceName = @"本地静态测试源";
+    }
+    if (su.length == 0) su = sPendingCatalogSourceUrl;
 
     LBLegadoCatalogListVC *list = [[LBLegadoCatalogListVC alloc] initWithStyle:UITableViewStylePlain];
     list.bookUrl = bu;
@@ -2711,6 +2844,15 @@ void LBApplyCatalogToUI(NSArray *chapters, NSString *bookUrl) {
 }
 
 void LBHandleCatalogRequest(NSString *bookUrl, NSString *sourceUrl) {
+    if (sourceUrl.length > 0) {
+        sPendingCatalogSourceUrl = [sourceUrl copy];
+    }
+    if (sPendingCatalogSourceName.length == 0) {
+        sPendingCatalogSourceName = @"本地静态测试源";
+    }
+    if (sPendingCatalogSourceUrl.length == 0) {
+        sPendingCatalogSourceUrl = @"http://192.168.1.4:8765";
+    }
     Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
     if (!coreClass) return;
     id core = [coreClass performSelector:@selector(shared)];
