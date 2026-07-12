@@ -1260,25 +1260,59 @@ static BOOL LBInvokeBeginReadOnDetail(NSMutableDictionary *book, NSString *sourc
         if (outMsg) *outMsg = @"beginRead miss: no BookDetail";
         return NO;
     }
-    for (NSString *selName in @[@"onBeginReadEvent", @"onBeginReadEvent:"]) {
-        SEL sel = NSSelectorFromString(selName);
-        if (![detail respondsToSelector:sel]) continue;
-        @try {
-            if ([selName hasSuffix:@":"]) {
-                ((void (*)(id, SEL, id))objc_msgSend)(detail, sel, nil);
-            } else {
-                ((void (*)(id, SEL))objc_msgSend)(detail, sel);
+    // 优先 reloadSource / tryOpenRecord，避免 onBeginReadEvent 异步 SIGABRT
+    @try {
+        SEL reload = NSSelectorFromString(@"reloadSource:");
+        id arr = book[@"arrSource"];
+        if ([detail respondsToSelector:reload] && [arr isKindOfClass:[NSArray class]]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(detail, reload, arr);
+        } else {
+            SEL reload0 = NSSelectorFromString(@"reloadSource");
+            if ([detail respondsToSelector:reload0]) {
+                ((void (*)(id, SEL))objc_msgSend)(detail, reload0);
             }
+        }
+    } @catch (__unused NSException *e) {}
+    @try {
+        SEL tryOpen = NSSelectorFromString(@"tryOpenRecord:sourceName:");
+        if ([detail respondsToSelector:tryOpen]) {
+            ((void (*)(id, SEL, id, id))objc_msgSend)(
+                detail, tryOpen, book, sourceName ?: @""
+            );
             if (outMsg) {
-                *outMsg = [NSString stringWithFormat:@"beginRead ok %@ on %@",
-                           selName, NSStringFromClass([detail class])];
+                *outMsg = [NSString stringWithFormat:@"tryOpenRecord ok on %@",
+                           NSStringFromClass([detail class])];
             }
             return YES;
-        } @catch (NSException *e) {
-            if (outMsg) {
-                *outMsg = [NSString stringWithFormat:@"beginRead ex %@: %@",
-                           selName, e.reason ?: @""];
+        }
+    } @catch (NSException *e) {
+        if (outMsg) {
+            *outMsg = [NSString stringWithFormat:@"tryOpenRecord ex: %@", e.reason ?: @""];
+        }
+    }
+    // 次选：点详情里的「开始阅读」按钮（不直接调 onBeginReadEvent）
+    @try {
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:detail.view];
+        while (stack.count > 0) {
+            UIView *v = stack.lastObject;
+            [stack removeLastObject];
+            if ([v isKindOfClass:[UIButton class]]) {
+                UIButton *btn = (UIButton *)v;
+                NSString *title = [btn titleForState:UIControlStateNormal] ?: btn.currentTitle ?: @"";
+                if ([title containsString:@"开始阅读"]) {
+                    [btn sendActionsForControlEvents:UIControlEventTouchUpInside];
+                    if (outMsg) {
+                        *outMsg = [NSString stringWithFormat:@"tapBeginReadBtn ok on %@",
+                                   NSStringFromClass([detail class])];
+                    }
+                    return YES;
+                }
             }
+            for (UIView *sub in v.subviews) [stack addObject:sub];
+        }
+    } @catch (NSException *e) {
+        if (outMsg) {
+            *outMsg = [NSString stringWithFormat:@"tapBeginReadBtn ex: %@", e.reason ?: @""];
         }
     }
     if (outMsg) {
