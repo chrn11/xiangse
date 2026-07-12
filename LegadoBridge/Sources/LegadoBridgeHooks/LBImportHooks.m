@@ -355,6 +355,27 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                 LBTriggerMixedSearch(keyword, sourceUrl.length > 0 ? sourceUrl : nil);
                 return YES;
             }
+            // legado://nativeRead?bookUrl=...&sourceUrl=...&idx=0 — 验收：原生点章旁路
+            BOOL wantNativeRead = [host isEqualToString:@"nativeread"]
+                || [host isEqualToString:@"opennative"]
+                || [pathLower containsString:@"/nativeread"]
+                || [pathLower containsString:@"/opennative"];
+            if (wantNativeRead) {
+                NSString *bookUrl = LBQueryParameterFromURL(url, @"bookUrl");
+                NSString *sourceUrl = LBQueryParameterFromURL(url, @"sourceUrl");
+                NSString *idxStr = LBQueryParameterFromURL(url, @"idx");
+                NSInteger idx = idxStr.length > 0 ? idxStr.integerValue : 0;
+                if (bookUrl.length == 0) {
+                    LBLegadoShowResult(@"nativeRead 缺少 bookUrl");
+                    return YES;
+                }
+                [[NSString stringWithFormat:@"openURL nativeRead book=%@ src=%@ idx=%ld",
+                  bookUrl, sourceUrl ?: @"", (long)idx]
+                    writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_nativeread_openurl.txt"]
+                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                LBOpenNativeChapterAtIndex(bookUrl, sourceUrl, idx);
+                return YES;
+            }
             // legado://read?chapterUrl=...&bookUrl=...&title=... — 直达 Bridge 阅读页（验收/旁路）
             BOOL wantRead = [host isEqualToString:@"read"] || [pathLower containsString:@"/read"];
             if (wantRead) {

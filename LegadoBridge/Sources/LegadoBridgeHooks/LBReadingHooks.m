@@ -144,13 +144,20 @@ static void LBSetDicBook_IMP(id self, SEL _cmd, id dicBook) {
                  @"chapterUrl", @"cpUrl", @"cpTitle", @"title", @"url", @"bookUrl"
              ]) {
             id v = safe[k];
-            if (v == nil || v == [NSNull null]) safe[k] = @"";
+            if (v == nil || v == [NSNull null]) {
+                safe[k] = @"";
+            } else if (![v isKindOfClass:[NSString class]] &&
+                       ![v isKindOfClass:[NSNumber class]]) {
+                safe[k] = [[v description] copy] ?: @"";
+            }
         }
-        if ([safe[@"name"] length] == 0) {
-            safe[@"name"] = [safe[@"bookName"] length] > 0 ? safe[@"bookName"] : @"书";
+        NSString *nm = [safe[@"name"] isKindOfClass:[NSString class]] ? safe[@"name"] : @"";
+        NSString *bn = [safe[@"bookName"] isKindOfClass:[NSString class]] ? safe[@"bookName"] : @"";
+        if (nm.length == 0) {
+            safe[@"name"] = bn.length > 0 ? bn : @"书";
         }
-        if ([safe[@"bookName"] length] == 0) {
-            safe[@"bookName"] = safe[@"name"] ?: @"书";
+        if (bn.length == 0) {
+            safe[@"bookName"] = [safe[@"name"] isKindOfClass:[NSString class]] ? safe[@"name"] : @"书";
         }
         dic = safe;
         passBook = safe;

@@ -21,6 +21,8 @@ FOUNDATION_EXPORT void LBInstallSearchUIAppearFlush(void);
 FOUNDATION_EXPORT void LBInstallCatalogUIAppearFlush(void);
 FOUNDATION_EXPORT void LBHandleCatalogRequest(NSString *bookUrl, NSString *sourceUrl);
 FOUNDATION_EXPORT void LBHandleContentRequest(NSString *chapterUrl, NSString *bookUrl, NSString *sourceUrl);
+/// 验收深链：拉目录后按 idx 走原生 openReader（失败再 Bridge）
+FOUNDATION_EXPORT void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString * _Nullable sourceUrl, NSInteger idx);
 /// 正文通知已发出：缓存载荷，阅读页 viewDidAppear 时再投一次（避免 ReadVC 尚未监听）
 FOUNDATION_EXPORT void LBNoteResetContentPosted(NSDictionary * _Nullable userInfo);
 /// 安装 TextRead/ReadVC appear 冲刷 pending 正文
