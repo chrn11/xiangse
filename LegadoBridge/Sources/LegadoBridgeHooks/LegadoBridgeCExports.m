@@ -2558,24 +2558,26 @@ static void LBDeliverContentToVisibleReaders(NSString *phase) {
             if (isRead && LBVCIsVisibleInWindow(vc)) {
                 if (sLegadoReaderMode == 1) {
                     BOOL delivered = NO;
-                    NSArray *sels = @[@"onResetContentNotify:", @"onResetContent:",
-                                      @"resetContentNotify:", @"handleResetContent:"];
+                    NSArray *sels = @[@"onResetContentNotify", @"onResetContentNotify:",
+                                      @"onResetContent:", @"resetContentNotify:",
+                                      @"handleResetContent:"];
                     for (NSString *sn in sels) {
                         SEL sel = NSSelectorFromString(sn);
-                        if (![vc respondsToSelector:sel] && !LBOrig_onResetContentNotify) continue;
-                        if (![vc respondsToSelector:sel] && LBOrig_onResetContentNotify &&
-                            sel != @selector(onResetContentNotify:)) continue;
+                        if (![vc respondsToSelector:sel]) continue;
                         @try {
-                            NSNotification *note =
-                                [NSNotification notificationWithName:@"dNotifyName_ReadView_ResetContent"
-                                                              object:nil
-                                                            userInfo:safe];
-                            if (LBOrig_onResetContentNotify &&
-                                (sel == @selector(onResetContentNotify:) ||
-                                 [sn isEqualToString:@"onResetContentNotify:"])) {
-                                LBOrig_onResetContentNotify(vc, sel, note);
+                            if ([sn hasSuffix:@":"]) {
+                                NSNotification *note =
+                                    [NSNotification notificationWithName:@"dNotifyName_ReadView_ResetContent"
+                                                                  object:nil
+                                                                userInfo:safe];
+                                if (LBOrig_onResetContentNotify &&
+                                    [sn isEqualToString:@"onResetContentNotify:"]) {
+                                    LBOrig_onResetContentNotify(vc, sel, note);
+                                } else {
+                                    ((void (*)(id, SEL, id))objc_msgSend)(vc, sel, note);
+                                }
                             } else {
-                                ((void (*)(id, SEL, id))objc_msgSend)(vc, sel, note);
+                                ((void (*)(id, SEL))objc_msgSend)(vc, sel);
                             }
                             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                                      @"deliver ORIG_OK phase=%@ cls=%@ sel=%@",
@@ -2637,6 +2639,7 @@ static void LBInstallNativeResetContentHook(void) {
         NSArray *names = @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1",
                            @"ReadVCBase2", @"ReadVCBase1"];
         NSArray *sels = @[
+            @"onResetContentNotify",   // 真机 class_copyMethodList：无冒号
             @"onResetContentNotify:",
             @"onResetContent:",
             @"resetContentNotify:",
@@ -2653,39 +2656,67 @@ static void LBInstallNativeResetContentHook(void) {
                 SEL sel = NSSelectorFromString(sn);
                 Class owner = LBClassOwningInstanceMethod(cls, sel);
                 Method m = owner ? class_getInstanceMethod(owner, sel) : NULL;
+                if (!m) {
+                    // 无冒号方法有时 class_getInstanceMethod 需精确 SEL
+                    m = class_getInstanceMethod(cls, sel);
+                    owner = cls;
+                }
                 if (!m) continue;
-                if (!LBOrig_onResetContentNotify) {
+                const char *types = method_getTypeEncoding(m) ?: "v16@0:8";
+                BOOL takesNote = (strchr(types, '@') != NULL) && (strstr(types, "@24") != NULL || strstr(types, "@32") != NULL || [sn hasSuffix:@":"]);
+                if (!LBOrig_onResetContentNotify && takesNote) {
                     LBOrig_onResetContentNotify =
                         (void (*)(id, SEL, NSNotification *))method_getImplementation(m);
                 }
-                IMP hook = imp_implementationWithBlock(^void(id selfObj, NSNotification *note) {
-                    NSDictionary *safe = LBSanitizeResetContentUserInfo(note.userInfo);
-                    sPendingResetContent = safe;
-                    NSNotification *safeNote =
-                        [NSNotification notificationWithName:note.name ?: @"dNotifyName_ReadView_ResetContent"
-                                                      object:note.object
-                                                    userInfo:safe];
-                    if (sLegadoReaderMode == 1 && LBOrig_onResetContentNotify) {
-                        @try {
-                            LBOrig_onResetContentNotify(selfObj, sel, safeNote);
-                            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                     @"onReset hook ORIG_OK cls=%@ sel=%@",
-                                                     NSStringFromClass([selfObj class]), sn]);
+                IMP hook = NULL;
+                if (takesNote || [sn hasSuffix:@":"]) {
+                    hook = imp_implementationWithBlock(^void(id selfObj, NSNotification *note) {
+                        NSDictionary *safe = LBSanitizeResetContentUserInfo(note.userInfo);
+                        sPendingResetContent = safe;
+                        NSNotification *safeNote =
+                            [NSNotification notificationWithName:note.name ?: @"dNotifyName_ReadView_ResetContent"
+                                                          object:note.object
+                                                        userInfo:safe];
+                        if (sLegadoReaderMode == 1 && LBOrig_onResetContentNotify) {
+                            @try {
+                                LBOrig_onResetContentNotify(selfObj, sel, safeNote);
+                                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                         @"onReset hook ORIG_OK cls=%@ sel=%@",
+                                                         NSStringFromClass([selfObj class]), sn]);
+                                return;
+                            } @catch (NSException *ex) {
+                                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                         @"onReset hook ORIG_EX %@", ex.reason ?: @""]);
+                            }
+                        }
+                        if (sLegadoReaderMode != 1) {
+                            LBInjectPendingContentIntoReader((UIViewController *)selfObj, @"onResetHook");
                             return;
+                        }
+                        LBInjectPendingContentIntoReader((UIViewController *)selfObj, @"onResetFallback");
+                    });
+                } else {
+                    // 无参：先记下 pending，再调 ORIG，再尝试灌入
+                    void (*origNoArg)(id, SEL) = (void (*)(id, SEL))method_getImplementation(m);
+                    hook = imp_implementationWithBlock(^void(id selfObj) {
+                        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                 @"onReset noArg enter cls=%@ mode=%d",
+                                                 NSStringFromClass([selfObj class]), sLegadoReaderMode]);
+                        @try {
+                            if (origNoArg) origNoArg(selfObj, sel);
                         } @catch (NSException *ex) {
                             LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                     @"onReset hook ORIG_EX %@", ex.reason ?: @""]);
+                                                     @"onReset noArg EX %@", ex.reason ?: @""]);
                         }
-                    }
-                    if (sLegadoReaderMode != 1) {
-                        LBInjectPendingContentIntoReader((UIViewController *)selfObj, @"onResetHook");
-                        return;
-                    }
-                    LBInjectPendingContentIntoReader((UIViewController *)selfObj, @"onResetFallback");
-                });
+                        if (sLegadoReaderMode == 1) {
+                            LBDeliverContentToVisibleReaders(@"onResetNoArg");
+                        }
+                    });
+                }
                 method_setImplementation(m, hook);
-                LBAppendOpenReaderTrace([NSString stringWithFormat:@"nativeReset hooked %@ @%@ sel=%@",
-                                         cn, NSStringFromClass(owner), sn]);
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"nativeReset hooked %@ @%@ sel=%@ types=%s",
+                                         cn, NSStringFromClass(owner), sn, types]);
                 hooked = YES;
                 break;
             }
