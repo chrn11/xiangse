@@ -2561,9 +2561,31 @@ void LBNoteResetContentPosted(NSDictionary *userInfo) {
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_content_pending.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     if (LBIsTextReaderVisible()) {
-        LBFlushPendingResetContent(@"notePosted");
+        // 禁止 post ResetContent（裸 TextRead 会 SIGABRT）；改为 UITextView 直灌
+        for (UIWindow *w in LBAllAppWindows()) {
+            UIViewController *root = w.rootViewController;
+            if (!root) continue;
+            NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+            while (stack.count > 0) {
+                UIViewController *vc = stack.lastObject;
+                [stack removeLastObject];
+                NSString *cn = NSStringFromClass([vc class]);
+                if ([cn containsString:@"TextReadVC"] || [cn containsString:@"ReadVCBase"]) {
+                    if (LBVCIsVisibleInWindow(vc)) {
+                        LBInjectPendingContentIntoReader(vc, @"notePosted");
+                    }
+                }
+                for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
+                if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
+                if ([vc isKindOfClass:[UINavigationController class]]) {
+                    for (UIViewController *c in [(UINavigationController *)vc viewControllers]) {
+                        [stack addObject:c];
+                    }
+                }
+            }
+        }
     } else {
-        // Bridge 可见时同步灌入；否则等 appear / delay flush
+        // Bridge 可见时同步灌入；否则等 inject / delay
         LBBridgeReaderApplyContent(userInfo);
     }
 }
@@ -2575,18 +2597,40 @@ void LBBridgeReaderApplyPendingOnAppear(void) {
 
 static void LBFlushPendingResetContent(NSString *phase) {
     if (sPendingResetContent.count == 0) return;
+    // 原生 TextRead 在场时绝不 post ResetContent（SIGABRT）；只直灌 TV / Bridge
+    if (LBIsTextReaderVisible()) {
+        for (UIWindow *w in LBAllAppWindows()) {
+            UIViewController *root = w.rootViewController;
+            if (!root) continue;
+            NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+            while (stack.count > 0) {
+                UIViewController *vc = stack.lastObject;
+                [stack removeLastObject];
+                NSString *cn = NSStringFromClass([vc class]);
+                if ([cn containsString:@"TextReadVC"] || [cn containsString:@"ReadVCBase"]) {
+                    if (LBVCIsVisibleInWindow(vc)) {
+                        LBInjectPendingContentIntoReader(vc, phase ?: @"flush");
+                    }
+                }
+                for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
+                if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
+                if ([vc isKindOfClass:[UINavigationController class]]) {
+                    for (UIViewController *c in [(UINavigationController *)vc viewControllers]) {
+                        [stack addObject:c];
+                    }
+                }
+            }
+        }
+        return;
+    }
     NSDictionary *payload = [sPendingResetContent copy];
     void (^post)(void) = ^{
-        [[NSNotificationCenter defaultCenter]
-            postNotificationName:@"dNotifyName_ReadView_ResetContent"
-                          object:nil
-                        userInfo:payload];
-        NSString *marker = [NSString stringWithFormat:@"flushResetContent %@ ch=%@",
+        // 仅 Bridge / 无原生阅读页时才发通知
+        LBBridgeReaderApplyContent(payload);
+        NSString *marker = [NSString stringWithFormat:@"flushResetContent bridgeOnly %@ ch=%@",
                             phase ?: @"", payload[@"chapterUrl"] ?: @""];
         [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_content_flush.txt"]
                  atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        // Bridge 若仍可见也灌一份（兜底页）
-        LBBridgeReaderApplyContent(payload);
     };
     if ([NSThread isMainThread]) post();
     else dispatch_async(dispatch_get_main_queue(), post);
