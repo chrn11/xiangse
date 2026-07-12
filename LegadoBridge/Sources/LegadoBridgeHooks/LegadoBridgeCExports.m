@@ -1263,6 +1263,7 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         [[NSString stringWithFormat:@"nativeOpen phase=bookDictOK src=%@ fast=1", sourceName]
             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        LBInstallReaderContentAppearFlush();
         LBHandleContentRequest(chCopy, buCopy, nil);
         [[NSString stringWithFormat:@"nativeOpen beforeCall skipPrep=1 fast=1"]
             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
@@ -1270,7 +1271,13 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         NSString *orm = nil;
         BOOL opened = NO;
         @try {
+            [@"nativeOpen callingOrig"
+                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
             opened = LBCallOpenReader(book, sourceName, &orm);
+            [[NSString stringWithFormat:@"nativeOpen origReturned opened=%d", opened ? 1 : 0]
+                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         } @catch (NSException *e) {
             orm = [NSString stringWithFormat:@"openReader exception: %@", e.reason ?: @""];
             opened = NO;
@@ -2022,38 +2029,51 @@ static void LBFlushPendingResetContent(NSString *phase) {
 void LBInstallReaderContentAppearFlush(void) {
     if (sReaderContentAppearHooked) return;
     sReaderContentAppearHooked = YES;
-    // 仅在 appear 后重投 ResetContent；禁止在 hook 内构造含 nil 的 NSArray
+    // appear 前先消毒 dicBook，再调原生：TextReadVC 对 nil 字段 @[...] 会 abort
     NSArray *names = @[
         @"ReadVCBase1", @"ReadVCBase2",
         @"TextReadVC1", @"TextReadVC2", @"TextReadVC3"
     ];
+    SEL sels[2] = { @selector(viewWillAppear:), @selector(viewDidAppear:) };
     for (NSString *cn in names) {
         Class cls = NSClassFromString(cn);
         if (!cls) continue;
-        SEL sel = @selector(viewDidAppear:);
-        Method m = class_getInstanceMethod(cls, sel);
-        if (!m) continue;
-        IMP orig = method_getImplementation(m);
-        IMP hook = imp_implementationWithBlock(^void(id selfObj, BOOL animated) {
-            ((void (*)(id, SEL, BOOL))orig)(selfObj, sel, animated);
-            // 仅写章节数组到本 VC，避免 appear 内再调 LBApplyCatalogToUI 重入
-            if (sPendingCatalogChapters.count > 0) {
+        for (int si = 0; si < 2; si++) {
+            SEL sel = sels[si];
+            Method m = class_getInstanceMethod(cls, sel);
+            if (!m) continue;
+            IMP orig = method_getImplementation(m);
+            BOOL isDid = (si == 1);
+            IMP hook = imp_implementationWithBlock(^void(id selfObj, BOOL animated) {
                 @try {
-                    SEL setCat = NSSelectorFromString(@"setArrCatalog:");
-                    if ([selfObj respondsToSelector:setCat]) {
-                        ((void (*)(id, SEL, id))objc_msgSend)(
-                            selfObj, setCat, sPendingCatalogChapters
-                        );
+                    id dic = [selfObj valueForKey:@"dicBook"];
+                    if ([dic isKindOfClass:[NSDictionary class]]) {
+                        NSMutableDictionary *safe =
+                            [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)dic];
+                        LBSanitizeBookDictForReader(safe);
+                        [selfObj setValue:safe forKey:@"dicBook"];
                     }
                 } @catch (__unused NSException *e) {}
-            }
-            if (sPendingResetContent.count == 0) return;
-            dispatch_async(dispatch_get_main_queue(), ^{
-                LBFlushPendingResetContent([NSString stringWithFormat:@"appear:%@",
-                                            NSStringFromClass([selfObj class])]);
+                ((void (*)(id, SEL, BOOL))orig)(selfObj, sel, animated);
+                if (!isDid) return;
+                if (sPendingCatalogChapters.count > 0) {
+                    @try {
+                        SEL setCat = NSSelectorFromString(@"setArrCatalog:");
+                        if ([selfObj respondsToSelector:setCat]) {
+                            ((void (*)(id, SEL, id))objc_msgSend)(
+                                selfObj, setCat, sPendingCatalogChapters
+                            );
+                        }
+                    } @catch (__unused NSException *e) {}
+                }
+                if (sPendingResetContent.count == 0) return;
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    LBFlushPendingResetContent([NSString stringWithFormat:@"appear:%@",
+                                                NSStringFromClass([selfObj class])]);
+                });
             });
-        });
-        method_setImplementation(m, hook);
+            method_setImplementation(m, hook);
+        }
     }
 }
 
