@@ -1171,11 +1171,16 @@ static NSMutableDictionary *LBBookDictForOpenReader(NSString *bookUrl,
         }
         // 搜索/详情筛选默认 text；DOM 会被当成不可用站点
         site[@"sourceType"] = @"text";
+        site[@"type"] = @"text";
         site[@"enable"] = @"1";
         site[@"enabled"] = @YES;
+        site[@"isEnabled"] = @YES;
         site[@"legadoBridge"] = @"1";
+        site[@"bookUrl"] = bookUrl ?: @"";
         book[@"arrSource"] = @[site];
         book[@"arrSourceInfoRequired"] = @[site];
+        book[@"arrSourceInfoOptional"] = @[site];
+        book[@"arrSourceType"] = @[@"text"];
     }
     if (outSourceName) *outSourceName = sourceName ?: @"";
     return book;
@@ -1356,7 +1361,7 @@ static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString 
                     : [(book ?: @{}) mutableCopy];
             if (!mutableBook) mutableBook = [NSMutableDictionary dictionary];
             ((void (*)(id, SEL, id, id, id))objc_msgSend)(
-                t, openSel, mutableBook, sourceName ?: @"", nil
+                t, openSel, mutableBook, sourceName ?: @"", mutableBook
             );
             if (outMsg) {
                 *outMsg = [NSString stringWithFormat:@"openReader ok on %@ src=%@",
@@ -1613,31 +1618,41 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                         NSString *prev = [NSString stringWithContentsOfFile:
                                           [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
                                           encoding:NSUTF8StringEncoding error:NULL] ?: @"";
-                        // 仅当原生已打开阅读页时才取正文；否则尝试一次 openReader
                         if (vis) {
                             NSString *line = [NSString stringWithFormat:@"%@ || postNative readerVis=1", prev];
                             [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
                                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                            LBHandleContentRequest(chCopy, buCopy, nil);
                             return;
                         }
+                        // 再 prep 一次站点（详情常显示 站点(0+)）
+                        LBPrepareDetailForOpenReader(bookCopy, srcCopy, NULL);
                         NSString *orm = nil;
                         BOOL opened = LBCallOpenReader(bookCopy, srcCopy, &orm);
+                        BOOL vis2 = LBIsTextReaderVisible();
+                        BOOL began = NO;
+                        NSString *beginMsg = @"skipBegin (readerVis)";
+                        if (!vis2) {
+                            began = LBInvokeBeginReadOnDetail(bookCopy, srcCopy, &beginMsg);
+                        }
                         NSString *line = [NSString stringWithFormat:
-                                         @"%@ || lateOpen opened=%d readerVis=%d | %@",
-                                         prev, opened ? 1 : 0, LBIsTextReaderVisible() ? 1 : 0,
-                                         orm ?: @"openReader ?"];
+                                         @"%@ || lateOpen opened=%d began=%d readerVis=%d/%d | %@ || %@",
+                                         prev, opened ? 1 : 0, began ? 1 : 0,
+                                         vis2 ? 1 : 0, LBIsTextReaderVisible() ? 1 : 0,
+                                         orm ?: @"openReader ?", beginMsg ?: @"beginRead ?"];
                         [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
                                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                    });
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.8 * NSEC_PER_SEC)),
+                                   dispatch_get_main_queue(), ^{
                         LBHandleContentRequest(chCopy, buCopy, nil);
                     });
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.2 * NSEC_PER_SEC)),
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.6 * NSEC_PER_SEC)),
                                    dispatch_get_main_queue(), ^{
-                        LBFlushPendingResetContent(@"delay2.2s");
+                        LBFlushPendingResetContent(@"delay2.6s");
                     });
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.5 * NSEC_PER_SEC)),
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4.0 * NSEC_PER_SEC)),
                                    dispatch_get_main_queue(), ^{
-                        LBFlushPendingResetContent(@"delay3.5s");
+                        LBFlushPendingResetContent(@"delay4.0s");
                     });
                     return;
                 }
