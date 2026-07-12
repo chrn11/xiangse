@@ -2921,8 +2921,18 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                  ex.reason ?: @""]);
     }
 
+    // seed 阶段只写缓存，让随后 ORIG 从缓存排版；避免空读 SIGABRT
+    if ([phase containsString:@"Seed"] || [phase containsString:@"seed"]) {
+        NSString *pathStr = okPaths.count > 0 ? [okPaths componentsJoinedByString:@"+"] : @"none";
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject phase=%@ paths=%@ seedOnly=1 len=%lu idx=%ld key=%@",
+                                 phase ?: @"?", pathStr,
+                                 (unsigned long)body.length, (long)cpIndex, bookKey]);
+        return okPaths.count > 0;
+    }
+
     // 4) 原版排版入口：showContent → divisionText → divisionResponse（禁止先毁工具条）
-    // nativePaged 仅在正文真正交给 container / showContent 后置位（divisionText  alone 不算上屏）
+    // nativePaged 仅在正文真正交给 container / showContent 后置位（divisionText alone 不算上屏）
     BOOL nativePaged = NO;
     id pageResult = nil;
     UIView *textReadTV = nil;
@@ -2953,6 +2963,31 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                      @"contentInject foundTV=%@",
                                      NSStringFromClass([textReadTV class])]);
+            // ORIG 读缓存后可能已上屏：有萧炎则不再强行 divisionResponse（曾致 SIGABRT）
+            if ([phase containsString:@"Division"] || [phase containsString:@"Appear"]) {
+                NSString *curTxt = nil;
+                @try {
+                    if ([textReadTV respondsToSelector:@selector(text)]) {
+                        curTxt = ((id (*)(id, SEL))objc_msgSend)(textReadTV, @selector(text));
+                    } else {
+                        curTxt = [textReadTV valueForKey:@"text"];
+                    }
+                } @catch (__unused NSException *e) {}
+                if ([curTxt isKindOfClass:[NSString class]] &&
+                    ([curTxt containsString:@"萧炎"] || [curTxt containsString:@"斗气"])) {
+                    nativePaged = YES;
+                    [okPaths addObject:@"tvAlreadyNative"];
+                    @try {
+                        if ([readerVC respondsToSelector:NSSelectorFromString(@"hideErrorView")]) {
+                            ((void (*)(id, SEL))objc_msgSend)(
+                                readerVC, NSSelectorFromString(@"hideErrorView"));
+                            [okPaths addObject:@"hideErrorView"];
+                        }
+                    } @catch (__unused NSException *e) {}
+                    LBAppendOpenReaderTrace(@"contentInject reuse ORIG-cached text (skip division)");
+                    goto LB_INJECT_FINISH;
+                }
+            }
         } else {
             LBAppendOpenReaderTrace(@"contentInject no TextReadTV in hierarchy");
         }
@@ -3136,8 +3171,11 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
             BOOL responded = NO;
             for (id host in containers) {
                 NSString *hn = NSStringFromClass([host class]);
-                // 已有更高优先级容器时跳过 TextR，避免双容器互踩
-                if ([hn containsString:@"TextRPageContainer"] && responded) continue;
+                // TextRPageContainer::divisionResponse 真机曾在返回后触发 SIGABRT，禁止调用
+                if ([hn containsString:@"TextRPageContainer"]) {
+                    LBAppendOpenReaderTrace(@"contentInject skip TextRPageContainer (sigabort risk)");
+                    continue;
+                }
                 if ([host respondsToSelector:dr2]) {
                     NSMutableArray *heights = [NSMutableArray array];
                     @try {
@@ -3197,6 +3235,8 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
             if (!responded) {
             SEL pp = NSSelectorFromString(@"processPageData:userInfo:cpTitle:");
             for (id host in containers) {
+                NSString *hn2 = NSStringFromClass([host class]);
+                if ([hn2 containsString:@"TextRPageContainer"]) continue;
                 if (![host respondsToSelector:pp]) continue;
                 NSDictionary *ui = @{
                     @"chapterContent": body,
@@ -3226,6 +3266,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                  ex.reason ?: @""]);
     }
 
+LB_INJECT_FINISH:
     // 同步章节数（短正文页数 1 合法；nCpCount 应对齐目录）
     @try {
         NSInteger catCount = 0;
@@ -3519,7 +3560,7 @@ static void LBInstallNativeResetContentHook(void) {
                         LBInjectPendingContentIntoReader((UIViewController *)selfObj, @"onResetFallback");
                     });
                 } else {
-                    // 无参：有 pending 时跳过 ORIG 空读；延后到下一拍再 inject（等 view 树/TV 就绪）
+                    // 无参：先 seed 缓存再 ORIG（让原生读缓存而非空读 abort），再补 division
                     static BOOL sOnResetNoArgBusy = NO;
                     void (*origNoArg)(id, SEL) = (void (*)(id, SEL))method_getImplementation(m);
                     hook = imp_implementationWithBlock(^void(id selfObj) {
@@ -3533,40 +3574,43 @@ static void LBInstallNativeResetContentHook(void) {
                                                  @"onReset noArg enter cls=%@ mode=%d pending=%d",
                                                  NSStringFromClass([selfObj class]),
                                                  sLegadoReaderMode, hasPending ? 1 : 0]);
-                        if (!hasPending) {
+                        if (hasPending) {
                             @try {
-                                if (origNoArg) origNoArg(selfObj, sel);
-                                LBAppendOpenReaderTrace(@"onReset noArg ORIG_OK");
-                            } @catch (NSException *ex) {
+                                LBInjectNativeChapterContent((UIViewController *)selfObj,
+                                                             sPendingResetContent,
+                                                             @"beforeOrigSeed");
+                            } @catch (NSException *ex0) {
                                 LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                         @"onReset noArg EX %@", ex.reason ?: @""]);
+                                                         @"onReset seed EX %@",
+                                                         ex0.reason ?: @""]);
                             }
-                            sOnResetNoArgBusy = NO;
-                            return;
                         }
-                        // 先轻量跑 ORIG 建 TextReadTV/container，再立刻用缓存正文覆盖（避免长期空读）
                         @try {
                             if (origNoArg) origNoArg(selfObj, sel);
-                            LBAppendOpenReaderTrace(@"onReset noArg ORIG_OK (pending overlay)");
+                            LBAppendOpenReaderTrace(hasPending
+                                ? @"onReset noArg ORIG_OK (afterSeed)"
+                                : @"onReset noArg ORIG_OK");
                         } @catch (NSException *ex) {
                             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                                      @"onReset noArg EX %@", ex.reason ?: @""]);
                         }
-                        __strong UIViewController *vcKeep = (UIViewController *)selfObj;
-                        NSDictionary *payloadKeep = sPendingResetContent;
-                        dispatch_async(dispatch_get_main_queue(), ^{
-                            @try {
-                                if ([payloadKeep isKindOfClass:[NSDictionary class]] &&
-                                    payloadKeep.count > 0) {
-                                    LBInjectNativeChapterContent(vcKeep, payloadKeep,
-                                                                 @"afterNoArgDeferred");
+                        if (hasPending) {
+                            __strong UIViewController *vcKeep = (UIViewController *)selfObj;
+                            NSDictionary *payloadKeep = sPendingResetContent;
+                            dispatch_async(dispatch_get_main_queue(), ^{
+                                @try {
+                                    if ([payloadKeep isKindOfClass:[NSDictionary class]] &&
+                                        payloadKeep.count > 0) {
+                                        LBInjectNativeChapterContent(vcKeep, payloadKeep,
+                                                                     @"afterOrigDivision");
+                                    }
+                                } @catch (NSException *ex2) {
+                                    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                             @"onReset division EX %@",
+                                                             ex2.reason ?: @""]);
                                 }
-                            } @catch (NSException *ex2) {
-                                LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                         @"onReset deferredInject EX %@",
-                                                         ex2.reason ?: @""]);
-                            }
-                        });
+                            });
+                        }
                         sOnResetNoArgBusy = NO;
                     });
                 }
