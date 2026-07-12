@@ -1181,42 +1181,37 @@ static NSMutableDictionary *LBBookDictForOpenReader(NSString *bookUrl,
     return book;
 }
 
-/// 把书/站点写回 BookDetail，并触发原生「开始阅读」
-static BOOL LBInvokeBeginReadOnDetail(NSMutableDictionary *book, NSString *sourceName, NSString **outMsg) {
-    UIViewController *detail = nil;
+static UIViewController *LBFindBookDetailVC(void) {
     for (UIViewController *vc in LBFindCatalogVCs()) {
         NSString *cn = NSStringFromClass([vc class]);
-        if ([cn containsString:@"BookDetail"]) {
-            detail = vc;
-            break;
-        }
+        if ([cn containsString:@"BookDetail"]) return vc;
     }
-    if (!detail) {
-        for (UIWindow *w in LBAllAppWindows()) {
-            UIViewController *root = w.rootViewController;
-            if (!root) continue;
-            NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
-            while (stack.count > 0) {
-                UIViewController *vc = stack.lastObject;
-                [stack removeLastObject];
-                NSString *cn = NSStringFromClass([vc class]);
-                if ([cn containsString:@"BookDetail"]) {
-                    detail = vc;
-                    break;
-                }
-                for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
-                if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
-                if ([vc isKindOfClass:[UINavigationController class]]) {
-                    for (UIViewController *c in [(UINavigationController *)vc viewControllers]) {
-                        [stack addObject:c];
-                    }
+    for (UIWindow *w in LBAllAppWindows()) {
+        UIViewController *root = w.rootViewController;
+        if (!root) continue;
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+        while (stack.count > 0) {
+            UIViewController *vc = stack.lastObject;
+            [stack removeLastObject];
+            NSString *cn = NSStringFromClass([vc class]);
+            if ([cn containsString:@"BookDetail"]) return vc;
+            for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
+            if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
+            if ([vc isKindOfClass:[UINavigationController class]]) {
+                for (UIViewController *c in [(UINavigationController *)vc viewControllers]) {
+                    [stack addObject:c];
                 }
             }
-            if (detail) break;
         }
     }
+    return nil;
+}
+
+/// 仅写回详情书/站点，不触发「开始阅读」（避免与 openReader 双开闪退）
+static BOOL LBPrepareDetailForOpenReader(NSMutableDictionary *book, NSString *sourceName, NSString **outMsg) {
+    UIViewController *detail = LBFindBookDetailVC();
     if (!detail) {
-        if (outMsg) *outMsg = @"beginRead miss: no BookDetail";
+        if (outMsg) *outMsg = @"prep miss: no BookDetail";
         return NO;
     }
     @try {
@@ -1246,7 +1241,20 @@ static BOOL LBInvokeBeginReadOnDetail(NSMutableDictionary *book, NSString *sourc
     if (sourceName.length > 0) {
         @try { [detail setValue:sourceName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
     }
-    // 原生「开始阅读」按钮
+    if (outMsg) {
+        *outMsg = [NSString stringWithFormat:@"prep ok on %@", NSStringFromClass([detail class])];
+    }
+    return YES;
+}
+
+/// 触发原生「开始阅读」（仅作 openReader 失败后的次选）
+static BOOL LBInvokeBeginReadOnDetail(NSMutableDictionary *book, NSString *sourceName, NSString **outMsg) {
+    LBPrepareDetailForOpenReader(book, sourceName, NULL);
+    UIViewController *detail = LBFindBookDetailVC();
+    if (!detail) {
+        if (outMsg) *outMsg = @"beginRead miss: no BookDetail";
+        return NO;
+    }
     for (NSString *selName in @[@"onBeginReadEvent", @"onBeginReadEvent:"]) {
         SEL sel = NSSelectorFromString(selName);
         if (![detail respondsToSelector:sel]) continue;
@@ -1271,6 +1279,35 @@ static BOOL LBInvokeBeginReadOnDetail(NSMutableDictionary *book, NSString *sourc
     if (outMsg) {
         *outMsg = [NSString stringWithFormat:@"beginRead miss sel on %@",
                    NSStringFromClass([detail class])];
+    }
+    return NO;
+}
+
+static BOOL LBIsTextReaderVisible(void) {
+    for (UIWindow *w in LBAllAppWindows()) {
+        UIViewController *root = w.rootViewController;
+        if (!root) continue;
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+        while (stack.count > 0) {
+            UIViewController *vc = stack.lastObject;
+            [stack removeLastObject];
+            NSString *cn = NSStringFromClass([vc class]);
+            if ([cn containsString:@"TextReadVC"] || [cn containsString:@"ReadVCBase"]) {
+                if (LBVCIsVisibleInWindow(vc)) return YES;
+            }
+            for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
+            if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
+            if ([vc isKindOfClass:[UINavigationController class]]) {
+                for (UIViewController *c in [(UINavigationController *)vc viewControllers]) {
+                    [stack addObject:c];
+                }
+            }
+            if ([vc isKindOfClass:[UITabBarController class]]) {
+                for (UIViewController *c in [(UITabBarController *)vc viewControllers]) {
+                    [stack addObject:c];
+                }
+            }
+        }
     }
     return NO;
 }
@@ -1489,15 +1526,30 @@ void LBInstallReaderContentAppearFlush(void) {
         @"ReadVCBase1", @"ReadVCBase2",
         @"TextReadVC1", @"TextReadVC2", @"TextReadVC3"
     ];
+    // 子类常共享父类 viewDidAppear：同一 Method 只钩一次，避免嵌套 hook → 递归崩溃
+    NSMutableSet *hookedMethods = [NSMutableSet set];
+    static __thread BOOL sAppearFlushReenter = NO;
     for (NSString *cn in names) {
         Class cls = NSClassFromString(cn);
         if (!cls) continue;
         SEL sel = @selector(viewDidAppear:);
         Method m = class_getInstanceMethod(cls, sel);
         if (!m) continue;
+        NSValue *key = [NSValue valueWithPointer:(const void *)m];
+        if ([hookedMethods containsObject:key]) continue;
+        [hookedMethods addObject:key];
         IMP orig = method_getImplementation(m);
         IMP hook = imp_implementationWithBlock(^void(id selfObj, BOOL animated) {
-            ((void (*)(id, SEL, BOOL))orig)(selfObj, sel, animated);
+            if (sAppearFlushReenter) {
+                ((void (*)(id, SEL, BOOL))orig)(selfObj, sel, animated);
+                return;
+            }
+            sAppearFlushReenter = YES;
+            @try {
+                ((void (*)(id, SEL, BOOL))orig)(selfObj, sel, animated);
+            } @finally {
+                sAppearFlushReenter = NO;
+            }
             if (sPendingResetContent.count == 0) return;
             dispatch_async(dispatch_get_main_queue(), ^{
                 LBFlushPendingResetContent([NSString stringWithFormat:@"appear:%@",
@@ -1577,37 +1629,65 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                             NSLog(@"[LegadoBridge] catalog didSelect fail-open: %@", e);
                         }
                     }
+                    // 分阶：prep+openReader → 仍无阅读页再 beginRead → 再无则 push（禁止三开）
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
                                    dispatch_get_main_queue(), ^{
                         NSMutableArray *steps = [NSMutableArray array];
-                        NSString *beginMsg = nil;
-                        BOOL began = LBInvokeBeginReadOnDetail(bookCopy, srcCopy, &beginMsg);
-                        [steps addObject:beginMsg ?: @"beginRead ?" ];
+                        NSString *prepMsg = nil;
+                        BOOL prepped = LBPrepareDetailForOpenReader(bookCopy, srcCopy, &prepMsg);
+                        [steps addObject:prepMsg ?: @"prep ?" ];
                         NSString *orm = nil;
                         BOOL opened = LBCallOpenReader(bookCopy, srcCopy, &orm);
                         [steps addObject:orm ?: @"openReader ?" ];
-                        // openReader 常因无站点静默空转：无论是否 ok 都兜底 present/push
-                        NSString *pushMsg = nil;
-                        BOOL pushed = LBPushTextReaderFallback(bookCopy, srcCopy, &pushMsg);
-                        [steps addObject:pushMsg ?: @"pushReader ?" ];
-                        NSString *line = [NSString stringWithFormat:@"began=%d opened=%d pushed=%d | %@",
-                                         began ? 1 : 0, opened ? 1 : 0, pushed ? 1 : 0,
-                                         [steps componentsJoinedByString:@" || "]];
-                        [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
-                               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                        NSString *line0 = [NSString stringWithFormat:
+                                          @"prep=%d opened=%d | %@",
+                                          prepped ? 1 : 0, opened ? 1 : 0,
+                                          [steps componentsJoinedByString:@" || "]];
+                        [line0 writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+                                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+
+                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
+                                       dispatch_get_main_queue(), ^{
+                            BOOL began = NO;
+                            BOOL pushed = NO;
+                            if (!LBIsTextReaderVisible()) {
+                                NSString *beginMsg = nil;
+                                began = LBInvokeBeginReadOnDetail(bookCopy, srcCopy, &beginMsg);
+                                [steps addObject:beginMsg ?: @"beginRead ?" ];
+                            } else {
+                                [steps addObject:@"skipBegin (readerVis)"];
+                            }
+                            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
+                                           dispatch_get_main_queue(), ^{
+                                if (!LBIsTextReaderVisible()) {
+                                    NSString *pushMsg = nil;
+                                    pushed = LBPushTextReaderFallback(bookCopy, srcCopy, &pushMsg);
+                                    [steps addObject:pushMsg ?: @"pushReader ?" ];
+                                } else {
+                                    [steps addObject:@"skipPush (readerVis)"];
+                                }
+                                NSString *line = [NSString stringWithFormat:
+                                                 @"prep=%d opened=%d began=%d pushed=%d readerVis=%d | %@",
+                                                 prepped ? 1 : 0, opened ? 1 : 0, began ? 1 : 0,
+                                                 pushed ? 1 : 0, LBIsTextReaderVisible() ? 1 : 0,
+                                                 [steps componentsJoinedByString:@" || "]];
+                                [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+                                       atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                            });
+                        });
                     });
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)),
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.4 * NSEC_PER_SEC)),
                                    dispatch_get_main_queue(), ^{
                         LBHandleContentRequest(chCopy, buCopy, nil);
                     });
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.6 * NSEC_PER_SEC)),
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.2 * NSEC_PER_SEC)),
                                    dispatch_get_main_queue(), ^{
-                        LBFlushPendingResetContent(@"delay1.6s");
+                        LBFlushPendingResetContent(@"delay2.2s");
                     });
                     // 再冲一次：阅读页可能稍晚才注册通知
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)),
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.2 * NSEC_PER_SEC)),
                                    dispatch_get_main_queue(), ^{
-                        LBFlushPendingResetContent(@"delay2.5s");
+                        LBFlushPendingResetContent(@"delay3.2s");
                     });
                     return;
                 }
