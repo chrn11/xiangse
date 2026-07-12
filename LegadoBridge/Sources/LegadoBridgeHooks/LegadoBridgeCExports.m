@@ -1449,13 +1449,9 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         NSString *orm = nil;
         BOOL opened = NO;
         @try {
-            // openReader 在真机对 Legado 字典仍会无 ips 杀进程；优先 push TextRead*
+            // openReader / appear 链式钩均会杀进程；只走 push TextRead* + delay flush
             LBWriteOpenReaderMarker(@"nativeOpen callingPush");
             opened = LBPushTextReaderFallback(book, sourceName, &orm);
-            if (!opened) {
-                LBWriteOpenReaderMarker(@"nativeOpen pushMiss tryOpenReader");
-                opened = LBCallOpenReader(book, sourceName, &orm);
-            }
             LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen origReturned opened=%d | %@",
                                      opened ? 1 : 0, orm ?: @"?"]);
         } @catch (NSException *e) {
@@ -1830,19 +1826,29 @@ static UINavigationController *LBFindBestNavigationController(UIViewController *
     }
     cell.textLabel.text = t;
     cell.textLabel.numberOfLines = 2;
-    // 覆盖透明按钮：MCP tap 常点到 table 容器而不触发 didSelect
+    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    cell.userInteractionEnabled = YES;
+    cell.contentView.userInteractionEnabled = YES;
+    // 覆盖透明按钮：须 Auto Layout，cellForRow 时 bounds 常为 0 导致 MCP 点不到
     for (UIView *v in cell.contentView.subviews) {
         if (v.tag == 91001) [v removeFromSuperview];
     }
     UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
     btn.tag = 91001;
-    btn.frame = cell.contentView.bounds;
-    btn.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    btn.translatesAutoresizingMaskIntoConstraints = NO;
     btn.accessibilityLabel = t;
+    btn.backgroundColor = [UIColor clearColor];
     objc_setAssociatedObject(btn, &kLBCatIdxKey, @(ip.row), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [btn addTarget:LBCatalogCellProxy() action:@selector(openChapter:)
       forControlEvents:UIControlEventTouchUpInside];
     [cell.contentView addSubview:btn];
+    [NSLayoutConstraint activateConstraints:@[
+        [btn.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor],
+        [btn.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor],
+        [btn.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor],
+        [btn.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor],
+    ]];
+    [cell.contentView bringSubviewToFront:btn];
     return cell;
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)ip {
@@ -2336,17 +2342,29 @@ static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, N
     }
     LBSanitizeBookDictForReaderEx(dic, NO, YES);
     LBReadingRememberBook(dic);
-    LBAppendOpenReaderTrace([NSString stringWithFormat:@"pushReader setDic %@ keys=%lu",
+    // 先 push 空阅读页，再在下一拍 setDicBook，避免 load+appear 钩叠杀
+    LBAppendOpenReaderTrace([NSString stringWithFormat:@"pushReader deferSetDic %@ keys=%lu",
                              NSStringFromClass(cls), (unsigned long)dic.count]);
-    @try {
-        if ([vc respondsToSelector:@selector(setDicBook:)]) {
-            ((void (*)(id, SEL, id))objc_msgSend)(vc, @selector(setDicBook:), dic);
-        } else {
-            [vc setValue:dic forKey:@"dicBook"];
+    NSDictionary *dicCopy = [dic copy];
+    id vcRef = vc;
+    void (^applyDicLater)(void) = ^{
+        @try {
+            LBAppendOpenReaderTrace(@"pushReader applyDic now");
+            if ([vcRef respondsToSelector:@selector(setDicBook:)]) {
+                ((void (*)(id, SEL, id))objc_msgSend)(vcRef, @selector(setDicBook:), dicCopy);
+            } else {
+                [vcRef setValue:dicCopy forKey:@"dicBook"];
+            }
+            LBFlushPendingResetContent(@"pushAfterSetDic");
+            LBWriteOpenReaderMarker([NSString stringWithFormat:
+                                    @"nativeOpen pushSetDicDone readerVis=%d",
+                                    LBIsTextReaderVisible() ? 1 : 0]);
+        } @catch (NSException *e) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:@"pushReader setDicEx %@", e.reason ?: @""]);
+            LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen pushSetDicEx %@",
+                                     e.reason ?: @""]);
         }
-    } @catch (NSException *e) {
-        LBAppendOpenReaderTrace([NSString stringWithFormat:@"pushReader setDicEx %@", e.reason ?: @""]);
-    }
+    };
     // 优先推到自建目录页的 nav（避免 dismiss 整条链路）
     UINavigationController *nav = nil;
     for (UIViewController *c in LBFindCatalogVCs()) {
@@ -2395,6 +2413,8 @@ static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, N
                                      NSStringFromClass(cls), NSStringFromClass([nav class])]);
             LBAppendOpenReaderTrace(@"pushReader pushVC");
             [nav pushViewController:(UIViewController *)vc animated:YES];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), applyDicLater);
             if (outMsg) {
                 *outMsg = [NSString stringWithFormat:@"pushReader ok %@ on %@",
                            NSStringFromClass(cls), NSStringFromClass([nav class])];
@@ -2424,7 +2444,10 @@ static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, N
         LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen presenting %@ on %@",
                                  NSStringFromClass(cls), NSStringFromClass([host class])]);
         LBAppendOpenReaderTrace(@"pushReader presentVC");
-        [host presentViewController:wrap animated:YES completion:nil];
+        [host presentViewController:wrap animated:YES completion:^{
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), applyDicLater);
+        }];
         if (outMsg) {
             *outMsg = [NSString stringWithFormat:@"presentReader ok %@ on %@",
                        NSStringFromClass(cls), NSStringFromClass([host class])];
@@ -2478,54 +2501,12 @@ static void LBFlushPendingResetContent(NSString *phase) {
 }
 
 void LBInstallReaderContentAppearFlush(void) {
+    // 禁用对 TextRead/ReadVCBase 的 viewWill/DidAppear 链式替换：
+    // 子类+基类各挂一次会在 appear 时递归 SIGABRT（sig=6，无 ips）。
+    // 正文改走 delay flush / push 后主动 flush。
     if (sReaderContentAppearHooked) return;
     sReaderContentAppearHooked = YES;
-    // appear 前先消毒 dicBook，再调原生：TextReadVC 对 nil 字段 @[...] 会 abort
-    NSArray *names = @[
-        @"ReadVCBase1", @"ReadVCBase2",
-        @"TextReadVC1", @"TextReadVC2", @"TextReadVC3"
-    ];
-    SEL sels[2] = { @selector(viewWillAppear:), @selector(viewDidAppear:) };
-    for (NSString *cn in names) {
-        Class cls = NSClassFromString(cn);
-        if (!cls) continue;
-        for (int si = 0; si < 2; si++) {
-            SEL sel = sels[si];
-            Method m = class_getInstanceMethod(cls, sel);
-            if (!m) continue;
-            IMP orig = method_getImplementation(m);
-            BOOL isDid = (si == 1);
-            IMP hook = imp_implementationWithBlock(^void(id selfObj, BOOL animated) {
-                @try {
-                    id dic = [selfObj valueForKey:@"dicBook"];
-                    if ([dic isKindOfClass:[NSDictionary class]]) {
-                        NSMutableDictionary *safe =
-                            [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)dic];
-                        LBSanitizeBookDictForReader(safe);
-                        [selfObj setValue:safe forKey:@"dicBook"];
-                    }
-                } @catch (__unused NSException *e) {}
-                ((void (*)(id, SEL, BOOL))orig)(selfObj, sel, animated);
-                if (!isDid) return;
-                if (sPendingCatalogChapters.count > 0) {
-                    @try {
-                        SEL setCat = NSSelectorFromString(@"setArrCatalog:");
-                        if ([selfObj respondsToSelector:setCat]) {
-                            ((void (*)(id, SEL, id))objc_msgSend)(
-                                selfObj, setCat, sPendingCatalogChapters
-                            );
-                        }
-                    } @catch (__unused NSException *e) {}
-                }
-                if (sPendingResetContent.count == 0) return;
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    LBFlushPendingResetContent([NSString stringWithFormat:@"appear:%@",
-                                                NSStringFromClass([selfObj class])]);
-                });
-            });
-            method_setImplementation(m, hook);
-        }
-    }
+    LBAppendOpenReaderTrace(@"appearFlush disabled (avoid recursive SIGABRT)");
 }
 
 static void LBInstallCatalogTableHooksOnClass(Class cls) {
