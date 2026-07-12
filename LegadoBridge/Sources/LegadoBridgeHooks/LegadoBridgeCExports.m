@@ -1559,7 +1559,7 @@ static UINavigationController *LBFindBestNavigationController(UIViewController *
     return nil;
 }
 
-/// 搜索点书：不走原生 didSelect（易杀进程），自建详情 + setDicBook + 拉目录
+/// 搜索点书：不走原生 didSelect；push 前仅 KVC 写 dicBook（禁 setDicBook，真机会回桌面无 ips）
 static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic) {
     void (^mark)(NSString *) = ^(NSString *s) {
         [s writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_select.txt"]
@@ -1570,7 +1570,6 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
         mark(@"searchPush fail: bad args");
         return NO;
     }
-    // 收起键盘，避免搜索页层级异常
     @try {
         [[(UIViewController *)searchVC view] endEditing:YES];
     } @catch (__unused NSException *e) {}
@@ -1596,6 +1595,7 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
     NSMutableDictionary *safe = [NSMutableDictionary dictionaryWithDictionary:bookDic];
     safe[@"legadoBridge"] = @"1";
     safe[@"fromLegadoBridge"] = @YES;
+    // sanitize 时勿把 pending 章节灌进书字典（会污染详情）
     NSArray *pendingSave = sPendingCatalogChapters;
     NSString *pendingBu = sPendingCatalogBookUrl;
     sPendingCatalogChapters = nil;
@@ -1614,15 +1614,24 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
         if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) { su = v; break; }
     }
 
+    // push 前只 KVC，绝不调 setDicBook:（原生/共享 LBOrig 叠 hook 真机无 ips 杀进程）
+    @try {
+        [detail setValue:safe forKey:@"dicBook"];
+    } @catch (NSException *e) {
+        mark([NSString stringWithFormat:@"searchPush fail: kvc dicBook %@", e.reason ?: @""]);
+        return NO;
+    }
+    mark([NSString stringWithFormat:@"searchPush kvcOK book=%@ beforePush", bu ?: @""]);
+
     BOOL presentedWrap = NO;
     @try {
         if (nav) {
-            [nav pushViewController:detail animated:YES];
+            [nav pushViewController:detail animated:NO]; // 无动画，降低空页 appear 竞态
         } else {
             UINavigationController *wrap = [[UINavigationController alloc] initWithRootViewController:detail];
             UIViewController *host = (UIViewController *)searchVC;
             while (host.presentedViewController) host = host.presentedViewController;
-            [host presentViewController:wrap animated:YES completion:nil];
+            [host presentViewController:wrap animated:NO completion:nil];
             presentedWrap = YES;
         }
     } @catch (NSException *e) {
@@ -1630,30 +1639,40 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
         return NO;
     }
 
-    // setDicBook 延后，避免与 push 动画叠崩
-    NSMutableDictionary *safeCopy = [safe mutableCopy];
     NSString *buCopy = [bu copy];
     NSString *suCopy = [su copy];
     __weak UIViewController *weakDetail = detail;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)),
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         UIViewController *d = weakDetail;
-        if (!d) return;
-        @try {
-            if ([d respondsToSelector:@selector(setDicBook:)]) {
-                ((void (*)(id, SEL, id))objc_msgSend)(d, @selector(setDicBook:), safeCopy);
-            } else {
-                [d setValue:safeCopy forKey:@"dicBook"];
-            }
-        } @catch (NSException *e) {
-            NSLog(@"[LegadoBridge] delayed setDicBook fail-open: %@", e);
+        if (!d) {
+            mark(@"searchPushDetail died: detail dealloc before catalog");
+            return;
         }
+        // 再写一次 KVC（仍不调 setDicBook）
+        @try {
+            [d setValue:safe forKey:@"dicBook"];
+        } @catch (__unused NSException *e) {}
         if (buCopy.length > 0) {
             LBHandleCatalogRequest(buCopy, suCopy);
+            mark([NSString stringWithFormat:
+                  @"searchPushDetail book=%@ src=%@ on=%@ wrap=%d nav=%@ phase=catalogReq",
+                  buCopy, suCopy ?: @"", NSStringFromClass([d class]), presentedWrap ? 1 : 0,
+                  nav ? NSStringFromClass([nav class]) : @"nil"]);
         }
     });
+    // 存活探针：若仍回桌面，可看卡在 kvcOK / catalogReq 哪一档
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (!weakDetail) return;
+        NSString *alive = [NSString stringWithFormat:
+                           @"searchPush alive book=%@ front=%@",
+                           buCopy ?: @"", NSStringFromClass([weakDetail class])];
+        [alive writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_select.txt"]
+                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    });
 
-    mark([NSString stringWithFormat:@"searchPushDetail book=%@ src=%@ on=%@ wrap=%d nav=%@",
+    mark([NSString stringWithFormat:@"searchPushDetail book=%@ src=%@ on=%@ wrap=%d nav=%@ phase=pushed",
           bu ?: @"", su ?: @"", NSStringFromClass(cls), presentedWrap ? 1 : 0,
           nav ? NSStringFromClass([nav class]) : @"nil"]);
     return YES;
