@@ -1648,8 +1648,8 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
 
                         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
                                        dispatch_get_main_queue(), ^{
-                            BOOL began = NO;
-                            BOOL pushed = NO;
+                            __block BOOL began = NO;
+                            __block BOOL pushed = NO;
                             if (!LBIsTextReaderVisible()) {
                                 NSString *beginMsg = nil;
                                 began = LBInvokeBeginReadOnDetail(bookCopy, srcCopy, &beginMsg);
