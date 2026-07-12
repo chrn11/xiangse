@@ -55,6 +55,8 @@ void LBInstallSearchHooks(void);
 void LBInstallSourceListHooks(void);
 void LBInstallReadingHooks(void);
 void LBInstallRuntimeValidateHooks(void);
+/// Legado 点章杀开关：短路 openReader / beginRead，强制走 Bridge
+void LBInstallLegadoReaderKillSwitch(void);
 
 /// 阅读会话内存映射 + BookBindingStore 持久化（经 Core.rememberBookBinding）
 void LBReadingRememberBook(NSDictionary * _Nullable dicBook);

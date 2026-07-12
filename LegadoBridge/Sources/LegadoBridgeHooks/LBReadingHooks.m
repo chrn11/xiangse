@@ -170,11 +170,15 @@ static void LBLoadCatalog_IMP(id self, SEL _cmd, void *argRaw, BOOL ignoringCach
         }
         if (isLegado) {
             LBReadingRequestCatalog(bookUrl, sourceUrl);
+            // Legado：禁止回原生 loadCatalog（会牵出 TextReadVC/空站点 SIGABRT）
+            LBReadingCatalogLog([NSString stringWithFormat:
+                                @"loadCatalog short-circuit book=%@", bookUrl ?: @""]);
+            return;
         }
     } @catch (NSException *e) {
         NSLog(@"[LegadoBridge] loadCatalog probe fail-open: %@", e);
     }
-    // fail-open：始终回原实现；void* 转发避免 ARC 对 BOOL(0x1) 二次 retain
+    // 非 Legado：void* 转发避免 ARC 对 BOOL(0x1) 二次 retain
     if (LBOrig_loadCatalog) {
         @try {
             LBOrig_loadCatalog(self, _cmd, argRaw, ignoringCache);
@@ -193,6 +197,11 @@ static void LBLoadCurCp_IMP(id self, SEL _cmd) {
         if (chapterUrl.length > 0) {
             LBReadingRequestContent(chapterUrl, bookUrl, sourceUrl);
         }
+        // Legado：禁止回原生 loadCurCp（TextReadVC 内部会 abort）
+        LBReadingDiagLog([NSString stringWithFormat:
+                         @"loadCurCp short-circuit book=%@ ch=%@",
+                         bookUrl ?: @"", chapterUrl ?: @""]);
+        return;
     }
     if (LBOrig_loadCurCp) {
         LBOrig_loadCurCp(self, _cmd);
@@ -329,6 +338,9 @@ void LBInstallReadingHooks(void) {
         // 正文：ReadVC appear 时重投 ResetContent（openReader 后才有监听者）
         LBInstallReaderContentAppearFlush();
         [installed addObject:@"readerContentAppearFlush"];
+        // 硬短路：openReader / onBeginReadEvent → Bridge，杜绝 TextReadVC SIGABRT
+        LBInstallLegadoReaderKillSwitch();
+        [installed addObject:@"readerKillSwitch"];
 
         if (installed.count == 0) {
             LBCapabilityMarkSkipped(LBHookGroupReading, @"no production reading anchors");
