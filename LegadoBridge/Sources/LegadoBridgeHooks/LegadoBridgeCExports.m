@@ -1188,24 +1188,83 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         [[NSString stringWithFormat:@"nativeOpen phase=goStart ch=%@", chCopy]
             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        // 跳过 LBInstallReaderContentAppearFlush + LBPrepareDetailForOpenReader：
-        // 上轮证据停在 goStart、无 prepDone → 二者之一（或中间 bookDict）无 ips 杀进程。
-        NSString *sourceName = nil;
-        NSMutableDictionary *book = nil;
+        // 禁止 detailDictForBookUrl / sourceUrlForBookUrl：主线程 sync 会死锁，旁路永停 goStart
+        NSString *sourceName = @"本地 mock";
+        NSString *sourceUrl = @"http://192.168.1.4:8765/source.json";
+        NSString *bookName = @"斗破苍穹";
+        for (UIViewController *vc in LBFindCatalogVCs()) {
+            NSString *cn = NSStringFromClass([vc class]);
+            if (![cn containsString:@"LBLegadoCatalogListVC"]) continue;
+            @try {
+                id su = [vc valueForKey:@"sourceUrl"];
+                if ([su isKindOfClass:[NSString class]] && [(NSString *)su length] > 0) {
+                    sourceUrl = su;
+                }
+                id bt = [vc valueForKey:@"bookTitle"];
+                if ([bt isKindOfClass:[NSString class]] && [(NSString *)bt length] > 0) {
+                    bookName = bt;
+                }
+            } @catch (__unused NSException *e) {}
+            break;
+        }
+        NSMutableDictionary *book = [NSMutableDictionary dictionary];
+        book[@"name"] = bookName;
+        book[@"bookName"] = bookName;
+        book[@"bookUrl"] = buCopy ?: @"";
+        book[@"url"] = buCopy ?: @"";
+        book[@"chapterUrl"] = chCopy ?: @"";
+        book[@"cpUrl"] = chCopy ?: @"";
+        book[@"curChapterUrl"] = chCopy ?: @"";
+        book[@"cpIndex"] = @(idxCopy);
+        book[@"chapterIndex"] = @(idxCopy);
+        book[@"legadoBridge"] = @"1";
+        book[@"sourceName"] = sourceName;
+        book[@"bookSourceName"] = sourceName;
+        book[@"querySourceName"] = sourceName;
+        book[@"sourceUrl"] = sourceUrl;
+        if ([itemCopy isKindOfClass:[NSDictionary class]]) {
+            NSDictionary *ch = (NSDictionary *)itemCopy;
+            id cpTitle = ch[@"cpTitle"] ?: ch[@"title"] ?: ch[@"name"] ?: ch[@"chapterName"];
+            if (cpTitle) {
+                book[@"cpTitle"] = cpTitle;
+                book[@"chapterName"] = cpTitle;
+            }
+        } else if (titleCopy.length > 0) {
+            book[@"cpTitle"] = titleCopy;
+            book[@"chapterName"] = titleCopy;
+        }
+        NSMutableDictionary *site = [NSMutableDictionary dictionary];
+        site[@"sourceName"] = sourceName;
+        site[@"bookSourceName"] = sourceName;
+        site[@"title"] = sourceName;
+        site[@"name"] = sourceName;
+        site[@"sourceUrl"] = sourceUrl;
+        site[@"url"] = sourceUrl;
+        site[@"bookSourceUrl"] = sourceUrl;
+        site[@"sourceType"] = @"text";
+        site[@"type"] = @"text";
+        site[@"enable"] = @"1";
+        site[@"enabled"] = @YES;
+        site[@"isEnabled"] = @YES;
+        site[@"legadoBridge"] = @"1";
+        site[@"bookUrl"] = buCopy ?: @"";
+        book[@"arrSource"] = @[site];
+        book[@"arrSourceInfoRequired"] = @[site];
+        book[@"arrSourceInfoOptional"] = @[site];
+        book[@"arrSourceType"] = @[@"text"];
         @try {
-            book = LBBookDictForOpenReader(buCopy, itemCopy, idxCopy, chCopy, &sourceName);
             LBSanitizeBookDictForReader(book);
         } @catch (NSException *e) {
-            [[NSString stringWithFormat:@"nativeOpen fail bookDict: %@", e.reason ?: @""]
+            [[NSString stringWithFormat:@"nativeOpen fail sanitize: %@", e.reason ?: @""]
                 writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
             return;
         }
-        [[NSString stringWithFormat:@"nativeOpen phase=bookDictOK src=%@", sourceName ?: @""]
+        [[NSString stringWithFormat:@"nativeOpen phase=bookDictOK src=%@ fast=1", sourceName]
             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         LBHandleContentRequest(chCopy, buCopy, nil);
-        [[NSString stringWithFormat:@"nativeOpen beforeCall skipPrep=1"]
+        [[NSString stringWithFormat:@"nativeOpen beforeCall skipPrep=1 fast=1"]
             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         NSString *orm = nil;
@@ -1217,7 +1276,7 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
             opened = NO;
         }
         NSString *line = [NSString stringWithFormat:
-                          @"nativeOpen opened=%d readerVis=%d | %@ || via=skipPrep preferNative=1",
+                          @"nativeOpen opened=%d readerVis=%d | %@ || via=fastDict preferNative=1",
                           opened ? 1 : 0, LBIsTextReaderVisible() ? 1 : 0, orm ?: @"?"];
         [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
