@@ -3330,44 +3330,65 @@ LB_INJECT_FINISH:
         }
     } @catch (__unused NSException *e) {}
 
-    // 无论是否 nativePaged，有 TV 则补正文（TextR.divisionResponse 禁调后的主上屏路径）
+    // CoreText 控件：setText 无效；优先 setPageModel:（pageResult 首项）
     @try {
-        if (textReadTV && body.length > 0) {
-            NSString *full = [NSString stringWithFormat:@"%@\n\n%@", title, body];
-            @try {
-                if ([textReadTV respondsToSelector:@selector(setText:)]) {
-                    ((void (*)(id, SEL, id))objc_msgSend)(textReadTV, @selector(setText:), full);
-                } else {
-                    [textReadTV setValue:full forKey:@"text"];
-                }
-            } @catch (__unused NSException *e) {}
-            @try {
-                NSAttributedString *attr =
-                    [[NSAttributedString alloc] initWithString:full
-                                                    attributes:@{
-                        NSFontAttributeName: [UIFont systemFontOfSize:18],
-                        NSForegroundColorAttributeName: [UIColor darkTextColor]
-                    }];
-                if ([textReadTV respondsToSelector:@selector(setAttributedText:)]) {
-                    ((void (*)(id, SEL, id))objc_msgSend)(
-                        textReadTV, @selector(setAttributedText:), attr);
-                } else {
-                    [textReadTV setValue:attr forKey:@"attributedText"];
-                }
-            } @catch (__unused NSException *e) {}
-            @try {
-                textReadTV.hidden = NO;
-                textReadTV.alpha = 1;
-                [textReadTV.superview bringSubviewToFront:textReadTV];
-            } @catch (__unused NSException *e) {}
-            [okPaths addObject:@"tvFillAssist"];
+        id pageModel = nil;
+        if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] > 0) {
+            pageModel = [(NSArray *)pageResult firstObject];
         }
+        NSMutableArray *tvs = [NSMutableArray array];
+        if (textReadTV) [tvs addObject:textReadTV];
+        for (NSString *k in @[@"textViewL", @"textViewR", @"textView", @"curPageTV", @"tv"]) {
+            @try {
+                id v = [readerVC valueForKey:k];
+                if (v && ![tvs containsObject:v]) [tvs addObject:v];
+            } @catch (__unused NSException *e) {}
+        }
+        SEL spm = NSSelectorFromString(@"setPageModel:");
+        for (id tv in tvs) {
+            if (pageModel && [tv respondsToSelector:spm]) {
+                @try {
+                    ((void (*)(id, SEL, id))objc_msgSend)(tv, spm, pageModel);
+                    [okPaths addObject:[NSString stringWithFormat:@"setPageModel@%@",
+                                        NSStringFromClass([tv class])]];
+                    nativePaged = YES;
+                } @catch (NSException *ex) {
+                    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                             @"contentInject setPageModel EX %@",
+                                             ex.reason ?: @""]);
+                }
+            }
+            // 仍尝试 text/attributedText 兜底（部分子类可能吃）
+            if (body.length > 0) {
+                NSString *full = [NSString stringWithFormat:@"%@\n\n%@", title, body];
+                @try {
+                    if ([tv respondsToSelector:@selector(setText:)]) {
+                        ((void (*)(id, SEL, id))objc_msgSend)(tv, @selector(setText:), full);
+                    }
+                } @catch (__unused NSException *e) {}
+                @try {
+                    NSAttributedString *attr =
+                        [[NSAttributedString alloc] initWithString:full
+                                                        attributes:@{
+                            NSFontAttributeName: [UIFont systemFontOfSize:18],
+                            NSForegroundColorAttributeName: [UIColor darkTextColor]
+                        }];
+                    if ([tv respondsToSelector:@selector(setAttributedText:)]) {
+                        ((void (*)(id, SEL, id))objc_msgSend)(
+                            tv, @selector(setAttributedText:), attr);
+                    }
+                } @catch (__unused NSException *e) {}
+                @try {
+                    if ([tv isKindOfClass:[UIView class]]) {
+                        ((UIView *)tv).hidden = NO;
+                        ((UIView *)tv).alpha = 1;
+                        [((UIView *)tv).superview bringSubviewToFront:(UIView *)tv];
+                    }
+                } @catch (__unused NSException *e) {}
+            }
+        }
+        if (tvs.count > 0) [okPaths addObject:@"tvFillAssist"];
     } @catch (__unused NSException *e) {}
-
-    // 无 container 响应时不算真正原生分页
-    if (!nativePaged) {
-        // tvFill + 藏错误页仍可阅读
-    }
 
     if (nativePaged) {
         @try {
@@ -3461,39 +3482,34 @@ LB_INJECT_FINISH:
                 }
             }
         } @catch (__unused NSException *e) {}
-        // 仅当没有 TextReadTV 时才用 overlay 兜底
-        if (!textReadTV) {
-            @try {
-                if (readerVC.isViewLoaded && readerVC.view) {
-                    UIView *host = readerVC.view;
-                    UITextView *overlay = (UITextView *)[host viewWithTag:92011];
-                    if (!overlay) {
-                        CGFloat top = 88, bottom = 72;
-                        CGRect f = CGRectMake(12, top, host.bounds.size.width - 24,
-                                              MAX(120, host.bounds.size.height - top - bottom));
-                        overlay = [[UITextView alloc] initWithFrame:f];
-                        overlay.tag = 92011;
-                        overlay.editable = NO;
-                        overlay.backgroundColor = [UIColor clearColor];
-                        overlay.font = [UIFont systemFontOfSize:18];
-                        overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth |
-                            UIViewAutoresizingFlexibleHeight;
-                        [host addSubview:overlay];
-                    }
-                    overlay.text = [NSString stringWithFormat:@"%@\n\n%@", title, body];
-                    overlay.accessibilityLabel = body;
-                    [host bringSubviewToFront:overlay];
-                    [okPaths addObject:@"overlay92011"];
+        // 有 TextReadTV 时也允许 overlay：CoreText TV 常不吃 setText（09e6db3 空白）
+        @try {
+            if (readerVC.isViewLoaded && readerVC.view) {
+                UIView *host = readerVC.view;
+                UITextView *overlay = (UITextView *)[host viewWithTag:92011];
+                if (!overlay) {
+                    CGFloat top = 88, bottom = 72;
+                    CGRect f = CGRectMake(12, top, host.bounds.size.width - 24,
+                                          MAX(120, host.bounds.size.height - top - bottom));
+                    overlay = [[UITextView alloc] initWithFrame:f];
+                    overlay.tag = 92011;
+                    overlay.editable = NO;
+                    overlay.backgroundColor = [UIColor clearColor];
+                    overlay.font = [UIFont systemFontOfSize:18];
+                    overlay.textColor = [UIColor darkTextColor];
+                    overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth |
+                        UIViewAutoresizingFlexibleHeight;
+                    [host addSubview:overlay];
                 }
-            } @catch (NSException *ex) {
-                LBAppendOpenReaderTrace([NSString stringWithFormat:@"contentInject overlay EX %@",
-                                         ex.reason ?: @""]);
+                overlay.text = [NSString stringWithFormat:@"%@\n\n%@", title, body];
+                overlay.accessibilityLabel = body;
+                overlay.hidden = NO;
+                [host bringSubviewToFront:overlay];
+                [okPaths addObject:@"overlay92011"];
             }
-        } else {
-            @try {
-                UIView *ov = [readerVC.view viewWithTag:92011];
-                if (ov) [ov removeFromSuperview];
-            } @catch (__unused NSException *e) {}
+        } @catch (NSException *ex) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:@"contentInject overlay EX %@",
+                                     ex.reason ?: @""]);
         }
     }
 
