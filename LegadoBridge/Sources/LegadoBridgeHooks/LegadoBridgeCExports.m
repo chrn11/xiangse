@@ -3171,13 +3171,9 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
             BOOL responded = NO;
             for (id host in containers) {
                 NSString *hn = NSStringFromClass([host class]);
-                // TextR 仅在已 seed 缓存后调用；空读 ORIG 后再打 TextR 曾 SIGABRT
-                BOOL allowTextR = [phase containsString:@"Division"] ||
-                                  [phase containsString:@"Appear"] ||
-                                  [phase containsString:@"settle"] ||
-                                  [phase containsString:@"go"];
-                if ([hn containsString:@"TextRPageContainer"] && !allowTextR) {
-                    LBAppendOpenReaderTrace(@"contentInject defer TextR (need seed+ORIG first)");
+                // fb79d05：seed 后 TextR.divisionResponse 仍 SIGABRT，永久禁调
+                if ([hn containsString:@"TextRPageContainer"]) {
+                    LBAppendOpenReaderTrace(@"contentInject ban TextR.divisionResponse (sigabort)");
                     continue;
                 }
                 if ([host respondsToSelector:dr2]) {
@@ -3226,25 +3222,57 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                          [names componentsJoinedByString:@","]]);
             }
 
+            // 无 ReadPage 时优先 VC 收尾 / TextR 分页 ivar，禁止 TextR.divisionResponse
             SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
-            if ([readerVC respondsToSelector:finish]) {
+            if (!responded && [readerVC respondsToSelector:finish]) {
                 @try {
                     ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(
                         readerVC, finish, pageResult, cpIndex);
                     [okPaths addObject:@"onDivisionTextFinish"];
                     nativePaged = YES;
-                } @catch (__unused NSException *e) {}
+                    responded = YES;
+                } @catch (NSException *ex) {
+                    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                             @"contentInject onDivisionTextFinish EX %@",
+                                             ex.reason ?: @""]);
+                }
+            }
+            if (!responded) {
+                id textR = nil;
+                for (id h in containers) {
+                    if ([NSStringFromClass([h class]) containsString:@"TextRPageContainer"]) {
+                        textR = h;
+                        break;
+                    }
+                }
+                if (textR) {
+                    for (NSString *k in @[@"arrPages", @"pages", @"pageArr", @"arrPage",
+                                          @"pageModels", @"arrPageModel"]) {
+                        @try {
+                            [textR setValue:pageResult forKey:k];
+                            [okPaths addObject:[NSString stringWithFormat:@"kvcPages.%@", k]];
+                            nativePaged = YES;
+                            responded = YES;
+                            break;
+                        } @catch (__unused NSException *e) {}
+                    }
+                    if (responded) {
+                        @try {
+                            SEL rel = NSSelectorFromString(@"reloadData");
+                            if ([textR respondsToSelector:rel]) {
+                                ((void (*)(id, SEL))objc_msgSend)(textR, rel);
+                                [okPaths addObject:@"textR.reloadData"];
+                            }
+                        } @catch (__unused NSException *e) {}
+                    }
+                }
             }
             // divisionResponse 已成功则不再 processPageData（双写易崩）
             if (!responded) {
             SEL pp = NSSelectorFromString(@"processPageData:userInfo:cpTitle:");
             for (id host in containers) {
                 NSString *hn2 = NSStringFromClass([host class]);
-                BOOL allowTextR2 = [phase containsString:@"Division"] ||
-                                   [phase containsString:@"Appear"] ||
-                                   [phase containsString:@"settle"] ||
-                                   [phase containsString:@"go"];
-                if ([hn2 containsString:@"TextRPageContainer"] && !allowTextR2) continue;
+                if ([hn2 containsString:@"TextRPageContainer"]) continue;
                 if (![host respondsToSelector:pp]) continue;
                 NSDictionary *ui = @{
                     @"chapterContent": body,
@@ -3350,7 +3378,7 @@ LB_INJECT_FINISH:
         sLastNativePagedOkTs = CFAbsoluteTimeGetCurrent();
         sLastNativePagedKey = [dedupeKey copy];
     } else {
-        LBAppendOpenReaderTrace(@"contentInject fallback KVC/overlay native-page-miss");
+        LBAppendOpenReaderTrace(@"contentInject fallback TV+hideError (no overlay if TV)");
         @try {
             if (textReadTV) {
                 NSString *full = [NSString stringWithFormat:@"%@\n\n%@", title, body];
@@ -3369,30 +3397,65 @@ LB_INJECT_FINISH:
             }
         } @catch (__unused NSException *e) {}
         @try {
-            if (readerVC.isViewLoaded && readerVC.view) {
-                UIView *host = readerVC.view;
-                UITextView *overlay = (UITextView *)[host viewWithTag:92011];
-                if (!overlay) {
-                    CGFloat top = 88, bottom = 72;
-                    CGRect f = CGRectMake(12, top, host.bounds.size.width - 24,
-                                          MAX(120, host.bounds.size.height - top - bottom));
-                    overlay = [[UITextView alloc] initWithFrame:f];
-                    overlay.tag = 92011;
-                    overlay.editable = NO;
-                    overlay.backgroundColor = [UIColor clearColor];
-                    overlay.font = [UIFont systemFontOfSize:18];
-                    overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth |
-                        UIViewAutoresizingFlexibleHeight;
-                    [host addSubview:overlay];
-                }
-                overlay.text = [NSString stringWithFormat:@"%@\n\n%@", title, body];
-                overlay.accessibilityLabel = body;
-                [host bringSubviewToFront:overlay];
-                [okPaths addObject:@"overlay92011"];
+            id ev = nil;
+            @try { ev = [readerVC valueForKey:@"errorView"]; } @catch (__unused NSException *e) {}
+            if ([ev isKindOfClass:[UIView class]]) {
+                ((UIView *)ev).hidden = YES;
+                ((UIView *)ev).alpha = 0;
+                ((UIView *)ev).userInteractionEnabled = NO;
+                [okPaths addObject:@"errorViewHidden"];
             }
-        } @catch (NSException *ex) {
-            LBAppendOpenReaderTrace([NSString stringWithFormat:@"contentInject overlay EX %@",
-                                     ex.reason ?: @""]);
+        } @catch (__unused NSException *e) {}
+        @try {
+            if (readerVC.isViewLoaded && readerVC.view) {
+                NSMutableArray *vs = [NSMutableArray arrayWithObject:readerVC.view];
+                while (vs.count > 0) {
+                    UIView *v = vs.lastObject;
+                    [vs removeLastObject];
+                    NSString *vn = NSStringFromClass([v class]);
+                    if ([vn containsString:@"ErrorView"] || [vn containsString:@"ReadError"]) {
+                        v.hidden = YES;
+                        v.alpha = 0;
+                        v.userInteractionEnabled = NO;
+                        [okPaths addObject:@"readErrorHidden"];
+                    }
+                    for (UIView *sub in v.subviews) [vs addObject:sub];
+                }
+            }
+        } @catch (__unused NSException *e) {}
+        // 仅当没有 TextReadTV 时才用 overlay 兜底
+        if (!textReadTV) {
+            @try {
+                if (readerVC.isViewLoaded && readerVC.view) {
+                    UIView *host = readerVC.view;
+                    UITextView *overlay = (UITextView *)[host viewWithTag:92011];
+                    if (!overlay) {
+                        CGFloat top = 88, bottom = 72;
+                        CGRect f = CGRectMake(12, top, host.bounds.size.width - 24,
+                                              MAX(120, host.bounds.size.height - top - bottom));
+                        overlay = [[UITextView alloc] initWithFrame:f];
+                        overlay.tag = 92011;
+                        overlay.editable = NO;
+                        overlay.backgroundColor = [UIColor clearColor];
+                        overlay.font = [UIFont systemFontOfSize:18];
+                        overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth |
+                            UIViewAutoresizingFlexibleHeight;
+                        [host addSubview:overlay];
+                    }
+                    overlay.text = [NSString stringWithFormat:@"%@\n\n%@", title, body];
+                    overlay.accessibilityLabel = body;
+                    [host bringSubviewToFront:overlay];
+                    [okPaths addObject:@"overlay92011"];
+                }
+            } @catch (NSException *ex) {
+                LBAppendOpenReaderTrace([NSString stringWithFormat:@"contentInject overlay EX %@",
+                                         ex.reason ?: @""]);
+            }
+        } else {
+            @try {
+                UIView *ov = [readerVC.view viewWithTag:92011];
+                if (ov) [ov removeFromSuperview];
+            } @catch (__unused NSException *e) {}
         }
     }
 
