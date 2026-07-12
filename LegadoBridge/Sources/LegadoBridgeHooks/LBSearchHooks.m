@@ -10,6 +10,8 @@ void LBInstallSearchHooks(void) {
         NSMutableArray *installed = [NSMutableArray array];
         // 搜索页出现时冲刷 pending 结果
         LBInstallSearchUIAppearFlush();
+        // 装 BookSearch didSelect（点书防崩推详情）
+        LBInstallCatalogUIAppearFlush();
         [installed addObject:@"uiAppearFlush"];
 
         Class managerClass = NSClassFromString(@"BookSourceManager");
