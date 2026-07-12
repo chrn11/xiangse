@@ -1535,30 +1535,67 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
     }
 }
 
+/// 从沙盒 bridge 书库按 bookUrl / 书名匹配（详情页站点(0+) 时常丢 legado 标记）
+static NSDictionary *LBBridgeBookRowMatching(NSString *bookUrl, NSString *name) {
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_bridge_books.json"];
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    if (data.length == 0) return nil;
+    id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+    if (![json isKindOfClass:[NSArray class]]) return nil;
+    for (id row in (NSArray *)json) {
+        if (![row isKindOfClass:[NSDictionary class]]) continue;
+        NSDictionary *d = (NSDictionary *)row;
+        NSString *bu = d[@"bookUrl"];
+        NSString *nm = d[@"name"];
+        if (bookUrl.length > 0 && [bu isKindOfClass:[NSString class]] && [bu isEqualToString:bookUrl]) {
+            return d;
+        }
+        if (name.length > 0 && [nm isKindOfClass:[NSString class]] && [nm isEqualToString:name]) {
+            return d;
+        }
+    }
+    return nil;
+}
+
 /// Legado 书：短路原生 openReader / beginRead，强制 Bridge（点章硬保证）
 static BOOL LBBookLooksLegadoForKillSwitch(id bookOrRecord, NSString **outBookUrl, NSString **outChUrl, NSString **outTitle) {
     NSDictionary *dic = LBReadingDicFromObject(bookOrRecord);
     if (![dic isKindOfClass:[NSDictionary class]]) dic = nil;
     NSString *bookUrl = LBReadingBookUrlFromDic(dic);
+    NSString *bookName = nil;
+    if (dic) {
+        id nm = dic[@"name"] ?: dic[@"bookName"] ?: dic[@"title"];
+        if ([nm isKindOfClass:[NSString class]]) bookName = nm;
+    }
     if (bookUrl.length == 0 && sPendingCatalogBookUrl.length > 0) {
         bookUrl = sPendingCatalogBookUrl;
+    }
+    NSDictionary *bridgeRow = LBBridgeBookRowMatching(bookUrl, bookName);
+    if (bridgeRow && bookUrl.length == 0) {
+        id bu = bridgeRow[@"bookUrl"];
+        if ([bu isKindOfClass:[NSString class]]) bookUrl = bu;
     }
     BOOL isLegado = LBReadingDicLooksLegado(dic) ||
                     (bookUrl.length > 0 && LBReadingSourceUrlForBookUrl(bookUrl).length > 0) ||
                     (bookUrl.length > 0 && sPendingCatalogBookUrl.length > 0 &&
                      [bookUrl isEqualToString:sPendingCatalogBookUrl]) ||
                     (sPendingCatalogChapters.count > 0 && sPendingCatalogBookUrl.length > 0 &&
-                     (bookUrl.length == 0 || [bookUrl isEqualToString:sPendingCatalogBookUrl]));
+                     (bookUrl.length == 0 || [bookUrl isEqualToString:sPendingCatalogBookUrl])) ||
+                    (bridgeRow != nil);
     if (!isLegado) return NO;
+    if (bookUrl.length > 0 && sPendingCatalogBookUrl.length == 0) {
+        sPendingCatalogBookUrl = [bookUrl copy];
+    }
     NSString *chUrl = nil;
     NSString *title = nil;
     if (dic) {
         id v = dic[@"chapterUrl"] ?: dic[@"cpUrl"] ?: dic[@"curChapterUrl"];
         if ([v isKindOfClass:[NSString class]]) chUrl = v;
-        v = dic[@"cpTitle"] ?: dic[@"title"] ?: dic[@"chapterName"] ?: dic[@"name"];
+        v = dic[@"cpTitle"] ?: dic[@"chapterName"];
         if ([v isKindOfClass:[NSString class]]) title = v;
     }
-    if (chUrl.length == 0 && sPendingCatalogChapters.count > 0) {
+    if (chUrl.length == 0 && sPendingCatalogChapters.count > 0 &&
+        (sPendingCatalogBookUrl.length == 0 || [sPendingCatalogBookUrl isEqualToString:bookUrl])) {
         NSInteger idx = 0;
         id idxObj = dic[@"cpIndex"] ?: dic[@"chapterIndex"];
         if ([idxObj respondsToSelector:@selector(integerValue)]) {
@@ -1576,7 +1613,7 @@ static BOOL LBBookLooksLegadoForKillSwitch(id bookOrRecord, NSString **outBookUr
     }
     if (outBookUrl) *outBookUrl = bookUrl;
     if (outChUrl) *outChUrl = chUrl;
-    if (outTitle) *outTitle = title;
+    if (outTitle) *outTitle = title.length > 0 ? title : bookName;
     return YES;
 }
 
@@ -1585,7 +1622,36 @@ static void LBKillSwitchPresentBridge(NSString *phase, NSString *bookUrl, NSStri
                         phase ?: @"?", bookUrl ?: @"", chUrl ?: @""];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    if (bookUrl.length == 0 || chUrl.length == 0) return;
+    if (bookUrl.length == 0) return;
+    // 无章节：仍禁止回原生；拉目录后打开第一章
+    if (chUrl.length == 0) {
+        NSString *su = LBReadingSourceUrlForBookUrl(bookUrl);
+        sPendingCatalogBookUrl = [bookUrl copy];
+        LBHandleCatalogRequest(bookUrl, su);
+        NSString *buCopy = [bookUrl copy];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            if (sPendingCatalogBookUrl.length > 0 &&
+                ![sPendingCatalogBookUrl isEqualToString:buCopy]) {
+                return;
+            }
+            if (sPendingCatalogChapters.count > 0) {
+                NSString *line = [NSString stringWithFormat:
+                                  @"killSwitch %@ deferredOpen ch0 n=%lu",
+                                  phase ?: @"?", (unsigned long)sPendingCatalogChapters.count];
+                [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+                       atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                LBOpenLegadoChapterAtIndex(0);
+            } else {
+                NSString *line = [NSString stringWithFormat:
+                                  @"killSwitch %@ blocked no-chapter book=%@",
+                                  phase ?: @"?", buCopy];
+                [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
+                       atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            }
+        });
+        return;
+    }
     NSString *titleCopy = title.length > 0 ? [title copy] : @"章节";
     NSString *chCopy = [chUrl copy];
     NSString *buCopy = [bookUrl copy];
@@ -1633,6 +1699,23 @@ static void LBOnBeginReadEvent_KillIMP(id self, SEL _cmd, id note) {
     }
 }
 
+static void (*LBOrig_onBeginEvent)(id, SEL, id) = NULL;
+static void LBOnBeginEvent_KillIMP(id self, SEL _cmd, id note) {
+    NSString *bu = nil, *ch = nil, *title = nil;
+    id dicBook = nil;
+    @try { dicBook = [self valueForKey:@"dicBook"]; } @catch (__unused NSException *e) {}
+    if (LBBookLooksLegadoForKillSwitch(dicBook, &bu, &ch, &title) ||
+        LBBookLooksLegadoForKillSwitch(note, &bu, &ch, &title) ||
+        (sPendingCatalogChapters.count > 0 && sPendingCatalogBookUrl.length > 0)) {
+        if (bu.length == 0) bu = sPendingCatalogBookUrl;
+        LBKillSwitchPresentBridge(@"onBeginEvent", bu, ch, title);
+        return;
+    }
+    if (LBOrig_onBeginEvent) {
+        LBOrig_onBeginEvent(self, _cmd, note);
+    }
+}
+
 static void (*LBOrig_tryOpenRecord)(id, SEL, id, id) = NULL;
 static void LBTryOpenRecord_KillIMP(id self, SEL _cmd, id record, id sourceName) {
     NSString *bu = nil, *ch = nil, *title = nil;
@@ -1666,18 +1749,29 @@ void LBInstallLegadoReaderKillSwitch(void) {
                 NSLog(@"[LegadoBridge] killSwitch hooked openReader @%@", NSStringFromClass(owner));
             }
         }
-        // BookDetail onBeginReadEvent / tryOpenRecord
+        // BookDetail onBeginReadEvent / onBeginEvent / tryOpenRecord
         for (NSString *cn in @[@"BookDetailController", @"BookDetailVCBase"]) {
             Class cls = NSClassFromString(cn);
             if (!cls) continue;
-            SEL beginSel = NSSelectorFromString(@"onBeginReadEvent:");
-            Class beginOwner = LBClassOwningInstanceMethod(cls, beginSel);
-            if (beginOwner) {
-                Method m = class_getInstanceMethod(beginOwner, beginSel);
+            SEL beginReadSel = NSSelectorFromString(@"onBeginReadEvent:");
+            Class beginReadOwner = LBClassOwningInstanceMethod(cls, beginReadSel);
+            if (beginReadOwner) {
+                Method m = class_getInstanceMethod(beginReadOwner, beginReadSel);
                 if (m && !LBOrig_onBeginReadEvent) {
                     LBOrig_onBeginReadEvent = (void (*)(id, SEL, id))method_getImplementation(m);
                     method_setImplementation(m, (IMP)LBOnBeginReadEvent_KillIMP);
-                    NSLog(@"[LegadoBridge] killSwitch hooked onBeginReadEvent @%@",
+                    NSLog(@"[LegadoBridge] killSwitch hooked onBeginReadEvent: @%@",
+                          NSStringFromClass(beginReadOwner));
+                }
+            }
+            SEL beginSel = NSSelectorFromString(@"onBeginEvent:");
+            Class beginOwner = LBClassOwningInstanceMethod(cls, beginSel);
+            if (beginOwner) {
+                Method m = class_getInstanceMethod(beginOwner, beginSel);
+                if (m && !LBOrig_onBeginEvent) {
+                    LBOrig_onBeginEvent = (void (*)(id, SEL, id))method_getImplementation(m);
+                    method_setImplementation(m, (IMP)LBOnBeginEvent_KillIMP);
+                    NSLog(@"[LegadoBridge] killSwitch hooked onBeginEvent: @%@",
                           NSStringFromClass(beginOwner));
                 }
             }
