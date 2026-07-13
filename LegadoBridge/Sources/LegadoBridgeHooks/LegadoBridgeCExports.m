@@ -2927,6 +2927,23 @@ static NSArray *LBCollectDivisionHosts(UIViewController *readerVC) {
     }
     NSMutableArray *vs = [NSMutableArray array];
     if (readerVC.isViewLoaded && readerVC.view) [vs addObject:readerVC.view];
+    UIView *textReadTV = nil;
+    NSMutableArray *tvStack = readerVC.isViewLoaded && readerVC.view
+        ? [NSMutableArray arrayWithObject:readerVC.view] : [NSMutableArray array];
+    while (tvStack.count > 0) {
+        UIView *v = tvStack.lastObject;
+        [tvStack removeLastObject];
+        if ([NSStringFromClass([v class]) containsString:@"TextReadTV"]) {
+            textReadTV = v;
+            break;
+        }
+        for (UIView *sub in v.subviews) [tvStack addObject:sub];
+    }
+    if (textReadTV) {
+        for (UIView *walk = textReadTV; walk; walk = walk.superview) {
+            if (![raw containsObject:walk]) [raw addObject:walk];
+        }
+    }
     while (vs.count > 0 && raw.count < 16) {
         UIView *v = vs.lastObject;
         [vs removeLastObject];
@@ -2979,6 +2996,13 @@ static BOOL LBInvokeDivisionResponse(id host, id pages, NSString *title, NSInteg
     Class hcls = object_getClass(host);
     BOOL hasDr2 = [host respondsToSelector:dr2] || class_getInstanceMethod(hcls, dr2);
     BOOL hasDr = [host respondsToSelector:dr] || class_getInstanceMethod(hcls, dr);
+    if (!hasDr && !hasDr2) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject drProbe miss host=%@ mdr=%p mdr2=%p",
+                                 hn, class_getInstanceMethod(hcls, dr),
+                                 class_getInstanceMethod(hcls, dr2)]);
+        return NO;
+    }
     if (hasDr2) {
         NSMutableArray *h = heights ?: [NSMutableArray array];
         @try {
