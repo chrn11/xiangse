@@ -1405,6 +1405,11 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     void (^go)(void) = ^{
         LBInstallNativeOpenCrashGuards();
+        if (sNativeOpenChapterDone) {
+            LBAppendOpenReaderTrace(@"goStart abort push chapterDone");
+            LBDeliverContentToVisibleReaders(@"chapterDoneGo");
+            return;
+        }
         LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen phase=goStart ch=%@", chCopy]);
         // 对齐已导入书源：本地静态测试源 / http://192.168.1.4:8765（勿用 404 的 source.json、勿用「本地 mock」）
         NSString *sourceName = sPendingCatalogSourceName.length > 0
@@ -2942,6 +2947,8 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
                 [textReadTV setNeedsLayout];
                 if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
                     *nativePaged = YES;
+                    sNativeOpenChapterDone = YES;
+                    sDeferredNativeOpenIdx = -1;
                     return;
                 }
             } @catch (NSException *ex) {
@@ -2954,6 +2961,8 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
             [okPaths addObject:@"probeOnlyPostDR"];
             if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
                 *nativePaged = YES;
+                sNativeOpenChapterDone = YES;
+                sDeferredNativeOpenIdx = -1;
                 return;
             }
         }
@@ -2962,6 +2971,8 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
         [okPaths addObject:@"probeOnlyPostDR"];
         if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
             *nativePaged = YES;
+            sNativeOpenChapterDone = YES;
+            sDeferredNativeOpenIdx = -1;
         }
     }
     @try {
@@ -5805,8 +5816,13 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
     NSString *bu = [bookUrl copy];
     NSString *su = [sourceUrl copy];
     NSInteger wantIdx = idx < 0 ? 0 : idx;
+    if (sNativeOpenChapterDone &&
+        sDeferredNativeOpenBookUrl.length > 0 &&
+        [sDeferredNativeOpenBookUrl isEqualToString:bu]) {
+        LBAppendOpenReaderTrace(@"nativeRead skip chapterDone sameBook");
+        return;
+    }
     sDeferredNativeOpenIdx = wantIdx;
-    sNativeOpenChapterDone = NO;
     sDeferredNativeOpenBookUrl = bu;
     [[NSString stringWithFormat:@"nativeOpenRequest book=%@ src=%@ idx=%ld",
       bu, su ?: @"", (long)wantIdx]
