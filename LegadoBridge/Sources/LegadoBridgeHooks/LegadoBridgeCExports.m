@@ -1345,6 +1345,7 @@ static void LBSeedTextReadAppearFields(id readerVC, NSDictionary *book);
 static BOOL LBPrepareDetailForOpenReader(NSMutableDictionary *book, NSString *sourceName, NSString **outMsg);
 static void LBFlushPendingResetContent(NSString *phase);
 static BOOL LBIsTextReaderVisible(void);
+static BOOL LBNavStackHasTextReader(void);
 static UIViewController *LBFindBookDetailVC(void);
 static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic);
 
@@ -2799,7 +2800,8 @@ static BOOL LBSetReadPageModelCTFrame(id model, NSAttributedString *attr, CGSize
         while (cls && cls != [NSObject class]) {
             Ivar iv = class_getInstanceVariable(cls, ivarName.UTF8String);
             if (iv) {
-                object_setIvar(model, iv, (__bridge_retained id)frame);
+                id frameObj = CFBridgingRelease(frame);
+                object_setIvar(model, iv, frameObj);
                 set = YES;
                 break;
             }
@@ -2808,7 +2810,8 @@ static BOOL LBSetReadPageModelCTFrame(id model, NSAttributedString *attr, CGSize
         if (set) break;
     }
     if (!set) {
-        LBForceSetIvar(model, @"CTFrame", (__bridge_retained id)frame);
+        id frameObj = CFBridgingRelease(frame);
+        LBForceSetIvar(model, @"CTFrame", frameObj);
         set = YES;
     }
     for (NSString *rk in @[@"stringRange", @"range", @"pageRange", @"visibleRange"]) {
