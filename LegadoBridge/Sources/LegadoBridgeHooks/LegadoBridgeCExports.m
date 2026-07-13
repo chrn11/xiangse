@@ -682,6 +682,7 @@ static void (*LBOrig_setArrCatalog)(id, SEL, id) = NULL;
 static id (*LBOrig_getArrCatalog)(id, SEL) = NULL;
 static void (*LBOrig_catalogDidSelect)(id, SEL, UITableView *, NSIndexPath *) = NULL;
 static NSTimeInterval sLastLegadoChapterOpenTs = 0;
+static NSTimeInterval sLastPushNativeFullTs = 0;
 /// 最近一次原生分页成功（防 deliver 重复 divisionResponse 撞崩）
 static NSTimeInterval sLastNativePagedOkTs = 0;
 static NSString *sLastNativePagedKey = nil;
@@ -2838,21 +2839,10 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
                                           NSString *body, NSArray *containers,
                                           NSMutableArray *okPaths, BOOL *nativePaged) {
     if (!readerVC || !nativePaged || *nativePaged) return;
-    SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
-    if ([readerVC respondsToSelector:finish]) {
-        @try {
-            ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(
-                readerVC, finish, pageResult, cpIndex);
-            [okPaths addObject:@"onDivisionTextFinishPostDR"];
-            if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
-                *nativePaged = YES;
-                return;
-            }
-        } @catch (NSException *ex) {
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"contentInject onDivisionTextFinishPostDR EX %@",
-                                     ex.reason ?: @""]);
-        }
+    LBAppendOpenReaderTrace(@"contentInject postDR enter");
+    id pageModel = nil;
+    if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] > 0) {
+        pageModel = [(NSArray *)pageResult firstObject];
     }
     SEL pp = NSSelectorFromString(@"processPageData:userInfo:cpTitle:");
     NSDictionary *ui = @{
@@ -2863,16 +2853,12 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
     };
     for (id host in containers) {
         NSString *hn = NSStringFromClass([host class]);
-        if (![hn containsString:@"TextRPageContainer"] &&
-            ![hn containsString:@"ReadPageContainer"] &&
-            ![hn containsString:@"ReadScrollContainer"]) {
-            continue;
-        }
+        if (![hn containsString:@"TextRPageContainer"]) continue;
         if (![host respondsToSelector:pp]) continue;
         @try {
             ((void (*)(id, SEL, id, id, id))objc_msgSend)(
                 host, pp, pageResult, ui, title);
-            [okPaths addObject:[NSString stringWithFormat:@"processPageData@%@", hn]];
+            [okPaths addObject:[NSString stringWithFormat:@"processPageDataPostDR@%@", hn]];
             if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
                 *nativePaged = YES;
                 return;
@@ -2882,10 +2868,6 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
                                      @"contentInject processPageDataPostDR EX %@ %@",
                                      hn, ex.reason ?: @""]);
         }
-    }
-    id pageModel = nil;
-    if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] > 0) {
-        pageModel = [(NSArray *)pageResult firstObject];
     }
     if (pageModel && textReadTV) {
         SEL spm = NSSelectorFromString(@"setPageModel:");
@@ -2919,11 +2901,6 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
                 readerVC, sp, (NSInteger)0, (NSInteger)0, NO);
             [okPaths addObject:@"showPage0PostDR"];
         }
-        SEL spp = NSSelectorFromString(@"showPageProgress");
-        if ([readerVC respondsToSelector:spp]) {
-            ((void (*)(id, SEL))objc_msgSend)(readerVC, spp);
-            [okPaths addObject:@"showPageProgressPostDR"];
-        }
         if (textReadTV) {
             textReadTV.hidden = NO;
             textReadTV.alpha = 1;
@@ -2931,8 +2908,24 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
         }
         if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
             *nativePaged = YES;
+            return;
         }
     } @catch (__unused NSException *e) {}
+    SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
+    if ([readerVC respondsToSelector:finish]) {
+        @try {
+            ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(
+                readerVC, finish, pageResult, cpIndex);
+            [okPaths addObject:@"onDivisionTextFinishPostDR"];
+            if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
+                *nativePaged = YES;
+            }
+        } @catch (NSException *ex) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"contentInject onDivisionTextFinishPostDR EX %@",
+                                     ex.reason ?: @""]);
+        }
+    }
 }
 
 /// 扫描 ReadPageModel ivar，写入 Attr/NSString
@@ -3771,12 +3764,33 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                     continue;
                 }
                 drResponded = YES;
+                if ([hn containsString:@"TextRPageContainer"] && textReadTV &&
+                    [pageResult isKindOfClass:[NSArray class]] &&
+                    [(NSArray *)pageResult count] > 0) {
+                    id pm0 = [(NSArray *)pageResult firstObject];
+                    SEL spm0 = NSSelectorFromString(@"setPageModel:");
+                    Class tvCls0 = object_getClass(textReadTV);
+                    if (pm0 && ([textReadTV respondsToSelector:spm0] ||
+                                class_getInstanceMethod(tvCls0, spm0))) {
+                        @try {
+                            ((void (*)(id, SEL, id))objc_msgSend)(textReadTV, spm0, pm0);
+                            [okPaths addObject:@"setPageModelAfterDR"];
+                            [textReadTV setNeedsDisplay];
+                            [textReadTV setNeedsLayout];
+                        } @catch (NSException *ex) {
+                            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                     @"contentInject setPageModelAfterDR EX %@",
+                                                     ex.reason ?: @""]);
+                        }
+                    }
+                }
                 if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
                     nativePaged = YES;
                     break;
                 }
                 LBAppendOpenReaderTrace([NSString stringWithFormat:
                                          @"contentInject drOK noNeedle host=%@", hn]);
+                if ([hn containsString:@"TextRPageContainer"]) break;
             }
             // wrap 后仍无上屏：对 ReadPage/ReadScroll/TextR 再试原始 Attr
             if (!nativePaged && rawAttrPages) {
@@ -4739,10 +4753,17 @@ static UINavigationController *LBFindReaderHostNav(void) {
 }
 
 static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName, NSString **outMsg) {
+    NSTimeInterval nowPush = CFAbsoluteTimeGetCurrent();
     if (LBNavStackHasTextReader()) {
         LBAppendOpenReaderTrace(@"pushNativeFull skip duplicate onStack");
         LBDeliverContentToVisibleReaders(@"pushDedup");
         if (outMsg) *outMsg = @"pushNativeFull dedup onStack";
+        return YES;
+    }
+    if (sLastPushNativeFullTs > 0 && (nowPush - sLastPushNativeFullTs) < 8.0) {
+        LBAppendOpenReaderTrace(@"pushNativeFull skip recent push");
+        LBDeliverContentToVisibleReaders(@"pushDedupRecent");
+        if (outMsg) *outMsg = @"pushNativeFull dedup recent";
         return YES;
     }
     LBInstallSafeTextReadShellHooks();
@@ -4816,6 +4837,7 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
             LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen pushingNative %@ on %@",
                                      NSStringFromClass(cls), NSStringFromClass([nav class])]);
             [nav pushViewController:(UIViewController *)vc animated:YES];
+            sLastPushNativeFullTs = CFAbsoluteTimeGetCurrent();
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), afterPush);
             if (outMsg) {
