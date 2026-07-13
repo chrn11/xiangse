@@ -3345,48 +3345,6 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
         if ([cur respondsToSelector:@selector(integerValue)]) cpIndex = [cur integerValue];
     } @catch (__unused NSException *e) {}
 
-    // 同章近期已原生分页成功：仅当 TV 已含「萧炎」才跳过；否则继续走 divisionResponse
-    NSString *dedupeKey = [NSString stringWithFormat:@"%@|%ld|%lu",
-                           title, (long)cpIndex, (unsigned long)body.length];
-    NSTimeInterval nowTs = CFAbsoluteTimeGetCurrent();
-    if (sLastNativePagedOkTs > 0 &&
-        (nowTs - sLastNativePagedOkTs) < 8.0 &&
-        [sLastNativePagedKey isEqualToString:dedupeKey]) {
-        UIView *tvCheck = nil;
-        @try {
-            NSMutableArray *st = [NSMutableArray array];
-            if (readerVC.isViewLoaded && readerVC.view) [st addObject:readerVC.view];
-            while (st.count > 0) {
-                UIView *v = st.lastObject;
-                [st removeLastObject];
-                if ([NSStringFromClass([v class]) containsString:@"TextReadTV"]) {
-                    tvCheck = v;
-                    break;
-                }
-                for (UIView *sub in v.subviews) [st addObject:sub];
-            }
-        } @catch (__unused NSException *e) {}
-        BOOL alreadyOnScreen = LBTextReadTVHasNeedle(tvCheck, @"萧炎") ||
-                               LBTextReadTVHasNeedle(tvCheck, @"斗气");
-        if (alreadyOnScreen) {
-            @try {
-                if ([readerVC respondsToSelector:NSSelectorFromString(@"hideErrorView")]) {
-                    ((void (*)(id, SEL))objc_msgSend)(readerVC, NSSelectorFromString(@"hideErrorView"));
-                }
-                UIView *ov = readerVC.isViewLoaded ? [readerVC.view viewWithTag:92011] : nil;
-                if (ov) [ov removeFromSuperview];
-            } @catch (__unused NSException *e) {}
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"contentInject dedupeOK+onScreen phase=%@ key=%@",
-                                     phase ?: @"?", dedupeKey]);
-            return YES;
-        }
-        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"contentInject dedupeBypass (no萧炎) phase=%@ key=%@",
-                                 phase ?: @"?", dedupeKey]);
-        sLastNativePagedOkTs = 0;
-        sLastNativePagedKey = nil;
-    }
     sContentInjectBusy = YES;
     sShowPage0ThisInject = NO;
     @try {
@@ -3422,6 +3380,19 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
     if (sourceName.length == 0) {
         sourceName = [payload[@"sourceName"] isKindOfClass:[NSString class]]
             ? payload[@"sourceName"] : @"本地静态测试源";
+    }
+
+    // 同章近期已 nativePaged：直接跳过，禁止二次 divisionResponse（曾 SIGABRT sig=6）
+    NSString *dedupeKey = [NSString stringWithFormat:@"%@|%ld|%lu",
+                           bookKey, (long)cpIndex, (unsigned long)body.length];
+    NSTimeInterval nowTs = CFAbsoluteTimeGetCurrent();
+    if (sLastNativePagedOkTs > 0 &&
+        (nowTs - sLastNativePagedOkTs) < 12.0 &&
+        [sLastNativePagedKey isEqualToString:dedupeKey]) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject dedupeSkip recentPaged phase=%@ key=%@",
+                                 phase ?: @"?", dedupeKey]);
+        return YES;
     }
 
     NSMutableArray *okPaths = [NSMutableArray array];
