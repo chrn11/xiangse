@@ -2784,13 +2784,22 @@ static BOOL LBScanSetReadPageModelContent(id model, NSAttributedString *page) {
 }
 
 /// NSAttributedString/NSString → ReadPageModel（divisionResponse 禁吃纯 Attr）
-static id LBWrapAttrAsReadPageModel(id page) {
+static id LBWrapAttrAsReadPageModelTemplate(id page, id template) {
     if (!page) return nil;
     Class rpmCls = NSClassFromString(@"ReadPageModel");
-    if (rpmCls && [page isKindOfClass:rpmCls]) return page;
-    if (!rpmCls) return page;
+    if (!rpmCls) {
+        LBAppendOpenReaderTrace(@"contentInject wrapRPM noCls ReadPageModel");
+        return page;
+    }
+    if ([page isKindOfClass:rpmCls]) return page;
     id model = nil;
-    @try { model = [[rpmCls alloc] init]; } @catch (__unused NSException *e) {}
+    if (template && [template isKindOfClass:rpmCls]) {
+        @try { model = [template mutableCopy]; } @catch (__unused NSException *e) {}
+        if (!model) model = template;
+    }
+    if (!model) {
+        @try { model = [[rpmCls alloc] init]; } @catch (__unused NSException *e) {}
+    }
     if (!model) {
         @try { model = [rpmCls new]; } @catch (__unused NSException *e) {}
     }
@@ -2841,6 +2850,10 @@ static id LBWrapAttrAsReadPageModel(id page) {
         return model;
     }
     return page;
+}
+
+static id LBWrapAttrAsReadPageModel(id page) {
+    return LBWrapAttrAsReadPageModelTemplate(page, nil);
 }
 
 /// 解包 @[pages] 并把 Attr 页包装成 ReadPageModel 数组
@@ -2956,14 +2969,17 @@ static NSArray *LBCollectDivisionHosts(UIViewController *readerVC) {
     return out;
 }
 
-/// 调 divisionResponse；Attr 页须先 wrapReadPageModel
+/// 调 divisionResponse；Attr 页须先 wrapReadPageModel（class_getInstanceMethod 兜底 respondsToSelector 误报）
 static BOOL LBInvokeDivisionResponse(id host, id pages, NSString *title, NSInteger cpIndex,
                                      NSMutableArray *heights, NSMutableArray *okPaths) {
     if (!host || !pages) return NO;
     NSString *hn = NSStringFromClass([host class]);
     SEL dr2 = NSSelectorFromString(@"divisionResponse:cpTitle:cpIndex:heights:");
     SEL dr = NSSelectorFromString(@"divisionResponse:cpTitle:cpIndex:");
-    if ([host respondsToSelector:dr2]) {
+    Class hcls = object_getClass(host);
+    BOOL hasDr2 = [host respondsToSelector:dr2] || class_getInstanceMethod(hcls, dr2);
+    BOOL hasDr = [host respondsToSelector:dr] || class_getInstanceMethod(hcls, dr);
+    if (hasDr2) {
         NSMutableArray *h = heights ?: [NSMutableArray array];
         @try {
             id ret = ((id (*)(id, SEL, id, id, NSInteger, id))objc_msgSend)(
@@ -2981,7 +2997,7 @@ static BOOL LBInvokeDivisionResponse(id host, id pages, NSString *title, NSInteg
                                      hn, ex.reason ?: @""]);
         }
     }
-    if ([host respondsToSelector:dr]) {
+    if (hasDr) {
         @try {
             ((void (*)(id, SEL, id, id, NSInteger))objc_msgSend)(
                 host, dr, pages, title, cpIndex);
@@ -3489,6 +3505,30 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 }
             }
             pageResult = LBNormalizePageResultForDivision(pageResult, okPaths);
+            id rpmTpl = nil;
+            if (textReadTV) {
+                for (NSString *k in @[@"pageModel", @"curPageModel"]) {
+                    @try {
+                        id v = [textReadTV valueForKey:k];
+                        if (v) { rpmTpl = v; break; }
+                    } @catch (__unused NSException *e) {}
+                }
+            }
+            if (rpmTpl && [pageResult isKindOfClass:[NSArray class]]) {
+                NSMutableArray *reWrapped = [NSMutableArray array];
+                for (id p in (NSArray *)pageResult) {
+                    if ([p isKindOfClass:[NSAttributedString class]] ||
+                        [p isKindOfClass:[NSString class]]) {
+                        [reWrapped addObject:LBWrapAttrAsReadPageModelTemplate(p, rpmTpl)];
+                    } else {
+                        [reWrapped addObject:p];
+                    }
+                }
+                if (reWrapped.count > 0) {
+                    pageResult = reWrapped;
+                    [okPaths addObject:@"wrapReadPageModelTpl"];
+                }
+            }
             id sample = nil;
             NSString *fcls = @"-";
             if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] > 0) {
@@ -3705,13 +3745,16 @@ LB_INJECT_FINISH:
         for (NSString *p in okPaths) {
             if ([p isEqualToString:@"tvHasNeedle"] ||
                 [p isEqualToString:@"tvHasNeedleAfterShow"] ||
-                [p isEqualToString:@"tvAlreadyNative"]) {
+                [p isEqualToString:@"tvAlreadyNative"] ||
+                [p isEqualToString:@"tvHasNeedleFinal"]) {
                 hadNativeDisplay = YES;
                 break;
             }
         }
         for (id tv in tvs) {
-            if (pageModel && [tv respondsToSelector:spm] && !hadNativeDisplay) {
+            Class tvCls = object_getClass(tv);
+            BOOL canSpm = [tv respondsToSelector:spm] || class_getInstanceMethod(tvCls, spm);
+            if (pageModel && canSpm && !hadNativeDisplay) {
                 @try {
                     ((void (*)(id, SEL, id))objc_msgSend)(tv, spm, pageModel);
                     [okPaths addObject:[NSString stringWithFormat:@"setPageModel@%@",
