@@ -663,6 +663,8 @@ static NSString *sPendingCatalogSourceName = nil;
 static NSString *sPendingCatalogSourceUrl = nil;
 /// legado://nativeRead 等待目录返回后再点章
 static NSInteger sDeferredNativeOpenIdx = -1;
+/// 本章已成功 nativePaged+push，禁止 goStart 二次 push（nativeRead 多路回调曾 SIGABRT）
+static BOOL sNativeOpenChapterDone = NO;
 static NSString *sDeferredNativeOpenBookUrl = nil;
 static NSDictionary *sPendingResetContent = nil;
 static NSMutableDictionary *sPendingNativeFullBook = nil;
@@ -1355,11 +1357,26 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
 /// 点章：默认原生 openReader → TextReadVC；超时仍无原生页再 Bridge 兜底
 static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
     NSTimeInterval now = CFAbsoluteTimeGetCurrent();
+    if (sNativeOpenChapterDone) {
+        LBAppendOpenReaderTrace(@"goStart skipPush chapterDone deliverOnly");
+        sDeferredNativeOpenIdx = -1;
+        LBDeliverContentToVisibleReaders(@"chapterDone");
+        return;
+    }
     // 已在 nativeFull 阅读页：只补投正文，禁止二次 push（真机曾双开 → SIGABRT）
     if (sLegadoReaderMode == 1 &&
         (LBIsTextReaderVisible() || LBNavStackHasTextReader())) {
         LBAppendOpenReaderTrace(@"goStart skipPush alreadyOnStack deliverOnly");
+        sDeferredNativeOpenIdx = -1;
         LBDeliverContentToVisibleReaders(@"alreadyVisible");
+        return;
+    }
+    if (sLastNativePagedOkTs > 0 &&
+        (now - sLastNativePagedOkTs) < 30.0 &&
+        LBNavStackHasTextReader()) {
+        LBAppendOpenReaderTrace(@"goStart skipPush recentPagedOnStack");
+        sDeferredNativeOpenIdx = -1;
+        sNativeOpenChapterDone = YES;
         return;
     }
     if (now - sLastLegadoChapterOpenTs < 3.5) return;
@@ -4068,6 +4085,8 @@ LB_INJECT_FINISH:
         } @catch (__unused NSException *e) {}
         sLastNativePagedOkTs = CFAbsoluteTimeGetCurrent();
         sLastNativePagedKey = [dedupeKey copy];
+        sNativeOpenChapterDone = YES;
+        sDeferredNativeOpenIdx = -1;
     } else {
         BOOL hasDivision = NO;
         BOOL hasNativeDR = NO;
@@ -5787,6 +5806,7 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
     NSString *su = [sourceUrl copy];
     NSInteger wantIdx = idx < 0 ? 0 : idx;
     sDeferredNativeOpenIdx = wantIdx;
+    sNativeOpenChapterDone = NO;
     sDeferredNativeOpenBookUrl = bu;
     [[NSString stringWithFormat:@"nativeOpenRequest book=%@ src=%@ idx=%ld",
       bu, su ?: @"", (long)wantIdx]
