@@ -2790,7 +2790,13 @@ static id LBWrapAttrAsReadPageModel(id page) {
     if (rpmCls && [page isKindOfClass:rpmCls]) return page;
     if (!rpmCls) return page;
     id model = nil;
-    @try { model = [[rpmCls alloc] init]; } @catch (__unused NSException *e) { return page; }
+    @try { model = [[rpmCls alloc] init]; } @catch (__unused NSException *e) {}
+    if (!model) {
+        @try { model = [rpmCls new]; } @catch (__unused NSException *e) {}
+    }
+    if (!model) {
+        @try { model = class_createInstance(rpmCls, 0); } @catch (__unused NSException *e) {}
+    }
     if (!model) return page;
     BOOL setOk = NO;
     if ([page isKindOfClass:[NSAttributedString class]]) {
@@ -2878,6 +2884,7 @@ static id LBNormalizePageResultForDivision(id pageResult, NSMutableArray *okPath
                                  NSStringFromClass([wrapped.firstObject class])]);
         return wrapped;
     }
+    LBAppendOpenReaderTrace(@"contentInject wrapRPM failed keepAttr");
     return pageResult;
 }
 
@@ -2885,8 +2892,14 @@ static id LBNormalizePageResultForDivision(id pageResult, NSMutableArray *okPath
 static NSArray *LBCollectDivisionHosts(UIViewController *readerVC) {
     NSMutableArray *raw = [NSMutableArray array];
     if (!readerVC) return raw;
+    @try {
+        if (!readerVC.isViewLoaded) {
+            [readerVC loadViewIfNeeded];
+        }
+    } @catch (__unused NSException *e) {}
     for (NSString *k in @[@"container", @"pageContainer", @"pageContainerA",
-                          @"pageContainerB", @"scrollContainer", @"rPageContainer"]) {
+                          @"pageContainerB", @"scrollContainer", @"rPageContainer",
+                          @"readPageContainer", @"readScrollContainer"]) {
         @try {
             id v = [readerVC valueForKey:k];
             if (v && ![raw containsObject:v]) [raw addObject:v];
@@ -2901,11 +2914,14 @@ static NSArray *LBCollectDivisionHosts(UIViewController *readerVC) {
     }
     NSMutableArray *vs = [NSMutableArray array];
     if (readerVC.isViewLoaded && readerVC.view) [vs addObject:readerVC.view];
-    while (vs.count > 0 && raw.count < 12) {
+    while (vs.count > 0 && raw.count < 16) {
         UIView *v = vs.lastObject;
         [vs removeLastObject];
         NSString *vn = NSStringFromClass([v class]);
-        if ([vn containsString:@"PageContainer"] || [vn containsString:@"ScrollContainer"]) {
+        if ([vn containsString:@"ReadScrollContainer"] ||
+            [vn containsString:@"ReadPageContainer"] ||
+            [vn containsString:@"PageContainer"] ||
+            [vn containsString:@"ScrollContainer"]) {
             if (![raw containsObject:v]) [raw addObject:v];
         }
         for (UIView *sub in v.subviews) [vs addObject:sub];
@@ -2925,9 +2941,9 @@ static NSArray *LBCollectDivisionHosts(UIViewController *readerVC) {
             if ([n isEqualToString:@"ReadScrollContainer"]) return 2;
             if ([n containsString:@"ReadScrollContainer"]) return 3;
         }
-        if ([n containsString:@"TextRPageContainer"]) return 6;
+        if ([n containsString:@"TextRPageContainer"]) return 5;
         if ([n containsString:@"PageContainer"]) return 4;
-        return 5;
+        return 6;
     };
     NSArray *sorted = [raw sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
         NSInteger pa = prio(a), pb = prio(b);
@@ -3492,7 +3508,6 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 : [NSMutableArray array];
             for (id host in containers) {
                 NSString *hn = NSStringFromClass([host class]);
-                if ([hn containsString:@"TextRPageContainer"]) continue;
                 if (!LBInvokeDivisionResponse(host, pageResult, title, cpIndex, heights, okPaths)) {
                     continue;
                 }
@@ -3504,14 +3519,14 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 LBAppendOpenReaderTrace([NSString stringWithFormat:
                                          @"contentInject drOK noNeedle host=%@", hn]);
             }
-            // wrap 后仍无上屏：对 ReadPage/ReadScroll 再试原始 Attr（禁 TextR）
+            // wrap 后仍无上屏：对 ReadPage/ReadScroll/TextR 再试原始 Attr
             if (!nativePaged && rawAttrPages) {
                 LBAppendOpenReaderTrace(@"contentInject retry divisionResponse with rawAttr");
                 for (id host in containers) {
                     NSString *hn = NSStringFromClass([host class]);
-                    if ([hn containsString:@"TextRPageContainer"]) continue;
                     if (![hn containsString:@"ReadPageContainer"] &&
                         ![hn containsString:@"ReadScrollContainer"] &&
+                        ![hn containsString:@"TextRPageContainer"] &&
                         ![hn containsString:@"TextReadVC"]) {
                         continue;
                     }
