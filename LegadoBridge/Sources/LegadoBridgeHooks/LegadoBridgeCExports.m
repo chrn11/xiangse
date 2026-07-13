@@ -665,6 +665,7 @@ static NSString *sPendingCatalogSourceUrl = nil;
 static NSInteger sDeferredNativeOpenIdx = -1;
 /// 本章已成功 nativePaged+push，禁止 goStart 二次 push（nativeRead 多路回调曾 SIGABRT）
 static BOOL sNativeOpenChapterDone = NO;
+static BOOL sNativeOpenGoInFlight = NO;
 static NSString *sDeferredNativeOpenBookUrl = nil;
 static NSDictionary *sPendingResetContent = nil;
 static NSMutableDictionary *sPendingNativeFullBook = nil;
@@ -1357,6 +1358,10 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
 /// 点章：默认原生 openReader → TextReadVC；超时仍无原生页再 Bridge 兜底
 static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
     NSTimeInterval now = CFAbsoluteTimeGetCurrent();
+    if (sNativeOpenGoInFlight) {
+        LBAppendOpenReaderTrace(@"goStart skip inflight");
+        return;
+    }
     if (sNativeOpenChapterDone) {
         LBAppendOpenReaderTrace(@"goStart skipPush chapterDone deliverOnly");
         sDeferredNativeOpenIdx = -1;
@@ -1381,6 +1386,7 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
     }
     if (now - sLastLegadoChapterOpenTs < 3.5) return;
     sLastLegadoChapterOpenTs = now;
+    sNativeOpenGoInFlight = YES;
     NSArray *use = sPendingCatalogChapters;
     if (use.count == 0) return;
     if (idx < 0 || idx >= (NSInteger)use.count) return;
@@ -1404,6 +1410,7 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
     [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_select.txt"]
            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     void (^go)(void) = ^{
+        @try {
         LBInstallNativeOpenCrashGuards();
         if (sNativeOpenChapterDone) {
             LBAppendOpenReaderTrace(@"goStart abort push chapterDone");
@@ -1584,6 +1591,9 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
                 LBBridgeReaderApplyContent(sPendingResetContent);
             }
         });
+        } @finally {
+            sNativeOpenGoInFlight = NO;
+        }
     };
     if ([NSThread isMainThread]) go();
     else dispatch_async(dispatch_get_main_queue(), go);
@@ -5841,7 +5851,7 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
     LBHandleCatalogRequest(bu, su);
     // 目录异步返回后由 LBApplyCatalogToUI 触发；多档延迟兜底
     void (^tryOpen)(NSString *) = ^(NSString *phase) {
-        if (sDeferredNativeOpenIdx < 0) return;
+        if (sDeferredNativeOpenIdx < 0 || sNativeOpenChapterDone) return;
         if (sPendingCatalogChapters.count == 0) {
             NSString *miss = [NSString stringWithFormat:@"nativeOpen wait %@ pending=0 book=%@",
                               phase, bu];
