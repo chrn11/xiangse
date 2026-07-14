@@ -3100,22 +3100,21 @@ static void LBDumpReadPageModelIvars(id model) {
                              (unsigned long)plain.length]);
 }
 
-/// TextRPageContainer::onDivisionTextFinish 期望 @[ @[ReadPageModel...] ]（双层数组）
+/// TextRPageContainer::onDivisionTextFinish 期望 divisionText 原始嵌套页数组
 static id LBWrapPageResultForOnDivisionTextFinish(id pageResult) {
-    if (![pageResult isKindOfClass:[NSArray class]] || [(NSArray *)pageResult count] == 0) {
-        return pageResult;
-    }
-    id first = [(NSArray *)pageResult firstObject];
+    if (!pageResult) return pageResult;
+    if (![pageResult isKindOfClass:[NSArray class]]) return pageResult;
+    id first = [(NSArray *)pageResult count] > 0 ? [(NSArray *)pageResult firstObject] : nil;
     if ([first isKindOfClass:[NSArray class]]) return pageResult;
     Class rpmCls = NSClassFromString(@"ReadPageModel");
     if (rpmCls && [first isKindOfClass:rpmCls]) {
-        LBAppendOpenReaderTrace(@"contentInject wrapFinishArg doubleArray");
-        return @[ pageResult ];
+        LBAppendOpenReaderTrace(@"contentInject wrapFinishArg skip emptyRPM");
+        return pageResult;
     }
     if ([first isKindOfClass:[NSAttributedString class]] ||
         [first isKindOfClass:[NSString class]]) {
-        LBAppendOpenReaderTrace(@"contentInject wrapFinishArg doubleArrayAttr");
-        return @[ pageResult ];
+        LBAppendOpenReaderTrace(@"contentInject wrapFinishArg keepAttrRaw");
+        return pageResult;
     }
     return pageResult;
 }
@@ -3137,7 +3136,7 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
     }
     @try {
         ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(
-            target, finish, pageResult, cpIndex);
+            target, finish, finishArg, cpIndex);
         if (okPaths) {
             [okPaths addObject:[NSString stringWithFormat:@"onDivisionTextFinish@%@",
                                 NSStringFromClass(tcls)]];
@@ -4332,12 +4331,15 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
         // 4c) divisionResponse：优先把 PaibanManager 分页交给 container（禁止先 attr 短路）
         BOOL drResponded = NO;
         if (pageResult) {
+            id divisionTextRaw = pageResult;
             // 保留原始 Attr 页，wrap 失败时回退
             id rawAttrPages = nil;
             if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] > 0) {
                 id s0 = [(NSArray *)pageResult firstObject];
                 if ([s0 isKindOfClass:[NSAttributedString class]] ||
                     [s0 isKindOfClass:[NSString class]]) {
+                    rawAttrPages = pageResult;
+                } else if ([s0 isKindOfClass:[NSArray class]]) {
                     rawAttrPages = pageResult;
                 }
             }
@@ -4379,17 +4381,19 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                          ? (unsigned long)[(NSArray *)pageResult count] : 0,
                                      fcls]);
 
+            id drPages = rawAttrPages ?: divisionTextRaw;
+            id finishPages = divisionTextRaw;
             NSArray *containers = LBCollectDivisionHosts(readerVC);
             NSMutableArray *heights = sLastDivisionHeights
                 ? [sLastDivisionHeights mutableCopy]
                 : [NSMutableArray array];
             for (id host in containers) {
                 NSString *hn = NSStringFromClass([host class]);
-                if (!LBInvokeDivisionResponse(host, pageResult, title, cpIndex, heights, okPaths)) {
+                if (!LBInvokeDivisionResponse(host, drPages, title, cpIndex, heights, okPaths)) {
                     continue;
                 }
                 drResponded = YES;
-                LBInvokeOnDivisionTextFinish(host, pageResult, cpIndex, okPaths);
+                LBInvokeOnDivisionTextFinish(host, finishPages, cpIndex, okPaths);
                 if (textReadTV) LBForceTextReadTVRefresh(textReadTV);
                 if (LBVerifyNativeOnScreenHost(textReadTV, readerVC, host, okPaths)) {
                     nativePaged = YES;
@@ -4444,7 +4448,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 }
             }
             if (drResponded && !nativePaged) {
-                LBPostDivisionResponseRefresh(readerVC, textReadTV, pageResult, title,
+                LBPostDivisionResponseRefresh(readerVC, textReadTV, finishPages, title,
                                               cpIndex, body, containers, okPaths, &nativePaged);
             }
             if (!drResponded) {
