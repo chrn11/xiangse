@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 IPA_IN_RAW="${1:-$ROOT/ipa/香色闺阁2.56.1_未加密.ipa}"
 DYLIB_RAW="${2:-$ROOT/LegadoBridge/.build/Build/Products/Release-iphoneos/LegadoBridge.framework/LegadoBridge}"
 OUT_RAW="${3:-$ROOT/dist/StandarReader-legado-bridge.ipa}"
+DEBUG_DYLIB_RAW="${4:-${DEBUG_DYLIB:-}}"
 SKIP_VERIFY="${SKIP_VERIFY:-0}"
 
 # 解析为绝对路径，避免 pushd 后相对路径失效
@@ -14,10 +15,17 @@ IPA_IN="$(cd "$(dirname "$IPA_IN_RAW")" 2>/dev/null && echo "$(pwd)/$(basename "
 DYLIB="$DYLIB_RAW"
 OUT="$(cd "$(dirname "$OUT_RAW")" 2>/dev/null && echo "$(pwd)/$(basename "$OUT_RAW")")"
 [[ -z "$OUT" ]] && OUT="$OUT_RAW"
+DEBUG_DYLIB="$DEBUG_DYLIB_RAW"
+if [[ -n "$DEBUG_DYLIB" && ! "$DEBUG_DYLIB" = /* ]]; then
+  DEBUG_DYLIB="$(cd "$(dirname "$DEBUG_DYLIB")" 2>/dev/null && echo "$(pwd)/$(basename "$DEBUG_DYLIB")")"
+fi
 WORK="$ROOT/analysis/repack-work"
 
 echo "==> 输入 IPA: $IPA_IN"
 echo "==> 注入库:   $DYLIB"
+if [[ -n "$DEBUG_DYLIB" ]]; then
+  echo "==> 调试库:   $DEBUG_DYLIB"
+fi
 echo "==> 输出:     $OUT"
 
 if [[ ! -f "$IPA_IN" ]]; then
@@ -93,14 +101,37 @@ if command -v insert_dylib &>/dev/null && [[ -f "$FRAMEWORKS/LegadoBridge" || -f
   cp "$BIN" "$BACKUP"
   if "$INSERT_DYLIB" --inplace --all-yes --strip-codesig "@executable_path/Frameworks/LegadoBridge" "$BIN"; then
     INSERT_OK=1
-    echo "==> insert_dylib 完成"
+    echo "==> insert_dylib LegadoBridge 完成"
   else
-    echo "insert_dylib 失败，恢复备份"
+    echo "insert_dylib LegadoBridge 失败，恢复备份"
     mv "$BACKUP" "$BIN"
   fi
   rm -f "$BACKUP"
 else
-  echo "==> 跳过 insert_dylib（工具或 dylib 不可用）"
+  echo "==> 跳过 insert_dylib LegadoBridge（工具或 dylib 不可用）"
+fi
+
+DEBUG_INSERT_OK=0
+if [[ -n "$DEBUG_DYLIB" && -f "$DEBUG_DYLIB" ]]; then
+  cp "$DEBUG_DYLIB" "$FRAMEWORKS/LegadoBridgeDebug"
+  echo "==> 已复制 LegadoBridgeDebug"
+  if command -v insert_dylib &>/dev/null; then
+    INSERT_DYLIB="$(command -v insert_dylib)"
+    BACKUP="$BIN.backup"
+    cp "$BIN" "$BACKUP"
+    if "$INSERT_DYLIB" --inplace --all-yes --strip-codesig "@executable_path/Frameworks/LegadoBridgeDebug" "$BIN"; then
+      DEBUG_INSERT_OK=1
+      echo "==> insert_dylib LegadoBridgeDebug 完成"
+    else
+      echo "insert_dylib LegadoBridgeDebug 失败，恢复备份"
+      mv "$BACKUP" "$BIN"
+    fi
+    rm -f "$BACKUP"
+  else
+    echo "==> 跳过 insert_dylib LegadoBridgeDebug（insert_dylib 不可用）"
+  fi
+elif [[ -n "$DEBUG_DYLIB" ]]; then
+  echo "WARN: DEBUG_DYLIB 路径不存在: $DEBUG_DYLIB"
 fi
 
 rm -rf "$APP/_CodeSignature"
