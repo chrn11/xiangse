@@ -30,6 +30,16 @@ TRACE_KEYWORDS = (
     "tvHasNeedleStrict",
     "openOnce",
 )
+DEBUG_DUMP_KEYWORDS = (
+    "textViewL",
+    "textViewR",
+    "txtLen",
+    "NSArrayM",
+    "SIGABRT",
+    "callStackSymbols",
+    "pageModel",
+    "ReadPageModel",
+)
 BOOKSHELF_MARKERS = ("书架", "書架")
 READER_MARKERS = ("萧炎", "斗破", "章节", "目录", "阅读")
 
@@ -313,6 +323,49 @@ def extract_signal(marker_text: str, trace_text: str) -> list[str]:
     return re.findall(r"SIGNAL sig=\d+", blob)
 
 
+def cmd_debug_dump(client: McpClient, args: argparse.Namespace) -> int:
+    dump_text = client.read_sandbox_text("legado_debug_dump.txt", max_bytes=args.max_bytes)
+    crash_text = client.read_sandbox_text("legado_debug_crash.txt", max_bytes=args.max_bytes)
+    keywords = tuple(args.keyword) if args.keyword else DEBUG_DUMP_KEYWORDS
+    out = {
+        "dump_hits": filter_trace_lines(dump_text, keywords),
+        "crash_hits": filter_trace_lines(crash_text, keywords),
+        "dump_tail": dump_text[-args.tail :],
+        "crash_tail": crash_text[-args.tail :],
+        "has_txtLen_zero": "txtLen=0" in dump_text,
+        "has_nsarraym": "NSArrayM" in crash_text or "NSArrayM" in dump_text,
+        "has_sigabrt": "SIGABRT" in crash_text or "sig=6" in crash_text,
+    }
+    if args.save:
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = _ts()
+        if dump_text:
+            (OUT_DIR / f"debug_dump_{stamp}.txt").write_text(dump_text, encoding="utf-8")
+        if crash_text:
+            (OUT_DIR / f"debug_crash_{stamp}.txt").write_text(crash_text, encoding="utf-8")
+        out["saved_to"] = str(OUT_DIR)
+
+    if args.json:
+        _print(out)
+    else:
+        for label, text in (("dump", dump_text), ("crash", crash_text)):
+            if not text:
+                print(f"\n=== {label}: (empty) ===")
+                continue
+            print(f"\n=== {label} hits ===")
+            hits = out[f"{label}_hits"]
+            for kw, lines in hits.items():
+                if lines:
+                    print(f"  [{kw}] ({len(lines)})")
+                    for ln in lines[-10:]:
+                        print(f"    {ln}")
+        print(
+            f"\nhas_txtLen_zero={out['has_txtLen_zero']} "
+            f"has_nsarraym={out['has_nsarraym']} has_sigabrt={out['has_sigabrt']}"
+        )
+    return 0
+
+
 def cmd_crash(client: McpClient, args: argparse.Namespace) -> int:
     out: dict[str, Any] = {}
     try:
@@ -514,6 +567,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("crash", help="崩溃日志 + marker SIGNAL 摘要")
 
+    pd = sub.add_parser("debug-dump", help="拉 legado_debug_dump/crash 并按关键词过滤")
+    pd.add_argument("-k", "--keyword", action="append", help="额外关键词（可重复）")
+    pd.add_argument("--tail", type=int, default=6000)
+    pd.add_argument("--max-bytes", type=int, default=131072)
+    pd.add_argument("--json", action="store_true")
+    pd.add_argument("--save", action="store_true", help="落盘到 fixtures/_devkit")
+
     pa = sub.add_parser("accept", help="一键验收：reset → read → 断言 → JSON 报告")
     pa.add_argument("--install", action="store_true", help="验收前安装 CI IPA")
     pa.add_argument("--ipa", help="安装用本地 IPA")
@@ -544,6 +604,7 @@ def main(argv: list[str] | None = None) -> int:
         "read": cmd_read,
         "install": cmd_install,
         "crash": cmd_crash,
+        "debug-dump": cmd_debug_dump,
         "accept": cmd_accept,
     }
     try:
