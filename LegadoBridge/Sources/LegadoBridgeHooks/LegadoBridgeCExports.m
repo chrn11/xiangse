@@ -3293,8 +3293,8 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
             } @catch (__unused NSException *e) {}
         }
         CGSize tvSz = textReadTV ? textReadTV.bounds.size : CGSizeZero;
-        if (tvSz.width < 10 && readerVC.isViewLoaded) tvSz = readerVC.view.bounds.size;
-        LBApplyPagesToContainerTextViews(target, pageResult, body, tvSz, okPaths);
+        (void)tvSz;
+        (void)body;
         if (okPaths) [okPaths addObject:@"containerRefreshPostFinish"];
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"contentInject onDivisionTextFinish OK host=%@",
