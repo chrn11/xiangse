@@ -698,6 +698,8 @@ static BOOL sShowPage0ThisInject = NO;
 static UIViewController *sHiddenBookDetail = nil;
 
 static void LBFlushPendingResetContent(NSString *phase);
+static void LBAppendOpenReaderTrace(NSString *msg);
+static BOOL LBNativeOpenGateBlocked(NSString **outReason);
 static const char kLBCatIdxKey;
 
 static void LBCatalogWriteMarker(NSString *msg) {
