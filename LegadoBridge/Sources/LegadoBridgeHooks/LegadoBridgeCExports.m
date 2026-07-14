@@ -668,6 +668,7 @@ static BOOL sNativeOpenChapterDone = NO;
 static BOOL sNativeOpenGoInFlight = NO;
 /// nativeRead 单次点章占坑 bookUrl|idx（目录/tryOpen 多路回调只放行一次）
 static NSString *sNativeOpenOnceKey = nil;
+static NSObject *sNativeOpenOnceLock = nil;
 static NSString *sDeferredNativeOpenBookUrl = nil;
 static NSDictionary *sPendingResetContent = nil;
 static NSMutableDictionary *sPendingNativeFullBook = nil;
