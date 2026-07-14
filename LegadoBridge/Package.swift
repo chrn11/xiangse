@@ -8,6 +8,7 @@ let package = Package(
     ],
     products: [
         .library(name: "LegadoBridge", type: .dynamic, targets: ["LegadoBridge"]),
+        .library(name: "LegadoBridgeDebug", type: .dynamic, targets: ["LegadoBridgeDebug"]),
         .library(name: "LegadoRuleCore", targets: ["LegadoRuleCore"])
     ],
     dependencies: [
@@ -18,6 +19,15 @@ let package = Package(
         .target(
             name: "LegadoBridgeHooks",
             path: "Sources/LegadoBridgeHooks",
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .linkedFramework("Foundation"),
+                .linkedFramework("UIKit")
+            ]
+        ),
+        .target(
+            name: "LegadoBridgeDebug",
+            path: "Sources/LegadoBridgeDebug",
             publicHeadersPath: "include",
             linkerSettings: [
                 .linkedFramework("Foundation"),
