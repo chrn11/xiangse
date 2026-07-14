@@ -3183,6 +3183,7 @@ static void LBForceTextReadTVRefresh(UIView *textReadTV) {
 }
 
 static BOOL LBSetReadPageModelCTFrame(id model, NSAttributedString *attr, CGSize bounds);
+static BOOL LBScanSetReadPageModelContent(id model, NSAttributedString *page);
 
 /// setPageModel + CTFrame + 刷新；nativePaged 仅当屏上真实有字
 static BOOL LBApplyPageModelToTextReadTV(UIView *textReadTV, id pageModel, NSString *body,
