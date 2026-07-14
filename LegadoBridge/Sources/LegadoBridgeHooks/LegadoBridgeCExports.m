@@ -670,6 +670,8 @@ static BOOL sNativeOpenGoInFlight = NO;
 static NSString *sNativeOpenOnceKey = nil;
 static NSObject *sNativeOpenOnceLock = nil;
 static NSString *sDeferredNativeOpenBookUrl = nil;
+/// nativeRead 目录回调已触发过开章（防 LBApplyCatalogToUI 二次 catalogUI）
+static BOOL sNativeReadChapterOpenStarted = NO;
 static NSDictionary *sPendingResetContent = nil;
 static NSMutableDictionary *sPendingNativeFullBook = nil;
 /// 0=off 1=nativeFull(原版UI) 2=safeShell(UITextView兜底，不算过关)
@@ -1416,6 +1418,16 @@ static void LBClearNativeOpenOnceMarker(void) {
     }
 }
 
+static BOOL LBNativeOpenMarkerMatchesBook(NSString *bookUrl) {
+    if (bookUrl.length == 0) return NO;
+    NSString *disk = LBReadNativeOpenOnceMarker();
+    NSString *key = sNativeOpenOnceKey.length > 0 ? sNativeOpenOnceKey : disk;
+    if (key.length == 0) return NO;
+    NSRange bar = [key rangeOfString:@"|"];
+    NSString *bu = bar.location != NSNotFound ? [key substringToIndex:bar.location] : key;
+    return [bu isEqualToString:bookUrl];
+}
+
 /// 已 claim / chapterDone / inflight / 磁盘占坑（目录 reapply 与 tryOpen 共用）
 static BOOL LBNativeOpenGateBlocked(NSString **outReason) {
     LBNativeOpenOnceLockInit();
@@ -1799,8 +1811,7 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
             sNativeOpenGoInFlight = NO;
         }
     };
-    if ([NSThread isMainThread]) go();
-    else dispatch_async(dispatch_get_main_queue(), go);
+    dispatch_async(dispatch_get_main_queue(), go);
 }
 
 @interface LBCatalogCellOpenProxy : NSObject
@@ -5997,20 +6008,26 @@ void LBApplyCatalogToUI(NSArray *chapters, NSString *bookUrl) {
             NSInteger useIdx = sDeferredNativeOpenIdx;
             if (useIdx >= (NSInteger)chapters.count) useIdx = 0;
             sDeferredNativeOpenIdx = -1;
-            NSString *blocked = nil;
-            if (LBNativeOpenGateBlocked(&blocked)) {
-                LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                         @"catalogUI skip openOnce/chapterDone reason=%@", blocked ?: @"?"]);
-                if (sNativeOpenChapterDone || sNativeOpenOnceKey.length > 0 ||
-                    [blocked isEqualToString:@"disk"]) {
-                    LBDeliverContentToVisibleReaders(@"catalogUISkip");
-                }
-            } else if (sLegadoReaderMode == 1 &&
-                       (LBIsTextReaderVisible() || LBNavStackHasTextReader())) {
-                LBAppendOpenReaderTrace(@"catalogUI skip readerOnStack deliverOnly");
-                LBDeliverContentToVisibleReaders(@"catalogUIOnStack");
+            if (sNativeReadChapterOpenStarted) {
+                LBAppendOpenReaderTrace(@"catalogUI skip alreadyStarted deliverOnly");
+                LBDeliverContentToVisibleReaders(@"catalogUIStarted");
             } else {
-                LBOpenLegadoChapterAtIndexWithVia(useIdx, @"catalogUI");
+                NSString *blocked = nil;
+                if (LBNativeOpenGateBlocked(&blocked)) {
+                    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                             @"catalogUI skip openOnce/chapterDone reason=%@", blocked ?: @"?"]);
+                    if (sNativeOpenChapterDone || sNativeOpenOnceKey.length > 0 ||
+                        [blocked isEqualToString:@"disk"]) {
+                        LBDeliverContentToVisibleReaders(@"catalogUISkip");
+                    }
+                } else if (sLegadoReaderMode == 1 &&
+                           (LBIsTextReaderVisible() || LBNavStackHasTextReader())) {
+                    LBAppendOpenReaderTrace(@"catalogUI skip readerOnStack deliverOnly");
+                    LBDeliverContentToVisibleReaders(@"catalogUIOnStack");
+                } else {
+                    sNativeReadChapterOpenStarted = YES;
+                    LBOpenLegadoChapterAtIndexWithVia(useIdx, @"catalogUI");
+                }
             }
         }
     } @catch (NSException *e) {
@@ -6044,6 +6061,9 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
     NSInteger wantIdx = idx < 0 ? 0 : idx;
     BOOL sameBook = (sDeferredNativeOpenBookUrl.length > 0 &&
                      [sDeferredNativeOpenBookUrl isEqualToString:bu]);
+    if (!sameBook && LBNativeOpenMarkerMatchesBook(bu)) {
+        sameBook = YES;
+    }
     if (sNativeOpenChapterDone && sameBook) {
         LBAppendOpenReaderTrace(@"nativeRead skip chapterDone sameBook");
         return;
@@ -6068,10 +6088,11 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
         return;
     }
     // 仅换书冷启动才清占坑；同书二次深链/appear 回调不得清锁（真机曾双 preferNativeFull）
-    if (!sameBook) {
+    if (!sameBook && !LBNativeOpenMarkerMatchesBook(bu)) {
         sNativeOpenOnceKey = nil;
         sNativeOpenChapterDone = NO;
         sNativeOpenGoInFlight = NO;
+        sNativeReadChapterOpenStarted = NO;
         LBClearNativeOpenOnceMarker();
     }
     sDeferredNativeOpenIdx = wantIdx;
@@ -6087,13 +6108,23 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
         NSInteger useIdx = wantIdx;
         if (useIdx >= (NSInteger)sPendingCatalogChapters.count) useIdx = 0;
         sDeferredNativeOpenIdx = -1;
-        LBOpenLegadoChapterAtIndexWithVia(useIdx, @"pendingNow");
+        if (!sNativeReadChapterOpenStarted && !LBNativeOpenGateBlocked(NULL)) {
+            sNativeReadChapterOpenStarted = YES;
+            LBOpenLegadoChapterAtIndexWithVia(useIdx, @"pendingNow");
+        } else {
+            LBAppendOpenReaderTrace(@"pendingNow skip openOnce/started");
+            LBDeliverContentToVisibleReaders(@"pendingNowSkip");
+        }
         return;
     }
     LBHandleCatalogRequest(bu, su);
     // 目录异步返回后由 LBApplyCatalogToUI 触发；多档延迟兜底
     void (^tryOpen)(NSString *) = ^(NSString *phase) {
         if (sDeferredNativeOpenIdx < 0) return;
+        if (sNativeReadChapterOpenStarted) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:@"tryOpen skip started phase=%@", phase]);
+            return;
+        }
         NSString *blocked = nil;
         if (LBNativeOpenGateBlocked(&blocked)) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:
@@ -6116,6 +6147,7 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
         NSInteger useIdx = sDeferredNativeOpenIdx;
         if (useIdx >= (NSInteger)sPendingCatalogChapters.count) useIdx = 0;
         sDeferredNativeOpenIdx = -1;
+        sNativeReadChapterOpenStarted = YES;
         LBOpenLegadoChapterAtIndexWithVia(useIdx, [NSString stringWithFormat:@"tryOpen@%@", phase]);
     };
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
