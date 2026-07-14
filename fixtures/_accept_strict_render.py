@@ -1,146 +1,73 @@
 #!/usr/bin/env python3
 """Acceptance: strict render — nativeRead + assert 萧炎 + trace gates (post feb7e85)."""
-import base64
 import json
+import sys
 import time
-import urllib.request
 from pathlib import Path
 
-MCP = "http://192.168.1.6:8090/mcp"
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.ios_mcp_client import McpClient
+
+MCP_BASE = "http://192.168.1.6:8090"
 BUNDLE = "com.appbox.StandarReader"
 SRC = "http://192.168.1.4:8765/legado-local-mock.runtime.json"
 BOOK = "http://192.168.1.4:8765/book/doupo.html"
 OUT_DIR = Path(__file__).resolve().parent
 
 
-def call(tool, arguments=None, timeout=180):
-    req = urllib.request.Request(
-        MCP,
-        data=json.dumps({
-            "jsonrpc": "2.0",
-            "id": int(time.time() * 1000) % 100000,
-            "method": "tools/call",
-            "params": {"name": tool, "arguments": arguments or {}},
-        }).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = json.loads(resp.read().decode())
-    if "error" in body:
-        raise RuntimeError(body["error"])
-    sc = body.get("result", {}).get("structuredContent")
-    if sc is not None:
-        return sc
-    content = body.get("result", {}).get("content", [])
-    if content and content[0].get("type") == "text":
-        try:
-            return json.loads(content[0]["text"])
-        except json.JSONDecodeError:
-            return content[0]["text"]
-    return body
-
-
-def clear_open_once_markers():
-    info = call("get_app_info", {"bundle_id": BUNDLE})
-    paths = info.get("paths", {}) if isinstance(info, dict) else {}
+def clear_open_once_markers(client: McpClient):
+    paths = client.app_paths()
     deleted = []
-    doc = paths.get("documents", "")
-    caches = paths.get("caches", "")
-    lib = paths.get("library", "")
-    candidates = []
-    if doc:
-        candidates.append(f"{doc}/legado_native_open_once.txt")
-    if caches:
-        candidates.append(f"{caches}/legado_native_open_once.txt")
-    elif lib:
-        candidates.append(f"{lib}/Caches/legado_native_open_once.txt")
-    for p in candidates:
-        if not p:
-            continue
+    for p in client.open_once_candidates(paths):
         try:
-            call("run_command", {"command": f"rm -f '{p}'", "timeout_sec": 10})
+            client.call("run_command", {"command": f"rm -f '{p}'", "timeout_sec": 10})
             deleted.append(p)
         except Exception:
             pass
-    info = call("get_app_info", {"bundle_id": BUNDLE})
-    doc = info.get("paths", {}).get("documents", "") if isinstance(info, dict) else ""
+    doc = paths.get("documents", "")
     if doc:
         for name in ("legado_openreader_trace.txt", "legado_catalog_openreader.txt"):
             try:
-                call("run_command", {"command": f"rm -f '{doc}/{name}'", "timeout_sec": 10})
+                client.call("run_command", {"command": f"rm -f '{doc}/{name}'", "timeout_sec": 10})
             except Exception:
                 pass
     return deleted
 
 
 def main():
+    client = McpClient(base_url=MCP_BASE, bundle_id=BUNDLE)
     steps = []
-    call("wake_and_home")
+    client.call("wake_and_home")
     steps.append("wake_and_home")
-    for p in clear_open_once_markers():
+    for p in clear_open_once_markers(client):
         steps.append(f"deleted_{p.split('/')[-1]}@{p.rsplit('/', 1)[0][-20:]}")
-    call("kill_app", {"bundle_id": BUNDLE})
+    client.call("kill_app", {"bundle_id": BUNDLE})
     time.sleep(1)
-    call("launch_app", {"bundle_id": BUNDLE})
+    client.call("launch_app", {"bundle_id": BUNDLE})
     steps.append("launch")
     time.sleep(2)
-    info = call("get_app_info", {"bundle_id": BUNDLE})
-    doc = info.get("paths", {}).get("documents", "") if isinstance(info, dict) else ""
-    call("open_url", {"url": f"legado://import/bookSource?src={SRC}"})
+    client.call("open_url", {"url": f"legado://import/bookSource?src={SRC}"})
     steps.append("import_source")
     time.sleep(2)
-    call("open_url", {
+    client.call("open_url", {
         "url": f"legado://nativeRead?bookUrl={BOOK}"
                "&sourceUrl=http://192.168.1.4:8765&idx=0"
     })
     steps.append("nativeRead")
     time.sleep(14)
-    front = call("get_frontmost_app")
+    front = client.call("get_frontmost_app")
     front_bundle = front.get("bundleId") if isinstance(front, dict) else str(front)
     steps.append(f"front={front_bundle}")
-    shot_res = call("screenshot")
     img_path = OUT_DIR / "_accept_screenshot_strict.png"
-    saved = False
-    content_items = []
-    if isinstance(shot_res, dict):
-        content_items = shot_res.get("content") or []
-    if not content_items:
-        req = urllib.request.Request(
-            MCP,
-            data=json.dumps({
-                "jsonrpc": "2.0",
-                "id": int(time.time() * 1000) % 100000,
-                "method": "tools/call",
-                "params": {"name": "screenshot", "arguments": {}},
-            }).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            raw = json.loads(resp.read().decode())
-        content_items = raw.get("result", {}).get("content") or []
-    for item in content_items:
-        if item.get("type") == "image" and item.get("data"):
-            img_path.write_bytes(base64.b64decode(item["data"]))
-            saved = True
-            break
+    saved = client.screenshot_to(img_path)
     steps.append(f"screenshot_saved={saved}")
-    xiaoyan = call("assert_text_present", {"text": "萧炎", "timeout_ms": 15000})
+    xiaoyan = client.call("assert_text_present", {"text": "萧炎", "timeout_ms": 15000})
     steps.append(f"assert_xiaoyan={xiaoyan.get('passed')}")
-    trace_text = ""
-    marker_text = ""
-    if doc:
-        trace = call("read_file", {
-            "path": f"{doc}/legado_openreader_trace.txt",
-            "max_bytes": 65536,
-        })
-        trace_text = trace.get("content", "") if isinstance(trace, dict) else str(trace)
-        marker = call("read_file", {
-            "path": f"{doc}/legado_catalog_openreader.txt",
-            "max_bytes": 8192,
-        })
-        marker_text = marker.get("content", "") if isinstance(marker, dict) else str(marker)
+    trace_text = client.read_sandbox_text("legado_openreader_trace.txt")
+    marker_text = client.read_sandbox_text("legado_catalog_openreader.txt")
     prefer_lines = [ln for ln in trace_text.splitlines() if "goStart preferNativeFull" in ln]
     prefer_after_clean = prefer_lines
     strict_hits = [ln for ln in trace_text.splitlines() if "tvHasNeedleStrict" in ln]

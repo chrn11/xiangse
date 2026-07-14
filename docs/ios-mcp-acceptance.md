@@ -126,3 +126,46 @@ curl.exe -H "X-Filename: StandarReader.ipa" --data-binary @StandarReader.ipa htt
 ## 与 hook103 的关系
 
 仓库内可有 hook103 参考文档，但 **本验收通道不以 hook103 第三方 dylib 为依赖**。真机结论以 ios-mcp 上安装并运行的目标 IPA（`com.appbox.StandarReader`）行为为准。
+
+## devkit 快速用法（Windows CLI）
+
+主入口：`tools/xiangse_devkit.py`（`.test_tools/` 已被 gitignore，勿放可提交脚本）。报告与截图默认写入 `fixtures/_devkit/`（已 ignore）。
+
+环境变量（可选）：
+
+| 变量 | 默认 |
+| --- | --- |
+| `XIANGSE_MCP` | `http://192.168.1.6:8090` |
+| `XIANGSE_MOCK` | `http://192.168.1.4:8765` |
+| `XIANGSE_BUNDLE` | `com.appbox.StandarReader` |
+
+PowerShell 示例（用 `;` 串联，勿用 `&&`）：
+
+```powershell
+# 健康与沙盒路径
+python tools/xiangse_devkit.py status
+
+# 清 openOnce + trace/marker（可选 --backup）
+python tools/xiangse_devkit.py reset
+
+# 拉 trace 关键词
+python tools/xiangse_devkit.py trace --json
+
+# 深链 nativeRead（需 mock 已起：python fixtures/serve_local_mock.py）
+python tools/xiangse_devkit.py read
+
+# 装 CI 最新成功 artifact 或本地 IPA
+python tools/xiangse_devkit.py install --ipa dist\StandarReader-legado-bridge.ipa
+python tools/xiangse_devkit.py install
+
+# 崩溃摘要 + marker SIGNAL
+python tools/xiangse_devkit.py crash
+
+# 一键验收：reset → mock 检查 → nativeRead → 萧炎 assert → 阅读页门禁 → JSON
+python tools/xiangse_devkit.py accept
+python tools/xiangse_devkit.py accept --install
+```
+
+`accept` 报告字段（节选）：`prefer_count`、`xiaoyan_passed`、`reader_ui_ok`（排除仍停在空书架）、`still_in_app`、`signals`、`trace_tail`、`report_path`。套件**不修复** Bridge 正文上屏；`SIGNAL sig=6`、空书架等会如实写入报告供后续排查。
+
+共用 MCP 客户端：`tools/ios_mcp_client.py`（`fixtures/_accept_strict_render.py` 等脚本可 `from tools.ios_mcp_client import McpClient`）。
