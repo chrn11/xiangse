@@ -3021,6 +3021,29 @@ static NSString *LBExtractPlainFromPageModel(id model) {
             @try { v = [model valueForKey:k]; } @catch (__unused NSException *e) {}
             if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) return v;
         }
+        Class cls = object_getClass(model);
+        while (cls && cls != [NSObject class]) {
+            unsigned int count = 0;
+            Ivar *ivars = class_copyIvarList(cls, &count);
+            if (ivars) {
+                for (unsigned int i = 0; i < count; i++) {
+                    const char *itype = ivar_getTypeEncoding(ivars[i]);
+                    if (!itype || itype[0] != '@') continue;
+                    id v = object_getIvar(model, ivars[i]);
+                    if ([v isKindOfClass:[NSAttributedString class]] &&
+                        [(NSAttributedString *)v length] > 0) {
+                        free(ivars);
+                        return [(NSAttributedString *)v string];
+                    }
+                    if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
+                        free(ivars);
+                        return v;
+                    }
+                }
+                free(ivars);
+            }
+            cls = class_getSuperclass(cls);
+        }
     } @catch (__unused NSException *e) {}
     return nil;
 }
@@ -3056,14 +3079,15 @@ static BOOL LBReadPageModelHasCTFrame(id model) {
             if (ivars) {
                 for (unsigned int i = 0; i < count; i++) {
                     const char *iname = ivar_getName(ivars[i]);
-                    if (iname && strstr(iname, "CTFrame")) {
-                        id v = object_getIvar(model, ivars[i]);
-                        free(ivars);
-                        if (v) return YES;
-                        return NO;
-                    }
+        if (iname && strstr(iname, "CTFrame")) {
+                id v = object_getIvar(model, ivars[i]);
+                if (v) {
+                    free(ivars);
+                    return YES;
                 }
-                free(ivars);
+            }
+        }
+        free(ivars);
             }
             cls = class_getSuperclass(cls);
         }
@@ -3368,6 +3392,27 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
             sNativeOpenChapterDone = YES;
             sDeferredNativeOpenIdx = -1;
             return;
+        }
+        SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
+        if ([readerVC respondsToSelector:finish]) {
+            @try {
+                ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(
+                    readerVC, finish, pageResult, cpIndex);
+                [okPaths addObject:@"onDivisionTextFinish"];
+                LBForceTextReadTVRefresh(textReadTV);
+                if (LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎") ||
+                    LBTextReadTVHasRenderedNeedle(textReadTV, @"斗气")) {
+                    [okPaths addObject:@"tvHasNeedleStrict"];
+                    *nativePaged = YES;
+                    sNativeOpenChapterDone = YES;
+                    sDeferredNativeOpenIdx = -1;
+                    return;
+                }
+            } @catch (NSException *ex) {
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"contentInject onDivisionTextFinish EX %@",
+                                         ex.reason ?: @""]);
+            }
         }
         if (LBTryShowPage0Once(readerVC, okPaths, @"showPage0PostDR") &&
             LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎")) {
