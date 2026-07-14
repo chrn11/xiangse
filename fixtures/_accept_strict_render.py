@@ -99,15 +99,32 @@ def main():
     front = call("get_frontmost_app")
     front_bundle = front.get("bundleId") if isinstance(front, dict) else str(front)
     steps.append(f"front={front_bundle}")
-    shot = call("screenshot")
+    shot_res = call("screenshot")
     img_path = OUT_DIR / "_accept_screenshot_strict.png"
     saved = False
-    if isinstance(shot, dict):
-        for item in shot.get("content") or []:
-            if item.get("type") == "image" and item.get("data"):
-                img_path.write_bytes(base64.b64decode(item["data"]))
-                saved = True
-                break
+    content_items = []
+    if isinstance(shot_res, dict):
+        content_items = shot_res.get("content") or []
+    if not content_items:
+        req = urllib.request.Request(
+            MCP,
+            data=json.dumps({
+                "jsonrpc": "2.0",
+                "id": int(time.time() * 1000) % 100000,
+                "method": "tools/call",
+                "params": {"name": "screenshot", "arguments": {}},
+            }).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            raw = json.loads(resp.read().decode())
+        content_items = raw.get("result", {}).get("content") or []
+    for item in content_items:
+        if item.get("type") == "image" and item.get("data"):
+            img_path.write_bytes(base64.b64decode(item["data"]))
+            saved = True
+            break
     steps.append(f"screenshot_saved={saved}")
     xiaoyan = call("assert_text_present", {"text": "萧炎", "timeout_ms": 15000})
     steps.append(f"assert_xiaoyan={xiaoyan.get('passed')}")

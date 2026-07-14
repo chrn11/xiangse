@@ -3219,11 +3219,17 @@ static BOOL LBApplyPageModelToTextReadTV(UIView *textReadTV, id pageModel, NSStr
     }
     SEL spm = NSSelectorFromString(@"setPageModel:");
     Class tvCls = object_getClass(textReadTV);
-    if (!([textReadTV respondsToSelector:spm] || class_getInstanceMethod(tvCls, spm))) {
-        return NO;
-    }
+    BOOL canSpm = [textReadTV respondsToSelector:spm] || class_getInstanceMethod(tvCls, spm);
     @try {
-        ((void (*)(id, SEL, id))objc_msgSend)(textReadTV, spm, pageModel);
+        if (canSpm) {
+            ((void (*)(id, SEL, id))objc_msgSend)(textReadTV, spm, pageModel);
+        } else {
+            for (NSString *k in @[@"pageModel", @"curPageModel", @"_pageModel"]) {
+                @try { [textReadTV setValue:pageModel forKey:k]; } @catch (__unused NSException *e) {}
+            }
+            [okPaths addObject:@"kvcPageModel"];
+            LBAppendOpenReaderTrace(@"contentInject setPageModel via KVC (no sel)");
+        }
         for (NSString *k in @[@"pageModel", @"curPageModel", @"_pageModel"]) {
             @try { [textReadTV setValue:pageModel forKey:k]; } @catch (__unused NSException *e) {}
         }
@@ -3250,9 +3256,13 @@ static BOOL LBApplyPageModelToTextReadTV(UIView *textReadTV, id pageModel, NSStr
 /// 单次 inject 内至多翻第 0 页一次，避免 PostDR+Verify 连环 SIGABRT
 static BOOL LBTryShowPage0Once(UIViewController *readerVC, NSMutableArray *okPaths,
                                NSString *tag) {
-    if (sShowPage0ThisInject || !readerVC || !okPaths) return NO;
+    if (!readerVC || !okPaths) return NO;
     SEL sp = NSSelectorFromString(@"showPage:direction:animated:");
-    if (![readerVC respondsToSelector:sp]) return NO;
+    if (![readerVC respondsToSelector:sp]) {
+        LBAppendOpenReaderTrace(@"contentInject showPage0 noSel");
+        return NO;
+    }
+    if (sShowPage0ThisInject) return NO;
     sShowPage0ThisInject = YES;
     @try {
         ((void (*)(id, SEL, NSInteger, NSInteger, BOOL))objc_msgSend)(
