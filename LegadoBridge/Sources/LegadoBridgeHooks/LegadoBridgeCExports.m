@@ -3137,32 +3137,30 @@ static NSArray *LBFlattenDivisionPages(id pageResult) {
     return cur;
 }
 
-/// onDivisionTextFinish 只吃扁平 Attr/RPM 页数组（嵌套 NSArray 会触发 -[__NSArrayM length]）
+/// onDivisionTextFinish 期望 @[@[Attr|RPM...]]；扁平 @[Attr] 会触发 -[NSAttributedString firstObject]
 static id LBWrapPageResultForOnDivisionTextFinish(id pageResult) {
     if (!pageResult) return pageResult;
     NSArray *flat = LBFlattenDivisionPages(pageResult);
-    if (!flat || flat.count == 0) return pageResult;
+    if (!flat || flat.count == 0) return nil;
     id first = flat.firstObject;
+    if ([first isKindOfClass:[NSArray class]]) {
+        LBAppendOpenReaderTrace(@"contentInject wrapFinishArg alreadyNested");
+        return flat;
+    }
     Class rpmCls = NSClassFromString(@"ReadPageModel");
     if (rpmCls && [first isKindOfClass:rpmCls]) {
         NSString *plain = LBExtractPlainFromPageModel(first);
-        if (plain.length == 0) {
-            LBAppendOpenReaderTrace(@"contentInject wrapFinishArg skip emptyRPM");
-        } else {
-            LBAppendOpenReaderTrace(@"contentInject wrapFinishArg keepRPM");
-        }
-        return flat;
-    }
-    if ([first isKindOfClass:[NSAttributedString class]] ||
-        [first isKindOfClass:[NSString class]]) {
-        LBAppendOpenReaderTrace(@"contentInject wrapFinishArg keepAttrRaw");
-        return flat;
-    }
-    if ([first isKindOfClass:[NSArray class]]) {
-        LBAppendOpenReaderTrace(@"contentInject wrapFinishArg stillNested (skip finish)");
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject wrapFinishArg nestRPM empty=%d",
+                                 plain.length == 0 ? 1 : 0]);
+    } else if ([first isKindOfClass:[NSAttributedString class]] ||
+               [first isKindOfClass:[NSString class]]) {
+        LBAppendOpenReaderTrace(@"contentInject wrapFinishArg nestAttrOuter");
+    } else {
+        LBAppendOpenReaderTrace(@"contentInject wrapFinishArg unknownFirst (skip finish)");
         return nil;
     }
-    return flat;
+    return @[flat];
 }
 
 /// onDivisionTextFinish 后刷新 container / textViewL/R（resetContentPosByScreenSize 等）
