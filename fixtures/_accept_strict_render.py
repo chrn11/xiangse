@@ -41,25 +41,52 @@ def call(tool, arguments=None, timeout=180):
     return body
 
 
+def clear_open_once_markers():
+    info = call("get_app_info", {"bundle_id": BUNDLE})
+    paths = info.get("paths", {}) if isinstance(info, dict) else {}
+    deleted = []
+    doc = paths.get("documents", "")
+    caches = paths.get("caches", "")
+    lib = paths.get("library", "")
+    candidates = []
+    if doc:
+        candidates.append(f"{doc}/legado_native_open_once.txt")
+    if caches:
+        candidates.append(f"{caches}/legado_native_open_once.txt")
+    elif lib:
+        candidates.append(f"{lib}/Caches/legado_native_open_once.txt")
+    for p in candidates:
+        if not p:
+            continue
+        try:
+            call("run_command", {"command": f"rm -f '{p}'", "timeout_sec": 10})
+            deleted.append(p)
+        except Exception:
+            pass
+    info = call("get_app_info", {"bundle_id": BUNDLE})
+    doc = info.get("paths", {}).get("documents", "") if isinstance(info, dict) else ""
+    if doc:
+        for name in ("legado_openreader_trace.txt", "legado_catalog_openreader.txt"):
+            try:
+                call("run_command", {"command": f"rm -f '{doc}/{name}'", "timeout_sec": 10})
+            except Exception:
+                pass
+    return deleted
+
+
 def main():
     steps = []
     call("wake_and_home")
     steps.append("wake_and_home")
-    info = call("get_app_info", {"bundle_id": BUNDLE})
-    doc = info.get("paths", {}).get("documents", "") if isinstance(info, dict) else ""
-    if doc:
-        for rel in ("legado_native_open_once.txt", "Caches/legado_native_open_once.txt"):
-            p = f"{doc}/{rel}" if not rel.startswith("Caches") else doc.replace("/Documents", "") + f"/{rel}"
-            try:
-                call("delete_file", {"path": p})
-                steps.append(f"deleted_{rel}")
-            except Exception:
-                pass
+    for p in clear_open_once_markers():
+        steps.append(f"deleted_{p.split('/')[-1]}@{p.rsplit('/', 1)[0][-20:]}")
     call("kill_app", {"bundle_id": BUNDLE})
     time.sleep(1)
     call("launch_app", {"bundle_id": BUNDLE})
     steps.append("launch")
     time.sleep(2)
+    info = call("get_app_info", {"bundle_id": BUNDLE})
+    doc = info.get("paths", {}).get("documents", "") if isinstance(info, dict) else ""
     call("open_url", {"url": f"legado://import/bookSource?src={SRC}"})
     steps.append("import_source")
     time.sleep(2)
@@ -74,11 +101,14 @@ def main():
     steps.append(f"front={front_bundle}")
     shot = call("screenshot")
     img_path = OUT_DIR / "_accept_screenshot_strict.png"
+    saved = False
     if isinstance(shot, dict):
         for item in shot.get("content") or []:
             if item.get("type") == "image" and item.get("data"):
                 img_path.write_bytes(base64.b64decode(item["data"]))
+                saved = True
                 break
+    steps.append(f"screenshot_saved={saved}")
     xiaoyan = call("assert_text_present", {"text": "萧炎", "timeout_ms": 15000})
     steps.append(f"assert_xiaoyan={xiaoyan.get('passed')}")
     trace_text = ""
@@ -95,6 +125,7 @@ def main():
         })
         marker_text = marker.get("content", "") if isinstance(marker, dict) else str(marker)
     prefer_lines = [ln for ln in trace_text.splitlines() if "goStart preferNativeFull" in ln]
+    prefer_after_clean = prefer_lines
     strict_hits = [ln for ln in trace_text.splitlines() if "tvHasNeedleStrict" in ln]
     probe_only = [ln for ln in trace_text.splitlines() if "tvHasNeedleProbeOnly" in ln or "probeOnly" in ln]
     false_paged = [
@@ -105,7 +136,8 @@ def main():
         "steps": steps,
         "xiaoyan_passed": xiaoyan.get("passed") if isinstance(xiaoyan, dict) else False,
         "still_in_app": front_bundle == BUNDLE,
-        "preferNativeFull_count": len(prefer_lines),
+        "preferNativeFull_count": len(prefer_after_clean),
+        "preferNativeFull_all": len(prefer_lines),
         "tvHasNeedleStrict_lines": len(strict_hits),
         "tvHasNeedleProbeOnly_lines": len(probe_only),
         "false_nativePaged_probe_only": len(false_paged),

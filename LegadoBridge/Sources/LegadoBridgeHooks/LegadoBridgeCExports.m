@@ -3134,6 +3134,28 @@ static BOOL LBTextReadTVHasRenderedNeedle(UIView *tv, NSString *needle) {
     return NO;
 }
 
+/// TextReadTV / VC 走原版 showContent 排版链（CoreText 真上屏）
+static BOOL LBInvokeShowContent(id target, NSString *body, NSString *title,
+                                NSMutableArray *okPaths, NSString *tag) {
+    if (!target || body.length == 0) return NO;
+    SEL show2 = NSSelectorFromString(@"showContent:title:");
+    SEL show1 = NSSelectorFromString(@"showContent:");
+    BOOL ok = NO;
+    @try {
+        if ([target respondsToSelector:show2]) {
+            ((void (*)(id, SEL, id, id))objc_msgSend)(target, show2, body, title ?: @"");
+            ok = YES;
+        } else if ([target respondsToSelector:show1]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(target, show1, body);
+            ok = YES;
+        }
+    } @catch (__unused NSException *e) {}
+    if (ok && okPaths && tag.length > 0) {
+        [okPaths addObject:tag];
+    }
+    return ok;
+}
+
 /// setPageModel 后刷新 CoreText 绘制（不触发 divisionResponse 双初始化）
 static void LBForceTextReadTVRefresh(UIView *textReadTV) {
     if (!textReadTV) return;
@@ -3183,10 +3205,16 @@ static BOOL LBApplyPageModelToTextReadTV(UIView *textReadTV, id pageModel, NSStr
                 NSFontAttributeName: [UIFont systemFontOfSize:18],
                 NSForegroundColorAttributeName: [UIColor darkTextColor]
             }];
+            LBScanSetReadPageModelContent(pageModel, attr);
         }
         if (attr.length > 0 && LBSetReadPageModelCTFrame(pageModel, attr, sz)) {
             [okPaths addObject:@"ensureCTFrame"];
         }
+    }
+    NSString *plainBody = LBExtractPlainFromPageModel(pageModel);
+    if (plainBody.length == 0 && body.length > 0) plainBody = body;
+    if (plainBody.length > 0) {
+        LBInvokeShowContent(textReadTV, plainBody, nil, okPaths, @"showContentTV");
     }
     SEL spm = NSSelectorFromString(@"setPageModel:");
     Class tvCls = object_getClass(textReadTV);
@@ -3195,8 +3223,10 @@ static BOOL LBApplyPageModelToTextReadTV(UIView *textReadTV, id pageModel, NSStr
     }
     @try {
         ((void (*)(id, SEL, id))objc_msgSend)(textReadTV, spm, pageModel);
+        for (NSString *k in @[@"pageModel", @"curPageModel", @"_pageModel"]) {
+            @try { [textReadTV setValue:pageModel forKey:k]; } @catch (__unused NSException *e) {}
+        }
         LBForceTextReadTVRefresh(textReadTV);
-        LBStampTextReadTVProbe(textReadTV, pageModel, body);
         NSString *pathTag = tag.length > 0 ? tag : @"setPageModel";
         [okPaths addObject:pathTag];
         if (LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎") ||
@@ -3205,8 +3235,9 @@ static BOOL LBApplyPageModelToTextReadTV(UIView *textReadTV, id pageModel, NSStr
             return YES;
         }
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"contentInject %@ noStrictNeedle ct=%d",
-                                 pathTag, LBReadPageModelHasCTFrame(pageModel) ? 1 : 0]);
+                                 @"contentInject %@ noStrictNeedle ct=%d pm=%@",
+                                 pathTag, LBReadPageModelHasCTFrame(pageModel) ? 1 : 0,
+                                 LBExtractPlainFromPageModel(pageModel).length > 0 ? @"txt" : @"empty"]);
     } @catch (NSException *ex) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"contentInject %@ EX %@", tag ?: @"setPageModel",
@@ -3246,16 +3277,20 @@ static BOOL LBSetReadPageModelCTFrame(id model, NSAttributedString *attr, CGSize
     CTFrameRef frame = CTFramesetterCreateFrame(
         setter, CFRangeMake(0, (CFIndex)attr.length), path, NULL);
     CGPathRelease(path);
-    CFRelease(setter);
-    if (!frame) return NO;
+    if (!frame) {
+        CFRelease(setter);
+        return NO;
+    }
+    LBScanSetReadPageModelContent(model, attr);
     NSRange range = NSMakeRange(0, attr.length);
     BOOL set = NO;
+    id frameObj = CFBridgingRelease(frame);
+    id setterObj = CFBridgingRelease(setter);
     for (NSString *ivarName in @[@"_CTFrame", @"_ctFrame", @"_frame", @"_CTframe"]) {
         Class cls = object_getClass(model);
         while (cls && cls != [NSObject class]) {
             Ivar iv = class_getInstanceVariable(cls, ivarName.UTF8String);
             if (iv) {
-                id frameObj = CFBridgingRelease(frame);
                 object_setIvar(model, iv, frameObj);
                 set = YES;
                 break;
@@ -3265,10 +3300,21 @@ static BOOL LBSetReadPageModelCTFrame(id model, NSAttributedString *attr, CGSize
         if (set) break;
     }
     if (!set) {
-        id frameObj = CFBridgingRelease(frame);
         LBForceSetIvar(model, @"CTFrame", frameObj);
         set = YES;
     }
+    for (NSString *fsName in @[@"_CTFramesetter", @"_ctFramesetter", @"_framesetter"]) {
+        Class cls = object_getClass(model);
+        while (cls && cls != [NSObject class]) {
+            Ivar iv = class_getInstanceVariable(cls, fsName.UTF8String);
+            if (iv) {
+                object_setIvar(model, iv, setterObj);
+                break;
+            }
+            cls = class_getSuperclass(cls);
+        }
+    }
+    LBForceSetIvar(model, @"CTFramesetter", setterObj);
     for (NSString *rk in @[@"stringRange", @"range", @"pageRange", @"visibleRange"]) {
         @try {
             [model setValue:[NSValue valueWithRange:range] forKey:rk];
@@ -4010,6 +4056,9 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
         } else if ([readerVC respondsToSelector:show1]) {
             ((void (*)(id, SEL, id))objc_msgSend)(readerVC, show1, body);
             [okPaths addObject:@"showContent"];
+        }
+        if (textReadTV && body.length > 0) {
+            LBInvokeShowContent(textReadTV, body, title, okPaths, @"showContentTVPre");
         }
 
         // 4b) divisionText：真机归属 PaibanManager
