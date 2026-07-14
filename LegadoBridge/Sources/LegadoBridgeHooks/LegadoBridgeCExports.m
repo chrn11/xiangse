@@ -3100,10 +3100,31 @@ static void LBDumpReadPageModelIvars(id model) {
                              (unsigned long)plain.length]);
 }
 
+/// TextRPageContainer::onDivisionTextFinish 期望 @[ @[ReadPageModel...] ]（双层数组）
+static id LBWrapPageResultForOnDivisionTextFinish(id pageResult) {
+    if (![pageResult isKindOfClass:[NSArray class]] || [(NSArray *)pageResult count] == 0) {
+        return pageResult;
+    }
+    id first = [(NSArray *)pageResult firstObject];
+    if ([first isKindOfClass:[NSArray class]]) return pageResult;
+    Class rpmCls = NSClassFromString(@"ReadPageModel");
+    if (rpmCls && [first isKindOfClass:rpmCls]) {
+        LBAppendOpenReaderTrace(@"contentInject wrapFinishArg doubleArray");
+        return @[ pageResult ];
+    }
+    if ([first isKindOfClass:[NSAttributedString class]] ||
+        [first isKindOfClass:[NSString class]]) {
+        LBAppendOpenReaderTrace(@"contentInject wrapFinishArg doubleArrayAttr");
+        return @[ pageResult ];
+    }
+    return pageResult;
+}
+
 /// 原版 onDivisionTextFinish:cpIndex:（divisionResponse 后走容器原生刷新链）
 static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
                                        NSInteger cpIndex, NSMutableArray *okPaths) {
     if (!target || !pageResult) return NO;
+    id finishArg = LBWrapPageResultForOnDivisionTextFinish(pageResult);
     SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
     Class tcls = object_getClass(target);
     BOOL hasFinish = [target respondsToSelector:finish] ||
