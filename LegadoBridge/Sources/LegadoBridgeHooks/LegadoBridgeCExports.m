@@ -1072,12 +1072,27 @@ static NSUInteger LBApplyPendingCatalogToVCs(NSArray *chapters, NSString *bookUr
 }
 
 static void LBScheduleCatalogReapply(NSArray *chapters, NSString *bookUrl) {
+    if (LBNativeOpenGateBlocked(NULL)) {
+        LBAppendOpenReaderTrace(@"catalogReapply skip openOnce/chapterDone listOnly");
+        LBApplyPendingCatalogToVCs(chapters, bookUrl, @"reapplySkipOpen");
+        return;
+    }
     NSArray *chCopy = [chapters copy];
     NSString *buCopy = [bookUrl copy];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (LBNativeOpenGateBlocked(NULL)) {
+            LBAppendOpenReaderTrace(@"catalogReapply skip openOnce/chapterDone phase=0.35");
+            LBApplyPendingCatalogToVCs(chCopy, buCopy, @"reapply0.35SkipOpen");
+            return;
+        }
         LBApplyPendingCatalogToVCs(chCopy, buCopy, @"reapply0.35");
     });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (LBNativeOpenGateBlocked(NULL)) {
+            LBAppendOpenReaderTrace(@"catalogReapply skip openOnce/chapterDone phase=1.0");
+            LBApplyPendingCatalogToVCs(chCopy, buCopy, @"reapply1.0SkipOpen");
+            return;
+        }
         LBApplyPendingCatalogToVCs(chCopy, buCopy, @"reapply1.0");
     });
 }
@@ -1360,56 +1375,100 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
 
 static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via);
 
-static NSString *LBNativeOpenOnceMarkerPath(void) {
-    return [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_native_open_once.txt"];
+static NSArray<NSString *> *LBNativeOpenOnceMarkerPaths(void) {
+    NSString *home = NSHomeDirectory();
+    return @[
+        [home stringByAppendingPathComponent:@"Documents/legado_native_open_once.txt"],
+        [home stringByAppendingPathComponent:@"Library/Caches/legado_native_open_once.txt"],
+    ];
+}
+
+static void LBNativeOpenOnceLockInit(void) {
+    static dispatch_once_t onceLock;
+    dispatch_once(&onceLock, ^{ sNativeOpenOnceLock = [[NSObject alloc] init]; });
 }
 
 static NSString *LBReadNativeOpenOnceMarker(void) {
-    NSString *txt = [NSString stringWithContentsOfFile:LBNativeOpenOnceMarkerPath()
-                                              encoding:NSUTF8StringEncoding error:NULL];
-    if (txt.length == 0) return nil;
-    return [txt stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    for (NSString *path in LBNativeOpenOnceMarkerPaths()) {
+        NSString *txt = [NSString stringWithContentsOfFile:path
+                                                    encoding:NSUTF8StringEncoding error:NULL];
+        if (txt.length == 0) continue;
+        return [txt stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    }
+    return nil;
 }
 
 static void LBWriteNativeOpenOnceMarker(NSString *key) {
     if (key.length == 0) return;
-    [key writeToFile:LBNativeOpenOnceMarkerPath() atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    for (NSString *path in LBNativeOpenOnceMarkerPaths()) {
+        NSString *dir = [path stringByDeletingLastPathComponent];
+        [[NSFileManager defaultManager] createDirectoryAtPath:dir
+                                  withIntermediateDirectories:YES attributes:nil error:NULL];
+        [key writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    }
 }
 
 static void LBClearNativeOpenOnceMarker(void) {
-    [[NSFileManager defaultManager] removeItemAtPath:LBNativeOpenOnceMarkerPath() error:NULL];
+    for (NSString *path in LBNativeOpenOnceMarkerPaths()) {
+        [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
+    }
+}
+
+/// 已 claim / chapterDone / inflight / 磁盘占坑（目录 reapply 与 tryOpen 共用）
+static BOOL LBNativeOpenGateBlocked(NSString **outReason) {
+    LBNativeOpenOnceLockInit();
+    @synchronized(sNativeOpenOnceLock) {
+        NSString *diskKey = LBReadNativeOpenOnceMarker();
+        if (diskKey.length > 0) {
+            if (sNativeOpenOnceKey.length == 0) sNativeOpenOnceKey = [diskKey copy];
+            if (outReason) *outReason = @"disk";
+            return YES;
+        }
+        if (sNativeOpenOnceKey.length > 0) {
+            if (outReason) *outReason = @"mem";
+            return YES;
+        }
+        if (sNativeOpenChapterDone) {
+            if (outReason) *outReason = @"chapterDone";
+            return YES;
+        }
+        if (sNativeOpenGoInFlight) {
+            if (outReason) *outReason = @"inflight";
+            return YES;
+        }
+        return NO;
+    }
 }
 
 /// nativeRead 点章单次占坑；已占/已完成则写 skip 日志并返回 NO
 static BOOL LBClaimNativeOpenOnce(NSString *bookUrl, NSInteger idx, NSString *via) {
-    NSString *diskKey = LBReadNativeOpenOnceMarker();
-    if (diskKey.length > 0) {
-        if (sNativeOpenOnceKey.length == 0) sNativeOpenOnceKey = [diskKey copy];
+    LBNativeOpenOnceLockInit();
+    @synchronized(sNativeOpenOnceLock) {
+        NSString *blocked = nil;
+        if (LBNativeOpenGateBlocked(&blocked)) {
+            if ([blocked isEqualToString:@"disk"]) {
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"goStart skip openOnce disk via=%@ key=%@",
+                                         via ?: @"?", sNativeOpenOnceKey ?: @"?"]);
+            } else if ([blocked isEqualToString:@"mem"]) {
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"goStart skip openOnce via=%@ key=%@", via ?: @"?", sNativeOpenOnceKey]);
+            } else if ([blocked isEqualToString:@"chapterDone"]) {
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"goStart skipPush chapterDone via=%@", via ?: @"?"]);
+            } else if ([blocked isEqualToString:@"inflight"]) {
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"goStart skip inflight via=%@", via ?: @"?"]);
+            }
+            return NO;
+        }
+        NSString *key = [NSString stringWithFormat:@"%@|%ld", bookUrl ?: @"", (long)idx];
+        sNativeOpenOnceKey = [key copy];
+        LBWriteNativeOpenOnceMarker(key);
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"goStart skip openOnce disk via=%@ key=%@", via ?: @"?", diskKey]);
-        return NO;
+                                 @"nativeOpen openOnce commit via=%@ key=%@", via ?: @"?", key]);
+        return YES;
     }
-    if (sNativeOpenOnceKey.length > 0) {
-        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"goStart skip openOnce via=%@ key=%@", via ?: @"?", sNativeOpenOnceKey]);
-        return NO;
-    }
-    if (sNativeOpenChapterDone) {
-        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"goStart skipPush chapterDone via=%@", via ?: @"?"]);
-        return NO;
-    }
-    if (sNativeOpenGoInFlight) {
-        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"goStart skip inflight via=%@", via ?: @"?"]);
-        return NO;
-    }
-    NSString *key = [NSString stringWithFormat:@"%@|%ld", bookUrl ?: @"", (long)idx];
-    sNativeOpenOnceKey = [key copy];
-    LBWriteNativeOpenOnceMarker(key);
-    LBAppendOpenReaderTrace([NSString stringWithFormat:
-                             @"nativeOpen openOnce commit via=%@ key=%@", via ?: @"?", key]);
-    return YES;
 }
 
 /// 点章：默认原生 openReader → TextReadVC；超时仍无原生页再 Bridge 兜底
@@ -1422,6 +1481,14 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
     NSString *bookUrlEarly = sPendingCatalogBookUrl;
     NSString *wantKeyEarly = (bookUrlEarly.length > 0)
         ? [NSString stringWithFormat:@"%@|%ld", bookUrlEarly, (long)idx] : nil;
+
+    LBNativeOpenOnceLockInit();
+    BOOL proceed = NO;
+    NSString *chUrl = nil;
+    NSString *chTitle = nil;
+    NSString *bookUrl = nil;
+    id item = nil;
+  @synchronized(sNativeOpenOnceLock) {
     NSString *diskKey = LBReadNativeOpenOnceMarker();
     if (diskKey.length > 0 && sNativeOpenOnceKey.length == 0) {
         sNativeOpenOnceKey = [diskKey copy];
@@ -1485,32 +1552,53 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
                                  via ?: @"?", (long)idx]);
         return;
     }
-    id item = use[(NSUInteger)idx];
-    NSString *chUrl = nil;
-    NSString *chTitle = nil;
-    if ([item isKindOfClass:[NSDictionary class]]) {
-        NSDictionary *d = (NSDictionary *)item;
+    id itemLocal = use[(NSUInteger)idx];
+    chUrl = nil;
+    chTitle = nil;
+    if ([itemLocal isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *d = (NSDictionary *)itemLocal;
         chUrl = d[@"cpUrl"] ?: d[@"chapterUrl"] ?: d[@"url"];
         chTitle = d[@"cpTitle"] ?: d[@"title"] ?: d[@"name"] ?: d[@"chapterName"];
     }
-    NSString *bookUrl = sPendingCatalogBookUrl;
+    bookUrl = sPendingCatalogBookUrl;
+    item = itemLocal;
     if (bookUrl.length == 0 || chUrl.length == 0) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:@"goStart skip noBookOrChUrl via=%@", via ?: @"?"]);
         return;
     }
     NSString *wantKey = [NSString stringWithFormat:@"%@|%ld", bookUrl, (long)idx];
-    if (!(sNativeOpenOnceKey.length > 0 && [sNativeOpenOnceKey isEqualToString:wantKey])) {
-        if (!LBClaimNativeOpenOnce(bookUrl, idx, via)) {
-            if (sNativeOpenChapterDone) {
-                sDeferredNativeOpenIdx = -1;
-                LBDeliverContentToVisibleReaders(@"claimChapterDone");
-            }
+    if (sNativeOpenOnceKey.length > 0 && [sNativeOpenOnceKey isEqualToString:wantKey]) {
+        if (sNativeOpenChapterDone) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"goStart skipPush chapterDone sameKey via=%@", via ?: @"?"]);
+            sDeferredNativeOpenIdx = -1;
+            LBDeliverContentToVisibleReaders(@"sameKeyChapterDone");
             return;
         }
+        if (sNativeOpenGoInFlight) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"goStart skip inflight sameKey via=%@", via ?: @"?"]);
+            return;
+        }
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"goStart skip openOnce sameKey via=%@ key=%@", via ?: @"?", wantKey]);
+        sDeferredNativeOpenIdx = -1;
+        LBDeliverContentToVisibleReaders(@"sameKeyDeliver");
+        return;
+    }
+    if (!LBClaimNativeOpenOnce(bookUrl, idx, via)) {
+        if (sNativeOpenChapterDone) {
+            sDeferredNativeOpenIdx = -1;
+            LBDeliverContentToVisibleReaders(@"claimChapterDone");
+        }
+        return;
     }
     sLastLegadoChapterOpenTs = now;
     sNativeOpenGoInFlight = YES;
     sDeferredNativeOpenIdx = -1;
+    proceed = YES;
+  }
+    if (!proceed) return;
     NSString *titleCopy = chTitle.length > 0 ? [chTitle copy] : @"章节";
     NSString *chCopy = [chUrl copy];
     NSString *buCopy = [bookUrl copy];
@@ -5907,20 +5995,20 @@ void LBApplyCatalogToUI(NSArray *chapters, NSString *bookUrl) {
             NSInteger useIdx = sDeferredNativeOpenIdx;
             if (useIdx >= (NSInteger)chapters.count) useIdx = 0;
             sDeferredNativeOpenIdx = -1;
-            if (sNativeOpenOnceKey.length > 0 || sNativeOpenChapterDone ||
-                LBReadNativeOpenOnceMarker().length > 0) {
-                LBAppendOpenReaderTrace(@"catalogUI skip openOnce/chapterDone");
+            NSString *blocked = nil;
+            if (LBNativeOpenGateBlocked(&blocked)) {
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"catalogUI skip openOnce/chapterDone reason=%@", blocked ?: @"?"]);
+                if (sNativeOpenChapterDone || sNativeOpenOnceKey.length > 0 ||
+                    [blocked isEqualToString:@"disk"]) {
+                    LBDeliverContentToVisibleReaders(@"catalogUISkip");
+                }
             } else if (sLegadoReaderMode == 1 &&
                        (LBIsTextReaderVisible() || LBNavStackHasTextReader())) {
                 LBAppendOpenReaderTrace(@"catalogUI skip readerOnStack deliverOnly");
                 LBDeliverContentToVisibleReaders(@"catalogUIOnStack");
-            } else if (LBClaimNativeOpenOnce(bookUrl.length > 0 ? bookUrl : sPendingCatalogBookUrl,
-                                             useIdx, @"catalogUI")) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    LBOpenLegadoChapterAtIndexWithVia(useIdx, @"catalogUI");
-                });
             } else {
-                LBAppendOpenReaderTrace(@"catalogUI skip claimFailed");
+                LBOpenLegadoChapterAtIndexWithVia(useIdx, @"catalogUI");
             }
         }
     } @catch (NSException *e) {
@@ -6004,13 +6092,11 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
     // 目录异步返回后由 LBApplyCatalogToUI 触发；多档延迟兜底
     void (^tryOpen)(NSString *) = ^(NSString *phase) {
         if (sDeferredNativeOpenIdx < 0) return;
-        if (sNativeOpenChapterDone || sNativeOpenOnceKey.length > 0) {
+        NSString *blocked = nil;
+        if (LBNativeOpenGateBlocked(&blocked)) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"tryOpen skip openOnce/chapterDone phase=%@", phase]);
-            return;
-        }
-        if (sNativeOpenGoInFlight) {
-            LBAppendOpenReaderTrace([NSString stringWithFormat:@"tryOpen skip inflight phase=%@", phase]);
+                                     @"tryOpen skip openOnce/chapterDone phase=%@ reason=%@",
+                                     phase, blocked ?: @"?"]);
             return;
         }
         if (sPendingCatalogChapters.count == 0) {
