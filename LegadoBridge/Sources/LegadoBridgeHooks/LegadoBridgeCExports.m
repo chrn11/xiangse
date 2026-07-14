@@ -3066,6 +3066,8 @@ static void LBStampTextReadTVProbe(UIView *tv, id pageModel, NSString *body) {
 static void LBDumpReadPageModelIvars(id model);
 static BOOL LBReadPageModelHasCTFrame(id model);
 static BOOL LBTextReadTVHasRenderedNeedle(UIView *tv, NSString *needle);
+static BOOL LBVerifyNativeOnScreenHost(UIView *textReadTV, UIViewController *readerVC,
+                                       id host, NSMutableArray *okPaths);
 
 /// 诊断：dump ReadPageModel ivar 名/类型（对照 hook103，只读落盘）
 static void LBDumpReadPageModelIvars(id model) {
@@ -4699,7 +4701,17 @@ LB_INJECT_FINISH:
         } else if (hasNativeDR) {
             LBAppendOpenReaderTrace(@"contentInject drOK strict miss try onFinish+showPage0");
             if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] > 0) {
-                LBInvokeOnDivisionTextFinish(readerVC, pageResult, cpIndex, okPaths);
+                NSArray *containers = LBCollectDivisionHosts(readerVC);
+                BOOL finishOk = NO;
+                for (id h in containers) {
+                    if (LBInvokeOnDivisionTextFinish(h, pageResult, cpIndex, okPaths)) {
+                        finishOk = YES;
+                        break;
+                    }
+                }
+                if (!finishOk) {
+                    LBInvokeOnDivisionTextFinish(readerVC, pageResult, cpIndex, okPaths);
+                }
                 if (textReadTV) LBForceTextReadTVRefresh(textReadTV);
             }
             if (textReadTV && [pageResult isKindOfClass:[NSArray class]] &&
