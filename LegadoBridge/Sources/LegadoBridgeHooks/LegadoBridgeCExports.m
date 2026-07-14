@@ -5865,6 +5865,10 @@ void LBApplyCatalogToUI(NSArray *chapters, NSString *bookUrl) {
             sDeferredNativeOpenIdx = -1;
             if (sNativeOpenOnceKey.length > 0 || sNativeOpenChapterDone) {
                 LBAppendOpenReaderTrace(@"catalogUI skip openOnce/chapterDone");
+            } else if (sLegadoReaderMode == 1 &&
+                       (LBIsTextReaderVisible() || LBNavStackHasTextReader())) {
+                LBAppendOpenReaderTrace(@"catalogUI skip readerOnStack deliverOnly");
+                LBDeliverContentToVisibleReaders(@"catalogUIOnStack");
             } else {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     LBOpenLegadoChapterAtIndexWithVia(useIdx, @"catalogUI");
@@ -5900,16 +5904,31 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
     NSString *bu = [bookUrl copy];
     NSString *su = [sourceUrl copy];
     NSInteger wantIdx = idx < 0 ? 0 : idx;
-    if (sNativeOpenChapterDone &&
-        sDeferredNativeOpenBookUrl.length > 0 &&
-        [sDeferredNativeOpenBookUrl isEqualToString:bu]) {
+    BOOL sameBook = (sDeferredNativeOpenBookUrl.length > 0 &&
+                     [sDeferredNativeOpenBookUrl isEqualToString:bu]);
+    if (sNativeOpenChapterDone && sameBook) {
         LBAppendOpenReaderTrace(@"nativeRead skip chapterDone sameBook");
         return;
     }
-    // 新 nativeRead 会话：清占坑，允许单次 goStart
-    sNativeOpenOnceKey = nil;
-    sNativeOpenChapterDone = NO;
-    sNativeOpenGoInFlight = NO;
+    if (sNativeOpenOnceKey.length > 0 && sameBook) {
+        LBAppendOpenReaderTrace(@"nativeRead skip openOnce sameBook");
+        return;
+    }
+    if (sNativeOpenGoInFlight && sameBook) {
+        LBAppendOpenReaderTrace(@"nativeRead skip inflight sameBook");
+        return;
+    }
+    if (sameBook && sDeferredNativeOpenIdx >= 0 && !sNativeOpenChapterDone &&
+        sNativeOpenOnceKey.length == 0) {
+        LBAppendOpenReaderTrace(@"nativeRead skip duplicate awaitingCatalog");
+        return;
+    }
+    // 仅换书冷启动才清占坑；同书二次深链/appear 回调不得清锁（真机曾双 preferNativeFull）
+    if (!sameBook) {
+        sNativeOpenOnceKey = nil;
+        sNativeOpenChapterDone = NO;
+        sNativeOpenGoInFlight = NO;
+    }
     sDeferredNativeOpenIdx = wantIdx;
     sDeferredNativeOpenBookUrl = bu;
     [[NSString stringWithFormat:@"nativeOpenRequest book=%@ src=%@ idx=%ld",
