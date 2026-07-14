@@ -3065,6 +3065,7 @@ static void LBStampTextReadTVProbe(UIView *tv, id pageModel, NSString *body) {
 
 static void LBDumpReadPageModelIvars(id model);
 static BOOL LBReadPageModelHasCTFrame(id model);
+static BOOL LBTextReadTVHasRenderedNeedle(UIView *tv, NSString *needle);
 
 /// 诊断：dump ReadPageModel ivar 名/类型（对照 hook103，只读落盘）
 static void LBDumpReadPageModelIvars(id model) {
@@ -3098,26 +3099,59 @@ static void LBDumpReadPageModelIvars(id model) {
 }
 
 /// 原版 onDivisionTextFinish:cpIndex:（divisionResponse 后走容器原生刷新链）
-static BOOL LBInvokeOnDivisionTextFinish(UIViewController *readerVC, id pageResult,
+static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
                                        NSInteger cpIndex, NSMutableArray *okPaths) {
-    if (!readerVC || !pageResult) return NO;
+    if (!target || !pageResult) return NO;
     SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
-    if (![readerVC respondsToSelector:finish]) {
-        LBAppendOpenReaderTrace(@"contentInject onDivisionTextFinish noSel");
+    Class tcls = object_getClass(target);
+    BOOL hasFinish = [target respondsToSelector:finish] ||
+                     class_getInstanceMethod(tcls, finish);
+    if (!hasFinish) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject onDivisionTextFinish noSel host=%@",
+                                 NSStringFromClass(tcls)]);
         return NO;
     }
     @try {
         ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(
-            readerVC, finish, pageResult, cpIndex);
-        if (okPaths) [okPaths addObject:@"onDivisionTextFinish"];
-        LBAppendOpenReaderTrace(@"contentInject onDivisionTextFinish OK");
+            target, finish, pageResult, cpIndex);
+        if (okPaths) {
+            [okPaths addObject:[NSString stringWithFormat:@"onDivisionTextFinish@%@",
+                                NSStringFromClass(tcls)]];
+        }
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject onDivisionTextFinish OK host=%@",
+                                 NSStringFromClass(tcls)]);
         return YES;
     } @catch (NSException *ex) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"contentInject onDivisionTextFinish EX %@",
-                                 ex.reason ?: @""]);
+                                 @"contentInject onDivisionTextFinish EX %@ %@",
+                                 NSStringFromClass(tcls), ex.reason ?: @""]);
         return NO;
     }
+}
+
+/// 在 container/VC 的 textViewL/R 上验 strict needle
+static BOOL LBVerifyContainerTextViews(id host, UIViewController *readerVC,
+                                       NSMutableArray *okPaths) {
+    NSMutableArray *tvs = [NSMutableArray array];
+    for (id scope in @[host ?: [NSNull null], readerVC ?: [NSNull null]]) {
+        if (scope == (id)[NSNull null]) continue;
+        for (NSString *k in @[@"textViewL", @"textViewR", @"curPageTV", @"textView"]) {
+            @try {
+                id v = [scope valueForKey:k];
+                if (v && ![tvs containsObject:v]) [tvs addObject:v];
+            } @catch (__unused NSException *e) {}
+        }
+    }
+    for (id tv in tvs) {
+        if (LBTextReadTVHasRenderedNeedle((UIView *)tv, @"萧炎") ||
+            LBTextReadTVHasRenderedNeedle((UIView *)tv, @"斗气")) {
+            if (okPaths) [okPaths addObject:@"tvHasNeedleStrict"];
+            return YES;
+        }
+    }
+    return NO;
 }
 
 /// ReadPageModel 是否已有 CTFrame（CoreText 上屏硬条件）
@@ -3430,14 +3464,22 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
         pageModel = [(NSArray *)pageResult firstObject];
         LBDumpReadPageModelIvars(pageModel);
     }
-    // divisionResponse 已完成分页；走原版 onDivisionTextFinish 刷新链
+    // divisionResponse 已完成分页；走原版 onDivisionTextFinish 刷新链（优先 container）
     LBAppendOpenReaderTrace(@"contentInject postDR safePath onDivisionTextFinish");
     if (pageResult) {
-        if (LBInvokeOnDivisionTextFinish(readerVC, pageResult, cpIndex, okPaths) && textReadTV) {
-            LBForceTextReadTVRefresh(textReadTV);
-            if (LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎") ||
-                LBTextReadTVHasRenderedNeedle(textReadTV, @"斗气")) {
-                [okPaths addObject:@"tvHasNeedleStrict"];
+        BOOL finishOk = NO;
+        for (id h in containers) {
+            if (LBInvokeOnDivisionTextFinish(h, pageResult, cpIndex, okPaths)) {
+                finishOk = YES;
+                break;
+            }
+        }
+        if (!finishOk) {
+            LBInvokeOnDivisionTextFinish(readerVC, pageResult, cpIndex, okPaths);
+        }
+        if (textReadTV) LBForceTextReadTVRefresh(textReadTV);
+        for (id h in containers) {
+            if (LBVerifyNativeOnScreenHost(textReadTV, readerVC, h, okPaths)) {
                 *nativePaged = YES;
                 sNativeOpenChapterDone = YES;
                 sDeferredNativeOpenIdx = -1;
@@ -3448,14 +3490,6 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
         if (pageModel && textReadTV &&
             LBApplyPageModelToTextReadTV(textReadTV, pageModel, body, tvSz, okPaths,
                                          @"setPageModelPostDR")) {
-            *nativePaged = YES;
-            sNativeOpenChapterDone = YES;
-            sDeferredNativeOpenIdx = -1;
-            return;
-        }
-        if (LBTryShowPage0Once(readerVC, okPaths, @"showPage0PostDR") && textReadTV &&
-            LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎")) {
-            [okPaths addObject:@"tvHasNeedleStrict"];
             *nativePaged = YES;
             sNativeOpenChapterDone = YES;
             sDeferredNativeOpenIdx = -1;
@@ -3812,12 +3846,12 @@ static BOOL LBInvokeDivisionResponse(id host, id pages, NSString *title, NSInteg
 /// divisionResponse 后屏上真实渲染验收（禁止 accessibility 探针误判 nativePaged）
 static BOOL LBVerifyNativeOnScreen(UIView *textReadTV, UIViewController *readerVC,
                                    NSMutableArray *okPaths) {
-    (void)readerVC;
     if (LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎") ||
         LBTextReadTVHasRenderedNeedle(textReadTV, @"斗气")) {
         [okPaths addObject:@"tvHasNeedleStrict"];
         return YES;
     }
+    if (LBVerifyContainerTextViews(nil, readerVC, okPaths)) return YES;
     if (textReadTV && LBTextReadTVHasNeedle(textReadTV, @"萧炎")) {
         [okPaths addObject:@"tvHasNeedleProbeOnly"];
         LBAppendOpenReaderTrace(@"contentInject verify probeOnly (await strict render)");
@@ -3829,6 +3863,12 @@ static BOOL LBVerifyNativeOnScreen(UIView *textReadTV, UIViewController *readerV
         } @catch (__unused NSException *e) {}
     }
     return NO;
+}
+
+static BOOL LBVerifyNativeOnScreenHost(UIView *textReadTV, UIViewController *readerVC,
+                                       id host, NSMutableArray *okPaths) {
+    if (LBVerifyContainerTextViews(host, readerVC, okPaths)) return YES;
+    return LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths);
 }
 
 /// 同步原版工具条章节/页码（修假 1/1）；divisionResponse 后跳过 showPageProgress（曾 SIGABRT）
@@ -4326,11 +4366,9 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                     continue;
                 }
                 drResponded = YES;
-                if ([pageResult isKindOfClass:[NSArray class]]) {
-                    LBInvokeOnDivisionTextFinish(readerVC, pageResult, cpIndex, okPaths);
-                }
+                LBInvokeOnDivisionTextFinish(host, pageResult, cpIndex, okPaths);
                 if (textReadTV) LBForceTextReadTVRefresh(textReadTV);
-                if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
+                if (LBVerifyNativeOnScreenHost(textReadTV, readerVC, host, okPaths)) {
                     nativePaged = YES;
                     break;
                 }
