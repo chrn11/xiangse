@@ -3063,6 +3063,63 @@ static void LBStampTextReadTVProbe(UIView *tv, id pageModel, NSString *body) {
     } @catch (__unused NSException *e) {}
 }
 
+static void LBDumpReadPageModelIvars(id model);
+static BOOL LBReadPageModelHasCTFrame(id model);
+
+/// 诊断：dump ReadPageModel ivar 名/类型（对照 hook103，只读落盘）
+static void LBDumpReadPageModelIvars(id model) {
+    if (!model) return;
+    Class cls = object_getClass(model);
+    NSMutableArray *parts = [NSMutableArray array];
+    while (cls && cls != [NSObject class] && parts.count < 24) {
+        unsigned int count = 0;
+        Ivar *ivars = class_copyIvarList(cls, &count);
+        if (ivars) {
+            for (unsigned int i = 0; i < count; i++) {
+                const char *iname = ivar_getName(ivars[i]);
+                const char *itype = ivar_getTypeEncoding(ivars[i]);
+                if (!iname) continue;
+                NSString *entry = [NSString stringWithFormat:@"%s:%s",
+                                   iname, itype ? itype : "?"];
+                [parts addObject:entry];
+                if (parts.count >= 24) break;
+            }
+            free(ivars);
+        }
+        cls = class_getSuperclass(cls);
+    }
+    NSString *plain = LBExtractPlainFromPageModel(model);
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"contentInject rpmDump cls=%@ ivars=%@ ct=%d txtLen=%lu",
+                             NSStringFromClass([model class]),
+                             [parts componentsJoinedByString:@","],
+                             LBReadPageModelHasCTFrame(model) ? 1 : 0,
+                             (unsigned long)plain.length]);
+}
+
+/// 原版 onDivisionTextFinish:cpIndex:（divisionResponse 后走容器原生刷新链）
+static BOOL LBInvokeOnDivisionTextFinish(UIViewController *readerVC, id pageResult,
+                                       NSInteger cpIndex, NSMutableArray *okPaths) {
+    if (!readerVC || !pageResult) return NO;
+    SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
+    if (![readerVC respondsToSelector:finish]) {
+        LBAppendOpenReaderTrace(@"contentInject onDivisionTextFinish noSel");
+        return NO;
+    }
+    @try {
+        ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(
+            readerVC, finish, pageResult, cpIndex);
+        if (okPaths) [okPaths addObject:@"onDivisionTextFinish"];
+        LBAppendOpenReaderTrace(@"contentInject onDivisionTextFinish OK");
+        return YES;
+    } @catch (NSException *ex) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject onDivisionTextFinish EX %@",
+                                 ex.reason ?: @""]);
+        return NO;
+    }
+}
+
 /// ReadPageModel 是否已有 CTFrame（CoreText 上屏硬条件）
 static BOOL LBReadPageModelHasCTFrame(id model) {
     if (!model) return NO;
@@ -3209,10 +3266,19 @@ static void LBForceTextReadTVRefresh(UIView *textReadTV) {
 static BOOL LBSetReadPageModelCTFrame(id model, NSAttributedString *attr, CGSize bounds);
 static BOOL LBScanSetReadPageModelContent(id model, NSAttributedString *page);
 
-/// setPageModel + CTFrame + 刷新；nativePaged 仅当屏上真实有字
+/// setPageModel: 仅当 TextReadTV 真有该 sel；禁止 KVC pageModel（真机 SIGABRT sig=6）
 static BOOL LBApplyPageModelToTextReadTV(UIView *textReadTV, id pageModel, NSString *body,
                                          CGSize tvSize, NSMutableArray *okPaths, NSString *tag) {
     if (!textReadTV || !pageModel || !okPaths) return NO;
+    SEL spm = NSSelectorFromString(@"setPageModel:");
+    Class tvCls = object_getClass(textReadTV);
+    BOOL canSpm = [textReadTV respondsToSelector:spm] || class_getInstanceMethod(tvCls, spm);
+    if (!canSpm) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject %@ skip noSel setPageModel (no KVC)",
+                                 tag ?: @"setPageModel"]);
+        return NO;
+    }
     CGSize sz = tvSize;
     if (sz.width < 10) sz = textReadTV.bounds.size;
     if (sz.width < 10) {
@@ -3236,27 +3302,9 @@ static BOOL LBApplyPageModelToTextReadTV(UIView *textReadTV, id pageModel, NSStr
             [okPaths addObject:@"ensureCTFrame"];
         }
     }
-    NSString *plainBody = LBExtractPlainFromPageModel(pageModel);
-    if (plainBody.length == 0 && body.length > 0) plainBody = body;
-    if (plainBody.length > 0) {
-        LBInvokeShowContent(textReadTV, plainBody, nil, okPaths, @"showContentTV");
-    }
-    SEL spm = NSSelectorFromString(@"setPageModel:");
-    Class tvCls = object_getClass(textReadTV);
-    BOOL canSpm = [textReadTV respondsToSelector:spm] || class_getInstanceMethod(tvCls, spm);
+    LBDumpReadPageModelIvars(pageModel);
     @try {
-        if (canSpm) {
-            ((void (*)(id, SEL, id))objc_msgSend)(textReadTV, spm, pageModel);
-        } else {
-            for (NSString *k in @[@"pageModel", @"curPageModel", @"_pageModel"]) {
-                @try { [textReadTV setValue:pageModel forKey:k]; } @catch (__unused NSException *e) {}
-            }
-            [okPaths addObject:@"kvcPageModel"];
-            LBAppendOpenReaderTrace(@"contentInject setPageModel via KVC (no sel)");
-        }
-        for (NSString *k in @[@"pageModel", @"curPageModel", @"_pageModel"]) {
-            @try { [textReadTV setValue:pageModel forKey:k]; } @catch (__unused NSException *e) {}
-        }
+        ((void (*)(id, SEL, id))objc_msgSend)(textReadTV, spm, pageModel);
         LBForceTextReadTVRefresh(textReadTV);
         NSString *pathTag = tag.length > 0 ? tag : @"setPageModel";
         [okPaths addObject:pathTag];
@@ -3368,53 +3416,44 @@ static BOOL LBSetReadPageModelCTFrame(id model, NSAttributedString *attr, CGSize
 static BOOL LBVerifyNativeOnScreen(UIView *textReadTV, UIViewController *readerVC,
                                    NSMutableArray *okPaths);
 
-/// divisionResponse 后补链：仅 setPageModel+探针（禁止 processPageData/showPage/onFinish，曾 SIGABRT sig=6）
+/// divisionResponse 后补链：onDivisionTextFinish 优先；禁止 KVC setPageModel（曾 SIGABRT sig=6）
 static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *textReadTV,
                                           id pageResult, NSString *title, NSInteger cpIndex,
                                           NSString *body, NSArray *containers,
                                           NSMutableArray *okPaths, BOOL *nativePaged) {
     (void)containers;
-    (void)cpIndex;
     (void)title;
     if (!readerVC || !nativePaged || *nativePaged) return;
     LBAppendOpenReaderTrace(@"contentInject postDR enter");
     id pageModel = nil;
     if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] > 0) {
         pageModel = [(NSArray *)pageResult firstObject];
+        LBDumpReadPageModelIvars(pageModel);
     }
-    // divisionResponse 已完成分页；再调 processPageData/showPage/onDivisionTextFinish 会双初始化 SIGABRT
-    LBAppendOpenReaderTrace(@"contentInject postDR safePath setPageModel+refresh");
-    CGSize tvSz = textReadTV ? textReadTV.bounds.size : CGSizeZero;
-    if (pageModel && textReadTV) {
-        if (LBApplyPageModelToTextReadTV(textReadTV, pageModel, body, tvSz, okPaths,
+    // divisionResponse 已完成分页；走原版 onDivisionTextFinish 刷新链
+    LBAppendOpenReaderTrace(@"contentInject postDR safePath onDivisionTextFinish");
+    if (pageResult) {
+        if (LBInvokeOnDivisionTextFinish(readerVC, pageResult, cpIndex, okPaths) && textReadTV) {
+            LBForceTextReadTVRefresh(textReadTV);
+            if (LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎") ||
+                LBTextReadTVHasRenderedNeedle(textReadTV, @"斗气")) {
+                [okPaths addObject:@"tvHasNeedleStrict"];
+                *nativePaged = YES;
+                sNativeOpenChapterDone = YES;
+                sDeferredNativeOpenIdx = -1;
+                return;
+            }
+        }
+        CGSize tvSz = textReadTV ? textReadTV.bounds.size : CGSizeZero;
+        if (pageModel && textReadTV &&
+            LBApplyPageModelToTextReadTV(textReadTV, pageModel, body, tvSz, okPaths,
                                          @"setPageModelPostDR")) {
             *nativePaged = YES;
             sNativeOpenChapterDone = YES;
             sDeferredNativeOpenIdx = -1;
             return;
         }
-        SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
-        if ([readerVC respondsToSelector:finish]) {
-            @try {
-                ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(
-                    readerVC, finish, pageResult, cpIndex);
-                [okPaths addObject:@"onDivisionTextFinish"];
-                LBForceTextReadTVRefresh(textReadTV);
-                if (LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎") ||
-                    LBTextReadTVHasRenderedNeedle(textReadTV, @"斗气")) {
-                    [okPaths addObject:@"tvHasNeedleStrict"];
-                    *nativePaged = YES;
-                    sNativeOpenChapterDone = YES;
-                    sDeferredNativeOpenIdx = -1;
-                    return;
-                }
-            } @catch (NSException *ex) {
-                LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                         @"contentInject onDivisionTextFinish EX %@",
-                                         ex.reason ?: @""]);
-            }
-        }
-        if (LBTryShowPage0Once(readerVC, okPaths, @"showPage0PostDR") &&
+        if (LBTryShowPage0Once(readerVC, okPaths, @"showPage0PostDR") && textReadTV &&
             LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎")) {
             [okPaths addObject:@"tvHasNeedleStrict"];
             *nativePaged = YES;
@@ -4287,6 +4326,14 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                     continue;
                 }
                 drResponded = YES;
+                if ([pageResult isKindOfClass:[NSArray class]]) {
+                    LBInvokeOnDivisionTextFinish(readerVC, pageResult, cpIndex, okPaths);
+                }
+                if (textReadTV) LBForceTextReadTVRefresh(textReadTV);
+                if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
+                    nativePaged = YES;
+                    break;
+                }
                 id hostPm = LBExtractPageModelFromHost(host, 0);
                 if (hostPm && textReadTV) {
                     CGSize tvSzH = textReadTV.bounds.size;
@@ -4295,7 +4342,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                         nativePaged = YES;
                     }
                 }
-                if ([hn containsString:@"TextRPageContainer"] && textReadTV &&
+                if (!nativePaged && [hn containsString:@"TextRPageContainer"] && textReadTV &&
                     [pageResult isKindOfClass:[NSArray class]] &&
                     [(NSArray *)pageResult count] > 0) {
                     id pm0 = [(NSArray *)pageResult firstObject];
@@ -4612,7 +4659,11 @@ LB_INJECT_FINISH:
             LBAppendOpenReaderTrace(@"contentInject native-page-miss (divisionText ok, display pending)");
             LBTryShowPage0Once(readerVC, okPaths, @"showPage0");
         } else if (hasNativeDR) {
-            LBAppendOpenReaderTrace(@"contentInject drOK strict miss try showPage0+setPageModel");
+            LBAppendOpenReaderTrace(@"contentInject drOK strict miss try onFinish+showPage0");
+            if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] > 0) {
+                LBInvokeOnDivisionTextFinish(readerVC, pageResult, cpIndex, okPaths);
+                if (textReadTV) LBForceTextReadTVRefresh(textReadTV);
+            }
             if (textReadTV && [pageResult isKindOfClass:[NSArray class]] &&
                 [(NSArray *)pageResult count] > 0) {
                 id pmMiss = [(NSArray *)pageResult firstObject];
