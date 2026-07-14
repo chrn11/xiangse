@@ -666,6 +666,8 @@ static NSInteger sDeferredNativeOpenIdx = -1;
 /// 本章已成功 nativePaged+push，禁止 goStart 二次 push（nativeRead 多路回调曾 SIGABRT）
 static BOOL sNativeOpenChapterDone = NO;
 static BOOL sNativeOpenGoInFlight = NO;
+/// nativeRead 单次点章占坑 bookUrl|idx（目录/tryOpen 多路回调只放行一次）
+static NSString *sNativeOpenOnceKey = nil;
 static NSString *sDeferredNativeOpenBookUrl = nil;
 static NSDictionary *sPendingResetContent = nil;
 static NSMutableDictionary *sPendingNativeFullBook = nil;
@@ -1355,15 +1357,56 @@ static BOOL LBNavStackHasTextReader(void);
 static UIViewController *LBFindBookDetailVC(void);
 static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic);
 
+static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via);
+
+/// nativeRead 点章单次占坑；已占/已完成则写 skip 日志并返回 NO
+static BOOL LBClaimNativeOpenOnce(NSString *bookUrl, NSInteger idx, NSString *via) {
+    if (sNativeOpenOnceKey.length > 0) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"goStart skip openOnce via=%@ key=%@", via ?: @"?", sNativeOpenOnceKey]);
+        return NO;
+    }
+    if (sNativeOpenChapterDone) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"goStart skipPush chapterDone via=%@", via ?: @"?"]);
+        return NO;
+    }
+    if (sNativeOpenGoInFlight) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"goStart skip inflight via=%@", via ?: @"?"]);
+        return NO;
+    }
+    NSString *key = [NSString stringWithFormat:@"%@|%ld", bookUrl ?: @"", (long)idx];
+    sNativeOpenOnceKey = [key copy];
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"nativeOpen openOnce commit via=%@ key=%@", via ?: @"?", key]);
+    return YES;
+}
+
 /// 点章：默认原生 openReader → TextReadVC；超时仍无原生页再 Bridge 兜底
 static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
+    LBOpenLegadoChapterAtIndexWithVia(idx, @"direct");
+}
+
+static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
     NSTimeInterval now = CFAbsoluteTimeGetCurrent();
+    if (sNativeOpenOnceKey.length > 0) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"goStart skip openOnce via=%@ key=%@", via ?: @"?", sNativeOpenOnceKey]);
+        if (sNativeOpenChapterDone) {
+            sDeferredNativeOpenIdx = -1;
+            LBDeliverContentToVisibleReaders(@"openOnceChapterDone");
+        }
+        return;
+    }
     if (sNativeOpenGoInFlight) {
-        LBAppendOpenReaderTrace(@"goStart skip inflight");
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"goStart skip inflight via=%@", via ?: @"?"]);
         return;
     }
     if (sNativeOpenChapterDone) {
-        LBAppendOpenReaderTrace(@"goStart skipPush chapterDone deliverOnly");
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"goStart skipPush chapterDone deliverOnly via=%@", via ?: @"?"]);
         sDeferredNativeOpenIdx = -1;
         LBDeliverContentToVisibleReaders(@"chapterDone");
         return;
@@ -1371,7 +1414,8 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
     // 已在 nativeFull 阅读页：只补投正文，禁止二次 push（真机曾双开 → SIGABRT）
     if (sLegadoReaderMode == 1 &&
         (LBIsTextReaderVisible() || LBNavStackHasTextReader())) {
-        LBAppendOpenReaderTrace(@"goStart skipPush alreadyOnStack deliverOnly");
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"goStart skipPush alreadyOnStack deliverOnly via=%@", via ?: @"?"]);
         sDeferredNativeOpenIdx = -1;
         LBDeliverContentToVisibleReaders(@"alreadyVisible");
         return;
@@ -1379,17 +1423,27 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
     if (sLastNativePagedOkTs > 0 &&
         (now - sLastNativePagedOkTs) < 30.0 &&
         LBNavStackHasTextReader()) {
-        LBAppendOpenReaderTrace(@"goStart skipPush recentPagedOnStack");
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"goStart skipPush recentPagedOnStack via=%@", via ?: @"?"]);
         sDeferredNativeOpenIdx = -1;
         sNativeOpenChapterDone = YES;
         return;
     }
-    if (now - sLastLegadoChapterOpenTs < 3.5) return;
-    sLastLegadoChapterOpenTs = now;
-    sNativeOpenGoInFlight = YES;
+    if (now - sLastLegadoChapterOpenTs < 3.5) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"goStart skip throttle3.5s via=%@", via ?: @"?"]);
+        return;
+    }
     NSArray *use = sPendingCatalogChapters;
-    if (use.count == 0) return;
-    if (idx < 0 || idx >= (NSInteger)use.count) return;
+    if (use.count == 0) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"goStart skip noCatalog via=%@", via ?: @"?"]);
+        return;
+    }
+    if (idx < 0 || idx >= (NSInteger)use.count) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"goStart skip idxOOB via=%@ idx=%ld",
+                                 via ?: @"?", (long)idx]);
+        return;
+    }
     id item = use[(NSUInteger)idx];
     NSString *chUrl = nil;
     NSString *chTitle = nil;
@@ -1399,7 +1453,20 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
         chTitle = d[@"cpTitle"] ?: d[@"title"] ?: d[@"name"] ?: d[@"chapterName"];
     }
     NSString *bookUrl = sPendingCatalogBookUrl;
-    if (bookUrl.length == 0 || chUrl.length == 0) return;
+    if (bookUrl.length == 0 || chUrl.length == 0) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"goStart skip noBookOrChUrl via=%@", via ?: @"?"]);
+        return;
+    }
+    if (!LBClaimNativeOpenOnce(bookUrl, idx, via)) {
+        if (sNativeOpenChapterDone) {
+            sDeferredNativeOpenIdx = -1;
+            LBDeliverContentToVisibleReaders(@"claimChapterDone");
+        }
+        return;
+    }
+    sLastLegadoChapterOpenTs = now;
+    sNativeOpenGoInFlight = YES;
+    sDeferredNativeOpenIdx = -1;
     NSString *titleCopy = chTitle.length > 0 ? [chTitle copy] : @"章节";
     NSString *chCopy = [chUrl copy];
     NSString *buCopy = [bookUrl copy];
@@ -1498,6 +1565,9 @@ static void LBOpenLegadoChapterAtIndex(NSInteger idx) {
             return;
         }
         LBDumpBookDictForOpenReader(book, @"nativeOpen phase=bookDictOK");
+        // push 前占坑：goInFlight 结束后二次 goStart 仍会被 chapterDone/openOnce 拦住
+        sNativeOpenChapterDone = YES;
+        sDeferredNativeOpenIdx = -1;
         LBAppendOpenReaderTrace(@"goStart preferNativeFull");
         LBSanitizeBookDictForReaderEx(book, YES, YES);
         sPendingNativeFullBook = [book mutableCopy];
@@ -5793,9 +5863,13 @@ void LBApplyCatalogToUI(NSArray *chapters, NSString *bookUrl) {
             NSInteger useIdx = sDeferredNativeOpenIdx;
             if (useIdx >= (NSInteger)chapters.count) useIdx = 0;
             sDeferredNativeOpenIdx = -1;
-            dispatch_async(dispatch_get_main_queue(), ^{
-                LBOpenLegadoChapterAtIndex(useIdx);
-            });
+            if (sNativeOpenOnceKey.length > 0 || sNativeOpenChapterDone) {
+                LBAppendOpenReaderTrace(@"catalogUI skip openOnce/chapterDone");
+            } else {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    LBOpenLegadoChapterAtIndexWithVia(useIdx, @"catalogUI");
+                });
+            }
         }
     } @catch (NSException *e) {
         NSLog(@"[LegadoBridge] LBApplyCatalogToUI fail-open: %@", e);
@@ -5832,6 +5906,10 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
         LBAppendOpenReaderTrace(@"nativeRead skip chapterDone sameBook");
         return;
     }
+    // 新 nativeRead 会话：清占坑，允许单次 goStart
+    sNativeOpenOnceKey = nil;
+    sNativeOpenChapterDone = NO;
+    sNativeOpenGoInFlight = NO;
     sDeferredNativeOpenIdx = wantIdx;
     sDeferredNativeOpenBookUrl = bu;
     [[NSString stringWithFormat:@"nativeOpenRequest book=%@ src=%@ idx=%ld",
@@ -5845,13 +5923,22 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
         NSInteger useIdx = wantIdx;
         if (useIdx >= (NSInteger)sPendingCatalogChapters.count) useIdx = 0;
         sDeferredNativeOpenIdx = -1;
-        LBOpenLegadoChapterAtIndex(useIdx);
+        LBOpenLegadoChapterAtIndexWithVia(useIdx, @"pendingNow");
         return;
     }
     LBHandleCatalogRequest(bu, su);
     // 目录异步返回后由 LBApplyCatalogToUI 触发；多档延迟兜底
     void (^tryOpen)(NSString *) = ^(NSString *phase) {
-        if (sDeferredNativeOpenIdx < 0 || sNativeOpenChapterDone) return;
+        if (sDeferredNativeOpenIdx < 0) return;
+        if (sNativeOpenChapterDone || sNativeOpenOnceKey.length > 0) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"tryOpen skip openOnce/chapterDone phase=%@", phase]);
+            return;
+        }
+        if (sNativeOpenGoInFlight) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:@"tryOpen skip inflight phase=%@", phase]);
+            return;
+        }
         if (sPendingCatalogChapters.count == 0) {
             NSString *miss = [NSString stringWithFormat:@"nativeOpen wait %@ pending=0 book=%@",
                               phase, bu];
@@ -5867,7 +5954,7 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
         NSInteger useIdx = sDeferredNativeOpenIdx;
         if (useIdx >= (NSInteger)sPendingCatalogChapters.count) useIdx = 0;
         sDeferredNativeOpenIdx = -1;
-        LBOpenLegadoChapterAtIndex(useIdx);
+        LBOpenLegadoChapterAtIndexWithVia(useIdx, [NSString stringWithFormat:@"tryOpen@%@", phase]);
     };
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{ tryOpen(@"0.8"); });
