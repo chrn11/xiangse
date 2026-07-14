@@ -3219,6 +3219,9 @@ static void LBRefreshContainerAfterDivisionFinish(id host, UIViewController *rea
         [hv setNeedsDisplay];
         [hv layoutIfNeeded];
     }
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"contentInject containerRefresh done host=%@",
+                             NSStringFromClass(hcls)]);
 }
 
 /// 原版 onDivisionTextFinish:cpIndex:（divisionResponse 后走容器原生刷新链）
@@ -3246,6 +3249,17 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
                                 NSStringFromClass(tcls)]];
         }
         LBRefreshContainerAfterDivisionFinish(target, readerVC);
+        if (readerVC) {
+            @try {
+                id ctr = nil;
+                for (NSString *k in @[@"container", @"pageContainer", @"rPageContainer"]) {
+                    @try { ctr = [readerVC valueForKey:k]; if (ctr) break; } @catch (__unused NSException *e) {}
+                }
+                if (ctr && ctr != target) {
+                    LBRefreshContainerAfterDivisionFinish(ctr, readerVC);
+                }
+            } @catch (__unused NSException *e) {}
+        }
         if (okPaths) [okPaths addObject:@"containerRefreshPostFinish"];
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"contentInject onDivisionTextFinish OK host=%@",
@@ -4439,11 +4453,12 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
         if (!pageResult) {
             LBAppendOpenReaderTrace(@"contentInject divisionText miss all targets");
         }
-        // 4c) divisionResponse：只喂 PaibanManager 原始 Attr 页（禁 wrapRPM 空壳）
+        // 4c) divisionResponse：divisionText 原始嵌套 Attr；onFinish 用扁平页再 nest 外层
         BOOL drResponded = NO;
         if (pageResult) {
+            id divisionTextRaw = pageResult;
             NSArray *flatAttrPages = LBFlattenDivisionPages(pageResult);
-            id drPages = flatAttrPages ?: pageResult;
+            id drPages = divisionTextRaw;
             id finishPages = flatAttrPages ?: pageResult;
             pageResult = flatAttrPages ?: pageResult;
             id sample = nil;
@@ -4503,8 +4518,8 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                          @"contentInject drOK noStrictNeedle host=%@", hn]);
                 if ([hn containsString:@"TextRPageContainer"]) break;
             }
-            // 仍无上屏：对 ReadPage/ReadScroll/TextR 再试原始 Attr（扁平页）
-            if (!nativePaged && flatAttrPages) {
+            // 仍无上屏：对 ReadPage/ReadScroll/TextR 再试 divisionText 原始嵌套 Attr
+            if (!nativePaged && divisionTextRaw) {
                 LBAppendOpenReaderTrace(@"contentInject retry divisionResponse with rawAttr");
                 for (id host in containers) {
                     NSString *hn = NSStringFromClass([host class]);
@@ -4514,12 +4529,12 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                         ![hn containsString:@"TextReadVC"]) {
                         continue;
                     }
-                    if (!LBInvokeDivisionResponse(host, flatAttrPages, title, cpIndex, heights, okPaths)) {
+                    if (!LBInvokeDivisionResponse(host, divisionTextRaw, title, cpIndex, heights, okPaths)) {
                         continue;
                     }
                     [okPaths addObject:@"divisionResponseRawAttr"];
                     drResponded = YES;
-                    LBInvokeOnDivisionTextFinish(host, flatAttrPages, cpIndex, okPaths, readerVC);
+                    LBInvokeOnDivisionTextFinish(host, finishPages, cpIndex, okPaths, readerVC);
                     if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
                         nativePaged = YES;
                         break;
