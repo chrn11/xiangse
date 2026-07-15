@@ -3421,12 +3421,10 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
         LBInvokeProcessPageData(readerVC, procPages, readerVC, cpIndex, cpTitle, okPaths);
     }
     @try {
-        ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(
-            target, finish, finishArg, cpIndex);
-        if (okPaths) {
-            [okPaths addObject:[NSString stringWithFormat:@"onDivisionTextFinish@%@",
-                                NSStringFromClass(tcls)]];
-        }
+        // 真机无 setPageModel/processPageData：native onFinish 返回 OK 但 defer SIGABRT sig=6
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject onDivisionTextFinish skipNative host=%@",
+                                 NSStringFromClass(tcls)]);
         LBRefreshContainerAfterDivisionFinish(target, readerVC);
         if (readerVC) {
             @try {
@@ -3440,6 +3438,10 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
             } @catch (__unused NSException *e) {}
         }
         LBInvokeProcessPageData(target, procPages, readerVC, cpIndex, cpTitle, okPaths);
+        if (okPaths) {
+            [okPaths addObject:[NSString stringWithFormat:@"onDivisionTextFinish@%@",
+                                NSStringFromClass(tcls)]];
+        }
         sOnDivisionFinishDoneThisInject = YES;
         if (okPaths) [okPaths addObject:@"containerRefreshPostFinish"];
         LBAppendOpenReaderTrace([NSString stringWithFormat:
