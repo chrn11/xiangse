@@ -2941,6 +2941,8 @@ static void LBLogDivisionSelectors(id sampleTV) {
 
 /// divisionText 返回的 backHeights（供 ReadScrollContainer divisionResponse 使用）
 static NSMutableArray *sLastDivisionHeights = nil;
+/// 最近一次 LBNormalizePageResultForDivision 结果（供 processPageData 绑定）
+static id sLastNormalizedDrPages = nil;
 
 /// 调用 divisionText；返回分页结果（常为 NSArray），void 成功时返回 @(YES)
 static id LBCallDivisionText(id target, BOOL targetIsClass, NSString *body, NSString *title,
@@ -3168,6 +3170,8 @@ static id LBWrapPageResultForOnDivisionTextFinish(id pageResult) {
     return @[flat];
 }
 
+static NSArray *LBCollectDivisionHosts(UIViewController *readerVC);
+
 /// onDivisionTextFinish 成功后：尝试对 container.textViewL/R 走 setPageModel:（有 sel 才调，禁 KVC）
 static void LBApplyPagesToContainerTextViews(id host, id pages, NSString *body, CGSize tvSize,
                                              NSMutableArray *okPaths) {
@@ -3374,9 +3378,25 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
             } @catch (__unused NSException *e) {}
         }
         cpTitle = LBSafeCpTitleString(cpTitle);
-        LBInvokeProcessPageData(target, finishArg, readerVC, cpIndex, cpTitle, okPaths);
+        id procPages = sLastNormalizedDrPages;
+        if (!procPages || ([procPages isKindOfClass:[NSArray class]] &&
+                           [(NSArray *)procPages count] == 0)) {
+            procPages = LBFlattenDivisionPages(pageResult);
+        }
+        if (!procPages || ([procPages isKindOfClass:[NSArray class]] &&
+                           [(NSArray *)procPages count] == 0)) {
+            procPages = finishArg;
+        }
+        LBInvokeProcessPageData(target, procPages, readerVC, cpIndex, cpTitle, okPaths);
         if (readerVC && readerVC != target) {
-            LBInvokeProcessPageData(readerVC, finishArg, readerVC, cpIndex, cpTitle, okPaths);
+            LBInvokeProcessPageData(readerVC, procPages, readerVC, cpIndex, cpTitle, okPaths);
+        }
+        if (readerVC) {
+            NSArray *hosts = LBCollectDivisionHosts(readerVC);
+            for (id h in hosts) {
+                if (h == target || h == readerVC) continue;
+                LBInvokeProcessPageData(h, procPages, readerVC, cpIndex, cpTitle, okPaths);
+            }
         }
         sOnDivisionFinishDoneThisInject = YES;
         if (okPaths) [okPaths addObject:@"containerRefreshPostFinish"];
@@ -4225,6 +4245,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
     sContentInjectBusy = YES;
     sShowPage0ThisInject = NO;
     sOnDivisionFinishDoneThisInject = NO;
+    sLastNormalizedDrPages = nil;
     @try {
     NSDictionary *dicBook = nil;
     @try {
@@ -4600,8 +4621,10 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 normSz.height -= 160;
             }
             id normalized = LBNormalizePageResultForDivision(pageResult, okPaths, normSz);
+            sLastNormalizedDrPages = normalized;
             id drPages = normalized ?: divisionTextRaw;
-            id finishPages = normalized ?: flatAttrPages ?: pageResult;
+            // divisionResponse 吃 ReadPageModel；onFinish 须 divisionText 原始 Attr（传 RPM 会 -[ReadPageModel length]）
+            id finishPages = flatAttrPages ?: pageResult;
             pageResult = normalized ?: flatAttrPages ?: pageResult;
             id sample = nil;
             NSString *fcls = @"-";
