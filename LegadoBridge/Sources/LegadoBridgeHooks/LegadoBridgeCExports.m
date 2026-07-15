@@ -3238,14 +3238,7 @@ static BOOL LBEnsureContainerTextViews(UIViewController *readerVC, NSMutableArra
     LBAppendOpenReaderTrace([NSString stringWithFormat:
                              @"contentInject ensureTV textViewL=nil container=%@",
                              container ? NSStringFromClass([container class]) : @"-"]);
-    if (LBInvokeOrigLoadCurCpShell(readerVC)) {
-        container = LBResolveContainerFromReaderVC(readerVC);
-        if (container && LBObjectHasTextViewL(container)) {
-            if (okPaths) [okPaths addObject:@"ensureTV origLoadCurCp"];
-            LBAppendOpenReaderTrace(@"contentInject ensureTV origLoadCurCp OK");
-            return YES;
-        }
-    }
+    // 禁直调 ORIG loadCurCp：setCpCached 后仍 SIGABRT sig=6（e5644905 真机复核）
     Class rpcCls = NSClassFromString(@"TextRPageContainer");
     SEL initSel = NSSelectorFromString(@"initWithReaderVC:");
     if (rpcCls && class_getInstanceMethod(rpcCls, initSel)) {
