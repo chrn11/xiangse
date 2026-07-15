@@ -55,11 +55,65 @@ static UIWindow *LBKeyWindow(void) {
     return app.keyWindow;
 }
 
+static BOOL LBShouldSkipDebugPanelVC(UIViewController *vc) {
+    return g_panelVC && vc == g_panelVC;
+}
+
+static BOOL LBClassNameContains(id obj, NSArray<NSString *> *needles) {
+    if (!obj) return NO;
+    NSString *n = NSStringFromClass(object_getClass(obj));
+    for (NSString *needle in needles) {
+        if ([n containsString:needle]) return YES;
+    }
+    return NO;
+}
+
+/// 从 root 向下收集完整 VC 链（nav 全栈 + tab + child + presented），跳过 Debug 面板自身
+static void LBCollectVCChain(UIViewController *vc, NSMutableArray<UIViewController *> *chain,
+                             NSMutableSet<NSValue *> *seen) {
+    if (!vc) return;
+    NSValue *key = [NSValue valueWithNonretainedObject:vc];
+    if ([seen containsObject:key]) return;
+    [seen addObject:key];
+    if (!LBShouldSkipDebugPanelVC(vc)) {
+        [chain addObject:vc];
+    }
+    if ([vc isKindOfClass:[UINavigationController class]]) {
+        for (UIViewController *n in ((UINavigationController *)vc).viewControllers) {
+            LBCollectVCChain(n, chain, seen);
+        }
+    } else if ([vc isKindOfClass:[UITabBarController class]]) {
+        UITabBarController *tab = (UITabBarController *)vc;
+        for (UIViewController *t in tab.viewControllers) {
+            LBCollectVCChain(t, chain, seen);
+        }
+    } else {
+        for (UIViewController *ch in vc.childViewControllers) {
+            LBCollectVCChain(ch, chain, seen);
+        }
+    }
+    if (vc.presentedViewController) {
+        LBCollectVCChain(vc.presentedViewController, chain, seen);
+    }
+}
+
+static NSArray<UIViewController *> *LBVCStackFromRoot(UIViewController *root) {
+    if (!root) return @[];
+    NSMutableArray<UIViewController *> *chain = [NSMutableArray array];
+    NSMutableSet<NSValue *> *seen = [NSMutableSet set];
+    LBCollectVCChain(root, chain, seen);
+    return chain;
+}
+
+/// 顶层活跃链（用于面板 present 锚点），遇 Debug 面板则停在 presenting
 static UIViewController *LBTopViewController(UIViewController *root) {
     if (!root) return nil;
     UIViewController *cur = root;
     while (YES) {
         if (cur.presentedViewController) {
+            if (LBShouldSkipDebugPanelVC(cur.presentedViewController)) {
+                return cur;
+            }
             cur = cur.presentedViewController;
             continue;
         }
@@ -82,56 +136,29 @@ static UIViewController *LBTopViewController(UIViewController *root) {
     return cur;
 }
 
-static NSArray<UIViewController *> *LBVCStackFromRoot(UIViewController *root) {
-    NSMutableArray *stack = [NSMutableArray array];
-    UIViewController *cur = root;
-    while (cur) {
-        [stack addObject:cur];
-        if (cur.presentedViewController) {
-            cur = cur.presentedViewController;
-            continue;
-        }
-        if ([cur isKindOfClass:[UINavigationController class]]) {
-            UINavigationController *nav = (UINavigationController *)cur;
-            if (nav.viewControllers.count > 0) {
-                cur = nav.viewControllers.lastObject;
-                continue;
-            }
-        }
-        if ([cur isKindOfClass:[UITabBarController class]]) {
-            UITabBarController *tab = (UITabBarController *)cur;
-            if (tab.selectedViewController) {
-                cur = tab.selectedViewController;
-                continue;
-            }
-        }
-        break;
-    }
-    return stack;
-}
-
-static BOOL LBClassNameContains(id obj, NSArray<NSString *> *needles) {
-    if (!obj) return NO;
-    NSString *n = NSStringFromClass(object_getClass(obj));
-    for (NSString *needle in needles) {
-        if ([n containsString:needle]) return YES;
-    }
-    return NO;
-}
-
 static UIViewController *LBFindReaderVC(NSArray<UIViewController *> *stack) {
-    NSArray *needles = @[@"TextRead", @"ReadVC", @"TextRPage"];
+    NSArray *needles = @[@"TextRead", @"ReadVC", @"PageContainer", @"TextRPage"];
     for (NSInteger i = (NSInteger)stack.count - 1; i >= 0; i--) {
         if (LBClassNameContains(stack[(NSUInteger)i], needles)) return stack[(NSUInteger)i];
     }
     return nil;
 }
 
+static BOOL LBObjectHasTextViewL(id obj) {
+    if (!obj) return NO;
+    @try {
+        id tv = [obj valueForKey:@"textViewL"];
+        return tv != nil;
+    } @catch (__unused NSException *e) {
+        return NO;
+    }
+}
+
 static UIView *LBFindContainerInView(UIView *root) {
     if (!root) return nil;
     NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:root];
     NSMutableSet<NSValue *> *seen = [NSMutableSet set];
-    NSArray *needles = @[@"TextRPageContainer", @"TextReadTV"];
+    NSArray *needles = @[@"TextRPageContainer", @"ReadPageContainer", @"PageContainer", @"TextReadTV"];
     while (queue.count > 0) {
         UIView *v = queue.firstObject;
         [queue removeObjectAtIndex:0];
@@ -139,9 +166,56 @@ static UIView *LBFindContainerInView(UIView *root) {
         if ([seen containsObject:key]) continue;
         [seen addObject:key];
         if (LBClassNameContains(v, needles)) return v;
+        if (LBObjectHasTextViewL(v)) return v;
         for (UIView *sub in v.subviews) [queue addObject:sub];
     }
     return nil;
+}
+
+/// 全窗口视图树兜底：TextReadTV 或含 textViewL 的宿主
+static id LBFindReaderHostInWindow(UIWindow *win) {
+    if (!win) return nil;
+    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:win];
+    NSMutableSet<NSValue *> *seen = [NSMutableSet set];
+    UIView *textReadTV = nil;
+    id textViewLHost = nil;
+    while (queue.count > 0) {
+        UIView *v = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        NSValue *key = [NSValue valueWithNonretainedObject:v];
+        if ([seen containsObject:key]) continue;
+        [seen addObject:key];
+        NSString *cn = NSStringFromClass(object_getClass(v));
+        if ([cn containsString:@"TextReadTV"]) {
+            textReadTV = v;
+            break;
+        }
+        if (!textViewLHost && LBObjectHasTextViewL(v)) textViewLHost = v;
+        for (UIView *sub in v.subviews) [queue addObject:sub];
+    }
+    if (textReadTV) return textReadTV;
+    if (textViewLHost) return textViewLHost;
+    return nil;
+}
+
+static id LBResolveReaderHost(UIViewController *readerVC, UIWindow *win) {
+    if (readerVC) {
+        UIView *container = nil;
+        if (readerVC.isViewLoaded && readerVC.view) {
+            container = LBFindContainerInView(readerVC.view);
+        }
+        if (container) return container;
+        for (NSString *k in @[@"container", @"pageContainer", @"rPageContainer",
+                              @"readPageContainer", @"scrollContainer"]) {
+            @try {
+                id v = [readerVC valueForKey:k];
+                if (v) return v;
+            } @catch (__unused NSException *e) {}
+        }
+        if (LBObjectHasTextViewL(readerVC)) return readerVC;
+        return readerVC;
+    }
+    return LBFindReaderHostInWindow(win);
 }
 
 #pragma mark - ReadPageModel / TextView dump (只读，复刻 LBDumpReadPageModelIvars + LBForceTextReadTVRefresh)
@@ -236,8 +310,10 @@ static NSString *LBBuildReaderDump(void) {
 
     UIViewController *readerVC = LBFindReaderVC(stack);
     [out appendFormat:@"readerVC=%@\n", readerVC ? NSStringFromClass(object_getClass(readerVC)) : @"-"];
-    UIView *container = readerVC ? (LBFindContainerInView(readerVC.view) ?: readerVC.view) : nil;
-    id host = container ?: readerVC;
+    id host = LBResolveReaderHost(readerVC, win);
+    if (host) {
+        [out appendFormat:@"readerHost=%@\n", NSStringFromClass(object_getClass(host))];
+    }
     if (!host) {
         [out appendString:@"error: no reader host\n"];
         return out;
@@ -303,14 +379,17 @@ static NSString *LBRefreshReaderViews(void) {
     if (!win) return @"refresh: no keyWindow\n";
     NSArray *stack = LBVCStackFromRoot(win.rootViewController);
     UIViewController *readerVC = LBFindReaderVC(stack);
-    id host = readerVC ? (LBFindContainerInView(readerVC.view) ?: readerVC) : nil;
+    id host = LBResolveReaderHost(readerVC, win);
     if (!host) return @"refresh: no host\n";
 
     SEL rcs = NSSelectorFromString(@"resetContentPosByScreenSize:");
     if ([host respondsToSelector:rcs]) {
         CGSize sz = UIScreen.mainScreen.bounds.size;
-        if (readerVC.isViewLoaded && readerVC.view.bounds.size.width > 10) {
+        if (readerVC && readerVC.isViewLoaded && readerVC.view.bounds.size.width > 10) {
             sz = readerVC.view.bounds.size;
+        } else if ([host isKindOfClass:[UIView class]]) {
+            UIView *hv = (UIView *)host;
+            if (hv.bounds.size.width > 10) sz = hv.bounds.size;
         }
         @try {
             ((void (*)(id, SEL, CGSize))objc_msgSend)(host, rcs, sz);
