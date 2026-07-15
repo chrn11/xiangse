@@ -198,24 +198,101 @@ static id LBFindReaderHostInWindow(UIWindow *win) {
     return nil;
 }
 
+/// 视图树中按类名片段查找首个匹配视图
+static UIView *LBFindViewByClassNeedle(UIView *root, NSString *needle) {
+    if (!root || needle.length == 0) return nil;
+    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:root];
+    NSMutableSet<NSValue *> *seen = [NSMutableSet set];
+    while (queue.count > 0) {
+        UIView *v = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        NSValue *key = [NSValue valueWithNonretainedObject:v];
+        if ([seen containsObject:key]) continue;
+        [seen addObject:key];
+        if ([NSStringFromClass(object_getClass(v)) containsString:needle]) return v;
+        for (UIView *sub in v.subviews) [queue addObject:sub];
+    }
+    return nil;
+}
+
+static id LBResolveContainerFromReaderVC(UIViewController *readerVC) {
+    if (!readerVC) return nil;
+    for (NSString *k in @[@"container", @"pageContainer", @"rPageContainer",
+                          @"readPageContainer", @"scrollContainer"]) {
+        @try {
+            id v = [readerVC valueForKey:k];
+            if (v) return v;
+        } @catch (__unused NSException *e) {}
+    }
+    if (readerVC.isViewLoaded && readerVC.view) {
+        UIView *c = LBFindViewByClassNeedle(readerVC.view, @"TextRPageContainer");
+        if (c) return c;
+        return LBFindContainerInView(readerVC.view);
+    }
+    return nil;
+}
+
 static id LBResolveReaderHost(UIViewController *readerVC, UIWindow *win) {
     if (readerVC) {
-        UIView *container = nil;
-        if (readerVC.isViewLoaded && readerVC.view) {
-            container = LBFindContainerInView(readerVC.view);
-        }
+        id container = LBResolveContainerFromReaderVC(readerVC);
         if (container) return container;
-        for (NSString *k in @[@"container", @"pageContainer", @"rPageContainer",
-                              @"readPageContainer", @"scrollContainer"]) {
-            @try {
-                id v = [readerVC valueForKey:k];
-                if (v) return v;
-            } @catch (__unused NSException *e) {}
-        }
         if (LBObjectHasTextViewL(readerVC)) return readerVC;
         return readerVC;
     }
     return LBFindReaderHostInWindow(win);
+}
+
+static void LBDumpTextReadTVIvarNames(id tv, NSMutableString *out) {
+    if (!out) return;
+    [out appendString:@"TextReadTV ivars:\n"];
+    Class cls = tv ? object_getClass(tv) : NSClassFromString(@"TextReadTV");
+    if (!cls) {
+        [out appendString:@"  (class TextReadTV not found)\n"];
+        return;
+    }
+    NSUInteger parts = 0;
+    while (cls && cls != [NSObject class] && parts < 32) {
+        unsigned int count = 0;
+        Ivar *ivars = class_copyIvarList(cls, &count);
+        if (ivars) {
+            for (unsigned int i = 0; i < count && parts < 32; i++) {
+                const char *iname = ivar_getName(ivars[i]);
+                const char *itype = ivar_getTypeEncoding(ivars[i]);
+                if (!iname) continue;
+                [out appendFormat:@"  %s:%s\n", iname, itype ? itype : "?"];
+                parts++;
+            }
+            free(ivars);
+        }
+        cls = class_getSuperclass(cls);
+    }
+}
+
+static void LBDumpReaderScope(id obj, NSString *label, NSMutableString *out) {
+    if (!out) return;
+    if (!obj) {
+        [out appendFormat:@"--- %@: nil ---\n", label];
+        return;
+    }
+    [out appendFormat:@"--- %@ cls=%@ ---\n", label, NSStringFromClass(object_getClass(obj))];
+    NSArray *keys = @[@"textViewL", @"textViewR", @"curPageTV", @"textView",
+                      @"pageModel", @"curPageModel"];
+    for (NSString *k in keys) {
+        @try {
+            id v = [obj valueForKey:k];
+            if ([k containsString:@"textView"] || [k containsString:@"PageTV"] ||
+                [k isEqualToString:@"textView"]) {
+                LBDescribeTextView(v, k, out);
+            } else if (v) {
+                [out appendFormat:@"%@: %@\n", k, NSStringFromClass(object_getClass(v))];
+                LBDumpReadPageModelIvars(v, out);
+            } else {
+                [out appendFormat:@"%@: nil\n", k];
+            }
+        } @catch (NSException *ex) {
+            [out appendFormat:@"%@: KVC error %@\n", k, ex.reason ?: @""];
+        }
+    }
 }
 
 #pragma mark - ReadPageModel / TextView dump (只读，复刻 LBDumpReadPageModelIvars + LBForceTextReadTVRefresh)
@@ -310,35 +387,39 @@ static NSString *LBBuildReaderDump(void) {
 
     UIViewController *readerVC = LBFindReaderVC(stack);
     [out appendFormat:@"readerVC=%@\n", readerVC ? NSStringFromClass(object_getClass(readerVC)) : @"-"];
-    id host = LBResolveReaderHost(readerVC, win);
+
+    id container = readerVC ? LBResolveContainerFromReaderVC(readerVC) : nil;
+    UIView *containerPage = nil;
+    if (readerVC.isViewLoaded && readerVC.view) {
+        containerPage = LBFindViewByClassNeedle(readerVC.view, @"TextRPageContainerPage");
+    }
+    UIView *textReadTVView = nil;
+    if (readerVC.isViewLoaded && readerVC.view) {
+        textReadTVView = LBFindViewByClassNeedle(readerVC.view, @"TextReadTV");
+    }
+
+    LBDumpReaderScope(readerVC, @"TextReadVC3", out);
+    LBDumpReaderScope(container, @"TextRPageContainer", out);
+    LBDumpReaderScope(containerPage, @"TextRPageContainerPage", out);
+
+    id host = container ?: LBResolveReaderHost(readerVC, win);
     if (host) {
         [out appendFormat:@"readerHost=%@\n", NSStringFromClass(object_getClass(host))];
-    }
-    if (!host) {
-        [out appendString:@"error: no reader host\n"];
-        return out;
-    }
-
-    NSArray *tvKeys = @[@"textViewL", @"textViewR", @"curPageTV", @"textView"];
-    for (NSString *k in tvKeys) {
-        @try {
-            id tv = [host valueForKey:k];
-            LBDescribeTextView(tv, k, out);
-        } @catch (__unused NSException *e) {
-            [out appendFormat:@"%@: KVC error\n", k];
-        }
-    }
-
-    id pageModel = nil;
-    @try { pageModel = [host valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
-    if (!pageModel) {
-        @try { pageModel = [host valueForKey:@"curPageModel"]; } @catch (__unused NSException *e) {}
-    }
-    if (pageModel) {
-        [out appendString:@"--- pageModel ---\n"];
-        LBDumpReadPageModelIvars(pageModel, out);
     } else {
-        [out appendString:@"pageModel: nil\n"];
+        [out appendString:@"readerHost=-\n"];
+    }
+
+    LBDumpTextReadTVIvarNames(textReadTVView, out);
+    if (textReadTVView) {
+        [out appendFormat:@"TextReadTV instance cls=%@\n",
+         NSStringFromClass(object_getClass(textReadTVView))];
+        LBDescribeTextView(textReadTVView, @"textReadTV(inst)", out);
+        id tvPm = nil;
+        @try { tvPm = [textReadTVView valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
+        if (tvPm) {
+            [out appendString:@"--- TextReadTV.pageModel ---\n"];
+            LBDumpReadPageModelIvars(tvPm, out);
+        }
     }
     return out;
 }
