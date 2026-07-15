@@ -242,6 +242,9 @@ static id LBResolveReaderHost(UIViewController *readerVC, UIWindow *win) {
     return LBFindReaderHostInWindow(win);
 }
 
+static void LBDumpReadPageModelIvars(id model, NSMutableString *out);
+static void LBDescribeTextView(id tv, NSString *key, NSMutableString *out);
+
 static void LBDumpTextReadTVIvarNames(id tv, NSMutableString *out) {
     if (!out) return;
     [out appendString:@"TextReadTV ivars:\n"];
