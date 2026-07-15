@@ -4534,6 +4534,63 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
         }
         LBLogDivisionSelectors(textReadTV ?: readerVC);
 
+        // 真机无 setPageModel/processPageData：divisionResponse 链 defer SIGABRT sig=6
+        BOOL canNativeBind = NO;
+        if (textReadTV) {
+            SEL spm = NSSelectorFromString(@"setPageModel:");
+            Class tvCls = object_getClass(textReadTV);
+            if ([textReadTV respondsToSelector:spm] || class_getInstanceMethod(tvCls, spm)) {
+                canNativeBind = YES;
+            }
+        }
+        if (!canNativeBind) {
+            SEL ppd = NSSelectorFromString(@"processPageData:userInfo:cpTitle:");
+            Class walk = object_getClass(readerVC);
+            while (walk && walk != [NSObject class]) {
+                if (class_getInstanceMethod(walk, ppd)) {
+                    canNativeBind = YES;
+                    break;
+                }
+                walk = class_getSuperclass(walk);
+            }
+        }
+        if (!canNativeBind && body.length > 0) {
+            LBAppendOpenReaderTrace(@"contentInject overlayOnly noNativeBindPath");
+            @try {
+                if (readerVC.isViewLoaded && readerVC.view) {
+                    UIView *host = readerVC.view;
+                    UITextView *overlay = (UITextView *)[host viewWithTag:92011];
+                    if (!overlay) {
+                        CGFloat top = 88, bottom = 72;
+                        CGRect f = CGRectMake(12, top, host.bounds.size.width - 24,
+                                              MAX(120, host.bounds.size.height - top - bottom));
+                        overlay = [[UITextView alloc] initWithFrame:f];
+                        overlay.tag = 92011;
+                        overlay.editable = NO;
+                        overlay.backgroundColor = [UIColor clearColor];
+                        overlay.font = [UIFont systemFontOfSize:18];
+                        overlay.textColor = [UIColor darkTextColor];
+                        overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth |
+                            UIViewAutoresizingFlexibleHeight;
+                        [host addSubview:overlay];
+                    }
+                    overlay.text = [NSString stringWithFormat:@"%@\n\n%@", title, body];
+                    overlay.accessibilityLabel = body;
+                    overlay.hidden = NO;
+                    [host bringSubviewToFront:overlay];
+                    [okPaths addObject:@"overlay92011"];
+                }
+                if (textReadTV) {
+                    LBStampTextReadTVProbe(textReadTV, nil, body);
+                    [okPaths addObject:@"tvHasNeedleProbeOnly"];
+                }
+            } @catch (NSException *ex) {
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"contentInject overlayOnly EX %@", ex.reason ?: @""]);
+            }
+            goto LB_INJECT_FINISH;
+        }
+
         // 4a) showContent:title: —— 与 showErrorView 成对（ alone 不算 nativePaged）
         SEL show2 = NSSelectorFromString(@"showContent:title:");
         SEL show1 = NSSelectorFromString(@"showContent:");
