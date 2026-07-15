@@ -3223,6 +3223,77 @@ static BOOL LBObjectHasTextViewL(id obj) {
     }
 }
 
+/// loadCurCp 短路后 TextRPageContainer 可能无 textViewL；divisionResponse 前补建（禁 setPageModel）
+static id LBResolveContainerFromReaderVC(UIViewController *readerVC);
+static BOOL LBEnsureContainerTextViews(UIViewController *readerVC, NSMutableArray *okPaths) {
+    if (!readerVC || sLegadoReaderMode != 1) return NO;
+    @try {
+        if (!readerVC.isViewLoaded) [readerVC loadViewIfNeeded];
+    } @catch (__unused NSException *e) {}
+    id container = LBResolveContainerFromReaderVC(readerVC);
+    if (container && LBObjectHasTextViewL(container)) {
+        if (okPaths) [okPaths addObject:@"ensureTV already"];
+        return YES;
+    }
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"contentInject ensureTV textViewL=nil container=%@",
+                             container ? NSStringFromClass([container class]) : @"-"]);
+    if (LBInvokeOrigLoadCurCpShell(readerVC)) {
+        container = LBResolveContainerFromReaderVC(readerVC);
+        if (container && LBObjectHasTextViewL(container)) {
+            if (okPaths) [okPaths addObject:@"ensureTV origLoadCurCp"];
+            LBAppendOpenReaderTrace(@"contentInject ensureTV origLoadCurCp OK");
+            return YES;
+        }
+    }
+    Class rpcCls = NSClassFromString(@"TextRPageContainer");
+    SEL initSel = NSSelectorFromString(@"initWithReaderVC:");
+    if (rpcCls && class_getInstanceMethod(rpcCls, initSel)) {
+        @try {
+            id newCtr = ((id (*)(id, SEL, id))objc_msgSend)([rpcCls alloc], initSel, readerVC);
+            if (newCtr && LBObjectHasTextViewL(newCtr)) {
+                for (NSString *k in @[@"container", @"pageContainer", @"rPageContainer",
+                                      @"readPageContainer", @"scrollContainer"]) {
+                    @try {
+                        [readerVC setValue:newCtr forKey:k];
+                        if (okPaths) [okPaths addObject:[NSString stringWithFormat:@"ensureTV init@%@", k]];
+                        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                 @"contentInject ensureTV initWithReaderVC@%@", k]);
+                        return YES;
+                    } @catch (__unused NSException *e) {}
+                }
+            }
+        } @catch (NSException *ex) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"contentInject ensureTV initWithReaderVC EX %@",
+                                     ex.reason ?: @""]);
+        }
+    }
+    if (container) {
+        SEL rcs = NSSelectorFromString(@"resetContentPosByScreenSize:");
+        Class hcls = object_getClass(container);
+        if ([container respondsToSelector:rcs] || class_getInstanceMethod(hcls, rcs)) {
+            @try {
+                CGSize sz = UIScreen.mainScreen.bounds.size;
+                if (readerVC.isViewLoaded && readerVC.view.bounds.size.width > 10) {
+                    sz = readerVC.view.bounds.size;
+                }
+                ((void (*)(id, SEL, CGSize))objc_msgSend)(container, rcs, sz);
+                if (LBObjectHasTextViewL(container)) {
+                    if (okPaths) [okPaths addObject:@"ensureTV resetContentPosByScreenSize"];
+                    LBAppendOpenReaderTrace(@"contentInject ensureTV resetContentPosByScreenSize OK");
+                    return YES;
+                }
+            } @catch (NSException *ex) {
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"contentInject ensureTV rcs EX %@", ex.reason ?: @""]);
+            }
+        }
+    }
+    LBAppendOpenReaderTrace(@"contentInject ensureTV FAIL textViewL still nil");
+    return NO;
+}
+
 static id LBResolveContainerFromReaderVC(UIViewController *readerVC) {
     if (!readerVC) return nil;
     for (NSString *k in @[@"container", @"pageContainer", @"rPageContainer",
@@ -4514,6 +4585,9 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                  (unsigned long)body.length, (long)cpIndex, bookKey]);
         return okPaths.count > 0;
     }
+
+    // 3.5) loadCurCp 短路致 textViewL 未建：setCpCached 后、divisionResponse 前补 ORIG 建壳
+    LBEnsureContainerTextViews(readerVC, okPaths);
 
     // 4) 原版排版入口：showContent → divisionText → divisionResponse（禁止先毁工具条）
     // nativePaged 仅在正文真正交给 container / showContent 后置位（divisionText alone 不算上屏）
