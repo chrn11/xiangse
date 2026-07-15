@@ -697,6 +697,8 @@ static NSString *sLastNativePagedKey = nil;
 static BOOL sContentInjectBusy = NO;
 /// 单次 contentInject 内仅调一次 showPage:0（多次翻页曾 SIGABRT sig=6）
 static BOOL sShowPage0ThisInject = NO;
+/// 单次 contentInject 内仅调一次 onDivisionTextFinish（重复曾 SIGABRT sig=6）
+static BOOL sOnDivisionFinishDoneThisInject = NO;
 static UIViewController *sHiddenBookDetail = nil;
 
 static void LBFlushPendingResetContent(NSString *phase);
@@ -3194,6 +3196,68 @@ static void LBApplyPagesToContainerTextViews(id host, id pages, NSString *body, 
     }
 }
 
+/// processPageData:userInfo:cpTitle: 的 cpTitle 须为 NSString（传 NSArray 会 -[__NSArrayM length]）
+static NSString *LBSafeCpTitleString(id cpTitle) {
+    if ([cpTitle isKindOfClass:[NSString class]]) return (NSString *)cpTitle;
+    if ([cpTitle isKindOfClass:[NSNumber class]]) return [(NSNumber *)cpTitle stringValue];
+    return @"章节";
+}
+
+/// 组装 processPageData:userInfo:cpTitle: 的 userInfo（优先复用 VC 已有字段）
+static NSDictionary *LBBuildProcessPageUserInfo(UIViewController *readerVC, NSInteger cpIndex) {
+    NSMutableDictionary *ui = [NSMutableDictionary dictionary];
+    ui[@"cpIndex"] = @(cpIndex);
+    if (sLastDivisionHeights.count > 0) {
+        ui[@"backHeights"] = sLastDivisionHeights;
+        ui[@"heights"] = sLastDivisionHeights;
+    }
+    if (!readerVC) return ui;
+    @try {
+        for (NSString *k in @[@"_userInfo", @"userInfo", @"dicContents", @"dicHeight"]) {
+            id v = nil;
+            @try { v = [readerVC valueForKey:k]; } @catch (__unused NSException *e) {}
+            if ([v isKindOfClass:[NSDictionary class]]) {
+                [ui addEntriesFromDictionary:(NSDictionary *)v];
+                break;
+            }
+        }
+        id arrCp = nil;
+        @try { arrCp = [readerVC valueForKey:@"arrCpIndex"]; } @catch (__unused NSException *e) {}
+        if ([arrCp isKindOfClass:[NSArray class]]) ui[@"arrCpIndex"] = arrCp;
+    } @catch (__unused NSException *e) {}
+    return ui;
+}
+
+/// onDivisionTextFinish 后走原版 processPageData 绑定 textViewL/R（有 sel 才调）
+static BOOL LBInvokeProcessPageData(id host, id pages, UIViewController *readerVC,
+                                    NSInteger cpIndex, NSString *cpTitle,
+                                    NSMutableArray *okPaths) {
+    if (!host || !pages) return NO;
+    SEL sel = NSSelectorFromString(@"processPageData:userInfo:cpTitle:");
+    Class hcls = object_getClass(host);
+    if (![host respondsToSelector:sel] && !class_getInstanceMethod(hcls, sel)) {
+        return NO;
+    }
+    NSDictionary *userInfo = LBBuildProcessPageUserInfo(readerVC, cpIndex);
+    NSString *titleStr = LBSafeCpTitleString(cpTitle);
+    @try {
+        ((void (*)(id, SEL, id, id, id))objc_msgSend)(host, sel, pages, userInfo, titleStr);
+        if (okPaths) {
+            [okPaths addObject:[NSString stringWithFormat:@"processPageData@%@",
+                                NSStringFromClass(hcls)]];
+        }
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject processPageData OK host=%@ titleLen=%lu",
+                                 NSStringFromClass(hcls), (unsigned long)titleStr.length]);
+        return YES;
+    } @catch (NSException *ex) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject processPageData EX %@ %@",
+                                 NSStringFromClass(hcls), ex.reason ?: @""]);
+        return NO;
+    }
+}
+
 /// onDivisionTextFinish 后刷新 container / textViewL/R（resetContentPosByScreenSize 等）
 static void LBRefreshContainerAfterDivisionFinish(id host, UIViewController *readerVC) {
     if (!host) return;
@@ -3232,7 +3296,7 @@ static void LBRefreshContainerAfterDivisionFinish(id host, UIViewController *rea
             }
         } @catch (__unused NSException *e) {}
     }
-    for (NSString *selName in @[@"processPageData", @"reloadPageView", @"reloadPage",
+    for (NSString *selName in @[@"reloadPageView", @"reloadPage",
                                 @"layoutPageView", @"refreshCurrentPage"]) {
         SEL s = NSSelectorFromString(selName);
         if ([host respondsToSelector:s] || class_getInstanceMethod(hcls, s)) {
@@ -3261,6 +3325,10 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
                                        UIViewController *readerVC, NSString *body,
                                        UIView *textReadTV) {
     if (!target || !pageResult) return NO;
+    if (sOnDivisionFinishDoneThisInject) {
+        LBAppendOpenReaderTrace(@"contentInject onDivisionTextFinish skip duplicate");
+        return YES;
+    }
     id finishArg = LBWrapPageResultForOnDivisionTextFinish(pageResult);
     if (!finishArg) return NO;
     SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
@@ -3292,9 +3360,25 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
                 }
             } @catch (__unused NSException *e) {}
         }
-        CGSize tvSz = textReadTV ? textReadTV.bounds.size : CGSizeZero;
-        (void)tvSz;
-        (void)body;
+        NSString *cpTitle = @"章节";
+        if (readerVC) {
+            @try {
+                for (NSString *k in @[@"cpTitle", @"title", @"chapterTitle", @"lastChapterTitle"]) {
+                    id t = nil;
+                    @try { t = [readerVC valueForKey:k]; } @catch (__unused NSException *e) {}
+                    if ([t isKindOfClass:[NSString class]] && [(NSString *)t length] > 0) {
+                        cpTitle = (NSString *)t;
+                        break;
+                    }
+                }
+            } @catch (__unused NSException *e) {}
+        }
+        cpTitle = LBSafeCpTitleString(cpTitle);
+        LBInvokeProcessPageData(target, finishArg, readerVC, cpIndex, cpTitle, okPaths);
+        if (readerVC && readerVC != target) {
+            LBInvokeProcessPageData(readerVC, finishArg, readerVC, cpIndex, cpTitle, okPaths);
+        }
+        sOnDivisionFinishDoneThisInject = YES;
         if (okPaths) [okPaths addObject:@"containerRefreshPostFinish"];
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"contentInject onDivisionTextFinish OK host=%@",
@@ -3632,8 +3716,6 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
                                           id pageResult, NSString *title, NSInteger cpIndex,
                                           NSString *body, NSArray *containers,
                                           NSMutableArray *okPaths, BOOL *nativePaged) {
-    (void)containers;
-    (void)title;
     if (!readerVC || !nativePaged || *nativePaged) return;
     LBAppendOpenReaderTrace(@"contentInject postDR enter");
     id pageModel = nil;
@@ -3645,10 +3727,10 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
             LBDumpReadPageModelIvars(pageModel);
         }
     }
-    // divisionResponse 已完成分页；走原版 onDivisionTextFinish 刷新链（优先 container）
+    // divisionResponse 已完成分页；onFinish 已在主链路过则跳过（防双调 SIGABRT）
     LBAppendOpenReaderTrace(@"contentInject postDR safePath onDivisionTextFinish");
     id finishArg = flatPages.count > 0 ? flatPages : pageResult;
-    if (finishArg) {
+    if (finishArg && !sOnDivisionFinishDoneThisInject) {
         BOOL finishOk = NO;
         for (id h in containers) {
             if (LBInvokeOnDivisionTextFinish(h, finishArg, cpIndex, okPaths, readerVC, body, textReadTV)) {
@@ -3672,6 +3754,23 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
         if (pageModel && textReadTV &&
             LBApplyPageModelToTextReadTV(textReadTV, pageModel, body, tvSz, okPaths,
                                          @"setPageModelPostDR")) {
+            *nativePaged = YES;
+            sNativeOpenChapterDone = YES;
+            sDeferredNativeOpenIdx = -1;
+            return;
+        }
+    } else if (sOnDivisionFinishDoneThisInject) {
+        LBAppendOpenReaderTrace(@"contentInject postDR onFinish already done verify");
+        if (textReadTV) LBForceTextReadTVRefresh(textReadTV);
+        for (id h in containers) {
+            if (LBVerifyNativeOnScreenHost(textReadTV, readerVC, h, okPaths)) {
+                *nativePaged = YES;
+                sNativeOpenChapterDone = YES;
+                sDeferredNativeOpenIdx = -1;
+                return;
+            }
+        }
+        if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
             *nativePaged = YES;
             sNativeOpenChapterDone = YES;
             sDeferredNativeOpenIdx = -1;
@@ -4113,7 +4212,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
         return NO;
     }
     NSString *title = payload[@"cpTitle"] ?: payload[@"title"] ?: @"";
-    if (![title isKindOfClass:[NSString class]]) title = @"";
+    title = LBSafeCpTitleString(title);
     if (title.length == 0) title = @"章节";
     NSInteger cpIndex = 0;
     id cpi = payload[@"cpIndex"] ?: payload[@"index"];
@@ -4125,6 +4224,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
 
     sContentInjectBusy = YES;
     sShowPage0ThisInject = NO;
+    sOnDivisionFinishDoneThisInject = NO;
     @try {
     NSDictionary *dicBook = nil;
     @try {
@@ -4488,14 +4588,21 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
         if (!pageResult) {
             LBAppendOpenReaderTrace(@"contentInject divisionText miss all targets");
         }
-        // 4c) divisionResponse：divisionText 原始嵌套 Attr；onFinish 用扁平页再 nest 外层
+        // 4c) divisionResponse：Attr 须先 wrap ReadPageModel；onFinish 用同批扁平页再 nest 外层
         BOOL drResponded = NO;
         if (pageResult) {
             id divisionTextRaw = pageResult;
             NSArray *flatAttrPages = LBFlattenDivisionPages(pageResult);
-            id drPages = divisionTextRaw;
-            id finishPages = flatAttrPages ?: pageResult;
-            pageResult = flatAttrPages ?: pageResult;
+            CGSize normSz = textReadTV ? textReadTV.bounds.size : readerVC.view.bounds.size;
+            if (normSz.width < 10 || normSz.height < 10) {
+                normSz = UIScreen.mainScreen.bounds.size;
+                normSz.width -= 24;
+                normSz.height -= 160;
+            }
+            id normalized = LBNormalizePageResultForDivision(pageResult, okPaths, normSz);
+            id drPages = normalized ?: divisionTextRaw;
+            id finishPages = normalized ?: flatAttrPages ?: pageResult;
+            pageResult = normalized ?: flatAttrPages ?: pageResult;
             id sample = nil;
             NSString *fcls = @"-";
             if ([pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] > 0) {
@@ -4503,11 +4610,11 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 fcls = NSStringFromClass([sample class]);
             }
             LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"contentInject pageResult cls=%@ count=%lu first=%@ rawAttr=1",
+                                     @"contentInject pageResult cls=%@ count=%lu first=%@ norm=%d",
                                      NSStringFromClass([pageResult class]),
                                      [pageResult isKindOfClass:[NSArray class]]
                                          ? (unsigned long)[(NSArray *)pageResult count] : 0,
-                                     fcls]);
+                                     fcls, normalized ? 1 : 0]);
 
             NSArray *containers = LBCollectDivisionHosts(readerVC);
             NSMutableArray *heights = sLastDivisionHeights
