@@ -1760,6 +1760,13 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
         NSString *orm = nil;
         BOOL opened = NO;
         @try {
+            // 栈上已有 TextRead：sameKey  reclaim 后禁止二次 push（曾 defer SIGABRT sig=6）
+            if (LBNavStackHasTextReader()) {
+                LBAppendOpenReaderTrace(@"goStart deliverOnly readerOnStack");
+                LBDeliverContentToVisibleReaders(@"goStartOnStack");
+                sNativeOpenGoInFlight = NO;
+                return;
+            }
             // 1) 优先 push TextRead + 原生 viewDidLoad
             // 注意：push 动画期间 LBIsTextReaderVisible 常为 NO，切勿立刻再调 openReader
             // （历史证据：callingOrig 后 SIGABRT 回桌面）。
@@ -3358,7 +3365,7 @@ static void LBRefreshContainerAfterDivisionFinish(id host, UIViewController *rea
         UIView *hv = (UIView *)host;
         [hv setNeedsLayout];
         [hv setNeedsDisplay];
-        [hv layoutIfNeeded];
+        // 禁 layoutIfNeeded：containerRefresh 后 defer SIGABRT sig=6
     }
     LBAppendOpenReaderTrace([NSString stringWithFormat:
                              @"contentInject containerRefresh done host=%@",
@@ -3595,12 +3602,10 @@ static void LBForceTextReadTVRefresh(UIView *textReadTV) {
         textReadTV.alpha = 1;
         [textReadTV.superview bringSubviewToFront:textReadTV];
         for (NSString *selName in @[@"reloadContent", @"reloadView", @"refreshView",
-                                    @"setNeedsDisplay", @"layoutIfNeeded"]) {
+                                    @"setNeedsDisplay"]) {
             SEL s = NSSelectorFromString(selName);
             if ([textReadTV respondsToSelector:s]) {
-                if ([selName isEqualToString:@"layoutIfNeeded"]) {
-                    [textReadTV layoutIfNeeded];
-                } else if ([selName isEqualToString:@"setNeedsDisplay"]) {
+                if ([selName isEqualToString:@"setNeedsDisplay"]) {
                     [textReadTV setNeedsDisplay];
                 } else {
                     ((void (*)(id, SEL))objc_msgSend)(textReadTV, s);
@@ -3609,7 +3614,7 @@ static void LBForceTextReadTVRefresh(UIView *textReadTV) {
         }
         [textReadTV setNeedsLayout];
         [textReadTV setNeedsDisplay];
-        [textReadTV layoutIfNeeded];
+        // 禁 layoutIfNeeded：onFinish 后同步布局曾 defer SIGABRT sig=6
     } @catch (__unused NSException *e) {}
 }
 
@@ -3816,20 +3821,16 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
         }
     } else if (sOnDivisionFinishDoneThisInject) {
         LBAppendOpenReaderTrace(@"contentInject postDR onFinish already done verify");
-        if (textReadTV) LBForceTextReadTVRefresh(textReadTV);
-        for (id h in containers) {
-            if (LBVerifyNativeOnScreenHost(textReadTV, readerVC, h, okPaths)) {
-                *nativePaged = YES;
-                sNativeOpenChapterDone = YES;
-                sDeferredNativeOpenIdx = -1;
-                return;
-            }
-        }
+        // 主链 onFinish+containerRefresh 已完成；禁再 refresh/hideError（defer SIGABRT）
         if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
             *nativePaged = YES;
             sNativeOpenChapterDone = YES;
             sDeferredNativeOpenIdx = -1;
             return;
+        }
+        if (textReadTV && body.length > 0) {
+            LBStampTextReadTVProbe(textReadTV, nil, body);
+            [okPaths addObject:@"tvHasNeedleProbeOnly"];
         }
     } else if (textReadTV && body.length > 0) {
         LBStampTextReadTVProbe(textReadTV, nil, body);
@@ -3846,10 +3847,13 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
         }
     }
     @try {
-        if ([readerVC respondsToSelector:NSSelectorFromString(@"hideErrorView")]) {
+        if (!sOnDivisionFinishDoneThisInject &&
+            [readerVC respondsToSelector:NSSelectorFromString(@"hideErrorView")]) {
             ((void (*)(id, SEL))objc_msgSend)(
                 readerVC, NSSelectorFromString(@"hideErrorView"));
             [okPaths addObject:@"hideErrorViewPostDR"];
+        } else if (sOnDivisionFinishDoneThisInject) {
+            LBAppendOpenReaderTrace(@"contentInject postDR skip hideError onFinishDone");
         }
         if (textReadTV) {
             textReadTV.hidden = NO;
