@@ -4207,6 +4207,14 @@ static BOOL LBVerifyNativeOnScreenHost(UIView *textReadTV, UIViewController *rea
     return LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths);
 }
 
+static BOOL LBContentInjectOkPathsHadDivisionResponse(NSArray *okPaths) {
+    if (![okPaths isKindOfClass:[NSArray class]]) return NO;
+    for (NSString *p in okPaths) {
+        if ([p hasPrefix:@"divisionResponse"]) return YES;
+    }
+    return NO;
+}
+
 /// 同步原版工具条章节/页码（修假 1/1）；divisionResponse 后跳过 showPageProgress（曾 SIGABRT）
 static void LBRefreshNativeReaderChrome(UIViewController *readerVC, NSInteger cpIndex,
                                         NSInteger catCount, NSInteger pageCount,
@@ -4893,8 +4901,10 @@ LB_INJECT_FINISH:
                     nativePaged = YES;
                 }
             }
-            // 原生分页已成功时禁止 KVC 硬灌字（曾盖掉 divisionResponse 上屏）
-            if (!nativePaged && body.length > 0) {
+            // divisionResponse/onFinish 后禁止 setText/setAttributedText（CoreText TV 异步 SIGABRT sig=6）
+            BOOL skipTvFill = LBContentInjectOkPathsHadDivisionResponse(okPaths) ||
+                              sOnDivisionFinishDoneThisInject;
+            if (!nativePaged && body.length > 0 && !skipTvFill) {
                 NSString *full = [NSString stringWithFormat:@"%@\n\n%@", title, body];
                 @try {
                     if ([tv respondsToSelector:@selector(setText:)]) {
@@ -4920,9 +4930,15 @@ LB_INJECT_FINISH:
                         [((UIView *)tv).superview bringSubviewToFront:(UIView *)tv];
                     }
                 } @catch (__unused NSException *e) {}
+            } else if (skipTvFill && !nativePaged) {
+                LBAppendOpenReaderTrace(@"contentInject tvFillAssist skip postDivisionResponse");
             }
         }
-        if (tvs.count > 0 && !nativePaged) [okPaths addObject:@"tvFillAssist"];
+        if (tvs.count > 0 && !nativePaged &&
+            !LBContentInjectOkPathsHadDivisionResponse(okPaths) &&
+            !sOnDivisionFinishDoneThisInject) {
+            [okPaths addObject:@"tvFillAssist"];
+        }
     } @catch (__unused NSException *e) {}
 
     // 最终验收：须屏上真实渲染；探针仅辅助 MCP assert
@@ -5026,51 +5042,60 @@ LB_INJECT_FINISH:
             LBAppendOpenReaderTrace(@"contentInject native-page-miss (divisionText ok, display pending)");
             LBTryShowPage0Once(readerVC, okPaths, @"showPage0");
         } else if (hasNativeDR) {
-            LBAppendOpenReaderTrace(@"contentInject drOK strict miss try onFinish+showPage0");
-            NSArray *flatFinal = LBFlattenDivisionPages(pageResult);
-            if (flatFinal.count > 0) {
-                NSArray *containers = LBCollectDivisionHosts(readerVC);
-                BOOL finishOk = NO;
-                for (id h in containers) {
-                    if (LBInvokeOnDivisionTextFinish(h, flatFinal, cpIndex, okPaths, readerVC, body, textReadTV)) {
-                        finishOk = YES;
-                        break;
+            // 主链 onDivisionTextFinish 已完成时禁止二次补链（final probeOnly 后曾 SIGABRT sig=6）
+            if (sOnDivisionFinishDoneThisInject) {
+                LBAppendOpenReaderTrace(@"contentInject drOK skip postFinishDuplicate");
+                if (!nativePaged && textReadTV && body.length > 0) {
+                    LBStampTextReadTVProbe(textReadTV, nil, body);
+                    [okPaths addObject:@"tvHasNeedleProbeOnly"];
+                }
+            } else {
+                LBAppendOpenReaderTrace(@"contentInject drOK strict miss try onFinish+showPage0");
+                NSArray *flatFinal = LBFlattenDivisionPages(pageResult);
+                if (flatFinal.count > 0) {
+                    NSArray *containers = LBCollectDivisionHosts(readerVC);
+                    BOOL finishOk = NO;
+                    for (id h in containers) {
+                        if (LBInvokeOnDivisionTextFinish(h, flatFinal, cpIndex, okPaths, readerVC, body, textReadTV)) {
+                            finishOk = YES;
+                            break;
+                        }
+                    }
+                    if (!finishOk) {
+                        LBInvokeOnDivisionTextFinish(readerVC, flatFinal, cpIndex, okPaths, readerVC, body, textReadTV);
+                    }
+                    if (textReadTV) LBForceTextReadTVRefresh(textReadTV);
+                }
+                if (textReadTV && flatFinal.count > 0) {
+                    id pmMiss = flatFinal.firstObject;
+                    if (![pmMiss isKindOfClass:[NSArray class]]) {
+                        CGSize tvSzM = textReadTV.bounds.size;
+                        if (LBApplyPageModelToTextReadTV(textReadTV, pmMiss, body, tvSzM, okPaths,
+                                                         @"setPageModelMiss")) {
+                            nativePaged = YES;
+                        }
                     }
                 }
-                if (!finishOk) {
-                    LBInvokeOnDivisionTextFinish(readerVC, flatFinal, cpIndex, okPaths, readerVC, body, textReadTV);
-                }
-                if (textReadTV) LBForceTextReadTVRefresh(textReadTV);
-            }
-            if (textReadTV && flatFinal.count > 0) {
-                id pmMiss = flatFinal.firstObject;
-                if (![pmMiss isKindOfClass:[NSArray class]]) {
-                    CGSize tvSzM = textReadTV.bounds.size;
-                    if (LBApplyPageModelToTextReadTV(textReadTV, pmMiss, body, tvSzM, okPaths,
-                                                     @"setPageModelMiss")) {
+                if (!nativePaged) {
+                    LBTryShowPage0Once(readerVC, okPaths, @"showPage0DRMiss");
+                    if (textReadTV &&
+                        (LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎") ||
+                         LBTextReadTVHasRenderedNeedle(textReadTV, @"斗气"))) {
                         nativePaged = YES;
+                        [okPaths addObject:@"tvHasNeedleStrict"];
                     }
                 }
-            }
-            if (!nativePaged) {
-                LBTryShowPage0Once(readerVC, okPaths, @"showPage0DRMiss");
-                if (textReadTV &&
-                    (LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎") ||
-                     LBTextReadTVHasRenderedNeedle(textReadTV, @"斗气"))) {
-                    nativePaged = YES;
-                    [okPaths addObject:@"tvHasNeedleStrict"];
+                if (!nativePaged && textReadTV && body.length > 0) {
+                    LBStampTextReadTVProbe(textReadTV, nil, body);
+                    [okPaths addObject:@"tvHasNeedleProbeOnly"];
+                    LBAppendOpenReaderTrace(@"contentInject dr strict miss probe for assert");
                 }
-            }
-            if (!nativePaged && textReadTV && body.length > 0) {
-                LBStampTextReadTVProbe(textReadTV, nil, body);
-                [okPaths addObject:@"tvHasNeedleProbeOnly"];
-                LBAppendOpenReaderTrace(@"contentInject dr strict miss probe for assert");
-            }
-            if (nativePaged) {
-                sLastNativePagedOkTs = CFAbsoluteTimeGetCurrent();
-                sLastNativePagedKey = [dedupeKey copy];
-                sNativeOpenChapterDone = YES;
-                sDeferredNativeOpenIdx = -1;
+                if (nativePaged) {
+                    sLastNativePagedOkTs = CFAbsoluteTimeGetCurrent();
+                    sLastNativePagedKey = [dedupeKey copy];
+                    sNativeOpenChapterDone = YES;
+                    sDeferredNativeOpenIdx = -1;
+                }
             }
         } else if (!hasNativeDR) {
             LBAppendOpenReaderTrace(@"contentInject fallback TV+hideError (divisionText miss)");
@@ -5114,39 +5139,44 @@ LB_INJECT_FINISH:
                                          ex.reason ?: @""]);
             }
         }
-        @try {
-            if ([readerVC respondsToSelector:NSSelectorFromString(@"hideErrorView")]) {
-                ((void (*)(id, SEL))objc_msgSend)(readerVC, NSSelectorFromString(@"hideErrorView"));
-                [okPaths addObject:@"hideErrorView"];
-            }
-        } @catch (__unused NSException *e) {}
-        @try {
-            id ev = nil;
-            @try { ev = [readerVC valueForKey:@"errorView"]; } @catch (__unused NSException *e) {}
-            if ([ev isKindOfClass:[UIView class]]) {
-                ((UIView *)ev).hidden = YES;
-                ((UIView *)ev).alpha = 0;
-                ((UIView *)ev).userInteractionEnabled = NO;
-                [okPaths addObject:@"errorViewHidden"];
-            }
-        } @catch (__unused NSException *e) {}
-        @try {
-            if (readerVC.isViewLoaded && readerVC.view) {
-                NSMutableArray *vs = [NSMutableArray arrayWithObject:readerVC.view];
-                while (vs.count > 0) {
-                    UIView *v = vs.lastObject;
-                    [vs removeLastObject];
-                    NSString *vn = NSStringFromClass([v class]);
-                    if ([vn containsString:@"ErrorView"] || [vn containsString:@"ReadError"]) {
-                        v.hidden = YES;
-                        v.alpha = 0;
-                        v.userInteractionEnabled = NO;
-                        [okPaths addObject:@"readErrorHidden"];
-                    }
-                    for (UIView *sub in v.subviews) [vs addObject:sub];
+        // divisionResponse+onFinish 后 hideErrorView/扫树易触发二次布局 SIGABRT
+        if (!(hasNativeDR && sOnDivisionFinishDoneThisInject)) {
+            @try {
+                if ([readerVC respondsToSelector:NSSelectorFromString(@"hideErrorView")]) {
+                    ((void (*)(id, SEL))objc_msgSend)(readerVC, NSSelectorFromString(@"hideErrorView"));
+                    [okPaths addObject:@"hideErrorView"];
                 }
-            }
-        } @catch (__unused NSException *e) {}
+            } @catch (__unused NSException *e) {}
+            @try {
+                id ev = nil;
+                @try { ev = [readerVC valueForKey:@"errorView"]; } @catch (__unused NSException *e) {}
+                if ([ev isKindOfClass:[UIView class]]) {
+                    ((UIView *)ev).hidden = YES;
+                    ((UIView *)ev).alpha = 0;
+                    ((UIView *)ev).userInteractionEnabled = NO;
+                    [okPaths addObject:@"errorViewHidden"];
+                }
+            } @catch (__unused NSException *e) {}
+            @try {
+                if (readerVC.isViewLoaded && readerVC.view) {
+                    NSMutableArray *vs = [NSMutableArray arrayWithObject:readerVC.view];
+                    while (vs.count > 0) {
+                        UIView *v = vs.lastObject;
+                        [vs removeLastObject];
+                        NSString *vn = NSStringFromClass([v class]);
+                        if ([vn containsString:@"ErrorView"] || [vn containsString:@"ReadError"]) {
+                            v.hidden = YES;
+                            v.alpha = 0;
+                            v.userInteractionEnabled = NO;
+                            [okPaths addObject:@"readErrorHidden"];
+                        }
+                        for (UIView *sub in v.subviews) [vs addObject:sub];
+                    }
+                }
+            } @catch (__unused NSException *e) {}
+        } else {
+            LBAppendOpenReaderTrace(@"contentInject hideError skip postFinishDuplicate");
+        }
     }
 
     NSString *pathStr = okPaths.count > 0 ? [okPaths componentsJoinedByString:@"+"] : @"none";
@@ -5388,6 +5418,11 @@ static void LBInstallNativeResetContentHook(void) {
                             NSDictionary *payloadKeep = sPendingResetContent;
                             dispatch_async(dispatch_get_main_queue(), ^{
                                 @try {
+                                    if (sOnDivisionFinishDoneThisInject || sContentInjectBusy) {
+                                        LBAppendOpenReaderTrace(
+                                            @"onReset skip afterOrigDivision onFinishDone");
+                                        return;
+                                    }
                                     if ([payloadKeep isKindOfClass:[NSDictionary class]] &&
                                         payloadKeep.count > 0) {
                                         LBInjectNativeChapterContent(vcKeep, payloadKeep,
