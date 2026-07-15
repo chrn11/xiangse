@@ -3239,7 +3239,17 @@ static BOOL LBInvokeProcessPageData(id host, id pages, UIViewController *readerV
     if (!host || !pages) return NO;
     SEL sel = NSSelectorFromString(@"processPageData:userInfo:cpTitle:");
     Class hcls = object_getClass(host);
-    if (![host respondsToSelector:sel] && !class_getInstanceMethod(hcls, sel)) {
+    Method m = NULL;
+    Class walk = hcls;
+    while (walk && walk != [NSObject class]) {
+        m = class_getInstanceMethod(walk, sel);
+        if (m) break;
+        walk = class_getSuperclass(walk);
+    }
+    if (!m) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject processPageData noSel host=%@",
+                                 NSStringFromClass(hcls)]);
         return NO;
     }
     NSDictionary *userInfo = LBBuildProcessPageUserInfo(readerVC, cpIndex);
@@ -3345,6 +3355,32 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
                                  NSStringFromClass(tcls)]);
         return NO;
     }
+    NSString *cpTitle = @"章节";
+    if (readerVC) {
+        @try {
+            for (NSString *k in @[@"cpTitle", @"title", @"chapterTitle", @"lastChapterTitle"]) {
+                id t = nil;
+                @try { t = [readerVC valueForKey:k]; } @catch (__unused NSException *e) {}
+                if ([t isKindOfClass:[NSString class]] && [(NSString *)t length] > 0) {
+                    cpTitle = (NSString *)t;
+                    break;
+                }
+            }
+        } @catch (__unused NSException *e) {}
+    }
+    cpTitle = LBSafeCpTitleString(cpTitle);
+    id procPages = sLastNormalizedDrPages;
+    if (!procPages || ([procPages isKindOfClass:[NSArray class]] &&
+                       [(NSArray *)procPages count] == 0)) {
+        procPages = LBFlattenDivisionPages(pageResult);
+    }
+    if (!procPages || ([procPages isKindOfClass:[NSArray class]] &&
+                       [(NSArray *)procPages count] == 0)) {
+        procPages = finishArg;
+    }
+    if (readerVC) {
+        LBInvokeProcessPageData(readerVC, procPages, readerVC, cpIndex, cpTitle, okPaths);
+    }
     @try {
         ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(
             target, finish, finishArg, cpIndex);
@@ -3364,40 +3400,7 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
                 }
             } @catch (__unused NSException *e) {}
         }
-        NSString *cpTitle = @"章节";
-        if (readerVC) {
-            @try {
-                for (NSString *k in @[@"cpTitle", @"title", @"chapterTitle", @"lastChapterTitle"]) {
-                    id t = nil;
-                    @try { t = [readerVC valueForKey:k]; } @catch (__unused NSException *e) {}
-                    if ([t isKindOfClass:[NSString class]] && [(NSString *)t length] > 0) {
-                        cpTitle = (NSString *)t;
-                        break;
-                    }
-                }
-            } @catch (__unused NSException *e) {}
-        }
-        cpTitle = LBSafeCpTitleString(cpTitle);
-        id procPages = sLastNormalizedDrPages;
-        if (!procPages || ([procPages isKindOfClass:[NSArray class]] &&
-                           [(NSArray *)procPages count] == 0)) {
-            procPages = LBFlattenDivisionPages(pageResult);
-        }
-        if (!procPages || ([procPages isKindOfClass:[NSArray class]] &&
-                           [(NSArray *)procPages count] == 0)) {
-            procPages = finishArg;
-        }
         LBInvokeProcessPageData(target, procPages, readerVC, cpIndex, cpTitle, okPaths);
-        if (readerVC && readerVC != target) {
-            LBInvokeProcessPageData(readerVC, procPages, readerVC, cpIndex, cpTitle, okPaths);
-        }
-        if (readerVC) {
-            NSArray *hosts = LBCollectDivisionHosts(readerVC);
-            for (id h in hosts) {
-                if (h == target || h == readerVC) continue;
-                LBInvokeProcessPageData(h, procPages, readerVC, cpIndex, cpTitle, okPaths);
-            }
-        }
         sOnDivisionFinishDoneThisInject = YES;
         if (okPaths) [okPaths addObject:@"containerRefreshPostFinish"];
         LBAppendOpenReaderTrace([NSString stringWithFormat:
@@ -4683,8 +4686,8 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                          @"contentInject drOK noStrictNeedle host=%@", hn]);
                 if ([hn containsString:@"TextRPageContainer"]) break;
             }
-            // 仍无上屏：对 ReadPage/ReadScroll/TextR 再试 divisionText 原始嵌套 Attr
-            if (!nativePaged && divisionTextRaw) {
+            // 仍无上屏：首遍 onFinish 已成功则不再 rawAttr 重试（避免状态污染）
+            if (!nativePaged && divisionTextRaw && !sOnDivisionFinishDoneThisInject) {
                 LBAppendOpenReaderTrace(@"contentInject retry divisionResponse with rawAttr");
                 for (id host in containers) {
                     NSString *hn = NSStringFromClass([host class]);
