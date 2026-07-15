@@ -10,6 +10,7 @@ static UIViewController *g_panelVC = nil;
 static NSMutableString *g_panelBuffer = nil;
 static NSMutableString *g_lastCrashText = nil;
 static BOOL g_gestureInstalled = NO;
+static BOOL (*LBDebugOrig_AppDelegate_openURL_options)(id, SEL, id, NSURL *, NSDictionary *) = NULL;
 
 #pragma mark - Paths / IO
 
@@ -402,7 +403,7 @@ static void LBPresentPanelFrom(UIViewController *anchor) {
     if (!anchor) return;
     if (g_panelVC && g_panelVC.presentingViewController) return;
 
-    g_panelBuffer = [NSMutableString stringWithString:@"LegadoBridgeDebug 面板\n三指再次关闭\n\n"];
+    g_panelBuffer = [NSMutableString stringWithString:@"LegadoBridgeDebug 面板\n三指单击或 legado://debugPanel 关闭\n\n"];
 
     UIViewController *panel = [[UIViewController alloc] init];
     panel.modalPresentationStyle = UIModalPresentationPageSheet;
@@ -475,12 +476,61 @@ static void LBInstallThreeFingerGesture(void) {
         });
         return;
     }
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:[LBDebugPanel class]
-                                                                          action:@selector(lb_threeFingerTap:)];
-    tap.numberOfTapsRequired = 3;
-    tap.numberOfTouchesRequired = 1;
-    [win addGestureRecognizer:tap];
+    // 三指单击：真机最稳的调试入口
+    UITapGestureRecognizer *threeFinger = [[UITapGestureRecognizer alloc] initWithTarget:[LBDebugPanel class]
+                                                                                  action:@selector(lb_threeFingerTap:)];
+    threeFinger.numberOfTapsRequired = 1;
+    threeFinger.numberOfTouchesRequired = 3;
+    threeFinger.cancelsTouchesInView = NO;
+    [win addGestureRecognizer:threeFinger];
+
+    // 单指三击：备用（阅读页可能吞掉）
+    UITapGestureRecognizer *tripleTap = [[UITapGestureRecognizer alloc] initWithTarget:[LBDebugPanel class]
+                                                                                action:@selector(lb_threeFingerTap:)];
+    tripleTap.numberOfTapsRequired = 3;
+    tripleTap.numberOfTouchesRequired = 1;
+    tripleTap.cancelsTouchesInView = NO;
+    [win addGestureRecognizer:tripleTap];
+
     g_gestureInstalled = YES;
+}
+
+#pragma mark - Debug deep link (LegadoBridgeDebug only)
+
+static BOOL LBDebugHandlesOpenURL(NSURL *url) {
+    if (!url) return NO;
+    NSString *abs = url.absoluteString ?: @"";
+    NSString *host = url.host.lowercaseString ?: @"";
+    if ([abs hasPrefix:@"legado://debugDump"] || [abs hasPrefix:@"yuedu://debugDump"] ||
+        [host isEqualToString:@"debugdump"]) {
+        [LBDebugPanel lb_debugDumpAction];
+        return YES;
+    }
+    if ([abs hasPrefix:@"legado://debugPanel"] || [abs hasPrefix:@"yuedu://debugPanel"] ||
+        [host isEqualToString:@"debugpanel"]) {
+        LBOnThreeFingerTap();
+        return YES;
+    }
+    return NO;
+}
+
+static BOOL LBDebug_AppDelegate_openURL_options_IMP(id self, SEL _cmd, id application, NSURL *url, NSDictionary *options) {
+    if (LBDebugHandlesOpenURL(url)) return YES;
+    if (LBDebugOrig_AppDelegate_openURL_options) {
+        return LBDebugOrig_AppDelegate_openURL_options(self, _cmd, application, url, options);
+    }
+    return NO;
+}
+
+static void LBInstallDebugOpenURLHook(void) {
+    Class appDelegateClass = objc_getClass("AppDelegate");
+    if (!appDelegateClass) return;
+    SEL sel = @selector(application:openURL:options:);
+    Method m = class_getInstanceMethod(appDelegateClass, sel);
+    if (!m) return;
+    LBDebugOrig_AppDelegate_openURL_options =
+        (BOOL (*)(id, SEL, id, NSURL *, NSDictionary *))method_getImplementation(m);
+    method_setImplementation(m, (IMP)LBDebug_AppDelegate_openURL_options_IMP);
 }
 
 #pragma mark - LBDebugPanel
@@ -490,6 +540,7 @@ static void LBInstallThreeFingerGesture(void) {
 + (void)load {
     dispatch_async(dispatch_get_main_queue(), ^{
         LBInstallThreeFingerGesture();
+        LBInstallDebugOpenURLHook();
     });
     NSSetUncaughtExceptionHandler(&LBUncaughtExceptionHandler);
     LBInstallSignalHandlers();

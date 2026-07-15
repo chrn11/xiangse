@@ -324,6 +324,11 @@ def extract_signal(marker_text: str, trace_text: str) -> list[str]:
 
 
 def cmd_debug_dump(client: McpClient, args: argparse.Namespace) -> int:
+    if args.trigger:
+        client.call("launch_app", {"bundle_id": client.bundle_id})
+        time.sleep(args.trigger_wait)
+        client.call("open_url", {"url": "legado://debugDump"})
+        time.sleep(args.trigger_wait)
     dump_text = client.read_sandbox_text("legado_debug_dump.txt", max_bytes=args.max_bytes)
     crash_text = client.read_sandbox_text("legado_debug_crash.txt", max_bytes=args.max_bytes)
     keywords = tuple(args.keyword) if args.keyword else DEBUG_DUMP_KEYWORDS
@@ -573,6 +578,8 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("--max-bytes", type=int, default=131072)
     pd.add_argument("--json", action="store_true")
     pd.add_argument("--save", action="store_true", help="落盘到 fixtures/_devkit")
+    pd.add_argument("--trigger", action="store_true", help="先 legado://debugDump 远程写 dump")
+    pd.add_argument("--trigger-wait", type=float, default=2.0, help="trigger 后等待秒数")
 
     pa = sub.add_parser("accept", help="一键验收：reset → read → 断言 → JSON 报告")
     pa.add_argument("--install", action="store_true", help="验收前安装 CI IPA")
