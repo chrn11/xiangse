@@ -26,6 +26,9 @@ static dispatch_queue_t g_autoDumpQueue = NULL;
 
 static void LBFInitObserverGlobals(void);
 static BOOL LBFInstallHookOnMethod(Class owner, NSString *ownerName, NSString *selName);
+static void LBFRecordEvent(NSString *when, id selfObj, SEL sel, NSArray<NSString *> *argShapes,
+                           NSString *returnShape, NSString *ownerClassName);
+static IMP LBFGetOrigIMP(NSString *owner, SEL sel);
 
 static NSString *LBFOrigKey(NSString *owner, NSString *sel) {
     return [NSString stringWithFormat:@"%@|%@", owner, sel];
