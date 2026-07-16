@@ -1,0 +1,4569 @@
+{
+  "schema_version": 1,
+  "binary": "analysis\\unpacked\\Payload\\StandarReader.app\\StandarReader",
+  "image_base": "0x100000000",
+  "base_ipa_sha256": "ed35e2734ef9d75ab8700921ec2819bb329c679ea508ba88e6d9576ae7be1631",
+  "executable_sha256": "04f780eb59f86c9104f8c8c3c04fb24278f521d0a43e401b3773d2a47890dea7",
+  "classes": {
+    "ReadPageContainer": {
+      "superclass": null,
+      "cls_va": "0x1002eb380",
+      "ro_va": "0x10029a948",
+      "ivars": [
+        {
+          "name": "loadCpTip",
+          "type_encoding": "@\"MBProgressHUD\"",
+          "offset": 8
+        },
+        {
+          "name": "_reverse",
+          "type_encoding": "B",
+          "offset": 16
+        },
+        {
+          "name": "_dicPageVC",
+          "type_encoding": "@\"NSMutableDictionary\"",
+          "offset": 24
+        },
+        {
+          "name": "_dicContents",
+          "type_encoding": "@\"NSMutableDictionary\"",
+          "offset": 32
+        },
+        {
+          "name": "_reader",
+          "type_encoding": "@\"ReadVCBase2\"",
+          "offset": 40
+        }
+      ],
+      "properties": [
+        {
+          "name": "dicPageVC",
+          "attributes": "T@\"NSMutableDictionary\",&,N,V_dicPageVC"
+        },
+        {
+          "name": "reverse",
+          "attributes": "TB,N,V_reverse"
+        },
+        {
+          "name": "dicContents",
+          "attributes": "T@\"NSMutableDictionary\",&,N,V_dicContents"
+        },
+        {
+          "name": "reader",
+          "attributes": "T@\"ReadVCBase2\",W,N,V_reader"
+        },
+        {
+          "name": "hash",
+          "attributes": "TQ,R"
+        },
+        {
+          "name": "superclass",
+          "attributes": "T#,R"
+        },
+        {
+          "name": "description",
+          "attributes": "T@\"NSString\",R,C"
+        },
+        {
+          "name": "debugDescription",
+          "attributes": "T@\"NSString\",R,C"
+        }
+      ],
+      "instance_method_count": 36,
+      "class_method_count": 0
+    },
+    "ReadPageModel": {
+      "superclass": null,
+      "cls_va": "0x1002e8f20",
+      "ro_va": "0x1002887f0",
+      "ivars": [
+        {
+          "name": "_bUsePageIndex",
+          "type_encoding": "B",
+          "offset": 8
+        },
+        {
+          "name": "_fPageProgress",
+          "type_encoding": "f",
+          "offset": 12
+        },
+        {
+          "name": "_pageStatus",
+          "type_encoding": "Q",
+          "offset": 16
+        },
+        {
+          "name": "_nPageCount",
+          "type_encoding": "q",
+          "offset": 24
+        },
+        {
+          "name": "_nCpCount",
+          "type_encoding": "q",
+          "offset": 32
+        },
+        {
+          "name": "_nCpIndex",
+          "type_encoding": "q",
+          "offset": 40
+        },
+        {
+          "name": "_nPageIndex",
+          "type_encoding": "q",
+          "offset": 48
+        }
+      ],
+      "properties": [
+        {
+          "name": "pageStatus",
+          "attributes": "TQ,N,V_pageStatus"
+        },
+        {
+          "name": "nPageCount",
+          "attributes": "Tq,N,V_nPageCount"
+        },
+        {
+          "name": "nCpCount",
+          "attributes": "Tq,N,V_nCpCount"
+        },
+        {
+          "name": "nCpIndex",
+          "attributes": "Tq,N,V_nCpIndex"
+        },
+        {
+          "name": "nPageIndex",
+          "attributes": "Tq,N,V_nPageIndex"
+        },
+        {
+          "name": "fPageProgress",
+          "attributes": "Tf,N,V_fPageProgress"
+        },
+        {
+          "name": "bUsePageIndex",
+          "attributes": "TB,N,V_bUsePageIndex"
+        }
+      ],
+      "instance_method_count": 14,
+      "class_method_count": 0
+    },
+    "ReadScrollContainer": {
+      "superclass": null,
+      "cls_va": "0x1002ea3e0",
+      "ro_va": "0x100291b00",
+      "ivars": [
+        {
+          "name": "dicContents",
+          "type_encoding": "@\"NSMutableDictionary\"",
+          "offset": 8
+        },
+        {
+          "name": "dicHeight",
+          "type_encoding": "@\"NSMutableDictionary\"",
+          "offset": 16
+        },
+        {
+          "name": "arrCpIndex",
+          "type_encoding": "@\"NSMutableArray\"",
+          "offset": 24
+        },
+        {
+          "name": "dicQueryError",
+          "type_encoding": "@\"NSMutableDictionary\"",
+          "offset": 32
+        },
+        {
+          "name": "dicQuerying",
+          "type_encoding": "@\"NSMutableDictionary\"",
+          "offset": 40
+        },
+        {
+          "name": "goRecordAfterLoadCp",
+          "type_encoding": "@\"NSDictionary\"",
+          "offset": 48
+        },
+        {
+          "name": "lastIndexPath",
+          "type_encoding": "@\"NSIndexPath\"",
+          "offset": 56
+        },
+        {
+          "name": "lastContentOffset",
+          "type_encoding": "d",
+          "offset": 64
+        },
+        {
+          "name": "autoReadTimer",
+          "type_encoding": "@\"CADisplayLink\"",
+          "offset": 72
+        },
+        {
+          "name": "autoReadRateGrade",
+          "type_encoding": "q",
+          "offset": 80
+        },
+        {
+          "name": "autoReadUpdateCounter",
+          "type_encoding": "q",
+          "offset": 88
+        },
+        {
+          "name": "autoReadUpdateInterval",
+          "type_encoding": "q",
+          "offset": 96
+        },
+        {
+          "name": "autoReadUpdatePx",
+          "type_encoding": "d",
+          "offset": 104
+        },
+        {
+          "name": "autoReadPageH",
+          "type_encoding": "d",
+          "offset": 112
+        },
+        {
+          "name": "autoRead",
+          "type_encoding": "B",
+          "offset": 120
+        },
+        {
+          "name": "_reader",
+          "type_encoding": "@\"ReadVCBase2\"",
+          "offset": 128
+        },
+        {
+          "name": "_tableView",
+          "type_encoding": "@\"UITableView\"",
+          "offset": 136
+        }
+      ],
+      "properties": [
+        {
+          "name": "reader",
+          "attributes": "T@\"ReadVCBase2\",W,N,V_reader"
+        },
+        {
+          "name": "tableView",
+          "attributes": "T@\"UITableView\",R,N,V_tableView"
+        },
+        {
+          "name": "hash",
+          "attributes": "TQ,R"
+        },
+        {
+          "name": "superclass",
+          "attributes": "T#,R"
+        },
+        {
+          "name": "description",
+          "attributes": "T@\"NSString\",R,C"
+        },
+        {
+          "name": "debugDescription",
+          "attributes": "T@\"NSString\",R,C"
+        }
+      ],
+      "instance_method_count": 37,
+      "class_method_count": 0
+    },
+    "TextRPageContainer": {
+      "superclass": "ReadPageContainer",
+      "cls_va": "0x1002ea660",
+      "ro_va": "0x100292c18",
+      "ivars": [],
+      "properties": [
+        {
+          "name": "hash",
+          "attributes": "TQ,R"
+        },
+        {
+          "name": "superclass",
+          "attributes": "T#,R"
+        },
+        {
+          "name": "description",
+          "attributes": "T@\"NSString\",R,C"
+        },
+        {
+          "name": "debugDescription",
+          "attributes": "T@\"NSString\",R,C"
+        }
+      ],
+      "instance_method_count": 6,
+      "class_method_count": 0
+    },
+    "TextRPageContainerPage": {
+      "superclass": "ReadPageContainerPage",
+      "cls_va": "0x1002ea8e0",
+      "ro_va": "0x100293cc8",
+      "ivars": [
+        {
+          "name": "_textViewL",
+          "type_encoding": "@\"TextReadTV\"",
+          "offset": 8
+        },
+        {
+          "name": "_textViewR",
+          "type_encoding": "@\"TextReadTV\"",
+          "offset": 16
+        },
+        {
+          "name": "_imgView",
+          "type_encoding": "@\"UIImageView\"",
+          "offset": 24
+        },
+        {
+          "name": "_widgetViewB",
+          "type_encoding": "@\"TextRWidgetViewB\"",
+          "offset": 32
+        },
+        {
+          "name": "_titleLb",
+          "type_encoding": "@\"UILabel\"",
+          "offset": 40
+        }
+      ],
+      "properties": [
+        {
+          "name": "imgView",
+          "attributes": "T@\"UIImageView\",&,N,V_imgView"
+        },
+        {
+          "name": "widgetViewB",
+          "attributes": "T@\"TextRWidgetViewB\",&,N,V_widgetViewB"
+        },
+        {
+          "name": "titleLb",
+          "attributes": "T@\"UILabel\",&,N,V_titleLb"
+        },
+        {
+          "name": "textViewL",
+          "attributes": "T@\"TextReadTV\",R,N,V_textViewL"
+        },
+        {
+          "name": "textViewR",
+          "attributes": "T@\"TextReadTV\",R,N,V_textViewR"
+        }
+      ],
+      "instance_method_count": 22,
+      "class_method_count": 0
+    },
+    "TextRScrollContainer": {
+      "superclass": "ReadScrollContainer",
+      "cls_va": "0x1002ebec0",
+      "ro_va": "0x1002a27f8",
+      "ivars": [
+        {
+          "name": "_titleLb",
+          "type_encoding": "@\"UILabel\"",
+          "offset": 32
+        },
+        {
+          "name": "_widgetViewH",
+          "type_encoding": "@\"UIView\"",
+          "offset": 40
+        },
+        {
+          "name": "_widgetViewB",
+          "type_encoding": "@\"TextRWidgetViewB\"",
+          "offset": 48
+        }
+      ],
+      "properties": [
+        {
+          "name": "titleLb",
+          "attributes": "T@\"UILabel\",&,N,V_titleLb"
+        },
+        {
+          "name": "widgetViewH",
+          "attributes": "T@\"UIView\",&,N,V_widgetViewH"
+        },
+        {
+          "name": "widgetViewB",
+          "attributes": "T@\"TextRWidgetViewB\",&,N,V_widgetViewB"
+        },
+        {
+          "name": "hash",
+          "attributes": "TQ,R"
+        },
+        {
+          "name": "superclass",
+          "attributes": "T#,R"
+        },
+        {
+          "name": "description",
+          "attributes": "T@\"NSString\",R,C"
+        },
+        {
+          "name": "debugDescription",
+          "attributes": "T@\"NSString\",R,C"
+        }
+      ],
+      "instance_method_count": 16,
+      "class_method_count": 0
+    },
+    "TextReadTV": {
+      "superclass": "TextReadTVBase",
+      "cls_va": "0x1002e88b8",
+      "ro_va": "0x100283bd8",
+      "ivars": [
+        {
+          "name": "tapGesture",
+          "type_encoding": "@\"UITapGestureRecognizer\"",
+          "offset": 40
+        },
+        {
+          "name": "panGesture",
+          "type_encoding": "@\"UIPanGestureRecognizer\"",
+          "offset": 48
+        },
+        {
+          "name": "selectedDot",
+          "type_encoding": "q",
+          "offset": 56
+        },
+        {
+          "name": "selectedRange",
+          "type_encoding": "{_NSRange=\"location\"Q\"length\"Q}",
+          "offset": 64
+        },
+        {
+          "name": "selectedColor",
+          "type_encoding": "@\"UIColor\"",
+          "offset": 80
+        },
+        {
+          "name": "useLongPress",
+          "type_encoding": "B",
+          "offset": 88
+        },
+        {
+          "name": "useSelection",
+          "type_encoding": "B",
+          "offset": 89
+        },
+        {
+          "name": "_arrSelectedRect",
+          "type_encoding": "@\"NSArray\"",
+          "offset": 96
+        },
+        {
+          "name": "_arrSpeakRect",
+          "type_encoding": "@\"NSArray\"",
+          "offset": 104
+        },
+        {
+          "name": "_magnifierView",
+          "type_encoding": "@\"LCMagnifierView\"",
+          "offset": 112
+        },
+        {
+          "name": "_lCursorView",
+          "type_encoding": "@\"LCCursorView\"",
+          "offset": 120
+        },
+        {
+          "name": "_rCursorView",
+          "type_encoding": "@\"LCCursorView\"",
+          "offset": 128
+        }
+      ],
+      "properties": [
+        {
+          "name": "arrSelectedRect",
+          "attributes": "T@\"NSArray\",&,N,V_arrSelectedRect"
+        },
+        {
+          "name": "arrSpeakRect",
+          "attributes": "T@\"NSArray\",&,N,V_arrSpeakRect"
+        },
+        {
+          "name": "magnifierView",
+          "attributes": "T@\"LCMagnifierView\",&,N,V_magnifierView"
+        },
+        {
+          "name": "lCursorView",
+          "attributes": "T@\"LCCursorView\",&,N,V_lCursorView"
+        },
+        {
+          "name": "rCursorView",
+          "attributes": "T@\"LCCursorView\",&,N,V_rCursorView"
+        },
+        {
+          "name": "hash",
+          "attributes": "TQ,R"
+        },
+        {
+          "name": "superclass",
+          "attributes": "T#,R"
+        },
+        {
+          "name": "description",
+          "attributes": "T@\"NSString\",R,C"
+        },
+        {
+          "name": "debugDescription",
+          "attributes": "T@\"NSString\",R,C"
+        }
+      ],
+      "instance_method_count": 31,
+      "class_method_count": 0
+    },
+    "TextReadVC3": {
+      "superclass": "TextReadVC2",
+      "cls_va": "0x1002e6cd0",
+      "ro_va": "0x100274790",
+      "ivars": [
+        {
+          "name": "_cacherManager",
+          "type_encoding": "@\"BookCacher\"",
+          "offset": 416
+        },
+        {
+          "name": "_speaker",
+          "type_encoding": "@\"TextReadSpeaker\"",
+          "offset": 424
+        }
+      ],
+      "properties": [
+        {
+          "name": "cacherManager",
+          "attributes": "T@\"BookCacher\",&,N,V_cacherManager"
+        },
+        {
+          "name": "speaker",
+          "attributes": "T@\"TextReadSpeaker\",&,N,V_speaker"
+        }
+      ],
+      "instance_method_count": 26,
+      "class_method_count": 0
+    }
+  },
+  "methods": [
+    {
+      "class": "ReadPageContainer",
+      "selector": "dealloc",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 874012,
+      "imp_va": "0x1000d561c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d561c"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "viewDidLoad",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 874512,
+      "imp_va": "0x1000d5810",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d5810"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "gestureRecognizerShouldBegin:",
+      "type_encoding": "B24@0:8@16",
+      "imp_offset": 875712,
+      "imp_va": "0x1000d5cc0",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d5cc0"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "curPageModel",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 875820,
+      "imp_va": "0x1000d5d2c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d5d2c"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "showPage:direction:animated:",
+      "type_encoding": "v36@0:8@16q24B32",
+      "imp_offset": 875904,
+      "imp_va": "0x1000d5d80",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d5d80"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "curPageVC",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 876560,
+      "imp_va": "0x1000d6010",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d6010"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "dicPageVC",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 877056,
+      "imp_va": "0x1000d6200",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d6200"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "idlePageVC:",
+      "type_encoding": "@20@0:8B16",
+      "imp_offset": 877148,
+      "imp_va": "0x1000d625c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d625c"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "pageViewController:didFinishAnimating:previousViewControllers:transitionCompleted:",
+      "type_encoding": "v40@0:8@16B24@28B36",
+      "imp_offset": 877920,
+      "imp_va": "0x1000d6560",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d6560"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "pageViewController:viewControllerBeforeViewController:",
+      "type_encoding": "@32@0:8@16@24",
+      "imp_offset": 878568,
+      "imp_va": "0x1000d67e8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d67e8"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "pageViewController:viewControllerAfterViewController:",
+      "type_encoding": "@32@0:8@16@24",
+      "imp_offset": 878604,
+      "imp_va": "0x1000d680c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d680c"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "gotoRecord:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 878648,
+      "imp_va": "0x1000d6838",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d6838"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "gotoNextCp:",
+      "type_encoding": "v20@0:8B16",
+      "imp_offset": 878864,
+      "imp_va": "0x1000d6910",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d6910"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "gotoNextPage:",
+      "type_encoding": "v20@0:8B16",
+      "imp_offset": 879032,
+      "imp_va": "0x1000d69b8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d69b8"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "gotoNextPage:directShow:preCon:animated:",
+      "type_encoding": "@36@0:8B16B20@24B32",
+      "imp_offset": 879116,
+      "imp_va": "0x1000d6a0c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d6a0c"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "gotoCp:page:directShow:direction:animated:",
+      "type_encoding": "@48@0:8q16q24B32q36B44",
+      "imp_offset": 880216,
+      "imp_va": "0x1000d6e58",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d6e58"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "gotoCp:progress:directShow:direction:animated:",
+      "type_encoding": "@44@0:8q16f24B28q32B40",
+      "imp_offset": 880248,
+      "imp_va": "0x1000d6e78",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d6e78"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "gotoCp:page:progress:usePageIndex:directShow:direction:animated:",
+      "type_encoding": "@56@0:8q16q24f32B36B40q44B52",
+      "imp_offset": 880280,
+      "imp_va": "0x1000d6e98",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d6e98"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "showError:cpIndex:directShow:direction:animated:",
+      "type_encoding": "@48@0:8@16q24B32q36B44",
+      "imp_offset": 881820,
+      "imp_va": "0x1000d749c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d749c"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "readErrorViewDelegateBtnEvent:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 882792,
+      "imp_va": "0x1000d7868",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d7868"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "resetLoadCpTip:",
+      "type_encoding": "v20@0:8B16",
+      "imp_offset": 883728,
+      "imp_va": "0x1000d7c10",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d7c10"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "loadCurCp",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 883956,
+      "imp_va": "0x1000d7cf4",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "arrCatalog",
+        "count",
+        "curPageVC",
+        "dicFatBook",
+        "objectAtIndexedSubscript:",
+        "pageStatus",
+        "queryCpFileByBook:cpInfo:cpIndex:userInfo:target:cachePolicy:",
+        "resetLoadCpTip:",
+        "sharedInstance",
+        "showError:cpIndex:directShow:direction:animated:",
+        "showHudText:detail:view:",
+        "sub_201390",
+        "sub_20139c",
+        "sub_2013b4",
+        "sub_2013e4",
+        "sub_201474",
+        "view"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d7cf4",
+        "chain-msg: ReadPageContainer#loadCurCp"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "loadMoreCp:",
+      "type_encoding": "v24@0:8q16",
+      "imp_offset": 884736,
+      "imp_va": "0x1000d8000",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d8000"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "lpNetWorkDelegateQueryFinish:config:userInfo:",
+      "type_encoding": "v40@0:8@16@24@32",
+      "imp_offset": 885368,
+      "imp_va": "0x1000d8278",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d8278"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "divisionResponse:cpTitle:cpIndex:",
+      "type_encoding": "v40@0:8@16@24q32",
+      "imp_offset": 886892,
+      "imp_va": "0x1000d886c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "sub_20139c",
+        "sub_2013b4",
+        "sub_2013c0",
+        "sub_2013e4",
+        "sub_201474"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "probable",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d886c"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "onDivisionTextFinish:cpIndex:",
+      "type_encoding": "v32@0:8@16q24",
+      "imp_offset": 886896,
+      "imp_va": "0x1000d8870",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "bUsePageIndex",
+        "curPageVC",
+        "dictionary",
+        "fPageProgress",
+        "gotoCp:page:progress:usePageIndex:directShow:direction:animated:",
+        "nPageIndex",
+        "numberWithInteger:",
+        "pageStatus",
+        "setObject:forKeyedSubscript:",
+        "sub_20139c",
+        "sub_2013b4",
+        "sub_2013c0",
+        "sub_2013e4",
+        "sub_201474"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d8870",
+        "chain-msg: ReadPageContainer#onDivisionTextFinish:cpIndex:"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "dicContents",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 887472,
+      "imp_va": "0x1000d8ab0",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d8ab0"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "clearPageData",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 887564,
+      "imp_va": "0x1000d8b0c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d8b0c"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "contentPageClass",
+      "type_encoding": "#16@0:8",
+      "imp_offset": 887580,
+      "imp_va": "0x1000d8b1c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d8b1c"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "setDicPageVC:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 887600,
+      "imp_va": "0x1000d8b30",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d8b30"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "reverse",
+      "type_encoding": "B16@0:8",
+      "imp_offset": 887620,
+      "imp_va": "0x1000d8b44",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d8b44"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "setReverse:",
+      "type_encoding": "v20@0:8B16",
+      "imp_offset": 887636,
+      "imp_va": "0x1000d8b54",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d8b54"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "setDicContents:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 887652,
+      "imp_va": "0x1000d8b64",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d8b64"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "reader",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 887672,
+      "imp_va": "0x1000d8b78",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d8b78"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "setReader:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 887704,
+      "imp_va": "0x1000d8b98",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d8b98"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": ".cxx_destruct",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 887724,
+      "imp_va": "0x1000d8bac",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageContainer",
+        "class_ro_t.baseMethods imp=0x1000d8bac"
+      ]
+    },
+    {
+      "class": "ReadPageModel",
+      "selector": "pageStatus",
+      "type_encoding": "Q16@0:8",
+      "imp_offset": 480512,
+      "imp_va": "0x100075500",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageModel",
+        "class_ro_t.baseMethods imp=0x100075500"
+      ]
+    },
+    {
+      "class": "ReadPageModel",
+      "selector": "setPageStatus:",
+      "type_encoding": "v24@0:8Q16",
+      "imp_offset": 480520,
+      "imp_va": "0x100075508",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageModel",
+        "class_ro_t.baseMethods imp=0x100075508"
+      ]
+    },
+    {
+      "class": "ReadPageModel",
+      "selector": "nPageCount",
+      "type_encoding": "q16@0:8",
+      "imp_offset": 480528,
+      "imp_va": "0x100075510",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageModel",
+        "class_ro_t.baseMethods imp=0x100075510"
+      ]
+    },
+    {
+      "class": "ReadPageModel",
+      "selector": "setNPageCount:",
+      "type_encoding": "v24@0:8q16",
+      "imp_offset": 480536,
+      "imp_va": "0x100075518",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageModel",
+        "class_ro_t.baseMethods imp=0x100075518"
+      ]
+    },
+    {
+      "class": "ReadPageModel",
+      "selector": "nCpCount",
+      "type_encoding": "q16@0:8",
+      "imp_offset": 480544,
+      "imp_va": "0x100075520",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageModel",
+        "class_ro_t.baseMethods imp=0x100075520"
+      ]
+    },
+    {
+      "class": "ReadPageModel",
+      "selector": "setNCpCount:",
+      "type_encoding": "v24@0:8q16",
+      "imp_offset": 480552,
+      "imp_va": "0x100075528",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageModel",
+        "class_ro_t.baseMethods imp=0x100075528"
+      ]
+    },
+    {
+      "class": "ReadPageModel",
+      "selector": "nCpIndex",
+      "type_encoding": "q16@0:8",
+      "imp_offset": 480560,
+      "imp_va": "0x100075530",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageModel",
+        "class_ro_t.baseMethods imp=0x100075530"
+      ]
+    },
+    {
+      "class": "ReadPageModel",
+      "selector": "setNCpIndex:",
+      "type_encoding": "v24@0:8q16",
+      "imp_offset": 480568,
+      "imp_va": "0x100075538",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageModel",
+        "class_ro_t.baseMethods imp=0x100075538"
+      ]
+    },
+    {
+      "class": "ReadPageModel",
+      "selector": "nPageIndex",
+      "type_encoding": "q16@0:8",
+      "imp_offset": 480576,
+      "imp_va": "0x100075540",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageModel",
+        "class_ro_t.baseMethods imp=0x100075540"
+      ]
+    },
+    {
+      "class": "ReadPageModel",
+      "selector": "setNPageIndex:",
+      "type_encoding": "v24@0:8q16",
+      "imp_offset": 480584,
+      "imp_va": "0x100075548",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageModel",
+        "class_ro_t.baseMethods imp=0x100075548"
+      ]
+    },
+    {
+      "class": "ReadPageModel",
+      "selector": "fPageProgress",
+      "type_encoding": "f16@0:8",
+      "imp_offset": 480592,
+      "imp_va": "0x100075550",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageModel",
+        "class_ro_t.baseMethods imp=0x100075550"
+      ]
+    },
+    {
+      "class": "ReadPageModel",
+      "selector": "setFPageProgress:",
+      "type_encoding": "v20@0:8f16",
+      "imp_offset": 480600,
+      "imp_va": "0x100075558",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageModel",
+        "class_ro_t.baseMethods imp=0x100075558"
+      ]
+    },
+    {
+      "class": "ReadPageModel",
+      "selector": "bUsePageIndex",
+      "type_encoding": "B16@0:8",
+      "imp_offset": 480608,
+      "imp_va": "0x100075560",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageModel",
+        "class_ro_t.baseMethods imp=0x100075560"
+      ]
+    },
+    {
+      "class": "ReadPageModel",
+      "selector": "setBUsePageIndex:",
+      "type_encoding": "v20@0:8B16",
+      "imp_offset": 480616,
+      "imp_va": "0x100075568",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadPageModel",
+        "class_ro_t.baseMethods imp=0x100075568"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "dealloc",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 666452,
+      "imp_va": "0x1000a2b54",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a2b54"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "viewDidLoad",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 666572,
+      "imp_va": "0x1000a2bcc",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a2bcc"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "viewDidAppear:",
+      "type_encoding": "v20@0:8B16",
+      "imp_offset": 667404,
+      "imp_va": "0x1000a2f0c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a2f0c"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "viewWillDisappear:",
+      "type_encoding": "v20@0:8B16",
+      "imp_offset": 667500,
+      "imp_va": "0x1000a2f6c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a2f6c"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "curCpIndex",
+      "type_encoding": "q16@0:8",
+      "imp_offset": 667580,
+      "imp_va": "0x1000a2fbc",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a2fbc"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "curIndexPath",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 667800,
+      "imp_va": "0x1000a3098",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a3098"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "onLoadPreCp",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 668184,
+      "imp_va": "0x1000a3218",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a3218"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "onLoadNextCp",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 668376,
+      "imp_va": "0x1000a32d8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a32d8"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "loadMoreCp",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 668664,
+      "imp_va": "0x1000a33f8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a33f8"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "loadCp:",
+      "type_encoding": "@24@0:8q16",
+      "imp_offset": 668936,
+      "imp_va": "0x1000a3508",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a3508"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "divisionResponse:cpTitle:cpIndex:heights:",
+      "type_encoding": "@48@0:8@16@24q32@40",
+      "imp_offset": 669584,
+      "imp_va": "0x1000a3790",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "sub_201390",
+        "sub_20139c",
+        "sub_2013b4",
+        "sub_2013c0",
+        "sub_2013e4"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "probable",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a3790"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "lpNetWorkDelegateQueryFinish:config:userInfo:",
+      "type_encoding": "v40@0:8@16@24@32",
+      "imp_offset": 669592,
+      "imp_va": "0x1000a3798",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a3798"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "processPageData:userInfo:cpTitle:",
+      "type_encoding": "v40@0:8@16@24@32",
+      "imp_offset": 671124,
+      "imp_va": "0x1000a3d94",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a3d94"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "goRecordAfterLoadCp:",
+      "type_encoding": "v24@0:8q16",
+      "imp_offset": 673532,
+      "imp_va": "0x1000a46fc",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a46fc"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "clearPreSection:",
+      "type_encoding": "v24@0:8q16",
+      "imp_offset": 674764,
+      "imp_va": "0x1000a4bcc",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a4bcc"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "numberOfSectionsInTableView:",
+      "type_encoding": "q24@0:8@16",
+      "imp_offset": 675996,
+      "imp_va": "0x1000a509c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a509c"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "tableView:numberOfRowsInSection:",
+      "type_encoding": "q32@0:8@16q24",
+      "imp_offset": 676020,
+      "imp_va": "0x1000a50b4",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a50b4"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "tableView:heightForRowAtIndexPath:",
+      "type_encoding": "d32@0:8@16@24",
+      "imp_offset": 676176,
+      "imp_va": "0x1000a5150",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a5150"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "tableView:cellForRowAtIndexPath:",
+      "type_encoding": "@32@0:8@16@24",
+      "imp_offset": 676540,
+      "imp_va": "0x1000a52bc",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a52bc"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "scrollViewDidEndDragging:willDecelerate:",
+      "type_encoding": "v28@0:8@16B24",
+      "imp_offset": 677824,
+      "imp_va": "0x1000a57c0",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a57c0"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "scrollViewDidEndDecelerating:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 677848,
+      "imp_va": "0x1000a57d8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a57d8"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "scrollViewWillBeginDragging:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 677864,
+      "imp_va": "0x1000a57e8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a57e8"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "didPagingCompleted:",
+      "type_encoding": "v20@0:8B16",
+      "imp_offset": 677924,
+      "imp_va": "0x1000a5824",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a5824"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "clearPageData",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 678188,
+      "imp_va": "0x1000a592c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a592c"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "gotoNextPage:",
+      "type_encoding": "v20@0:8B16",
+      "imp_offset": 678192,
+      "imp_va": "0x1000a5930",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a5930"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "curPageModel",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 678196,
+      "imp_va": "0x1000a5934",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a5934"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "gotoRecord:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 678376,
+      "imp_va": "0x1000a59e8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a59e8"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "gotoNextCp:",
+      "type_encoding": "v20@0:8B16",
+      "imp_offset": 679176,
+      "imp_va": "0x1000a5d08",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a5d08"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "startAutoRead",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 679980,
+      "imp_va": "0x1000a602c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a602c"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "stopAutoRead",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 680048,
+      "imp_va": "0x1000a6070",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a6070"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "stopAutoReadTimer",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 680072,
+      "imp_va": "0x1000a6088",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a6088"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "startAutoReadTimer",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 680188,
+      "imp_va": "0x1000a60fc",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a60fc"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "autoReadTiming",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 680944,
+      "imp_va": "0x1000a63f0",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a63f0"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "reader",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 681384,
+      "imp_va": "0x1000a65a8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a65a8"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "setReader:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 681416,
+      "imp_va": "0x1000a65c8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a65c8"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": "tableView",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 681436,
+      "imp_va": "0x1000a65dc",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a65dc"
+      ]
+    },
+    {
+      "class": "ReadScrollContainer",
+      "selector": ".cxx_destruct",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 681452,
+      "imp_va": "0x1000a65ec",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->ReadScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000a65ec"
+      ]
+    },
+    {
+      "class": "TextRPageContainer",
+      "selector": "viewDidLoad",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 704016,
+      "imp_va": "0x1000abe10",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainer",
+        "class_ro_t.baseMethods imp=0x1000abe10"
+      ]
+    },
+    {
+      "class": "TextRPageContainer",
+      "selector": "contentPageClass",
+      "type_encoding": "#16@0:8",
+      "imp_offset": 704180,
+      "imp_va": "0x1000abeb4",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainer",
+        "class_ro_t.baseMethods imp=0x1000abeb4"
+      ]
+    },
+    {
+      "class": "TextRPageContainer",
+      "selector": "curPageTV",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 704200,
+      "imp_va": "0x1000abec8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainer",
+        "class_ro_t.baseMethods imp=0x1000abec8"
+      ]
+    },
+    {
+      "class": "TextRPageContainer",
+      "selector": "divisionResponse:cpTitle:cpIndex:",
+      "type_encoding": "v40@0:8@16@24q32",
+      "imp_offset": 704284,
+      "imp_va": "0x1000abf1c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "curPageVC",
+        "frame",
+        "sub_201018",
+        "sub_20103c",
+        "sub_20139c",
+        "sub_2013b4",
+        "sub_2013c0",
+        "sub_2013e4",
+        "textViewL"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainer",
+        "class_ro_t.baseMethods imp=0x1000abf1c",
+        "chain-msg: TextRPageContainer#divisionResponse:cpTitle:cpIndex:"
+      ]
+    },
+    {
+      "class": "TextRPageContainer",
+      "selector": "viewWillTransitionToSize:withTransitionCoordinator:",
+      "type_encoding": "v40@0:8{CGSize=dd}16@32",
+      "imp_offset": 705036,
+      "imp_va": "0x1000ac20c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainer",
+        "class_ro_t.baseMethods imp=0x1000ac20c"
+      ]
+    },
+    {
+      "class": "TextRPageContainer",
+      "selector": "onResetThemeNotify",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 705644,
+      "imp_va": "0x1000ac46c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainer",
+        "class_ro_t.baseMethods imp=0x1000ac46c"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "viewDidLoad",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 726156,
+      "imp_va": "0x1000b148c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "resetContentPosByScreenSize:",
+        "resetWidgetPosByScreenSize:",
+        "viewDidLoad"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b148c",
+        "chain-msg: TextRPageContainerPage#viewDidLoad"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "doubleCol:",
+      "type_encoding": "B32@0:8{CGSize=dd}16",
+      "imp_offset": 726700,
+      "imp_va": "0x1000b16ac",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b16ac"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "widgetViewB",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 726892,
+      "imp_va": "0x1000b176c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b176c"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "titleLb",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 727100,
+      "imp_va": "0x1000b183c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b183c"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "textViewL",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 727332,
+      "imp_va": "0x1000b1924",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "addSubview:",
+        "backgroundColor",
+        "boolForKey:",
+        "bounds",
+        "initWithFrame:",
+        "initWithFrame:useLongPress:",
+        "insertSubview:atIndex:",
+        "isPad",
+        "removeFromSuperview",
+        "setAutoresizingMask:",
+        "setBackgroundColor:",
+        "setTextColor:",
+        "sharedInstance",
+        "sub_2012e8",
+        "sub_20139c",
+        "sub_2013b4",
+        "sub_2013e4",
+        "textColor",
+        "view"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b1924",
+        "chain-msg: TextRPageContainerPage#textViewL"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "textViewR",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 727568,
+      "imp_va": "0x1000b1a10",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b1a10"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "imgView",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 727924,
+      "imp_va": "0x1000b1b74",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b1b74"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "removeImgView",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 728220,
+      "imp_va": "0x1000b1c9c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b1c9c"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "contentRectByScreenSize:left:",
+      "type_encoding": "{CGRect={CGPoint=dd}{CGSize=dd}}36@0:8{CGSize=dd}16B32",
+      "imp_offset": 728304,
+      "imp_va": "0x1000b1cf0",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b1cf0"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "resetWidgetPosByScreenSize:",
+      "type_encoding": "v32@0:8{CGSize=dd}16",
+      "imp_offset": 728856,
+      "imp_va": "0x1000b1f18",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b1f18"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "resetContentPosByScreenSize:",
+      "type_encoding": "v32@0:8{CGSize=dd}16",
+      "imp_offset": 729592,
+      "imp_va": "0x1000b21f8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b21f8"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "showContent:title:",
+      "type_encoding": "v32@0:8@16@24",
+      "imp_offset": 730192,
+      "imp_va": "0x1000b2450",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "count",
+        "firstObject",
+        "objectAtIndexedSubscript:",
+        "showContent:title:",
+        "showWidget:",
+        "sub_20139c",
+        "sub_2013b4",
+        "sub_2013c0",
+        "sub_2013e4"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b2450",
+        "chain-msg: TextRPageContainerPage#showContent:title:"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "showErrorView:title:delegate:",
+      "type_encoding": "v40@0:8@16@24@32",
+      "imp_offset": 730560,
+      "imp_va": "0x1000b25c0",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b25c0"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "showWidget:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 731108,
+      "imp_va": "0x1000b27e4",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b27e4"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "onResetThemeNotify",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 731416,
+      "imp_va": "0x1000b2918",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b2918"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "onResetContentNotify",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 733108,
+      "imp_va": "0x1000b2fb4",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b2fb4"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "onResetContentPosNotify",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 733420,
+      "imp_va": "0x1000b30ec",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b30ec"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "onResetWidgetPosNotify",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 733520,
+      "imp_va": "0x1000b3150",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b3150"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "setImgView:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 733620,
+      "imp_va": "0x1000b31b4",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b31b4"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "setWidgetViewB:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 733640,
+      "imp_va": "0x1000b31c8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b31c8"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "setTitleLb:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 733660,
+      "imp_va": "0x1000b31dc",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b31dc"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": ".cxx_destruct",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 733680,
+      "imp_va": "0x1000b31f0",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRPageContainerPage",
+        "class_ro_t.baseMethods imp=0x1000b31f0"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "viewDidLoad",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 1038996,
+      "imp_va": "0x1000fda94",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000fda94"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "curPageTV",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 1039428,
+      "imp_va": "0x1000fdc44",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000fdc44"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "divisionResponse:cpTitle:cpIndex:heights:",
+      "type_encoding": "@48@0:8@16@24q32@40",
+      "imp_offset": 1039620,
+      "imp_va": "0x1000fdd04",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "didPagingCompleted:",
+        "divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:",
+        "resetWidgetContent",
+        "sub_20139c",
+        "sub_2013b4",
+        "sub_2013c0",
+        "sub_2013e4"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000fdd04",
+        "chain-msg: TextRScrollContainer#divisionResponse:cpTitle:cpIndex:heights:"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "didPagingCompleted:",
+      "type_encoding": "v20@0:8B16",
+      "imp_offset": 1040236,
+      "imp_va": "0x1000fdf6c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000fdf6c"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "widgetViewB",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 1040316,
+      "imp_va": "0x1000fdfbc",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000fdfbc"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "widgetViewH",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 1040648,
+      "imp_va": "0x1000fe108",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000fe108"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "titleLb",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 1041080,
+      "imp_va": "0x1000fe2b8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000fe2b8"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "resetWidgetContent",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 1041404,
+      "imp_va": "0x1000fe3fc",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000fe3fc"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "resetWidgetPosByScreenSize:",
+      "type_encoding": "v32@0:8{CGSize=dd}16",
+      "imp_offset": 1041948,
+      "imp_va": "0x1000fe61c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000fe61c"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "onResetThemeNotify",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 1042920,
+      "imp_va": "0x1000fe9e8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000fe9e8"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "onResetContentNotify",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 1044432,
+      "imp_va": "0x1000fefd0",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000fefd0"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "onResetWidgetPosNotify",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 1044744,
+      "imp_va": "0x1000ff108",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000ff108"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "setTitleLb:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 1044844,
+      "imp_va": "0x1000ff16c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000ff16c"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "setWidgetViewH:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 1044864,
+      "imp_va": "0x1000ff180",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000ff180"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "setWidgetViewB:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 1044884,
+      "imp_va": "0x1000ff194",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000ff194"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": ".cxx_destruct",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 1044904,
+      "imp_va": "0x1000ff1a8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextRScrollContainer",
+        "class_ro_t.baseMethods imp=0x1000ff1a8"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "setAttString:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 375048,
+      "imp_va": "0x10005b908",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005b908"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "setArrSelectedRect:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 375188,
+      "imp_va": "0x10005b994",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005b994"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "setSpeakingRange:",
+      "type_encoding": "v32@0:8{_NSRange=QQ}16",
+      "imp_offset": 375472,
+      "imp_va": "0x10005bab0",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005bab0"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "initWithFrame:useLongPress:",
+      "type_encoding": "@52@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16B48",
+      "imp_offset": 375744,
+      "imp_va": "0x10005bbc0",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005bbc0"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "resetGesture:",
+      "type_encoding": "v20@0:8B16",
+      "imp_offset": 376132,
+      "imp_va": "0x10005bd44",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005bd44"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "drawRect:",
+      "type_encoding": "v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16",
+      "imp_offset": 376528,
+      "imp_va": "0x10005bed0",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "bounds",
+        "count",
+        "drawRect:",
+        "setFill",
+        "sub_20070c",
+        "sub_200760",
+        "sub_2007b4",
+        "sub_200838",
+        "sub_200868",
+        "sub_200a6c",
+        "sub_200a78",
+        "sub_200a9c",
+        "sub_200bbc",
+        "sub_200e74",
+        "sub_201354",
+        "sub_20139c",
+        "sub_2013a8",
+        "sub_2013b4",
+        "sub_2013c0"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005bed0",
+        "chain-msg: TextReadTV#drawRect:"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "gestureRecognizer:shouldReceiveTouch:",
+      "type_encoding": "B32@0:8@16@24",
+      "imp_offset": 377152,
+      "imp_va": "0x10005c140",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005c140"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "onLongPressAction:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 377592,
+      "imp_va": "0x10005c2f8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005c2f8"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "onPanAction:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 378020,
+      "imp_va": "0x10005c4a4",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005c4a4"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "onTapAction",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 378404,
+      "imp_va": "0x10005c624",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005c624"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "showMagnifier:",
+      "type_encoding": "v32@0:8{CGPoint=dd}16",
+      "imp_offset": 378420,
+      "imp_va": "0x10005c634",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005c634"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "hideMagnifier",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 378692,
+      "imp_va": "0x10005c744",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005c744"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "updateCursorView",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 378768,
+      "imp_va": "0x10005c790",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005c790"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "lCursorView",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 379564,
+      "imp_va": "0x10005caac",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005caac"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "rCursorView",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 379692,
+      "imp_va": "0x10005cb2c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005cb2c"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "canBecomeFirstResponder",
+      "type_encoding": "B16@0:8",
+      "imp_offset": 379820,
+      "imp_va": "0x10005cbac",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005cbac"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "hiddenMenu",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 379892,
+      "imp_va": "0x10005cbf4",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005cbf4"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "showMenu",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 380052,
+      "imp_va": "0x10005cc94",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005cc94"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "menuCopy",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 381028,
+      "imp_va": "0x10005d064",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005d064"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "menuSpeak",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 381224,
+      "imp_va": "0x10005d128",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005d128"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "menuDict",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 381420,
+      "imp_va": "0x10005d1ec",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005d1ec"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "menuSearch",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 381692,
+      "imp_va": "0x10005d2fc",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005d2fc"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "menuFilter",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 381896,
+      "imp_va": "0x10005d3c8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005d3c8"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "arrSelectedRect",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 382100,
+      "imp_va": "0x10005d494",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005d494"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "arrSpeakRect",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 382116,
+      "imp_va": "0x10005d4a4",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005d4a4"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "setArrSpeakRect:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 382132,
+      "imp_va": "0x10005d4b4",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005d4b4"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "magnifierView",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 382152,
+      "imp_va": "0x10005d4c8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005d4c8"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "setMagnifierView:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 382168,
+      "imp_va": "0x10005d4d8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005d4d8"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "setLCursorView:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 382188,
+      "imp_va": "0x10005d4ec",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005d4ec"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "setRCursorView:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 382208,
+      "imp_va": "0x10005d500",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005d500"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": ".cxx_destruct",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 382228,
+      "imp_va": "0x10005d514",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadTV",
+        "class_ro_t.baseMethods imp=0x10005d514"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "dealloc",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 37768,
+      "imp_va": "0x100009388",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x100009388"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "viewDidLoad",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 38024,
+      "imp_va": "0x100009488",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x100009488"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "onToolBarEvent:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 39028,
+      "imp_va": "0x100009874",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x100009874"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "onToolBarFontSizeEvent:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 40596,
+      "imp_va": "0x100009e94",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x100009e94"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "onToolBarThemeEventByTag:",
+      "type_encoding": "v24@0:8q16",
+      "imp_offset": 41252,
+      "imp_va": "0x10000a124",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000a124"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "onToolBarCache1:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 41744,
+      "imp_va": "0x10000a310",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000a310"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "onToolBarCache2:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 42296,
+      "imp_va": "0x10000a538",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000a538"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "onToolBarCacheByIndex:",
+      "type_encoding": "v24@0:8q16",
+      "imp_offset": 43080,
+      "imp_va": "0x10000a848",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000a848"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "onReloadContentEvent",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 43596,
+      "imp_va": "0x10000aa4c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000aa4c"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "BookCacherDelegateUpdateProgress",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 44180,
+      "imp_va": "0x10000ac94",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000ac94"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "BookCacherDelegateStop:",
+      "type_encoding": "v20@0:8B16",
+      "imp_offset": 44504,
+      "imp_va": "0x10000add8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000add8"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "cacherManager",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 44928,
+      "imp_va": "0x10000af80",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000af80"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "didPagingCompleted:",
+      "type_encoding": "v20@0:8B16",
+      "imp_offset": 45016,
+      "imp_va": "0x10000afd8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000afd8"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "speaker",
+      "type_encoding": "@16@0:8",
+      "imp_offset": 45192,
+      "imp_va": "0x10000b088",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000b088"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "stopSpeak",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 45280,
+      "imp_va": "0x10000b0e0",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000b0e0"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "beginSpeak",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 45384,
+      "imp_va": "0x10000b148",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000b148"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "onResetThemeNotify",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 45704,
+      "imp_va": "0x10000b288",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000b288"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "onResetContentNotify",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 46456,
+      "imp_va": "0x10000b578",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000b578"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "onFilterContentNotify:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 46584,
+      "imp_va": "0x10000b5f8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000b5f8"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "onSearchContentNotify:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 46868,
+      "imp_va": "0x10000b714",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000b714"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "onSourceChanged",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 47208,
+      "imp_va": "0x10000b868",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000b868"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "showTutorialView:",
+      "type_encoding": "B20@0:8B16",
+      "imp_offset": 47312,
+      "imp_va": "0x10000b8d0",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000b8d0"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "traitCollectionDidChange:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 47536,
+      "imp_va": "0x10000b9b0",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000b9b0"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "setCacherManager:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 47624,
+      "imp_va": "0x10000ba08",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000ba08"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": "setSpeaker:",
+      "type_encoding": "v24@0:8@16",
+      "imp_offset": 47644,
+      "imp_va": "0x10000ba1c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000ba1c"
+      ]
+    },
+    {
+      "class": "TextReadVC3",
+      "selector": ".cxx_destruct",
+      "type_encoding": "v16@0:8",
+      "imp_offset": 47664,
+      "imp_va": "0x10000ba30",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist->TextReadVC3",
+        "class_ro_t.baseMethods imp=0x10000ba30"
+      ]
+    },
+    {
+      "class": "unknown",
+      "selector": "setCpCached:cpIndex:bookKey:sourceName:",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": null,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "unknown",
+      "evidence_reference": [
+        "selector 'setCpCached:cpIndex:bookKey:sourceName:' 不在目标 8 类 method list 中"
+      ]
+    },
+    {
+      "class": "unknown",
+      "selector": "ResetContent",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": null,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "unknown",
+      "evidence_reference": [
+        "selector 'ResetContent' 不在目标 8 类 method list 中"
+      ]
+    },
+    {
+      "class": "unknown",
+      "selector": "divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": null,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "unknown",
+      "evidence_reference": [
+        "selector 'divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:' 不在目标 8 类 method list 中"
+      ]
+    },
+    {
+      "class": "unknown",
+      "selector": "divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:paibanInfo:",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": null,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "unknown",
+      "evidence_reference": [
+        "selector 'divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:paibanInfo:' 不在目标 8 类 method list 中"
+      ]
+    },
+    {
+      "class": "unknown",
+      "selector": "divisionResponse:cpIndex:",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": null,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "unknown",
+      "evidence_reference": [
+        "selector 'divisionResponse:cpIndex:' 不在目标 8 类 method list 中"
+      ]
+    },
+    {
+      "class": "unknown",
+      "selector": "showContent:",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": null,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "unknown",
+      "evidence_reference": [
+        "selector 'showContent:' 不在目标 8 类 method list 中"
+      ]
+    },
+    {
+      "class": "unknown",
+      "selector": "setPageModel:",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": null,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "unknown",
+      "evidence_reference": [
+        "selector 'setPageModel:' 不在目标 8 类 method list 中"
+      ]
+    },
+    {
+      "class": "unknown",
+      "selector": "setTextViewL:",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": null,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "unknown",
+      "evidence_reference": [
+        "selector 'setTextViewL:' 不在目标 8 类 method list 中"
+      ]
+    },
+    {
+      "class": "unknown",
+      "selector": "pageModel",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": null,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "parse_objc_method_map.py",
+      "confidence": "unknown",
+      "evidence_reference": [
+        "selector 'pageModel' 不在目标 8 类 method list 中"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "loadCurCp",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "arrCatalog",
+        "count",
+        "curPageVC",
+        "dicFatBook",
+        "objectAtIndexedSubscript:",
+        "pageStatus",
+        "queryCpFileByBook:cpInfo:cpIndex:userInfo:target:cachePolicy:",
+        "resetLoadCpTip:",
+        "sharedInstance",
+        "showError:cpIndex:directShow:direction:animated:",
+        "showHudText:detail:view:",
+        "view"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "build_chain_msgs.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "IMP msgSend trace: ReadPageContainer#loadCurCp",
+        "analysis/reader-forensics/chain-msg-hits.json"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "onDivisionTextFinish:cpIndex:",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "bUsePageIndex",
+        "curPageVC",
+        "dictionary",
+        "fPageProgress",
+        "gotoCp:page:progress:usePageIndex:directShow:direction:animated:",
+        "nPageIndex",
+        "numberWithInteger:",
+        "pageStatus",
+        "setObject:forKeyedSubscript:"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "build_chain_msgs.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "IMP msgSend trace: ReadPageContainer#onDivisionTextFinish:cpIndex:",
+        "analysis/reader-forensics/chain-msg-hits.json"
+      ]
+    },
+    {
+      "class": "TextRPageContainer",
+      "selector": "divisionResponse:cpTitle:cpIndex:",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "curPageVC",
+        "frame",
+        "textViewL"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "build_chain_msgs.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "IMP msgSend trace: TextRPageContainer#divisionResponse:cpTitle:cpIndex:",
+        "analysis/reader-forensics/chain-msg-hits.json"
+      ]
+    },
+    {
+      "class": "TextRScrollContainer",
+      "selector": "divisionResponse:cpTitle:cpIndex:heights:",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "didPagingCompleted:",
+        "divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:",
+        "resetWidgetContent"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "build_chain_msgs.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "IMP msgSend trace: TextRScrollContainer#divisionResponse:cpTitle:cpIndex:heights:",
+        "analysis/reader-forensics/chain-msg-hits.json"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "viewDidLoad",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "resetContentPosByScreenSize:",
+        "resetWidgetPosByScreenSize:",
+        "viewDidLoad"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "build_chain_msgs.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "IMP msgSend trace: TextRPageContainerPage#viewDidLoad",
+        "analysis/reader-forensics/chain-msg-hits.json"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "showContent:title:",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "count",
+        "firstObject",
+        "objectAtIndexedSubscript:",
+        "showContent:title:",
+        "showWidget:"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "build_chain_msgs.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "IMP msgSend trace: TextRPageContainerPage#showContent:title:",
+        "analysis/reader-forensics/chain-msg-hits.json"
+      ]
+    },
+    {
+      "class": "TextRPageContainerPage",
+      "selector": "textViewL",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "addSubview:",
+        "backgroundColor",
+        "boolForKey:",
+        "bounds",
+        "initWithFrame:",
+        "initWithFrame:useLongPress:",
+        "insertSubview:atIndex:",
+        "isPad",
+        "removeFromSuperview",
+        "setAutoresizingMask:",
+        "setBackgroundColor:",
+        "setTextColor:",
+        "sharedInstance",
+        "textColor",
+        "view"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "build_chain_msgs.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "IMP msgSend trace: TextRPageContainerPage#textViewL",
+        "analysis/reader-forensics/chain-msg-hits.json"
+      ]
+    },
+    {
+      "class": "TextReadTV",
+      "selector": "drawRect:",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "bounds",
+        "count",
+        "drawRect:",
+        "setFill"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "build_chain_msgs.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "IMP msgSend trace: TextReadTV#drawRect:",
+        "analysis/reader-forensics/chain-msg-hits.json"
+      ]
+    },
+    {
+      "class": "ReadScrollContainerCell",
+      "selector": "setPageModel:",
+      "type_encoding": "",
+      "imp_offset": null,
+      "imp_va": null,
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "build_chain_msgs.py",
+      "confidence": "probable",
+      "evidence_reference": [
+        "IMP msgSend trace: ReadScrollContainerCell#setPageModel:",
+        "analysis/reader-forensics/chain-msg-hits.json"
+      ]
+    },
+    {
+      "class": "PaibanManager",
+      "selector": "divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:paibanInfo:",
+      "type_encoding": "",
+      "imp_offset": 351228,
+      "imp_va": "0x100055bfc",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "length",
+        "integerValue",
+        "stringWithString:",
+        "setObject:forKeyedSubscript:",
+        "sharedInstance",
+        "replaceString:withTemplate:regex:cacheRegex:",
+        "whitespaceAndNewlineCharacterSet",
+        "stringByTrimmingCharactersInSet:",
+        "stringWithFormat:",
+        "initWithString:",
+        "count"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "finalize_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist method_list",
+        "chain-msg-hits"
+      ]
+    },
+    {
+      "class": "BookDbManager",
+      "selector": "setCpCached:cpIndex:bookKey:sourceName:",
+      "type_encoding": "",
+      "imp_offset": 724136,
+      "imp_va": "0x1000b0ca8",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "createCpCachedTableByTableName:",
+        "getCpCachedIdBySourceName:cpTitle:cpIndex:",
+        "stringWithFormat:",
+        "executeDbQuery:backType:columnName:"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "finalize_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "__objc_classlist method_list",
+        "chain-msg-hits"
+      ]
+    },
+    {
+      "class": "ReadPageContainer",
+      "selector": "lpNetWorkDelegateQueryFinish:config:userInfo:",
+      "type_encoding": "",
+      "imp_offset": 885368,
+      "imp_va": "0x1000d8278",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "divisionResponse:cpTitle:cpIndex:"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "finalize_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "IMP msgSend trace lpNetWorkDelegateQueryFinish"
+      ]
+    },
+    {
+      "class": "TextReadTVBase",
+      "selector": "setAttString:",
+      "type_encoding": "",
+      "imp_offset": 374436,
+      "imp_va": "0x10005b6a4",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "setNeedsDisplay"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "finalize_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "IMP msgSend trace setAttString"
+      ]
+    },
+    {
+      "class": "TextReadTVBase",
+      "selector": "resetFrameRef",
+      "type_encoding": "",
+      "imp_offset": 374228,
+      "imp_va": "0x10005b5d4",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [
+        "setNeedsDisplay"
+      ],
+      "ivars_read": [],
+      "ivars_written": [],
+      "tool": "finalize_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "IMP msgSend trace resetFrameRef"
+      ]
+    },
+    {
+      "class": "ReadScrollContainerCell",
+      "selector": "setPageModel:",
+      "type_encoding": "",
+      "imp_offset": 497020,
+      "imp_va": "0x10007957c",
+      "is_class_method": false,
+      "callers": [],
+      "callees": [],
+      "ivars_read": [],
+      "ivars_written": [
+        "ReadScrollContainerCell._pageModel"
+      ],
+      "tool": "finalize_method_map.py",
+      "confidence": "confirmed",
+      "evidence_reference": [
+        "synthesized setter IMP 0x10007957c stores _pageModel ivar"
+      ]
+    }
+  ],
+  "chain_summary": {
+    "textViewL_owner": "TextRPageContainerPage",
+    "textViewL_creator_imp": "0x1000b1924",
+    "ctframe_ivar": "TextReadTVBase.frameRef",
+    "pageModel_scroll_cell": "ReadScrollContainerCell._pageModel",
+    "divisionText_owner": "PaibanManager",
+    "setCpCached_owner": "BookDbManager",
+    "loadCurCp_owner": "ReadPageContainer"
+  }
+}
