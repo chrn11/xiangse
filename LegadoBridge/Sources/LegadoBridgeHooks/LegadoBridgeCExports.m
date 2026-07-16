@@ -3380,6 +3380,8 @@ static NSDictionary *LBBuildProcessPageUserInfo(UIViewController *readerVC, NSIn
                 break;
             }
         }
+        if (ui[@"cpTitle"]) ui[@"cpTitle"] = LBSafeCpTitleString(ui[@"cpTitle"]);
+        if (ui[@"title"]) ui[@"title"] = LBSafeCpTitleString(ui[@"title"]);
         id arrCp = nil;
         @try { arrCp = [readerVC valueForKey:@"arrCpIndex"]; } @catch (__unused NSException *e) {}
         if ([arrCp isKindOfClass:[NSArray class]]) ui[@"arrCpIndex"] = arrCp;
@@ -6517,15 +6519,26 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
     NSMutableArray *okPaths = [NSMutableArray array];
     BOOL chainOk = NO;
 
-    // 0) 模拟 queryFinish（confirmed：loadCurCp → queryCpFile → lpNetWorkDelegateQueryFinish → divisionResponse）
+    textReadTV = LBSyncKickFindTextReadTV(readerVC, container);
+    NSUInteger pmPre = 0;
+    if (LBSyncKickHasStrictRenderEvidence(container, readerVC, textReadTV, &pmPre)) {
+        chainOk = YES;
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"division_kick_sync pre_hit pm=%lu tv=%d needle=%d",
+                                 (unsigned long)pmPre, textReadTV ? 1 : 0,
+                                 LBSyncKickNeedleFlag(textReadTV)]);
+    }
+
+    // 0) queryFinish 仅非空壳早退（空壳 TV 调原生 QF 会二次 divisionResponse → NSArrayM length）
     SEL qfSel = NSSelectorFromString(@"lpNetWorkDelegateQueryFinish:config:userInfo:");
-    if ([container respondsToSelector:qfSel]) {
+    BOOL emptyShell = (textReadTV != nil && pmPre == 0 && LBSyncKickNeedleFlag(textReadTV) == 0);
+    if (!chainOk && !emptyShell && [container respondsToSelector:qfSel]) {
         NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
         userInfo[@"content"] = body;
         userInfo[@"cpContent"] = body;
         userInfo[@"chapterContent"] = body;
         userInfo[@"cpIndex"] = @(cpIndex);
-        userInfo[@"cpTitle"] = title;
+        userInfo[@"cpTitle"] = LBSafeCpTitleString(title);
         NSString *chUrl = payload[@"chapterUrl"] ?: payload[@"cpUrl"];
         if ([chUrl isKindOfClass:[NSString class]]) userInfo[@"chapterUrl"] = chUrl;
         NSDictionary *config = @{
@@ -6533,8 +6546,14 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
             @"cpTitle": LBSafeCpTitleString(title),
             @"content": body,
         };
+        NSDictionary *qfResponse = @{
+            @"content": body,
+            @"cpContent": body,
+            @"chapterContent": body,
+        };
         @try {
-            ((void (*)(id, SEL, id, id, id))objc_msgSend)(container, qfSel, body, config, userInfo);
+            ((void (*)(id, SEL, id, id, id))objc_msgSend)(
+                container, qfSel, qfResponse, config, userInfo);
             [okPaths addObject:@"queryFinish"];
             LBAppendOpenReaderTrace(@"division_kick_sync queryFinish_OK");
             textReadTV = LBSyncKickFindTextReadTV(readerVC, container);
@@ -6556,9 +6575,11 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
                                      @"division_kick_sync queryFinish EX %@",
                                      ex.reason ?: @""]);
         }
+    } else if (!chainOk && emptyShell) {
+        LBAppendOpenReaderTrace(@"division_kick_sync queryFinish_skip emptyShell");
     }
 
-    // 1) divisionText → divisionResponse → onDivisionTextFinish（同步显式补链）
+    // 1) divisionText → divisionResponse（禁 kick 显式 onDivisionTextFinish）
     if (!chainOk) {
         id paiban = nil;
         @try { paiban = [readerVC valueForKey:@"tr_paibanInfo"]; } @catch (__unused NSException *e) {}
