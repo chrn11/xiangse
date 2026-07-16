@@ -534,21 +534,22 @@ static void LBInstallDebugOpenURLHook(void) {
 }
 
 + (void)lb_debugDumpAction {
-    void (^work)(void) = ^{
-        NSString *phase = LBForensicsConsumePendingDumpPhase();
-        NSDictionary *dump = LBForensicsPerformDump(phase);
-        NSDictionary<NSString *, NSString *> *paths = LBForensicsWriteDumpFiles(dump);
-        NSString *summary = dump[@"textSummary"] ?: @"";
-        NSMutableString *panel = [NSMutableString stringWithString:summary];
-        [panel appendFormat:@"\n--- files ---\njson: %@\ntext: %@\nlegacy: %@\n",
-         paths[@"json"] ?: @"-", paths[@"text"] ?: @"-", paths[@"legacy"] ?: @"-"];
-        LBAppendPanel(panel);
-    };
-    if ([NSThread isMainThread]) {
-        work();
-    } else {
-        dispatch_sync(dispatch_get_main_queue(), work);
-    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            NSString *phase = LBForensicsConsumePendingDumpPhase();
+            NSDictionary *dump = LBForensicsPerformDump(phase);
+            NSDictionary<NSString *, NSString *> *paths = LBForensicsWriteDumpFiles(dump);
+            NSString *summary = dump[@"textSummary"] ?: @"";
+            NSMutableString *panel = [NSMutableString stringWithString:summary];
+            [panel appendFormat:@"\n--- files ---\njson: %@\ntext: %@\nlegacy: %@\n",
+             paths[@"json"] ?: @"-", paths[@"text"] ?: @"-", paths[@"legacy"] ?: @"-"];
+            LBAppendPanel(panel);
+        } @catch (NSException *ex) {
+            NSString *err = [NSString stringWithFormat:@"forensics dump EX: %@", ex.reason ?: @""];
+            LBWriteDebugFile(@"legado_debug_dump.txt", err);
+            LBAppendPanel(err);
+        }
+    });
 }
 
 + (void)lb_debugRefreshAction {

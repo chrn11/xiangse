@@ -91,7 +91,6 @@ static NSDictionary *LBFDumpClassMethodLayer(Class cls) {
 NSDictionary *LBForensicsBuildMethodOwners(void) {
     NSMutableArray *resolved = [NSMutableArray array];
     NSMutableArray *unresolved = [NSMutableArray array];
-    NSMutableDictionary *layersByClass = [NSMutableDictionary dictionary];
 
     for (NSString *selName in LBFReaderRelatedSelectors()) {
         SEL sel = NSSelectorFromString(selName);
@@ -117,24 +116,9 @@ NSDictionary *LBForensicsBuildMethodOwners(void) {
         if (!any) [unresolved addObject:selName];
     }
 
-    for (NSString *cn in LBFProbeClassNames()) {
-        Class cls = NSClassFromString(cn);
-        if (!cls) continue;
-        NSMutableArray *layers = [NSMutableArray array];
-        Class walk = cls;
-        int depth = 0;
-        while (walk && walk != [NSObject class] && depth < 32) {
-            [layers addObject:LBFDumpClassMethodLayer(walk)];
-            walk = class_getSuperclass(walk);
-            depth++;
-        }
-        layersByClass[cn] = layers;
-    }
-
     return @{
         @"readerSelectors": resolved,
         @"unresolvedSelectors": unresolved,
-        @"classMethodLayers": layersByClass,
     };
 }
 
