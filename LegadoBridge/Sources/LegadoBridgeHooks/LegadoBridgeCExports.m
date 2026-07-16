@@ -6296,6 +6296,229 @@ static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, N
     }
 }
 
+/// 假设 H：invoke_orig_OK 同栈窄补链（禁 setPageModel / TV ivar 拼补）
+static UIView *LBSyncKickFindTextReadTV(id readerVC, id container) {
+    NSMutableArray *roots = [NSMutableArray array];
+    if ([readerVC isKindOfClass:[UIViewController class]]) {
+        UIViewController *vc = (UIViewController *)readerVC;
+        if (vc.isViewLoaded && vc.view) [roots addObject:vc.view];
+    }
+    if ([container isKindOfClass:[UIView class]]) {
+        if (![roots containsObject:container]) [roots addObject:container];
+    }
+    for (id scope in @[readerVC ?: [NSNull null], container ?: [NSNull null]]) {
+        if (scope == (id)[NSNull null]) continue;
+        for (NSString *k in @[@"textViewL", @"textViewR", @"curPageTV", @"textView"]) {
+            @try {
+                id tv = [scope valueForKey:k];
+                if (tv && [NSStringFromClass([tv class]) containsString:@"TextReadTV"]) {
+                    return (UIView *)tv;
+                }
+            } @catch (__unused NSException *e) {}
+        }
+        @try {
+            id cpv = [scope valueForKey:@"curPageVC"];
+            if (cpv) {
+                for (NSString *k in @[@"textViewL", @"textViewR", @"textView"]) {
+                    @try {
+                        id tv = [cpv valueForKey:k];
+                        if (tv && [NSStringFromClass([tv class]) containsString:@"TextReadTV"]) {
+                            return (UIView *)tv;
+                        }
+                    } @catch (__unused NSException *e) {}
+                }
+            }
+        } @catch (__unused NSException *e) {}
+    }
+    while (roots.count > 0) {
+        UIView *v = roots.lastObject;
+        [roots removeLastObject];
+        if ([NSStringFromClass([v class]) containsString:@"TextReadTV"]) return v;
+        for (UIView *sub in v.subviews) [roots addObject:sub];
+    }
+    return nil;
+}
+
+static NSUInteger LBSyncKickPageModelCount(id host) {
+    if (!host) return 0;
+    @try {
+        for (NSString *k in @[@"arrPageModels", @"pageModels", @"pages", @"arrPages",
+                              @"pageList", @"arrRPM"]) {
+            id arr = nil;
+            @try { arr = [host valueForKey:k]; } @catch (__unused NSException *e) {}
+            if ([arr isKindOfClass:[NSArray class]] && [(NSArray *)arr count] > 0) {
+                return [(NSArray *)arr count];
+            }
+        }
+        if (LBExtractPageModelFromHost(host, 0)) return 1;
+    } @catch (__unused NSException *e) {}
+    return 0;
+}
+
+static BOOL LBSyncKickInvokeOnDivisionTextFinish(id container, id pageResult, NSInteger cpIndex) {
+    if (!container || !pageResult) return NO;
+    SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
+    Class tcls = object_getClass(container);
+    if (![container respondsToSelector:finish] && !class_getInstanceMethod(tcls, finish)) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"division_kick_sync onFinish noSel host=%@",
+                                 NSStringFromClass(tcls)]);
+        return NO;
+    }
+    id finishArg = LBWrapPageResultForOnDivisionTextFinish(pageResult);
+    if (!finishArg) return NO;
+    @try {
+        ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(container, finish, finishArg, cpIndex);
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"division_kick_sync onDivisionTextFinish@%@",
+                                 NSStringFromClass(tcls)]);
+        return YES;
+    } @catch (NSException *ex) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"division_kick_sync onFinish EX %@",
+                                 ex.reason ?: @""]);
+        return NO;
+    }
+}
+
+void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *payload) {
+    LBAppendOpenReaderTrace(@"division_kick_sync_begin");
+    if (!container || ![payload isKindOfClass:[NSDictionary class]]) {
+        LBAppendOpenReaderTrace(@"division_kick_sync skip noContainerOrPayload");
+        return;
+    }
+    NSString *body = nil;
+    id c = payload[@"chapterContent"] ?: payload[@"content"];
+    if ([c isKindOfClass:[NSString class]]) body = (NSString *)c;
+    if (body.length == 0) {
+        LBAppendOpenReaderTrace(@"division_kick_sync skip noBody");
+        return;
+    }
+    NSString *title = payload[@"cpTitle"] ?: payload[@"title"] ?: @"章节";
+    if (![title isKindOfClass:[NSString class]] || title.length == 0) title = @"章节";
+    NSInteger cpIndex = 0;
+    id cpi = payload[@"cpIndex"] ?: payload[@"index"];
+    if ([cpi respondsToSelector:@selector(integerValue)]) cpIndex = [cpi integerValue];
+    if ([readerVC isKindOfClass:[UIViewController class]]) {
+        @try {
+            id cur = [(UIViewController *)readerVC valueForKey:@"curCpIndex"];
+            if ([cur respondsToSelector:@selector(integerValue)]) cpIndex = [cur integerValue];
+        } @catch (__unused NSException *e) {}
+    }
+
+    UIView *textReadTV = LBSyncKickFindTextReadTV(readerVC, container);
+    CGSize tvSize = textReadTV ? textReadTV.bounds.size : CGSizeZero;
+    if (tvSize.width < 10 || tvSize.height < 10) {
+        if ([readerVC isKindOfClass:[UIViewController class]] &&
+            ((UIViewController *)readerVC).isViewLoaded) {
+            tvSize = ((UIViewController *)readerVC).view.bounds.size;
+        }
+        if (tvSize.width < 10 || tvSize.height < 10) {
+            tvSize = UIScreen.mainScreen.bounds.size;
+            tvSize.width -= 24;
+            tvSize.height -= 160;
+        }
+    }
+
+    NSMutableArray *okPaths = [NSMutableArray array];
+    BOOL chainOk = NO;
+
+    // 0) 模拟 queryFinish（confirmed：loadCurCp → queryCpFile → lpNetWorkDelegateQueryFinish → divisionResponse）
+    SEL qfSel = NSSelectorFromString(@"lpNetWorkDelegateQueryFinish:config:userInfo:");
+    if ([container respondsToSelector:qfSel]) {
+        NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
+        userInfo[@"content"] = body;
+        userInfo[@"cpContent"] = body;
+        userInfo[@"chapterContent"] = body;
+        userInfo[@"cpIndex"] = @(cpIndex);
+        userInfo[@"cpTitle"] = title;
+        NSString *chUrl = payload[@"chapterUrl"] ?: payload[@"cpUrl"];
+        if ([chUrl isKindOfClass:[NSString class]]) userInfo[@"chapterUrl"] = chUrl;
+        NSDictionary *config = @{
+            @"cpIndex": @(cpIndex),
+            @"cpTitle": title,
+            @"content": body,
+        };
+        @try {
+            ((void (*)(id, SEL, id, id, id))objc_msgSend)(container, qfSel, body, config, userInfo);
+            [okPaths addObject:@"queryFinish"];
+            LBAppendOpenReaderTrace(@"division_kick_sync queryFinish_OK");
+            NSUInteger pm0 = LBSyncKickPageModelCount(container);
+            textReadTV = LBSyncKickFindTextReadTV(readerVC, container);
+            if (pm0 > 0 || textReadTV) {
+                chainOk = YES;
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"division_kick_sync queryFinish_hit pm=%lu tv=%d",
+                                         (unsigned long)pm0, textReadTV ? 1 : 0]);
+            }
+        } @catch (NSException *ex) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"division_kick_sync queryFinish EX %@",
+                                     ex.reason ?: @""]);
+        }
+    }
+
+    // 1) divisionText → divisionResponse → onDivisionTextFinish（同步显式补链）
+    if (!chainOk) {
+        id paiban = nil;
+        @try { paiban = [readerVC valueForKey:@"tr_paibanInfo"]; } @catch (__unused NSException *e) {}
+        Class paibanMgrCls = NSClassFromString(@"PaibanManager");
+        id pm = nil;
+        if (paibanMgrCls) {
+            for (NSString *ss in @[@"sharedInstance", @"shared", @"sharedManager"]) {
+                SEL s = NSSelectorFromString(ss);
+                if ([paibanMgrCls respondsToSelector:s]) {
+                    pm = ((id (*)(id, SEL))objc_msgSend)(paibanMgrCls, s);
+                    if (pm) break;
+                }
+            }
+        }
+        id pageResult = nil;
+        if (pm) {
+            pageResult = LBCallDivisionText(pm, NO, body, title, cpIndex, tvSize, paiban);
+            if (pageResult) {
+                [okPaths addObject:[NSString stringWithFormat:@"divisionText@%@",
+                                    NSStringFromClass([pm class])]];
+            }
+        }
+        if (!pageResult && paibanMgrCls) {
+            pageResult = LBCallDivisionText(paibanMgrCls, YES, body, title, cpIndex, tvSize, paiban);
+            if (pageResult) [okPaths addObject:@"divisionText@PaibanManager"];
+        }
+        if (pageResult) {
+            id divisionTextRaw = pageResult;
+            NSArray *flatAttrPages = LBFlattenDivisionPages(pageResult);
+            id normalized = LBNormalizePageResultForDivision(pageResult, okPaths, tvSize);
+            id drPages = normalized ?: divisionTextRaw;
+            id finishPages = flatAttrPages ?: pageResult;
+            NSMutableArray *heights = sLastDivisionHeights
+                ? [sLastDivisionHeights mutableCopy]
+                : [NSMutableArray array];
+            if (LBInvokeDivisionResponse(container, drPages, title, cpIndex, heights, okPaths)) {
+                LBSyncKickInvokeOnDivisionTextFinish(container, finishPages, cpIndex);
+                chainOk = YES;
+            }
+        } else {
+            LBAppendOpenReaderTrace(@"division_kick_sync divisionText miss");
+        }
+    }
+
+    textReadTV = LBSyncKickFindTextReadTV(readerVC, container);
+    NSUInteger pmCount = LBSyncKickPageModelCount(container);
+    if ([readerVC isKindOfClass:[UIViewController class]]) {
+        NSUInteger vcPm = LBSyncKickPageModelCount(readerVC);
+        if (vcPm > pmCount) pmCount = vcPm;
+    }
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"division_kick_sync_end paths=%@ tv=%d pageModel=%lu",
+                             [okPaths componentsJoinedByString:@","],
+                             textReadTV ? 1 : 0, (unsigned long)pmCount]);
+
+    if (textReadTV || pmCount > 0) {
+        LBLoadCurCpBridgeMarkRendered();
+    }
+}
+
 void LBNoteResetContentPosted(NSDictionary *userInfo) {
     if (![userInfo isKindOfClass:[NSDictionary class]] || userInfo.count == 0) return;
     NSMutableDictionary *enriched =

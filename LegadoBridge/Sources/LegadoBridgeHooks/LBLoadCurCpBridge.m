@@ -253,7 +253,7 @@ static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArra
         }
     } @catch (__unused NSException *e) {}
 
-    // 2) xsfolder 本地章文件
+    // 2) xsfolder + localSourceText（供 queryCpFileByBook 读本地缓存）
     @try {
         NSString *bookDir = [NSHomeDirectory() stringByAppendingPathComponent:
                              [NSString stringWithFormat:@"Documents/xsfolder/book/%@", bookKey]];
@@ -264,7 +264,27 @@ static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArra
         NSString *cpPath = [bookDir stringByAppendingPathComponent:
                             [NSString stringWithFormat:@"%ld", (long)cpIndex]];
         [body writeToFile:cpPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        NSString *altPath = [bookDir stringByAppendingPathComponent:
+                             [NSString stringWithFormat:@"%@%ld", bookKey, (long)cpIndex]];
+        [body writeToFile:altPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        NSDictionary *lstPlist = @{
+            @"list": @[ @{
+                @"title": title,
+                @"url": [@(cpIndex) stringValue]
+            } ]
+        };
+        [lstPlist writeToFile:[bookDir stringByAppendingPathComponent:@"localSourceText"]
+                   atomically:YES];
+        for (id tgt in @[reader, LBFindReadPageContainerForReader(reader) ?: [NSNull null]]) {
+            if (tgt == (id)[NSNull null]) continue;
+            @try { [tgt setValue:bookDir forKey:@"bookDirPath"]; } @catch (__unused NSException *e) {}
+            if ([tgt respondsToSelector:NSSelectorFromString(@"setBookDirPath:")]) {
+                ((void (*)(id, SEL, id))objc_msgSend)(
+                    tgt, NSSelectorFromString(@"setBookDirPath:"), bookDir);
+            }
+        }
         [paths addObject:@"xsfolder"];
+        [paths addObject:@"localSourceText"];
     } @catch (__unused NSException *e) {}
 
     // 3) BookDbManager#setCpCached
@@ -346,6 +366,11 @@ static void LBInvokeOriginalLoadCurCp(id reader) {
         sOrigLoadCurCp(container, @selector(loadCurCp));
         LBStateLog([NSString stringWithFormat:@"invoke_orig_OK target=%@", containerName]);
         LBTraceLoadCurCp(@"ORIG loadCurCp OK");
+        if (sPendingPayload && LBBodyFromPayload(sPendingPayload).length > 0) {
+            LBTraceLoadCurCp(@"division_kick_sync_begin");
+            LBStateLog(@"division_kick_sync_begin");
+            LBLoadCurCpBridgeKickDivisionSync(container, reader, sPendingPayload);
+        }
     } @catch (NSException *ex) {
         LBSetState(LBLoadCurCpStateFailed, [NSString stringWithFormat:@"invoke_orig_EX %@", ex.reason ?: @""]);
         sReentryGuard = NO;
