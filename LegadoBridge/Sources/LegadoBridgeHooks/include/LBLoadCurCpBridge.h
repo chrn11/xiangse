@@ -41,11 +41,6 @@ void LBLoadCurCpBridgeReset(NSString * _Nullable reason);
 /// 诊断：当前状态名
 NSString *LBLoadCurCpBridgeStateName(void);
 
-/// 假设 E：loadCurCp invoke_OK 后窄路径补链（queryCpFile→division→onDivisionTextFinish）
-void LBLoadCurCpBridgeKickDivisionChain(id _Nullable readerVC,
-                                        id _Nullable container,
-                                        NSDictionary * _Nullable payload);
-
 NS_ASSUME_NONNULL_END
 
 #endif /* LBLoadCurCpBridge_h */
