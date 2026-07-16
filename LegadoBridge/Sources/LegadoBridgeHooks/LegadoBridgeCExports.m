@@ -702,6 +702,9 @@ static BOOL sContentInjectBusy = NO;
 static BOOL sShowPage0ThisInject = NO;
 /// 单次 contentInject 内仅调一次 onDivisionTextFinish（重复曾 SIGABRT sig=6）
 static BOOL sOnDivisionFinishDoneThisInject = NO;
+/// 假设 L：kick divisionResponse 成功后短窗禁止 contentInject deliver（防 postCurCp 二次灌入）
+static NSTimeInterval sKickDeliverBlockUntilTs = 0;
+static const NSTimeInterval kKickDeliverBlockSec = 3.0;
 static UIViewController *sHiddenBookDetail = nil;
 
 static void LBFlushPendingResetContent(NSString *phase);
@@ -3376,6 +3379,8 @@ static NSDictionary *LBBuildProcessPageUserInfo(UIViewController *readerVC, NSIn
                 break;
             }
         }
+        if (ui[@"cpTitle"]) ui[@"cpTitle"] = LBSafeCpTitleString(ui[@"cpTitle"]);
+        if (ui[@"title"]) ui[@"title"] = LBSafeCpTitleString(ui[@"title"]);
         id arrCp = nil;
         @try { arrCp = [readerVC valueForKey:@"arrCpIndex"]; } @catch (__unused NSException *e) {}
         if ([arrCp isKindOfClass:[NSArray class]]) ui[@"arrCpIndex"] = arrCp;
@@ -5386,8 +5391,22 @@ LB_INJECT_FINISH:
     }
 }
 
+static BOOL LBKickDeliverBlocked(void) {
+    return sKickDeliverBlockUntilTs > 0 &&
+           CFAbsoluteTimeGetCurrent() < sKickDeliverBlockUntilTs;
+}
+
+static void LBKickMarkDeliverBlock(void) {
+    sKickDeliverBlockUntilTs = CFAbsoluteTimeGetCurrent() + kKickDeliverBlockSec;
+}
+
 /// 向可见 TextRead 交付正文：nativeFull 优先原生缓存/排版；禁止无参 onReset 空读「错误的书本」
 static void LBDeliverContentToVisibleReaders(NSString *phase) {
+    if (LBKickDeliverBlocked()) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"deliver_skip_after_kick phase=%@", phase ?: @""]);
+        return;
+    }
     NSDictionary *payload = sPendingResetContent;
     if (![payload isKindOfClass:[NSDictionary class]] || payload.count == 0) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:@"deliverSkip empty phase=%@", phase ?: @""]);
@@ -6430,6 +6449,17 @@ static int LBSyncKickNeedleFlag(UIView *textReadTV) {
     return 0;
 }
 
+/// 假设 L：divisionResponse 后记录 pageModel/TV/needle（验原版链是否自然上屏）
+static void LBSyncKickLogPostDR(NSString *phase, id container, id readerVC,
+                                UIView *textReadTV) {
+    NSUInteger pm = 0;
+    (void)LBSyncKickHasStrictRenderEvidence(container, readerVC, textReadTV, &pm);
+    int needle = LBSyncKickNeedleFlag(textReadTV);
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"division_kick_sync %@ postDR_pm=%lu postDR_tv=%d postDR_needle=%d",
+                             phase ?: @"?", (unsigned long)pm, textReadTV ? 1 : 0, needle]);
+}
+
 static BOOL LBSyncKickInvokeOnDivisionTextFinish(id container, id pageResult, NSInteger cpIndex) {
     if (!container || !pageResult) return NO;
     SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
@@ -6473,7 +6503,8 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
         return;
     }
     NSString *title = payload[@"cpTitle"] ?: payload[@"title"] ?: @"章节";
-    if (![title isKindOfClass:[NSString class]] || title.length == 0) title = @"章节";
+    title = LBSafeCpTitleString(title);
+    if (title.length == 0) title = @"章节";
     NSInteger cpIndex = 0;
     id cpi = payload[@"cpIndex"] ?: payload[@"index"];
     if ([cpi respondsToSelector:@selector(integerValue)]) cpIndex = [cpi integerValue];
@@ -6501,24 +6532,41 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
     NSMutableArray *okPaths = [NSMutableArray array];
     BOOL chainOk = NO;
 
-    // 0) 模拟 queryFinish（confirmed：loadCurCp → queryCpFile → lpNetWorkDelegateQueryFinish → divisionResponse）
+    textReadTV = LBSyncKickFindTextReadTV(readerVC, container);
+    NSUInteger pmPre = 0;
+    if (LBSyncKickHasStrictRenderEvidence(container, readerVC, textReadTV, &pmPre)) {
+        chainOk = YES;
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"division_kick_sync pre_hit pm=%lu tv=%d needle=%d",
+                                 (unsigned long)pmPre, textReadTV ? 1 : 0,
+                                 LBSyncKickNeedleFlag(textReadTV)]);
+    }
+
+    // 0) queryFinish 仅非空壳早退（空壳 TV 调原生 QF 会二次 divisionResponse → NSArrayM length）
     SEL qfSel = NSSelectorFromString(@"lpNetWorkDelegateQueryFinish:config:userInfo:");
-    if ([container respondsToSelector:qfSel]) {
+    BOOL emptyShell = (textReadTV != nil && pmPre == 0 && LBSyncKickNeedleFlag(textReadTV) == 0);
+    if (!chainOk && !emptyShell && [container respondsToSelector:qfSel]) {
         NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
         userInfo[@"content"] = body;
         userInfo[@"cpContent"] = body;
         userInfo[@"chapterContent"] = body;
         userInfo[@"cpIndex"] = @(cpIndex);
-        userInfo[@"cpTitle"] = title;
+        userInfo[@"cpTitle"] = LBSafeCpTitleString(title);
         NSString *chUrl = payload[@"chapterUrl"] ?: payload[@"cpUrl"];
         if ([chUrl isKindOfClass:[NSString class]]) userInfo[@"chapterUrl"] = chUrl;
         NSDictionary *config = @{
             @"cpIndex": @(cpIndex),
-            @"cpTitle": title,
+            @"cpTitle": LBSafeCpTitleString(title),
             @"content": body,
         };
+        NSDictionary *qfResponse = @{
+            @"content": body,
+            @"cpContent": body,
+            @"chapterContent": body,
+        };
         @try {
-            ((void (*)(id, SEL, id, id, id))objc_msgSend)(container, qfSel, body, config, userInfo);
+            ((void (*)(id, SEL, id, id, id))objc_msgSend)(
+                container, qfSel, qfResponse, config, userInfo);
             [okPaths addObject:@"queryFinish"];
             LBAppendOpenReaderTrace(@"division_kick_sync queryFinish_OK");
             textReadTV = LBSyncKickFindTextReadTV(readerVC, container);
@@ -6540,9 +6588,11 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
                                      @"division_kick_sync queryFinish EX %@",
                                      ex.reason ?: @""]);
         }
+    } else if (!chainOk && emptyShell) {
+        LBAppendOpenReaderTrace(@"division_kick_sync queryFinish_skip emptyShell");
     }
 
-    // 1) divisionText → divisionResponse → onDivisionTextFinish（同步显式补链）
+    // 1) divisionText → divisionResponse（raw Attr 页，禁 wrapRPM / 禁显式 onFinish）
     if (!chainOk) {
         id paiban = nil;
         @try { paiban = [readerVC valueForKey:@"tr_paibanInfo"]; } @catch (__unused NSException *e) {}
@@ -6578,14 +6628,22 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
         }
         if (pageResult) {
             id divisionTextRaw = pageResult;
-            id normalized = LBNormalizePageResultForDivision(pageResult, okPaths, tvSize);
-            id drPages = normalized ?: divisionTextRaw;
+            NSArray *flatAttrPages = LBFlattenDivisionPages(pageResult);
+            id drPages = flatAttrPages.count > 0 ? flatAttrPages : divisionTextRaw;
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"division_kick_sync DR_arg=%@",
+                                     LBDescribeOnFinishArg(drPages)]);
             NSMutableArray *heights = sLastDivisionHeights
                 ? [sLastDivisionHeights mutableCopy]
                 : [NSMutableArray array];
-            if (LBInvokeDivisionResponse(container, drPages, title, cpIndex, heights, okPaths)) {
+            NSString *safeTitle = LBSafeCpTitleString(title);
+            if (LBInvokeDivisionResponse(container, drPages, safeTitle, cpIndex, heights, okPaths)) {
                 LBAppendOpenReaderTrace(@"division_kick_sync divisionResponse_OK");
-                if (LBSyncKickInvokeOnDivisionTextFinish(container, divisionTextRaw, cpIndex)) {
+                textReadTV = LBSyncKickFindTextReadTV(readerVC, container);
+                LBSyncKickLogPostDR(@"afterDR", container, readerVC, textReadTV);
+                LBKickMarkDeliverBlock();
+                LBAppendOpenReaderTrace(@"division_kick_sync explicit_onFinish_disabled");
+                if (LBSyncKickHasStrictRenderEvidence(container, readerVC, textReadTV, NULL)) {
                     chainOk = YES;
                 }
             } else {
