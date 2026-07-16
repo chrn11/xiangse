@@ -706,6 +706,8 @@ static void LBFlushPendingResetContent(NSString *phase);
 static void LBAppendOpenReaderTrace(NSString *msg);
 static BOOL LBNativeOpenGateBlocked(NSString **outReason);
 static void LBClearNativeOpenOnceState(NSString *reason);
+static BOOL LBBridgeDebugLoaded(void);
+static BOOL LBInjectOkPathsCountAsSuccess(NSArray *paths, BOOL nativePaged);
 static const char kLBCatIdxKey;
 
 static void LBCatalogWriteMarker(NSString *msg) {
@@ -1432,7 +1434,27 @@ static void LBClearNativeOpenOnceMarker(void) {
     }
 }
 
-/// SIGABRT/崩溃或 sameKey 空投递后清磁盘锁与进程内占坑，允许重开章
+/// LegadoBridgeDebug 已加载时才允许 overlay / accessibility probe
+static BOOL LBBridgeDebugLoaded(void) {
+    return NSClassFromString(@"LBDebugPanel") != nil;
+}
+
+/// overlay / probe / native_bind_failed 不算成功注入
+static BOOL LBInjectOkPathsCountAsSuccess(NSArray *paths, BOOL nativePaged) {
+    if (nativePaged) return YES;
+    static NSSet *nonSuccess = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        nonSuccess = [NSSet setWithObjects:
+            @"native_bind_failed", @"overlay92011", @"tvHasNeedleProbeOnly",
+            @"probeOnlyPostDR", nil];
+    });
+    for (NSString *p in paths) {
+        if (![nonSuccess containsObject:p]) return YES;
+    }
+    return NO;
+}
+
 static void LBClearNativeOpenOnceState(NSString *reason) {
     LBNativeOpenOnceLockInit();
     @synchronized(sNativeOpenOnceLock) {
@@ -3114,8 +3136,9 @@ static NSString *LBExtractPlainFromPageModel(id model) {
     return nil;
 }
 
-/// 验收探针：MCP assert_text_present 与 nativePaged 均读 accessibility*
+/// 验收探针：仅 Debug 包写 accessibility*（MCP assert_text_present）
 static void LBStampTextReadTVProbe(UIView *tv, id pageModel, NSString *body) {
+    if (!LBBridgeDebugLoaded()) return;
     if (!tv) return;
     NSString *plain = LBExtractPlainFromPageModel(pageModel);
     if (plain.length == 0 && [body isKindOfClass:[NSString class]]) plain = body;
@@ -4565,39 +4588,44 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
             }
         }
         if (!canNativeBind && body.length > 0) {
-            LBAppendOpenReaderTrace(@"contentInject overlayOnly noNativeBindPath");
-            @try {
-                if (readerVC.isViewLoaded && readerVC.view) {
-                    UIView *host = readerVC.view;
-                    UITextView *overlay = (UITextView *)[host viewWithTag:92011];
-                    if (!overlay) {
-                        CGFloat top = 88, bottom = 72;
-                        CGRect f = CGRectMake(12, top, host.bounds.size.width - 24,
-                                              MAX(120, host.bounds.size.height - top - bottom));
-                        overlay = [[UITextView alloc] initWithFrame:f];
-                        overlay.tag = 92011;
-                        overlay.editable = NO;
-                        overlay.backgroundColor = [UIColor clearColor];
-                        overlay.font = [UIFont systemFontOfSize:18];
-                        overlay.textColor = [UIColor darkTextColor];
-                        overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth |
-                            UIViewAutoresizingFlexibleHeight;
-                        [host addSubview:overlay];
+            if (LBBridgeDebugLoaded()) {
+                LBAppendOpenReaderTrace(@"contentInject overlayOnly noNativeBindPath (debug)");
+                @try {
+                    if (readerVC.isViewLoaded && readerVC.view) {
+                        UIView *host = readerVC.view;
+                        UITextView *overlay = (UITextView *)[host viewWithTag:92011];
+                        if (!overlay) {
+                            CGFloat top = 88, bottom = 72;
+                            CGRect f = CGRectMake(12, top, host.bounds.size.width - 24,
+                                                  MAX(120, host.bounds.size.height - top - bottom));
+                            overlay = [[UITextView alloc] initWithFrame:f];
+                            overlay.tag = 92011;
+                            overlay.editable = NO;
+                            overlay.backgroundColor = [UIColor clearColor];
+                            overlay.font = [UIFont systemFontOfSize:18];
+                            overlay.textColor = [UIColor darkTextColor];
+                            overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth |
+                                UIViewAutoresizingFlexibleHeight;
+                            [host addSubview:overlay];
+                        }
+                        overlay.text = [NSString stringWithFormat:@"%@\n\n%@", title, body];
+                        overlay.accessibilityLabel = body;
+                        overlay.hidden = NO;
+                        [host bringSubviewToFront:overlay];
+                        [okPaths addObject:@"overlay92011"];
                     }
-                    overlay.text = [NSString stringWithFormat:@"%@\n\n%@", title, body];
-                    overlay.accessibilityLabel = body;
-                    overlay.hidden = NO;
-                    [host bringSubviewToFront:overlay];
-                    [okPaths addObject:@"overlay92011"];
+                    if (textReadTV) {
+                        LBStampTextReadTVProbe(textReadTV, nil, body);
+                        [okPaths addObject:@"tvHasNeedleProbeOnly"];
+                    }
+                } @catch (NSException *ex) {
+                    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                             @"contentInject overlayOnly EX %@", ex.reason ?: @""]);
                 }
-                if (textReadTV) {
-                    LBStampTextReadTVProbe(textReadTV, nil, body);
-                    [okPaths addObject:@"tvHasNeedleProbeOnly"];
-                }
-            } @catch (NSException *ex) {
-                LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                         @"contentInject overlayOnly EX %@", ex.reason ?: @""]);
+                goto LB_INJECT_FINISH;
             }
+            LBAppendOpenReaderTrace(@"contentInject native_bind_failed noNativeBindPath");
+            [okPaths addObject:@"native_bind_failed"];
             goto LB_INJECT_FINISH;
         }
 
@@ -5184,7 +5212,7 @@ LB_INJECT_FINISH:
                 }
             } @catch (__unused NSException *e) {}
             @try {
-                if (readerVC.isViewLoaded && readerVC.view) {
+                if (LBBridgeDebugLoaded() && readerVC.isViewLoaded && readerVC.view) {
                     UIView *host = readerVC.view;
                     UITextView *overlay = (UITextView *)[host viewWithTag:92011];
                     if (!overlay) {
@@ -5206,6 +5234,9 @@ LB_INJECT_FINISH:
                     overlay.hidden = NO;
                     [host bringSubviewToFront:overlay];
                     [okPaths addObject:@"overlay92011"];
+                } else if (!LBBridgeDebugLoaded()) {
+                    LBAppendOpenReaderTrace(@"contentInject native_bind_failed divisionTextMiss");
+                    [okPaths addObject:@"native_bind_failed"];
                 }
             } @catch (NSException *ex) {
                 LBAppendOpenReaderTrace([NSString stringWithFormat:@"contentInject overlay EX %@",
@@ -5270,7 +5301,7 @@ LB_INJECT_FINISH:
                                  @"nativeOpen keepTextRead readerVis=1 via=nativeFull contentInject=%@ nativePaged=%d division=%d phase=%@",
                                  pathStr, nativePaged ? 1 : 0, hasDivisionPath ? 1 : 0, phase ?: @""]);
     }
-    return okPaths.count > 0;
+    return LBInjectOkPathsCountAsSuccess(okPaths, nativePaged);
     } @catch (NSException *exTop) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:@"contentInject TOP_EX %@",
                                  exTop.reason ?: @""]);
