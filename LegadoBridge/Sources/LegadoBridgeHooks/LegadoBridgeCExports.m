@@ -6355,27 +6355,63 @@ static NSUInteger LBSyncKickPageModelCount(id host) {
     return 0;
 }
 
+/// 假设 I：queryFinish 后仅 pageModel>0 或 strict needle/CTFrame 才算上屏成功
+static BOOL LBSyncKickHasStrictRenderEvidence(id container, id readerVC, UIView *textReadTV,
+                                              NSUInteger *outPm) {
+    NSUInteger pm = LBSyncKickPageModelCount(container);
+    if ([readerVC isKindOfClass:[UIViewController class]]) {
+        NSUInteger vcPm = LBSyncKickPageModelCount(readerVC);
+        if (vcPm > pm) pm = vcPm;
+    }
+    if (outPm) *outPm = pm;
+    if (pm > 0) return YES;
+    if (!textReadTV) return NO;
+    if (LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎") ||
+        LBTextReadTVHasRenderedNeedle(textReadTV, @"斗气")) {
+        return YES;
+    }
+    for (NSString *k in @[@"pageModel", @"curPageModel", @"_pageModel"]) {
+        @try {
+            id tvPm = [textReadTV valueForKey:k];
+            if (tvPm && LBReadPageModelHasCTFrame(tvPm)) return YES;
+        } @catch (__unused NSException *e) {}
+    }
+    return NO;
+}
+
+static int LBSyncKickNeedleFlag(UIView *textReadTV) {
+    if (!textReadTV) return 0;
+    if (LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎") ||
+        LBTextReadTVHasRenderedNeedle(textReadTV, @"斗气")) {
+        return 1;
+    }
+    return 0;
+}
+
 static BOOL LBSyncKickInvokeOnDivisionTextFinish(id container, id pageResult, NSInteger cpIndex) {
     if (!container || !pageResult) return NO;
     SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
     Class tcls = object_getClass(container);
     if (![container respondsToSelector:finish] && !class_getInstanceMethod(tcls, finish)) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"division_kick_sync onFinish noSel host=%@",
+                                 @"division_kick_sync onFinish_MISS noSel host=%@",
                                  NSStringFromClass(tcls)]);
         return NO;
     }
     id finishArg = LBWrapPageResultForOnDivisionTextFinish(pageResult);
-    if (!finishArg) return NO;
+    if (!finishArg) {
+        LBAppendOpenReaderTrace(@"division_kick_sync onFinish_MISS wrapFail");
+        return NO;
+    }
     @try {
         ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(container, finish, finishArg, cpIndex);
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"division_kick_sync onDivisionTextFinish@%@",
+                                 @"division_kick_sync onFinish_OK@%@",
                                  NSStringFromClass(tcls)]);
         return YES;
     } @catch (NSException *ex) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"division_kick_sync onFinish EX %@",
+                                 @"division_kick_sync onFinish_MISS EX %@",
                                  ex.reason ?: @""]);
         return NO;
     }
@@ -6443,13 +6479,19 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
             ((void (*)(id, SEL, id, id, id))objc_msgSend)(container, qfSel, body, config, userInfo);
             [okPaths addObject:@"queryFinish"];
             LBAppendOpenReaderTrace(@"division_kick_sync queryFinish_OK");
-            NSUInteger pm0 = LBSyncKickPageModelCount(container);
             textReadTV = LBSyncKickFindTextReadTV(readerVC, container);
-            if (pm0 > 0 || textReadTV) {
+            NSUInteger pm0 = 0;
+            if (LBSyncKickHasStrictRenderEvidence(container, readerVC, textReadTV, &pm0)) {
                 chainOk = YES;
                 LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                         @"division_kick_sync queryFinish_hit pm=%lu tv=%d",
-                                         (unsigned long)pm0, textReadTV ? 1 : 0]);
+                                         @"division_kick_sync queryFinish_hit pm=%lu tv=%d needle=%d",
+                                         (unsigned long)pm0, textReadTV ? 1 : 0,
+                                         LBSyncKickNeedleFlag(textReadTV)]);
+            } else {
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"division_force_continue pm=%lu tv=%d needle=%d",
+                                         (unsigned long)pm0, textReadTV ? 1 : 0,
+                                         LBSyncKickNeedleFlag(textReadTV)]);
             }
         } @catch (NSException *ex) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:
@@ -6479,11 +6521,18 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
             if (pageResult) {
                 [okPaths addObject:[NSString stringWithFormat:@"divisionText@%@",
                                     NSStringFromClass([pm class])]];
+                LBAppendOpenReaderTrace(@"division_kick_sync divisionText_OK");
             }
         }
         if (!pageResult && paibanMgrCls) {
             pageResult = LBCallDivisionText(paibanMgrCls, YES, body, title, cpIndex, tvSize, paiban);
-            if (pageResult) [okPaths addObject:@"divisionText@PaibanManager"];
+            if (pageResult) {
+                [okPaths addObject:@"divisionText@PaibanManager"];
+                LBAppendOpenReaderTrace(@"division_kick_sync divisionText_OK");
+            }
+        }
+        if (!pageResult) {
+            LBAppendOpenReaderTrace(@"division_kick_sync divisionText_MISS");
         }
         if (pageResult) {
             id divisionTextRaw = pageResult;
@@ -6495,28 +6544,44 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
                 ? [sLastDivisionHeights mutableCopy]
                 : [NSMutableArray array];
             if (LBInvokeDivisionResponse(container, drPages, title, cpIndex, heights, okPaths)) {
-                LBSyncKickInvokeOnDivisionTextFinish(container, finishPages, cpIndex);
-                chainOk = YES;
+                LBAppendOpenReaderTrace(@"division_kick_sync divisionResponse_OK");
+                if (LBSyncKickInvokeOnDivisionTextFinish(container, finishPages, cpIndex)) {
+                    chainOk = YES;
+                }
+            } else {
+                LBAppendOpenReaderTrace(@"division_kick_sync divisionResponse_MISS");
             }
-        } else {
-            LBAppendOpenReaderTrace(@"division_kick_sync divisionText miss");
         }
     }
 
     textReadTV = LBSyncKickFindTextReadTV(readerVC, container);
-    NSUInteger pmCount = LBSyncKickPageModelCount(container);
-    if ([readerVC isKindOfClass:[UIViewController class]]) {
-        NSUInteger vcPm = LBSyncKickPageModelCount(readerVC);
-        if (vcPm > pmCount) pmCount = vcPm;
-    }
+    NSUInteger pmCount = 0;
+    (void)LBSyncKickHasStrictRenderEvidence(container, readerVC, textReadTV, &pmCount);
+    int needleFlag = LBSyncKickNeedleFlag(textReadTV);
     LBAppendOpenReaderTrace([NSString stringWithFormat:
-                             @"division_kick_sync_end paths=%@ tv=%d pageModel=%lu",
+                             @"division_kick_sync_end paths=%@ tv=%d pm=%lu needle=%d",
                              [okPaths componentsJoinedByString:@","],
-                             textReadTV ? 1 : 0, (unsigned long)pmCount]);
+                             textReadTV ? 1 : 0, (unsigned long)pmCount, needleFlag]);
 
-    if (textReadTV || pmCount > 0) {
+    if (textReadTV && (pmCount > 0 || needleFlag)) {
         LBLoadCurCpBridgeMarkRendered();
     }
+
+    // 假设 I：kick 后 1.5s 写 forensics marker，避免 openOnce 二次深链弹走页后再 dump
+    __weak id wContainer = container;
+    __weak id wReaderVC = readerVC;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        id c = wContainer;
+        id r = wReaderVC;
+        if (!c) return;
+        UIView *tv = LBSyncKickFindTextReadTV(r, c);
+        NSUInteger pm = 0;
+        (void)LBSyncKickHasStrictRenderEvidence(c, r, tv, &pm);
+        LBWriteOpenReaderMarker([NSString stringWithFormat:
+                                 @"division_kick_forensics pm=%lu tv=%d needle=%d",
+                                 (unsigned long)pm, tv ? 1 : 0, LBSyncKickNeedleFlag(tv)]);
+    });
 }
 
 void LBNoteResetContentPosted(NSDictionary *userInfo) {
