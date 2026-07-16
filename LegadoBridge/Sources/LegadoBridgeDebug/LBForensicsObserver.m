@@ -147,20 +147,31 @@ static void LBFScheduleAutoDump(id triggerVC, NSString *phase) {
         g_autoDumpQueue = dispatch_queue_create("com.legado.forensics.autodump", DISPATCH_QUEUE_SERIAL);
     }
     NSDictionary *uiHints = LBFGatherAutoDumpUIHints(triggerVC);
-    dispatch_async(g_autoDumpQueue, ^{
-        __block NSDictionary *dump = nil;
-        dispatch_sync(dispatch_get_main_queue(), ^{
-            @try {
-                dump = LBForensicsPerformDump(phase);
-            } @catch (__unused NSException *e) {
-                dump = nil;
-            }
-        });
-        if (!dump) return;
-        NSMutableDictionary *merged = [dump mutableCopy];
-        merged[@"autoDumpHints"] = uiHints;
+    __block NSDictionary *dump = nil;
+    void (^capture)(void) = ^{
         @try {
-            LBForensicsWriteDumpFiles(merged);
+            dump = LBForensicsPerformDump(phase);
+        } @catch (__unused NSException *e) {
+            dump = nil;
+        }
+    };
+    if ([NSThread isMainThread]) {
+        capture();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), capture);
+    }
+    if (!dump) return;
+    NSMutableDictionary *merged = [dump mutableCopy];
+    merged[@"autoDumpHints"] = uiHints;
+    merged[@"liveCapture"] = @{
+        @"triggerClass": LBFShapeOfObject(triggerVC),
+        @"triggerAddress": LBForensicsPointer(triggerVC),
+        @"capturedOnMain": @([NSThread isMainThread]),
+    };
+    NSDictionary *finalDump = [merged copy];
+    dispatch_async(g_autoDumpQueue, ^{
+        @try {
+            LBForensicsWriteDumpFiles(finalDump);
         } @catch (__unused NSException *e) {}
     });
 }
@@ -192,8 +203,8 @@ static void LBFMaybeScheduleAutoDumpAfterDelay(id selfObj, SEL sel, NSString *ow
 
 static void LBFLeafHook_viewDidLoad(id self, SEL _cmd) {
     NSString *owner = NSStringFromClass(object_getClass(self));
-    LBFMaybeScheduleAutoDumpAfterDelay(self, _cmd, owner, 0.35);
     LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner);
+    LBFMaybeScheduleAutoDump(self, _cmd, owner);
     @try {
         IMP imp = LBFGetOrigIMP(owner, _cmd);
         if (imp) ((void (*)(id, SEL))imp)(self, _cmd);
@@ -208,8 +219,8 @@ static void LBFLeafHook_viewDidLoad(id self, SEL _cmd) {
 
 static void LBFLeafHook_loadCurCp(id self, SEL _cmd) {
     NSString *owner = NSStringFromClass(object_getClass(self));
-    LBFMaybeScheduleAutoDumpAfterDelay(self, _cmd, owner, 0.35);
     LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner);
+    LBFMaybeScheduleAutoDump(self, _cmd, owner);
     @try {
         IMP imp = LBFGetOrigIMP(owner, _cmd);
         if (imp) ((void (*)(id, SEL))imp)(self, _cmd);
