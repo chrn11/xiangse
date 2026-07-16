@@ -20,9 +20,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.ios_mcp_client import DEFAULT_BUNDLE, McpClient, McpError
+from tools.repack.manifest import REQUIRED_FIELDS, validate_manifest
 
 DEFAULT_MOCK = os.environ.get("XIANGSE_MOCK", "http://192.168.1.4:8765")
 OUT_DIR = ROOT / "fixtures" / "_devkit"
+MANIFEST_STATE = OUT_DIR / "last_install_manifest.json"
+MANIFEST_COPY_DIR = OUT_DIR / "manifest_copies"
 TRACE_KEYWORDS = (
     "preferNativeFull",
     "SIGNAL",
@@ -52,11 +55,127 @@ def _print(data: Any) -> None:
     print(json.dumps(data, ensure_ascii=False, indent=2))
 
 
+def _parse_iso_utc(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        if value.endswith("Z"):
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _save_manifest_copy(manifest: dict[str, Any], label: str) -> Path:
+    MANIFEST_COPY_DIR.mkdir(parents=True, exist_ok=True)
+    dest = MANIFEST_COPY_DIR / f"{label}_{_ts()}.json"
+    dest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return dest
+
+
+def _load_install_state() -> dict[str, Any]:
+    if MANIFEST_STATE.is_file():
+        try:
+            data = json.loads(MANIFEST_STATE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except json.JSONDecodeError:
+            pass
+    return {}
+
+
+def _save_install_state(manifest: dict[str, Any]) -> None:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    state = {
+        "installed_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "manifest": manifest,
+    }
+    MANIFEST_STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _read_device_manifest(client: McpClient) -> dict[str, Any] | None:
+    return client.read_build_manifest()
+
+
+def _check_manifest_expectations(
+    manifest: dict[str, Any] | None,
+    args: argparse.Namespace,
+    *,
+    require_device: bool = False,
+) -> tuple[list[str], dict[str, Any] | None]:
+    errors: list[str] = []
+    if manifest is None:
+        if require_device:
+            errors.append("无法从已安装 App 读取 reader-build-manifest.json")
+        return errors, None
+    errors.extend(
+        validate_manifest(
+            manifest,
+            expected_variant=getattr(args, "expected_variant", None),
+            expected_run=getattr(args, "expected_run", None),
+            expected_sha=getattr(args, "expected_sha", None),
+        )
+    )
+    return errors, manifest
+
+
+def _guard_manifest(client: McpClient, args: argparse.Namespace, *, require_device: bool = False) -> dict[str, Any] | None:
+    """任一 manifest 期望不匹配则 SystemExit(非 0)。"""
+    if not any(
+        (
+            getattr(args, "expected_variant", None),
+            getattr(args, "expected_run", None),
+            getattr(args, "expected_sha", None),
+            require_device,
+        )
+    ):
+        return _read_device_manifest(client) if require_device else None
+    manifest = _read_device_manifest(client)
+    errors, manifest = _check_manifest_expectations(manifest, args, require_device=require_device)
+    if errors:
+        _print({"manifest_errors": errors, "manifest": manifest})
+        raise SystemExit(3)
+    return manifest
+
+
+def _is_dump_stale(dump_text: str, install_state: dict[str, Any]) -> bool:
+    if not dump_text.strip():
+        return False
+    installed_at = _parse_iso_utc(install_state.get("installed_at_utc", ""))
+    manifest = install_state.get("manifest") if isinstance(install_state.get("manifest"), dict) else {}
+    built_at = _parse_iso_utc(str(manifest.get("built_at_utc", "")))
+    ref = installed_at or built_at
+    if not ref:
+        return False
+    # dump 首行常含 UTC 时间戳
+    m = re.search(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)", dump_text[:200])
+    if not m:
+        return False
+    dump_at = _parse_iso_utc(m.group(1))
+    if not dump_at:
+        return False
+    return dump_at < ref
+
+
+def add_manifest_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--expected-sha", help="期望 manifest 内某哈希字段完全匹配")
+    parser.add_argument("--expected-run", help="期望 github_run_id")
+    parser.add_argument("--expected-variant", choices=["baseline-debug", "legado-debug"], help="期望 variant")
+
+
+def attach_manifest_to_output(out: dict[str, Any], manifest: dict[str, Any] | None) -> None:
+    if manifest is not None:
+        out["build_manifest"] = manifest
+
+
 def make_client(args: argparse.Namespace) -> McpClient:
     return McpClient(base_url=args.mcp, bundle_id=args.bundle)
 
 
 def cmd_status(client: McpClient, args: argparse.Namespace) -> int:
+    manifest = _guard_manifest(client, args, require_device=bool(
+        args.expected_variant or args.expected_run or args.expected_sha
+    ))
     out: dict[str, Any] = {"bundle": client.bundle_id}
     try:
         out["health"] = client.health()
@@ -82,6 +201,7 @@ def cmd_status(client: McpClient, args: argparse.Namespace) -> int:
         open_once[p] = client.file_exists(p)
     out["open_once"] = open_once
     out["open_once_present"] = any(open_once.values())
+    attach_manifest_to_output(out, manifest)
     _print(out)
     return 0 if not out.get("health_error") and not out.get("app_info_error") else 1
 
@@ -266,26 +386,42 @@ def resolve_local_ipa(args: argparse.Namespace) -> Path:
     for old in out_dir.glob("*.ipa"):
         old.unlink(missing_ok=True)
 
+    artifact = getattr(args, "artifact", None) or "LegadoBridge-IPA"
+    if getattr(args, "forensics", False):
+        artifact = "Reader-Forensics-IPAs"
+
     if args.run_id:
-        dl_cmd = ["gh", "run", "download", str(args.run_id), "-n", "LegadoBridge-IPA", "-D", str(out_dir)]
+        dl_cmd = ["gh", "run", "download", str(args.run_id), "-n", artifact, "-D", str(out_dir)]
     else:
+        workflow = "reader-forensics.yml" if getattr(args, "forensics", False) else "bridge-ci.yml"
         listed = _run_subprocess(
-            ["gh", "run", "list", "--workflow", "bridge-ci.yml", "--status", "success", "--limit", "1", "--json", "databaseId"],
+            ["gh", "run", "list", "--workflow", workflow, "--status", "success", "--limit", "1", "--json", "databaseId"],
             cwd=ROOT,
         )
         if listed.returncode != 0:
             raise SystemExit(f"gh run list 失败: {listed.stderr or listed.stdout}")
         runs = json.loads(listed.stdout or "[]")
         if not runs:
-            raise SystemExit("未找到成功的 bridge-ci workflow run")
+            raise SystemExit(f"未找到成功的 {workflow} workflow run")
         run_id = str(runs[0]["databaseId"])
-        dl_cmd = ["gh", "run", "download", run_id, "-n", "LegadoBridge-IPA", "-D", str(out_dir)]
+        dl_cmd = ["gh", "run", "download", run_id, "-n", artifact, "-D", str(out_dir)]
 
     dl = _run_subprocess(dl_cmd, cwd=ROOT)
     if dl.returncode != 0:
         raise SystemExit(f"gh run download 失败: {dl.stderr or dl.stdout}")
 
-    candidates = list(out_dir.rglob("StandarReader-legado-bridge.ipa"))
+    variant = getattr(args, "expected_variant", None)
+    name_map = {
+        "baseline-debug": "StandarReader-baseline-debug.ipa",
+        "legado-debug": "StandarReader-legado-debug.ipa",
+    }
+    preferred = name_map.get(variant or "", "")
+    if preferred:
+        candidates = list(out_dir.rglob(preferred))
+    else:
+        candidates = list(out_dir.rglob("StandarReader-legado-bridge-debug.ipa"))
+        if not candidates:
+            candidates = list(out_dir.rglob("StandarReader-legado-bridge.ipa"))
     if not candidates:
         candidates = list(out_dir.rglob("*.ipa"))
     if not candidates:
@@ -312,8 +448,21 @@ def cmd_install(client: McpClient, args: argparse.Namespace) -> int:
 
     ins = client.call("install_app", {"path": device_path}, timeout=args.timeout)
     steps.append(f"install={ins}")
+    time.sleep(2)
 
-    out = {"steps": steps, "device_path": device_path, "install_result": ins}
+    manifest = _read_device_manifest(client)
+    errors, manifest = _check_manifest_expectations(manifest, args, require_device=True)
+    if errors:
+        out = {"steps": steps, "device_path": device_path, "manifest_errors": errors, "build_manifest": manifest}
+        _print(out)
+        return 3
+
+    if manifest:
+        _save_install_state(manifest)
+        copy_path = _save_manifest_copy(manifest, "install")
+        steps.append(f"manifest_copy={copy_path}")
+
+    out = {"steps": steps, "device_path": device_path, "install_result": ins, "build_manifest": manifest}
     _print(out)
     return 0
 
@@ -324,6 +473,10 @@ def extract_signal(marker_text: str, trace_text: str) -> list[str]:
 
 
 def cmd_debug_dump(client: McpClient, args: argparse.Namespace) -> int:
+    manifest = _guard_manifest(client, args, require_device=bool(
+        args.expected_variant or args.expected_run or args.expected_sha
+    ))
+    install_state = _load_install_state()
     if args.trigger:
         client.call("launch_app", {"bundle_id": client.bundle_id})
         time.sleep(args.trigger_wait)
@@ -331,6 +484,14 @@ def cmd_debug_dump(client: McpClient, args: argparse.Namespace) -> int:
         time.sleep(args.trigger_wait)
     dump_text = client.read_sandbox_text("legado_debug_dump.txt", max_bytes=args.max_bytes)
     crash_text = client.read_sandbox_text("legado_debug_crash.txt", max_bytes=args.max_bytes)
+    if _is_dump_stale(dump_text, install_state):
+        out = {
+            "error": "stale_dump",
+            "message": "debug dump 时间早于安装/构建时间，不可作为成功证据",
+            "build_manifest": manifest,
+        }
+        _print(out)
+        return 4
     keywords = tuple(args.keyword) if args.keyword else DEBUG_DUMP_KEYWORDS
     out = {
         "dump_hits": filter_trace_lines(dump_text, keywords),
@@ -341,6 +502,10 @@ def cmd_debug_dump(client: McpClient, args: argparse.Namespace) -> int:
         "has_nsarraym": "NSArrayM" in crash_text or "NSArrayM" in dump_text,
         "has_sigabrt": "SIGABRT" in crash_text or "sig=6" in crash_text,
     }
+    attach_manifest_to_output(out, manifest)
+    if manifest:
+        copy_path = _save_manifest_copy(manifest, "debug_dump")
+        out["manifest_copy"] = str(copy_path)
     if args.save:
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         stamp = _ts()
@@ -426,13 +591,6 @@ def cmd_accept(client: McpClient, args: argparse.Namespace) -> int:
     stamp = _ts()
     report: dict[str, Any] = {"timestamp": stamp, "steps": []}
 
-    # reset
-    paths = client.app_paths()
-    report["steps"].append("reset_begin")
-    deleted = clear_open_once(client, paths)
-    removed = clear_trace_files(client, paths) if not args.keep_trace else []
-    report["reset"] = {"deleted_open_once": deleted, "removed_trace": removed}
-
     # optional install
     if args.install:
         ipa = resolve_local_ipa(args)
@@ -446,7 +604,37 @@ def cmd_accept(client: McpClient, args: argparse.Namespace) -> int:
         report["install"] = {"ipa": str(ipa), "device_path": device_path, "result": ins}
         report["steps"].append("install")
         time.sleep(2)
+        manifest = _read_device_manifest(client)
+        errors, manifest = _check_manifest_expectations(manifest, args, require_device=True)
+        if errors:
+            report["manifest_errors"] = errors
+            report["build_manifest"] = manifest
+            report["passed"] = False
+            report["fail_reason"] = "manifest_mismatch"
+            out_path = OUT_DIR / f"accept_{stamp}.json"
+            out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            _print(report)
+            return 3
+        if manifest:
+            _save_install_state(manifest)
+            report["build_manifest"] = manifest
+            report["manifest_copy"] = str(_save_manifest_copy(manifest, "accept_install"))
+    else:
+        manifest = _guard_manifest(client, args, require_device=bool(
+            args.expected_variant or args.expected_run or args.expected_sha
+        ))
+        attach_manifest_to_output(report, manifest)
+        if manifest:
+            report["manifest_copy"] = str(_save_manifest_copy(manifest, "accept"))
 
+    # reset
+    paths = client.app_paths()
+    report["steps"].append("reset_begin")
+    deleted = clear_open_once(client, paths)
+    removed = clear_trace_files(client, paths) if not args.keep_trace else []
+    report["reset"] = {"deleted_open_once": deleted, "removed_trace": removed}
+
+    # optional install already handled above
     # mock check
     mock_status = check_mock_reachable(args.mock)
     report["mock"] = mock_status
@@ -500,6 +688,15 @@ def cmd_accept(client: McpClient, args: argparse.Namespace) -> int:
 
     trace_text = client.read_sandbox_text("legado_openreader_trace.txt")
     marker_text = client.read_sandbox_text("legado_catalog_openreader.txt")
+    dump_text = client.read_sandbox_text("legado_debug_dump.txt", max_bytes=65536)
+    if _is_dump_stale(dump_text, _load_install_state()):
+        report["passed"] = False
+        report["fail_reason"] = "stale_dump"
+        out_path = OUT_DIR / f"accept_{stamp}.json"
+        out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        _print(report)
+        return 4
+
     prefer_lines = [ln for ln in trace_text.splitlines() if "goStart preferNativeFull" in ln]
     strict_hits = [ln for ln in trace_text.splitlines() if "tvHasNeedleStrict" in ln]
     probe_only = [ln for ln in trace_text.splitlines() if "tvHasNeedleProbeOnly" in ln or "probeOnly" in ln]
@@ -540,6 +737,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     sub.add_parser("status", help="设备/应用状态与 openOnce 检查")
+    ps = sub.choices["status"]
+    add_manifest_args(ps)
 
     pr = sub.add_parser("reset", help="清除 openOnce 与 trace/marker")
     pr.add_argument("--keep-trace", action="store_true", help="保留 trace/marker")
@@ -569,6 +768,8 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--wake", action="store_true", default=True)
     pi.add_argument("--no-wake", dest="wake", action="store_false")
     pi.add_argument("--timeout", type=float, default=300)
+    pi.add_argument("--forensics", action="store_true", help="从 reader-forensics workflow 下载 artifact")
+    add_manifest_args(pi)
 
     sub.add_parser("crash", help="崩溃日志 + marker SIGNAL 摘要")
 
@@ -580,6 +781,7 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("--save", action="store_true", help="落盘到 fixtures/_devkit")
     pd.add_argument("--trigger", action="store_true", help="先 legado://debugDump 远程写 dump")
     pd.add_argument("--trigger-wait", type=float, default=2.0, help="trigger 后等待秒数")
+    add_manifest_args(pd)
 
     pa = sub.add_parser("accept", help="一键验收：reset → read → 断言 → JSON 报告")
     pa.add_argument("--install", action="store_true", help="验收前安装 CI IPA")
@@ -597,6 +799,8 @@ def build_parser() -> argparse.ArgumentParser:
     pa.add_argument("--no-import-source", dest="import_source", action="store_false")
     pa.add_argument("--assert-timeout", type=int, default=15000)
     pa.add_argument("--install-timeout", type=float, default=300)
+    pa.add_argument("--forensics", action="store_true", help="安装 forensics artifact")
+    add_manifest_args(pa)
 
     return p
 

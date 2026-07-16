@@ -164,6 +164,61 @@ class McpClient:
         except McpError:
             return ""
 
+    def read_file_at(self, path: str, max_bytes: int = 65536) -> str:
+        if not path:
+            return ""
+        try:
+            res = self.call("read_file", {"path": path, "max_bytes": max_bytes}, timeout=30)
+            if isinstance(res, dict):
+                return res.get("content", "") or ""
+            return str(res)
+        except McpError:
+            return ""
+
+    def read_build_manifest(self) -> dict[str, Any] | None:
+        """从已安装 App 的 Bundle 或 Documents 读取 reader-build-manifest.json。"""
+        paths = self.app_paths()
+        candidates: list[str] = []
+        for key in ("bundle", "app", "bundle_path", "bundlePath"):
+            base = paths.get(key, "")
+            if base:
+                candidates.append(f"{base.rstrip('/')}/reader-build-manifest.json")
+        doc = paths.get("documents", "")
+        if doc:
+            candidates.append(f"{doc}/reader-build-manifest.json")
+        for path in candidates:
+            text = self.read_file_at(path, max_bytes=16384)
+            if text.strip():
+                try:
+                    data = json.loads(text)
+                    if isinstance(data, dict):
+                        return data
+                except json.JSONDecodeError:
+                    continue
+        # run_command 兜底：通过 bundle 容器定位
+        if self.bundle_id:
+            cmd = (
+                f"for p in $(find /var/containers/Bundle/Application -name reader-build-manifest.json "
+                f"2>/dev/null | head -5); do "
+                f"if echo \"$p\" | grep -q '{self.bundle_id}' 2>/dev/null || "
+                f"defaults read \"$(dirname \"$p\")/Info.plist\" CFBundleIdentifier 2>/dev/null | "
+                f"grep -q '{self.bundle_id}'; then cat \"$p\"; break; fi; done"
+            )
+            try:
+                res = self.call("run_command", {"command": cmd, "timeout_sec": 15}, timeout=25)
+                text = ""
+                if isinstance(res, dict):
+                    text = res.get("output", "") or res.get("content", "") or ""
+                elif isinstance(res, str):
+                    text = res
+                if text.strip():
+                    data = json.loads(text.strip())
+                    if isinstance(data, dict):
+                        return data
+            except (McpError, json.JSONDecodeError):
+                pass
+        return None
+
 
 def call(tool: str, arguments: dict | None = None, timeout: float = 180, base_url: str | None = None) -> Any:
     """模块级快捷调用（默认端点）。"""

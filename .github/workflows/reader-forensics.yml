@@ -1,0 +1,131 @@
+name: Reader Forensics
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-forensics-ipas:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15.4'
+
+      - name: 同步 legado-ios 引擎（本地已 vendor 则跳过）
+        run: |
+          if [[ ! -d LegadoBridge/Sources/LegadoBridge/Vendor/Core/RuleEngine ]]; then
+            if [[ -n "${{ secrets.LEGADO_IOS_PAT }}" ]]; then
+              git clone --depth 1 "https://x-access-token:${{ secrets.LEGADO_IOS_PAT }}@github.com/chrn11/legado-ios.git" /tmp/legado-ios
+              chmod +x tools/sync_legado_vendor.sh
+              LEGADO_IOS_ROOT=/tmp/legado-ios bash tools/sync_legado_vendor.sh
+            else
+              echo "Vendor 未提交且无 LEGADO_IOS_PAT，尝试直接编译"
+            fi
+          else
+            echo "已存在 LegadoBridge/Sources/LegadoBridge/Vendor，跳过同步"
+          fi
+
+      - name: 编译 LegadoBridge + LegadoBridgeDebug（iOS arm64）
+        working-directory: LegadoBridge
+        run: |
+          set -euo pipefail
+          swift package resolve
+          xcodebuild \
+            -scheme LegadoBridge \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            -derivedDataPath .build \
+            CODE_SIGNING_ALLOWED=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
+            -skipPackagePluginValidation \
+            2>&1 | tee -a spm-build-forensics.log
+          xcodebuild \
+            -scheme LegadoBridgeDebug \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            -derivedDataPath .build \
+            CODE_SIGNING_ALLOWED=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
+            -skipPackagePluginValidation \
+            2>&1 | tee -a spm-build-forensics.log
+
+      - name: 准备 insert_dylib
+        run: |
+          if ! command -v insert_dylib; then
+            git clone --depth 1 https://github.com/tyilo/insert_dylib /tmp/insert_dylib
+            cd /tmp/insert_dylib && xcodebuild -configuration Release
+            mkdir -p "$HOME/bin"
+            cp build/Release/insert_dylib "$HOME/bin/"
+            echo "$HOME/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: 重打包 forensics 双包（同源基线 + 同 run）
+        env:
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          chmod +x tools/repack/repack_forensics.sh tools/repack/verify_forensics_ipa.sh
+          BASE_IPA="ipa/香色闺阁2.56.1_未加密.ipa"
+          test -f "$BASE_IPA"
+          BASE_SHA="$(shasum -a 256 "$BASE_IPA" | awk '{print $1}')"
+          echo "base_ipa_sha256=$BASE_SHA" | tee dist/forensics-base.sha256
+
+          DYLIB=$(find LegadoBridge/.build -type f -name 'LegadoBridge' \
+            -path '*Release-iphoneos*' -not -path '*dSYM*' 2>/dev/null | head -1 || true)
+          DEBUG_DYLIB=$(find LegadoBridge/.build -type f -name 'LegadoBridgeDebug' \
+            -path '*Release-iphoneos*' -not -path '*dSYM*' 2>/dev/null | head -1 || true)
+          if [[ -z "$DYLIB" || -z "$DEBUG_DYLIB" ]]; then
+            echo "FAIL: 缺少 dylib 产物"
+            exit 1
+          fi
+          mkdir -p dist
+
+          bash tools/repack/repack_forensics.sh \
+            baseline-debug "$BASE_IPA" - "$DEBUG_DYLIB" \
+            "dist/StandarReader-baseline-debug.ipa"
+
+          bash tools/repack/repack_forensics.sh \
+            legado-debug "$BASE_IPA" "$DYLIB" "$DEBUG_DYLIB" \
+            "dist/StandarReader-legado-debug.ipa"
+
+          # 两包 manifest 同源字段必须一致
+          python3 -c "
+          import json, zipfile, sys
+          from pathlib import Path
+          def read_manifest(ipa):
+              with zipfile.ZipFile(ipa) as z:
+                  for n in z.namelist():
+                      if n.endswith('reader-build-manifest.json'):
+                          return json.loads(z.read(n))
+              raise SystemExit(f'manifest missing in {ipa}')
+          m1 = read_manifest('dist/StandarReader-baseline-debug.ipa')
+          m2 = read_manifest('dist/StandarReader-legado-debug.ipa')
+          for k in ('git_commit','github_run_id','base_ipa_sha256','legado_debug_sha256'):
+              if m1.get(k) != m2.get(k):
+                  raise SystemExit(f'mismatch {k}: {m1.get(k)} vs {m2.get(k)}')
+          if m1.get('variant') != 'baseline-debug' or m2.get('variant') != 'legado-debug':
+              raise SystemExit('variant wrong')
+          if m1.get('legado_bridge_sha256') is not None:
+              raise SystemExit('baseline must have null bridge hash')
+          if not m2.get('legado_bridge_sha256'):
+              raise SystemExit('legado must have bridge hash')
+          print('cross-manifest OK', m1['github_run_id'], m1['git_commit'][:8])
+          "
+
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Reader-Forensics-IPAs
+          path: |
+            dist/StandarReader-baseline-debug.ipa
+            dist/StandarReader-baseline-debug.ipa.sha256
+            dist/StandarReader-legado-debug.ipa
+            dist/StandarReader-legado-debug.ipa.sha256
+            dist/forensics-base.sha256
+            LegadoBridge/spm-build-forensics.log
+          if-no-files-found: error
