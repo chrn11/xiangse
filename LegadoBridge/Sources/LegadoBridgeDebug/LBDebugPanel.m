@@ -545,6 +545,7 @@ static void LBInstallDebugOpenURLHook(void) {
 
 + (void)load {
     LBCopyBuildManifestToDocuments();
+    LBForensicsInstallEarlyWrap();
     dispatch_async(dispatch_get_main_queue(), ^{
         LBForensicsInstallObservers();
         LBInstallThreeFingerGesture();

@@ -17,12 +17,16 @@ static NSMutableArray<NSDictionary *> *g_observerEvents = nil;
 static NSMutableDictionary<NSString *, NSDictionary *> *g_lifecycleSnapshots = nil;
 static NSMutableDictionary<NSString *, NSValue *> *g_origIMPs = nil;
 static NSMutableSet<NSString *> *g_installedKeys = nil;
-static NSMutableSet<NSString *> *g_leafOverrideKeys = nil;
 static uint64_t g_eventSeq = 0;
 static BOOL g_firstDrawSeen = NO;
 static NSString *g_pendingDumpPhase = nil;
 static pthread_mutex_t g_forensicsLock = PTHREAD_MUTEX_INITIALIZER;
 static dispatch_queue_t g_autoDumpQueue = NULL;
+static NSMutableDictionary<NSString *, NSValue *> *g_earlyNextIMPs = nil;
+
+static void LBFEarlyWrap_viewDidLoad(id self, SEL _cmd);
+static void LBFEarlyWrap_loadCurCp(id self, SEL _cmd);
+static void LBFWriteHookPing(NSString *line);
 
 static void LBFInitObserverGlobals(void);
 static BOOL LBFInstallHookOnMethod(Class owner, NSString *ownerName, NSString *selName);
@@ -54,6 +58,12 @@ static BOOL LBFIsReadVCClassName(NSString *cn) {
 static NSString *LBFAutoDumpPhaseForSelector(NSString *selName) {
     if ([selName isEqualToString:@"viewDidLoad"]) return @"auto_after_viewDidLoad";
     if ([selName isEqualToString:@"loadCurCp"]) return @"auto_after_loadCurCp";
+    return nil;
+}
+
+static NSString *LBFAutoBeforePhaseForSelector(NSString *selName) {
+    if ([selName isEqualToString:@"viewDidLoad"]) return @"auto_before_viewDidLoad";
+    if ([selName isEqualToString:@"loadCurCp"]) return @"auto_before_loadCurCp";
     return nil;
 }
 
@@ -141,24 +151,21 @@ static NSDictionary *LBFGatherAutoDumpUIHints(id triggerVC) {
     return hints;
 }
 
-static void LBFScheduleAutoDump(id triggerVC, NSString *phase) {
+static void LBFScheduleAutoDumpPhase(id triggerVC, NSString *phase) {
     if (!phase.length || !triggerVC) return;
+    if (![NSThread isMainThread]) {
+        LBFWriteHookPing([NSString stringWithFormat:@"skip dump %@ (not main)", phase]);
+        return;
+    }
     if (!g_autoDumpQueue) {
         g_autoDumpQueue = dispatch_queue_create("com.legado.forensics.autodump", DISPATCH_QUEUE_SERIAL);
     }
     NSDictionary *uiHints = LBFGatherAutoDumpUIHints(triggerVC);
-    __block NSDictionary *dump = nil;
-    void (^capture)(void) = ^{
-        @try {
-            dump = LBForensicsPerformDump(phase);
-        } @catch (__unused NSException *e) {
-            dump = nil;
-        }
-    };
-    if ([NSThread isMainThread]) {
-        capture();
-    } else {
-        dispatch_sync(dispatch_get_main_queue(), capture);
+    NSDictionary *dump = nil;
+    @try {
+        dump = LBForensicsPerformDump(phase);
+    } @catch (__unused NSException *e) {
+        dump = nil;
     }
     if (!dump) return;
     NSMutableDictionary *merged = [dump mutableCopy];
@@ -166,7 +173,8 @@ static void LBFScheduleAutoDump(id triggerVC, NSString *phase) {
     merged[@"liveCapture"] = @{
         @"triggerClass": LBFShapeOfObject(triggerVC),
         @"triggerAddress": LBForensicsPointer(triggerVC),
-        @"capturedOnMain": @([NSThread isMainThread]),
+        @"capturedOnMain": @YES,
+        @"phase": phase ?: @"?",
     };
     NSDictionary *finalDump = [merged copy];
     dispatch_async(g_autoDumpQueue, ^{
@@ -176,6 +184,17 @@ static void LBFScheduleAutoDump(id triggerVC, NSString *phase) {
     });
 }
 
+static void LBFScheduleAutoDump(id triggerVC, NSString *phase) {
+    LBFScheduleAutoDumpPhase(triggerVC, phase);
+}
+
+static void LBFMaybeScheduleBeforeDump(id selfObj, SEL sel) {
+    NSString *phase = LBFAutoBeforePhaseForSelector(NSStringFromSelector(sel));
+    if (!phase) return;
+    if (!LBFIsReadVCClassName(LBFShapeOfObject(selfObj))) return;
+    LBFScheduleAutoDumpPhase(selfObj, phase);
+}
+
 static void LBFMaybeScheduleAutoDump(id selfObj, SEL sel, NSString *ownerClassName) {
     NSString *selName = NSStringFromSelector(sel);
     NSString *phase = LBFAutoDumpPhaseForSelector(selName);
@@ -183,21 +202,124 @@ static void LBFMaybeScheduleAutoDump(id selfObj, SEL sel, NSString *ownerClassNa
     NSString *objClass = LBFShapeOfObject(selfObj);
     if (!LBFIsReadVCClassName(objClass)) return;
     (void)ownerClassName;
-    LBFScheduleAutoDump(selfObj, phase);
+    LBFScheduleAutoDumpPhase(selfObj, phase);
 }
 
-static void LBFMaybeScheduleAutoDumpAfterDelay(id selfObj, SEL sel, NSString *ownerClassName, double delaySec) {
+static NSString *LBFEarlyWrapKey(NSString *clsName, NSString *selName) {
+    return [NSString stringWithFormat:@"early|%@|%@", clsName, selName];
+}
+
+static void LBFInitEarlyWrapGlobals(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        if (!g_earlyNextIMPs) g_earlyNextIMPs = [NSMutableDictionary dictionary];
+    });
+}
+
+static IMP LBFEarlyNextIMP(id self, SEL sel) {
     NSString *selName = NSStringFromSelector(sel);
-    NSString *phase = LBFAutoDumpPhaseForSelector(selName);
-    if (!phase || delaySec <= 0) return;
-    NSString *objClass = LBFShapeOfObject(selfObj);
-    if (!LBFIsReadVCClassName(objClass)) return;
-    (void)ownerClassName;
-    __weak id weakSelf = selfObj;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delaySec * NSEC_PER_SEC)),
-                   dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        id strong = weakSelf;
-        if (strong) LBFScheduleAutoDump(strong, phase);
+    Class cls = object_getClass(self);
+    while (cls) {
+        NSString *key = LBFEarlyWrapKey(NSStringFromClass(cls), selName);
+        NSValue *v = g_earlyNextIMPs[key];
+        if (v) return (IMP)v.pointerValue;
+        cls = class_getSuperclass(cls);
+    }
+    return NULL;
+}
+
+static BOOL LBFEnsureEarlyWrap(Class cls, NSString *selName) {
+    if (!cls || !selName.length) return NO;
+    LBFInitEarlyWrapGlobals();
+    LBFInitObserverGlobals();
+
+    SEL sel = NSSelectorFromString(selName);
+    Method m = class_getInstanceMethod(cls, sel);
+    if (!m) return NO;
+
+    IMP wrapper = NULL;
+    if ([selName isEqualToString:@"viewDidLoad"]) wrapper = (IMP)LBFEarlyWrap_viewDidLoad;
+    else if ([selName isEqualToString:@"loadCurCp"]) wrapper = (IMP)LBFEarlyWrap_loadCurCp;
+    if (!wrapper) return NO;
+
+    NSString *clsName = NSStringFromClass(cls);
+    NSString *key = LBFEarlyWrapKey(clsName, selName);
+    IMP current = method_getImplementation(m);
+    if (current == wrapper) return YES;
+
+    g_earlyNextIMPs[key] = [NSValue valueWithPointer:current];
+    method_setImplementation(m, wrapper);
+    return YES;
+}
+
+static void LBFEarlyWrapDiscoverAndInstall(void) {
+    LBFInitEarlyWrapGlobals();
+    NSArray<NSString *> *names = @[
+        @"TextReadVC3", @"TextReadVC2", @"TextReadVC1",
+        @"ReadVCBase2", @"ReadVCBase1", @"ReadVCBase",
+    ];
+    for (NSString *cn in names) {
+        Class cls = objc_getClass(cn.UTF8String);
+        if (!cls) cls = NSClassFromString(cn);
+        if (!cls) continue;
+        LBFEnsureEarlyWrap(cls, @"viewDidLoad");
+        LBFEnsureEarlyWrap(cls, @"loadCurCp");
+    }
+    int n = objc_getClassList(NULL, 0);
+    if (n <= 0) return;
+    Class *buf = (Class *)calloc((size_t)n, sizeof(Class));
+    if (!buf) return;
+    objc_getClassList(buf, n);
+    for (int i = 0; i < n; i++) {
+        const char *name = class_getName(buf[i]);
+        if (!name) continue;
+        if (strstr(name, "TextReadVC") == NULL && strstr(name, "ReadVCBase") == NULL) continue;
+        LBFEnsureEarlyWrap(buf[i], @"viewDidLoad");
+        LBFEnsureEarlyWrap(buf[i], @"loadCurCp");
+    }
+    free(buf);
+}
+
+static void LBFEarlyWrap_viewDidLoad(id self, SEL _cmd) {
+    NSString *owner = NSStringFromClass(object_getClass(self));
+    LBFWriteHookPing([NSString stringWithFormat:@"early before viewDidLoad %@", owner]);
+    LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner);
+    LBFMaybeScheduleBeforeDump(self, _cmd);
+    IMP next = LBFEarlyNextIMP(self, _cmd);
+    @try {
+        if (next) ((void (*)(id, SEL))next)(self, _cmd);
+    } @catch (NSException *ex) {
+        LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
+        LBFMaybeScheduleAutoDump(self, _cmd, owner);
+        @throw ex;
+    }
+    LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
+    LBFMaybeScheduleAutoDump(self, _cmd, owner);
+}
+
+static void LBFEarlyWrap_loadCurCp(id self, SEL _cmd) {
+    NSString *owner = NSStringFromClass(object_getClass(self));
+    LBFWriteHookPing([NSString stringWithFormat:@"early before loadCurCp %@", owner]);
+    LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner);
+    LBFMaybeScheduleBeforeDump(self, _cmd);
+    IMP next = LBFEarlyNextIMP(self, _cmd);
+    @try {
+        if (next) ((void (*)(id, SEL))next)(self, _cmd);
+    } @catch (NSException *ex) {
+        LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
+        LBFMaybeScheduleAutoDump(self, _cmd, owner);
+        @throw ex;
+    }
+    LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
+    LBFMaybeScheduleAutoDump(self, _cmd, owner);
+}
+
+static void LBFScheduleEarlyWrapRetry(void) {
+    LBFEarlyWrapDiscoverAndInstall();
+    LBForensicsInstallObservers();
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        LBFScheduleEarlyWrapRetry();
     });
 }
 
@@ -213,81 +335,6 @@ static void LBFWriteHookPing(NSString *line) {
         [fh closeFile];
     } else {
         [body writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
-    }
-}
-
-static void LBFLeafHook_viewDidLoad(id self, SEL _cmd) {
-    NSString *owner = NSStringFromClass(object_getClass(self));
-    LBFWriteHookPing([NSString stringWithFormat:@"leaf viewDidLoad %@", owner]);
-    LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner);
-    LBFMaybeScheduleAutoDump(self, _cmd, owner);
-    @try {
-        IMP imp = LBFGetOrigIMP(owner, _cmd);
-        if (imp) ((void (*)(id, SEL))imp)(self, _cmd);
-    } @catch (NSException *ex) {
-        LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
-        LBFMaybeScheduleAutoDump(self, _cmd, owner);
-        @throw ex;
-    }
-    LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
-    LBFMaybeScheduleAutoDump(self, _cmd, owner);
-}
-
-static void LBFLeafHook_loadCurCp(id self, SEL _cmd) {
-    NSString *owner = NSStringFromClass(object_getClass(self));
-    LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner);
-    LBFMaybeScheduleAutoDump(self, _cmd, owner);
-    @try {
-        IMP imp = LBFGetOrigIMP(owner, _cmd);
-        if (imp) ((void (*)(id, SEL))imp)(self, _cmd);
-    } @catch (NSException *ex) {
-        LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
-        LBFMaybeScheduleAutoDump(self, _cmd, owner);
-        @throw ex;
-    }
-    LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
-    LBFMaybeScheduleAutoDump(self, _cmd, owner);
-}
-
-static BOOL LBFEnsureLeafOverride(Class leaf, NSString *selName, IMP hook) {
-    if (!leaf || !selName.length || !hook) return NO;
-    LBFInitObserverGlobals();
-    if (!g_leafOverrideKeys) g_leafOverrideKeys = [NSMutableSet set];
-
-    SEL sel = NSSelectorFromString(selName);
-    NSString *leafName = NSStringFromClass(leaf);
-    NSString *leafKey = [NSString stringWithFormat:@"leaf|%@|%@", leafName, selName];
-    Method leafMethod = class_getInstanceMethod(leaf, sel);
-    if (!leafMethod) return NO;
-
-    if ([g_leafOverrideKeys containsObject:leafKey]) {
-        if (method_getImplementation(leafMethod) != hook) {
-            g_origIMPs[LBFOrigKey(leafName, selName)] =
-                [NSValue valueWithPointer:method_getImplementation(leafMethod)];
-            method_setImplementation(leafMethod, hook);
-        }
-        return YES;
-    }
-
-    Method superMethod = class_getInstanceMethod(class_getSuperclass(leaf), sel);
-    if (superMethod && leafMethod == superMethod) {
-        IMP superImp = method_getImplementation(superMethod);
-        g_origIMPs[LBFOrigKey(leafName, selName)] = [NSValue valueWithPointer:superImp];
-        const char *types = method_getTypeEncoding(superMethod) ?: "v@:";
-        if (!class_addMethod(leaf, sel, hook, types)) return NO;
-        [g_leafOverrideKeys addObject:leafKey];
-        return YES;
-    }
-
-    return LBFInstallHookOnMethod(leaf, leafName, selName);
-}
-
-static void LBFInstallLeafOverrides(void) {
-    for (NSString *cn in @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1"]) {
-        Class leaf = NSClassFromString(cn);
-        if (!leaf) continue;
-        LBFEnsureLeafOverride(leaf, @"viewDidLoad", (IMP)LBFLeafHook_viewDidLoad);
-        LBFEnsureLeafOverride(leaf, @"loadCurCp", (IMP)LBFLeafHook_loadCurCp);
     }
 }
 
@@ -553,22 +600,29 @@ static void LBFInstallObserverHooks(void) {
         Class probe = NSClassFromString(cn);
         if (!probe) continue;
         for (NSString *selName in LBFObserverSelectors()) {
+            if ([selName isEqualToString:@"viewDidLoad"] || [selName isEqualToString:@"loadCurCp"]) {
+                continue;
+            }
             SEL sel = NSSelectorFromString(selName);
             Class owner = LBForensicsMethodOwnerClass(probe, sel);
             if (!owner) continue;
             LBFInstallHookOnMethod(owner, NSStringFromClass(owner), selName);
         }
     }
-    // 叶子 VC 用 class_addMethod 独立 override，避免与生产 Hook 抢 IMP
-    LBFInstallLeafOverrides();
+    // viewDidLoad/loadCurCp 由 LBFEarlyWrap 专责，observer 不再重复挂钩
 }
 
-static void LBFScheduleObserverInstallRetry(void) {
+static void LBFScheduleEarlyWrapRetry(void) {
+    LBFEarlyWrapDiscoverAndInstall();
     LBForensicsInstallObservers();
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
-        LBFScheduleObserverInstallRetry();
+        LBFScheduleEarlyWrapRetry();
     });
+}
+
+void LBForensicsInstallEarlyWrap(void) {
+    LBFEarlyWrapDiscoverAndInstall();
 }
 
 void LBForensicsInstallObservers(void) {
@@ -583,8 +637,9 @@ void LBForensicsInstallObservers(void) {
 
 __attribute__((constructor))
 static void LBFInstallObserversAtLoad(void) {
+    LBFEarlyWrapDiscoverAndInstall();
     dispatch_async(dispatch_get_main_queue(), ^{
-        LBFScheduleObserverInstallRetry();
+        LBFScheduleEarlyWrapRetry();
     });
 }
 

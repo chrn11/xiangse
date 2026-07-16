@@ -15,6 +15,9 @@ FOUNDATION_EXPORT NSDictionary *LBForensicsPerformDump(NSString *phase);
 /// 将 dump 写入 Documents，返回 @{@"json":path, @"text":path, @"legacy":path}
 FOUNDATION_EXPORT NSDictionary<NSString *, NSString *> *LBForensicsWriteDumpFiles(NSDictionary *dump);
 
+/// 尽早安装 viewDidLoad/loadCurCp IMP 包装（+load/constructor 调用）
+FOUNDATION_EXPORT void LBForensicsInstallEarlyWrap(void);
+
 /// 安装只读 lifecycle observer（+load 调用一次）
 FOUNDATION_EXPORT void LBForensicsInstallObservers(void);
 
