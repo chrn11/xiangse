@@ -503,15 +503,39 @@ static BOOL LBDebug_AppDelegate_openURL_options_IMP(id self, SEL _cmd, id applic
     return NO;
 }
 
+static void (*LBOrig_UIApplication_openURL_options_completion)(id, SEL, NSURL *, NSDictionary *, void (^)(BOOL)) = NULL;
+
+static void LBDebug_UIApplication_openURL_completion_IMP(id self, SEL _cmd, NSURL *url, NSDictionary *options,
+                                                       void (^completion)(BOOL)) {
+    if (LBDebugHandlesOpenURL(url)) {
+        if (completion) completion(YES);
+        return;
+    }
+    if (LBOrig_UIApplication_openURL_options_completion) {
+        LBOrig_UIApplication_openURL_options_completion(self, _cmd, url, options, completion);
+    } else if (completion) {
+        completion(NO);
+    }
+}
+
 static void LBInstallDebugOpenURLHook(void) {
     Class appDelegateClass = objc_getClass("AppDelegate");
-    if (!appDelegateClass) return;
-    SEL sel = @selector(application:openURL:options:);
-    Method m = class_getInstanceMethod(appDelegateClass, sel);
-    if (!m) return;
-    LBDebugOrig_AppDelegate_openURL_options =
-        (BOOL (*)(id, SEL, id, NSURL *, NSDictionary *))method_getImplementation(m);
-    method_setImplementation(m, (IMP)LBDebug_AppDelegate_openURL_options_IMP);
+    if (appDelegateClass) {
+        SEL sel = @selector(application:openURL:options:);
+        Method m = class_getInstanceMethod(appDelegateClass, sel);
+        if (m && !LBDebugOrig_AppDelegate_openURL_options) {
+            LBDebugOrig_AppDelegate_openURL_options =
+                (BOOL (*)(id, SEL, id, NSURL *, NSDictionary *))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LBDebug_AppDelegate_openURL_options_IMP);
+        }
+    }
+    Class appCls = [UIApplication class];
+    Method m2 = class_getInstanceMethod(appCls, @selector(openURL:options:completionHandler:));
+    if (m2 && !LBOrig_UIApplication_openURL_options_completion) {
+        LBOrig_UIApplication_openURL_options_completion =
+            (void (*)(id, SEL, NSURL *, NSDictionary *, void (^)(BOOL)))method_getImplementation(m2);
+        method_setImplementation(m2, (IMP)LBDebug_UIApplication_openURL_completion_IMP);
+    }
 }
 
 #pragma mark - LBDebugPanel
