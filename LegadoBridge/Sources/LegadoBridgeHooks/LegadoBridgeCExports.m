@@ -681,6 +681,7 @@ static BOOL sCatalogUIAppearHooked = NO;
 static BOOL sCatalogInjectReentrant = NO;
 static BOOL sNativeOpenCrashGuardsInstalled = NO;
 static char sNativeOpenMarkerPath[512] = {0};
+static char sNativeCrashPendingPath[512] = {0};
 static void (*LBOrig_openReader)(id, SEL, id, id, id) = NULL;
 static void (*LBOrig_tryOpenRecord)(id, SEL, id, id) = NULL;
 static void (*LBOrig_onResetContentNotify)(id, SEL, NSNotification *) = NULL;
@@ -1326,17 +1327,17 @@ static void LBDumpBookDictForOpenReader(NSDictionary *book, NSString *phase) {
     LBWriteOpenReaderMarker([parts componentsJoinedByString:@" | "]);
 }
 
+/// 异步信号安全：仅允许 snprintf/open/write/close/signal/raise
 static void LBNativeOpenSignalHandler(int sig) {
     char buf[96];
-    int n = snprintf(buf, sizeof(buf), "nativeOpen SIGNAL sig=%d\n", sig);
-    if (sNativeOpenMarkerPath[0] && n > 0) {
-        int fd = open(sNativeOpenMarkerPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    int n = snprintf(buf, sizeof(buf), "pending sig=%d\n", sig);
+    if (sNativeCrashPendingPath[0] && n > 0) {
+        int fd = open(sNativeCrashPendingPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0) {
             write(fd, buf, (size_t)n);
             close(fd);
         }
     }
-    LBClearNativeOpenOnceState([NSString stringWithFormat:@"SIGNAL sig=%d", sig]);
     signal(sig, SIG_DFL);
     raise(sig);
 }
@@ -1350,9 +1351,18 @@ static void LBNativeOpenExceptionHandler(NSException *exception) {
 static void LBInstallNativeOpenCrashGuards(void) {
     if (sNativeOpenCrashGuardsInstalled) return;
     sNativeOpenCrashGuardsInstalled = YES;
-    NSString *p = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"];
+    NSString *home = NSHomeDirectory();
+    NSString *p = [home stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"];
     snprintf(sNativeOpenMarkerPath, sizeof(sNativeOpenMarkerPath), "%s",
              p.fileSystemRepresentation ?: "");
+    NSString *pending = [home stringByAppendingPathComponent:@"Documents/legado_native_crash_pending.txt"];
+    snprintf(sNativeCrashPendingPath, sizeof(sNativeCrashPendingPath), "%s",
+             pending.fileSystemRepresentation ?: "");
+    if ([[NSFileManager defaultManager] fileExistsAtPath:pending]) {
+        LBClearNativeOpenOnceState(@"crash-pending startup");
+        [[NSFileManager defaultManager] removeItemAtPath:pending error:NULL];
+        LBAppendOpenReaderTrace(@"nativeOpen crash-pending cleared openOnce on startup");
+    }
     NSSetUncaughtExceptionHandler(&LBNativeOpenExceptionHandler);
     signal(SIGABRT, LBNativeOpenSignalHandler);
     signal(SIGSEGV, LBNativeOpenSignalHandler);
