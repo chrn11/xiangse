@@ -3285,6 +3285,14 @@ static id LBPrepareOnFinishArgFromDivisionText(id divisionTextRaw) {
                                  NSStringFromClass([divisionTextRaw class])]);
         return nil;
     }
+    // divisionText 常为 @[@[Attr...]]；解一层到页列 @[Attr...]（再 nest 会 NSArrayM length）
+    if (top.count == 1 && [top.firstObject isKindOfClass:[NSArray class]]) {
+        arg = top.firstObject;
+        top = (NSArray *)arg;
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"onFinish_arg unwrap1=%@",
+                                 LBDescribeOnFinishArg(arg)]);
+    }
     Class rpmCls = NSClassFromString(@"ReadPageModel");
     for (id p in top) {
         if (rpmCls && [p isKindOfClass:rpmCls]) {
@@ -3520,9 +3528,6 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
     if (!procPages || ([procPages isKindOfClass:[NSArray class]] &&
                        [(NSArray *)procPages count] == 0)) {
         procPages = finishArg;
-    }
-    if (readerVC) {
-        LBInvokeProcessPageData(readerVC, procPages, readerVC, cpIndex, cpTitle, okPaths);
     }
     @try {
         ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(target, finish, finishArg, cpIndex);
