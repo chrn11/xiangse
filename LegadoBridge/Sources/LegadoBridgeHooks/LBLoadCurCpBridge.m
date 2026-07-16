@@ -356,23 +356,7 @@ BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,
 void LBLoadCurCpBridgeOnContentPosted(NSDictionary *payload, id readerVC) {
     if (![payload isKindOfClass:[NSDictionary class]] || payload.count == 0) return;
     if (payload[@"error"]) {
-        NSString *err = [NSString stringWithFormat:@"%@", payload[@"error"] ?: @""];
-        LBStateLog([NSString stringWithFormat:@"content_err %@ keep=fetching", err]);
-        if (sState == LBLoadCurCpStateFailed || sState == LBLoadCurCpStateIdle) {
-            LBSetState(LBLoadCurCpStateFetching, @"content_err_retry");
-        }
-        id reader = readerVC ?: sWeakReader;
-        if (reader) {
-            int token = sRetryToken;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
-                if (token != sRetryToken) return;
-                LBLoadCurCpBridgeReaderActivated(reader);
-            });
-        } else {
-            int token = sRetryToken;
-            LBScheduleReaderRetry(token);
-        }
+        LBSetState(LBLoadCurCpStateFailed, [NSString stringWithFormat:@"content_err %@", payload[@"error"]]);
         return;
     }
     sPendingPayload = [payload copy];
@@ -404,9 +388,6 @@ void LBLoadCurCpBridgeOnContentPosted(NSDictionary *payload, id readerVC) {
 void LBLoadCurCpBridgeReaderActivated(id reader) {
     if (!reader) return;
     sWeakReader = reader;
-    if (sState == LBLoadCurCpStateFailed) {
-        LBSetState(LBLoadCurCpStateIdle, @"reader_clear_failed");
-    }
     NSString *bookUrl = sBookUrl.length > 0 ? sBookUrl : LBBookUrlFromReader(reader);
     NSString *chapterUrl = sChapterUrl.length > 0 ? sChapterUrl : LBChapterUrlFromReader(reader);
     NSString *sourceUrl = sSourceUrl.length > 0 ? sSourceUrl : LBReadingSourceUrlForBookUrl(bookUrl);
