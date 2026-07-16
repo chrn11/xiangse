@@ -2,6 +2,7 @@
 #import "LBLoadCurCpBridge.h"
 #import "LegadoBridge.h"
 #include <stdint.h>
+#include <dlfcn.h>
 
 /// 阅读链路（生产路径收窄）：
 /// 1) BookDetailController setDicBook: — 记忆 bookUrl↔sourceUrl，并请求目录
@@ -11,6 +12,20 @@
 /// BookBindingStore 持久映射经 Core.rememberBookBinding / sourceUrlForBookUrl。
 
 #pragma mark - Reading helpers
+
+static void LBReadingOpenTrace(NSString *msg) {
+    if (msg.length == 0) return;
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_openreader_trace.txt"];
+    NSString *line = [NSString stringWithFormat:@"%@ | %@\n", [NSDate date], msg];
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!fh) {
+        [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return;
+    }
+    [fh seekToEndOfFile];
+    [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    [fh closeFile];
+}
 
 static void LBReadingDiagLog(NSString *msg) {
     if (!LBDiagProbesEnabled()) return;
@@ -172,6 +187,12 @@ static void LBSetDicBook_IMP(id self, SEL _cmd, id dicBook) {
         NSString *sourceUrl = LBReadingSourceUrlFromDic(dic) ?: LBReadingSourceUrlForBookUrl(bookUrl);
         LBReadingRequestCatalog(bookUrl, sourceUrl);
         LBReadingDiagLog([NSString stringWithFormat:@"setDicBook legado book=%@", bookUrl ?: @""]);
+        NSString *cn = NSStringFromClass([self class]);
+        if ([cn hasPrefix:@"TextReadVC"] || [cn hasPrefix:@"ReadVCBase"]) {
+            LBLoadCurCpBridgeReaderActivated(self);
+            LBReadingOpenTrace([NSString stringWithFormat:@"setDicBook readerActivated %@ sm=%@",
+                                cn, LBLoadCurCpBridgeStateName()]);
+        }
     }
 }
 
@@ -218,15 +239,40 @@ static void LBLoadCatalog_IMP(id self, SEL _cmd, void *argRaw, BOOL ignoringCach
 }
 
 static void (*LBOrig_loadCurCp)(id, SEL) = NULL;
+static IMP LBUnwrapLoadCurCpOrigIMP(Class owner, IMP imp) {
+    if (!imp || !owner) return imp;
+    typedef IMP (*ResolveFn)(Class, SEL);
+    static ResolveFn resolve = NULL;
+    static IMP hookIMP = NULL;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        resolve = (ResolveFn)dlsym(RTLD_DEFAULT, "LBForensicsResolveOrigIMP");
+        hookIMP = (IMP)LBLoadCurCp_IMP;
+    });
+    SEL sel = NSSelectorFromString(@"loadCurCp");
+    if (resolve) {
+        IMP forensics = resolve(owner, sel);
+        if (forensics && forensics != hookIMP && forensics != imp) return forensics;
+    }
+    if (imp == hookIMP && resolve) {
+        IMP forensics = resolve(owner, sel);
+        if (forensics) return forensics;
+    }
+    return imp;
+}
+
+static void LBLoadCurCp_IMP(id self, SEL _cmd);
 static void LBLoadCurCp_IMP(id self, SEL _cmd) {
     NSString *bookUrl = nil;
     NSString *sourceUrl = nil;
     if (LBReadingObjectIsLegado(self, &bookUrl, &sourceUrl)) {
         NSString *chapterUrl = LBReadingChapterUrlFromObject(self);
         if (LBLoadCurCpBridgeHandleHook(self, _cmd, YES, bookUrl, sourceUrl, chapterUrl)) {
-            LBReadingDiagLog([NSString stringWithFormat:
-                             @"loadCurCp sm=%@ book=%@ ch=%@",
-                             LBLoadCurCpBridgeStateName(), bookUrl ?: @"", chapterUrl ?: @""]);
+            NSString *trace = [NSString stringWithFormat:
+                               @"loadCurCp sm=%@ book=%@ ch=%@",
+                               LBLoadCurCpBridgeStateName(), bookUrl ?: @"", chapterUrl ?: @""];
+            LBReadingDiagLog(trace);
+            LBReadingOpenTrace(trace);
             return;
         }
     }
@@ -327,10 +373,13 @@ void LBInstallReadingHooks(void) {
         Class curOwner = LBFindClassImplementing(cpCandidates, curSel);
         if (curOwner && LBValidateInstanceMethod(curOwner, curSel, "v16", &enc, &reason)) {
             Method m = class_getInstanceMethod(curOwner, curSel);
-            LBOrig_loadCurCp = (void (*)(id, SEL))method_getImplementation(m);
-            LBLoadCurCpBridgeRegisterOrig(LBOrig_loadCurCp);
+            IMP raw = method_getImplementation(m);
+            IMP trueOrig = LBUnwrapLoadCurCpOrigIMP(curOwner, raw);
+            LBOrig_loadCurCp = (void (*)(id, SEL))trueOrig;
+            LBLoadCurCpBridgeRegisterOrig((void (*)(id, SEL))trueOrig);
             method_setImplementation(m, (IMP)LBLoadCurCp_IMP);
-            [installed addObject:[NSString stringWithFormat:@"loadCurCp@%@", NSStringFromClass(curOwner)]];
+            [installed addObject:[NSString stringWithFormat:@"loadCurCp@%@ orig=%p",
+                                  NSStringFromClass(curOwner), trueOrig]];
         }
 
         // 4) addBook:groupKey:tempBook: — 加书架时落盘绑定；进度/缓存不 Hook
