@@ -21,6 +21,7 @@ static uint64_t g_eventSeq = 0;
 static BOOL g_firstDrawSeen = NO;
 static NSString *g_pendingDumpPhase = nil;
 static pthread_mutex_t g_forensicsLock = PTHREAD_MUTEX_INITIALIZER;
+static dispatch_queue_t g_autoDumpQueue = NULL;
 
 static NSString *LBFOrigKey(NSString *owner, NSString *sel) {
     return [NSString stringWithFormat:@"%@|%@", owner, sel];
@@ -34,6 +35,137 @@ static NSString *LBFThreadLabel(void) {
 static NSString *LBFShapeOfObject(id obj) {
     if (!obj) return @"null";
     return NSStringFromClass(object_getClass(obj)) ?: @"?";
+}
+
+static BOOL LBFIsReadVCClassName(NSString *cn) {
+    if (!cn.length) return NO;
+    if ([cn isEqualToString:@"TextReadVC3"] || [cn hasPrefix:@"TextReadVC"]) return YES;
+    if ([cn hasPrefix:@"ReadVCBase"]) return YES;
+    return NO;
+}
+
+static NSString *LBFAutoDumpPhaseForSelector(NSString *selName) {
+    if ([selName isEqualToString:@"viewDidLoad"]) return @"auto_after_viewDidLoad";
+    if ([selName isEqualToString:@"loadCurCp"]) return @"auto_after_loadCurCp";
+    return nil;
+}
+
+static UIViewController *LBFFrontmostPresentedVC(UIViewController *root) {
+    if (!root) return nil;
+    UIViewController *vc = root;
+    while (vc.presentedViewController) vc = vc.presentedViewController;
+    if ([vc isKindOfClass:[UINavigationController class]]) {
+        UINavigationController *nav = (UINavigationController *)vc;
+        return nav.viewControllers.lastObject ?: vc;
+    }
+    if ([vc isKindOfClass:[UITabBarController class]]) {
+        UITabBarController *tab = (UITabBarController *)vc;
+        UIViewController *sel = tab.selectedViewController;
+        return LBFFrontmostPresentedVC(sel) ?: vc;
+    }
+    return vc;
+}
+
+static BOOL LBFVCHierarchyContains(UIViewController *root, UIViewController *target,
+                                   NSMutableSet<NSValue *> *seen) {
+    if (!root || !target) return NO;
+    NSValue *key = [NSValue valueWithNonretainedObject:root];
+    if ([seen containsObject:key]) return NO;
+    [seen addObject:key];
+    if (root == target) return YES;
+    if (root.presentedViewController &&
+        LBFVCHierarchyContains(root.presentedViewController, target, seen)) return YES;
+    for (UIViewController *ch in root.childViewControllers) {
+        if (LBFVCHierarchyContains(ch, target, seen)) return YES;
+    }
+    if ([root isKindOfClass:[UINavigationController class]]) {
+        for (UIViewController *n in ((UINavigationController *)root).viewControllers) {
+            if (LBFVCHierarchyContains(n, target, seen)) return YES;
+        }
+    }
+    if ([root isKindOfClass:[UITabBarController class]]) {
+        for (UIViewController *t in ((UITabBarController *)root).viewControllers) {
+            if (LBFVCHierarchyContains(t, target, seen)) return YES;
+        }
+    }
+    return NO;
+}
+
+static NSDictionary *LBFGatherAutoDumpUIHints(id triggerVC) {
+    NSMutableDictionary *hints = [NSMutableDictionary dictionary];
+    NSString *triggerClass = LBFShapeOfObject(triggerVC);
+    hints[@"triggerVC"] = @{
+        @"address": LBForensicsPointer(triggerVC),
+        @"class": triggerClass ?: @"?",
+    };
+    UIApplication *app = UIApplication.sharedApplication;
+    NSMutableArray *windows = [NSMutableArray array];
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in app.connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
+        }
+    }
+    if (windows.count == 0 && app.keyWindow) [windows addObject:app.keyWindow];
+
+    NSMutableArray *winRows = [NSMutableArray array];
+    BOOL onAnyWindow = NO;
+    for (UIWindow *win in windows) {
+        UIViewController *root = win.rootViewController;
+        UIViewController *front = LBFFrontmostPresentedVC(root);
+        NSMutableSet<NSValue *> *seen = [NSMutableSet set];
+        BOOL onWin = triggerVC && root &&
+            LBFVCHierarchyContains(root, (UIViewController *)triggerVC, seen);
+        if (onWin) onAnyWindow = YES;
+        BOOL frontIsTrigger = (front == triggerVC);
+        [winRows addObject:@{
+            @"window": LBForensicsPointer(win),
+            @"isKeyWindow": @(win.isKeyWindow),
+            @"frontmostVC": front ? @{
+                @"address": LBForensicsPointer(front),
+                @"class": LBFShapeOfObject(front),
+            } : [NSNull null],
+            @"triggerOnWindow": @(onWin),
+            @"triggerIsFrontmost": @(frontIsTrigger),
+        }];
+    }
+    hints[@"windows"] = winRows;
+    hints[@"triggerOnAnyWindow"] = @(onAnyWindow);
+    return hints;
+}
+
+static void LBFScheduleAutoDump(id triggerVC, NSString *phase) {
+    if (!phase.length || !triggerVC) return;
+    if (!g_autoDumpQueue) {
+        g_autoDumpQueue = dispatch_queue_create("com.legado.forensics.autodump", DISPATCH_QUEUE_SERIAL);
+    }
+    NSDictionary *uiHints = LBFGatherAutoDumpUIHints(triggerVC);
+    dispatch_async(g_autoDumpQueue, ^{
+        __block NSDictionary *dump = nil;
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            @try {
+                dump = LBForensicsPerformDump(phase);
+            } @catch (__unused NSException *e) {
+                dump = nil;
+            }
+        });
+        if (!dump) return;
+        NSMutableDictionary *merged = [dump mutableCopy];
+        merged[@"autoDumpHints"] = uiHints;
+        @try {
+            LBForensicsWriteDumpFiles(merged);
+        } @catch (__unused NSException *e) {}
+    });
+}
+
+static void LBFMaybeScheduleAutoDump(id selfObj, SEL sel, NSString *ownerClassName) {
+    NSString *selName = NSStringFromSelector(sel);
+    NSString *phase = LBFAutoDumpPhaseForSelector(selName);
+    if (!phase) return;
+    NSString *objClass = LBFShapeOfObject(selfObj);
+    if (!LBFIsReadVCClassName(objClass)) return;
+    (void)ownerClassName;
+    LBFScheduleAutoDump(selfObj, phase);
 }
 
 static NSString *LBFPhaseHintForSelector(NSString *selName, NSString *when) {
@@ -111,6 +243,7 @@ static void LBFHook_##NAME(id self, SEL _cmd) { \
     IMP imp = LBFGetOrigIMP(owner, _cmd); \
     if (imp) ((void (*)(id, SEL))imp)(self, _cmd); \
     LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner); \
+    LBFMaybeScheduleAutoDump(self, _cmd, owner); \
 }
 
 #define LBF_DEFINE_HOOK1(NAME, T1, A1) \
@@ -245,6 +378,7 @@ static NSArray<NSString *> *LBFObserverSelectors(void) {
 static NSArray<NSString *> *LBFObserverProbeClasses(void) {
     return @[
         @"TextReadVC3", @"TextReadVC2", @"TextReadVC1",
+        @"ReadVCBase2", @"ReadVCBase1",
         @"TextRPageContainer", @"TextRPageContainerPage", @"TextRScrollContainer",
         @"TextReadTV", @"TextReadTVBase",
         @"ReadPageModel",
@@ -282,6 +416,11 @@ void LBForensicsInstallObservers(void) {
             }
         }
     });
+}
+
+__attribute__((constructor))
+static void LBFInstallObserversAtLoad(void) {
+    LBForensicsInstallObservers();
 }
 
 NSArray<NSDictionary *> *LBForensicsCopyObserverEvents(void) {
