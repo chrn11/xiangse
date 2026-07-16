@@ -3214,80 +3214,6 @@ static id LBWrapPageResultForOnDivisionTextFinish(id pageResult) {
 
 static NSArray *LBCollectDivisionHosts(UIViewController *readerVC);
 
-static BOOL LBObjectHasTextViewL(id obj);
-
-/// 视图树按类名片段找首个 subview（与 LBDebugPanel 一致）
-static UIView *LBFindViewByClassNeedle(UIView *root, NSString *needle) {
-    if (!root || needle.length == 0) return nil;
-    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
-    while (stack.count > 0) {
-        UIView *v = stack.lastObject;
-        [stack removeLastObject];
-        if ([NSStringFromClass([v class]) containsString:needle]) return v;
-        for (UIView *sub in v.subviews) [stack addObject:sub];
-    }
-    return nil;
-}
-
-/// 静态锚点（StandarReader 2.56.1 __objc_const）：initWithReaderVC→TextReadSpeakBar；
-/// textViewL→TextRPageContainerPage；divisionResponse→TextRScrollContainer；showContent:title:→ReadPageContainerPage
-static void LBLogContainerStaticProbe(void) {
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        NSMutableArray *hits = [NSMutableArray array];
-        SEL initSel = NSSelectorFromString(@"initWithReaderVC:");
-        for (NSString *cn in @[@"TextReadSpeakBar", @"TextRPageContainer", @"ReadPageContainer",
-                               @"TextRScrollContainer", @"TextRPageContainerPage",
-                               @"ReadPageContainerPage", @"TextRWidgetViewB"]) {
-            Class cls = NSClassFromString(cn);
-            if (!cls) continue;
-            if (class_getInstanceMethod(cls, initSel)) {
-                [hits addObject:[NSString stringWithFormat:@"initWithReaderVC@%@", cn]];
-            }
-            if (class_getInstanceVariable(cls, "_textViewL") ||
-                class_getInstanceMethod(cls, NSSelectorFromString(@"textViewL"))) {
-                [hits addObject:[NSString stringWithFormat:@"textViewL@%@", cn]];
-            }
-        }
-        SEL dr = NSSelectorFromString(@"divisionResponse:cpTitle:cpIndex:");
-        SEL show2 = NSSelectorFromString(@"showContent:title:");
-        for (NSString *cn in @[@"TextRScrollContainer", @"TextRPageContainer",
-                               @"ReadPageContainerPage", @"TextRPageContainerPage"]) {
-            Class cls = NSClassFromString(cn);
-            if (!cls) continue;
-            if (class_getInstanceMethod(cls, dr)) {
-                [hits addObject:[NSString stringWithFormat:@"divisionResponse@%@", cn]];
-            }
-            if (class_getInstanceMethod(cls, show2)) {
-                [hits addObject:[NSString stringWithFormat:@"showContentTitle@%@", cn]];
-            }
-        }
-        LBAppendOpenReaderTrace([NSString stringWithFormat:@"containerProbe %@",
-                                 hits.count ? [hits componentsJoinedByString:@" | "] : @"none"]);
-    });
-}
-
-/// 在 VC 视图树 / KVC 里找持有 textViewL 的对象（TextRPageContainerPage / TextRWidgetViewB 等）
-static id LBFindTextViewLHost(UIViewController *readerVC, id container) {
-    if (container && LBObjectHasTextViewL(container)) return container;
-    if (!readerVC) return nil;
-    if (readerVC.isViewLoaded && readerVC.view) {
-        for (NSString *needle in @[@"TextRPageContainerPage", @"ReadPageContainerPage",
-                                   @"TextRWidgetViewB"]) {
-            UIView *v = LBFindViewByClassNeedle(readerVC.view, needle);
-            if (v && LBObjectHasTextViewL(v)) return v;
-        }
-    }
-    for (NSString *k in @[@"containerPage", @"pageContainerPage", @"widgetViewB",
-                          @"widgetView", @"rPageContainerPage"]) {
-        @try {
-            id v = [readerVC valueForKey:k];
-            if (v && LBObjectHasTextViewL(v)) return v;
-        } @catch (__unused NSException *e) {}
-    }
-    return nil;
-}
-
 static BOOL LBObjectHasTextViewL(id obj) {
     if (!obj) return NO;
     @try {
@@ -3396,56 +3322,53 @@ static BOOL LBPatchContainerTextViewL(id container, UIViewController *readerVC,
     return NO;
 }
 
-/// loadCurCp 短路后 container 可能无 textViewL；divisionResponse 前补挂 foundTV（禁 setPageModel / ORIG loadCurCp）
+/// loadCurCp 短路后 TextRPageContainer 可能无 textViewL；divisionResponse 前补建（禁 setPageModel）
 static id LBResolveContainerFromReaderVC(UIViewController *readerVC);
-static id LBResolveScrollContainerFromReaderVC(UIViewController *readerVC);
 static BOOL LBEnsureContainerTextViews(UIViewController *readerVC, NSMutableArray *okPaths) {
     if (!readerVC || sLegadoReaderMode != 1) return NO;
-    LBLogContainerStaticProbe();
     @try {
         if (!readerVC.isViewLoaded) [readerVC loadViewIfNeeded];
     } @catch (__unused NSException *e) {}
     id container = LBResolveContainerFromReaderVC(readerVC);
-    id tvlHost = LBFindTextViewLHost(readerVC, container);
-    if (tvlHost && LBObjectHasTextViewL(tvlHost)) {
+    if (container && LBObjectHasTextViewL(container)) {
         if (okPaths) [okPaths addObject:@"ensureTV already"];
         return YES;
     }
     LBAppendOpenReaderTrace([NSString stringWithFormat:
                              @"contentInject ensureTV textViewL=nil container=%@",
                              container ? NSStringFromClass([container class]) : @"-"]);
-    // 静态：initWithReaderVC 在 TextReadSpeakBar，不在 PageContainer；禁误用 TextRPageContainer alloc
-    LBAppendOpenReaderTrace(@"contentInject ensureTV skip initWithReaderVC (owner=TextReadSpeakBar static)");
-    // textViewL 在 TextRPageContainerPage / TextRWidgetViewB：优先 patch 页面宿主
-    if (readerVC.isViewLoaded && readerVC.view) {
-        for (NSString *needle in @[@"TextRPageContainerPage", @"ReadPageContainerPage",
-                                   @"TextRWidgetViewB"]) {
-            UIView *pageHost = LBFindViewByClassNeedle(readerVC.view, needle);
-            if (pageHost && LBPatchContainerTextViewL(pageHost, readerVC, okPaths)) {
-                if (okPaths) {
-                    [okPaths addObject:[NSString stringWithFormat:@"ensureTV patch@%@", needle]];
+    // 禁直调 ORIG loadCurCp：setCpCached 后仍 SIGABRT sig=6（e5644905 真机复核）
+    Class rpcCls = NSClassFromString(@"TextRPageContainer");
+    SEL initSel = NSSelectorFromString(@"initWithReaderVC:");
+    if (rpcCls && class_getInstanceMethod(rpcCls, initSel)) {
+        @try {
+            id newCtr = ((id (*)(id, SEL, id))objc_msgSend)([rpcCls alloc], initSel, readerVC);
+            if (newCtr) {
+                BOOL hasTVL = LBObjectHasTextViewL(newCtr);
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"contentInject ensureTV initWithReaderVC ret=%@ hasTVL=%d",
+                                         NSStringFromClass([newCtr class]), hasTVL ? 1 : 0]);
+                if (hasTVL && LBWireContainerOnReaderVC(readerVC, newCtr, okPaths, @"initWithReaderVC")) {
+                    container = LBResolveContainerFromReaderVC(readerVC);
+                    if (container && LBObjectHasTextViewL(container)) return YES;
+                    if (newCtr && LBObjectHasTextViewL(newCtr)) return YES;
                 }
-                return YES;
+            } else {
+                LBAppendOpenReaderTrace(@"contentInject ensureTV initWithReaderVC ret=nil");
             }
+        } @catch (NSException *ex) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"contentInject ensureTV initWithReaderVC EX %@",
+                                     ex.reason ?: @""]);
         }
+    } else {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"contentInject ensureTV initWithReaderVC miss cls=%d sel=%d",
+                                 rpcCls ? 1 : 0,
+                                 (rpcCls && class_getInstanceMethod(rpcCls, initSel)) ? 1 : 0]);
     }
     if (container && LBPatchContainerTextViewL(container, readerVC, okPaths)) {
         return YES;
-    }
-    SEL setRVC = NSSelectorFromString(@"setReaderVC:");
-    if (container && [container respondsToSelector:setRVC]) {
-        @try {
-            ((void (*)(id, SEL, id))objc_msgSend)(container, setRVC, readerVC);
-            if (okPaths) [okPaths addObject:@"ensureTV setReaderVC"];
-            LBAppendOpenReaderTrace(@"contentInject ensureTV setReaderVC OK");
-            if (LBObjectHasTextViewL(container)) return YES;
-            tvlHost = LBFindTextViewLHost(readerVC, container);
-            if (tvlHost && LBObjectHasTextViewL(tvlHost)) return YES;
-        } @catch (NSException *ex) {
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"contentInject ensureTV setReaderVC EX %@",
-                                     ex.reason ?: @""]);
-        }
     }
     if (container) {
         SEL rcs = NSSelectorFromString(@"resetContentPosByScreenSize:");
@@ -3480,25 +3403,6 @@ static id LBResolveContainerFromReaderVC(UIViewController *readerVC) {
             id v = [readerVC valueForKey:k];
             if (v) return v;
         } @catch (__unused NSException *e) {}
-    }
-    return nil;
-}
-
-/// divisionResponse 真归属 TextRScrollContainer（静态 __objc_const）
-static id LBResolveScrollContainerFromReaderVC(UIViewController *readerVC) {
-    if (!readerVC) return nil;
-    for (NSString *k in @[@"scrollContainer", @"readScrollContainer", @"rScrollContainer",
-                          @"textRScrollContainer", @"textScrollContainer"]) {
-        @try {
-            id v = [readerVC valueForKey:k];
-            if (v) return v;
-        } @catch (__unused NSException *e) {}
-    }
-    if (readerVC.isViewLoaded && readerVC.view) {
-        UIView *v = LBFindViewByClassNeedle(readerVC.view, @"TextRScrollContainer");
-        if (v) return v;
-        v = LBFindViewByClassNeedle(readerVC.view, @"ReadScrollContainer");
-        if (v) return v;
     }
     return nil;
 }
@@ -3611,7 +3515,6 @@ static BOOL LBInvokeProcessPageData(id host, id pages, UIViewController *readerV
 static void LBRefreshContainerAfterDivisionFinish(id host, UIViewController *readerVC) {
     if (!host) return;
     if ([NSStringFromClass(object_getClass(host)) containsString:@"PageContainer"] &&
-        ![NSStringFromClass(object_getClass(host)) containsString:@"ScrollContainer"] &&
         !LBObjectHasTextViewL(host)) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"contentInject containerRefresh skip noTextViewL host=%@",
@@ -3681,21 +3584,6 @@ static BOOL LBInvokeShowContent(id target, NSString *body, NSString *title,
 static void LBForceTextReadTVRefresh(UIView *textReadTV);
 static BOOL LBTextReadTVHasRenderedNeedle(UIView *tv, NSString *needle);
 
-static BOOL LBTryShowContentOnContainerPage(UIViewController *readerVC, NSString *body,
-                                            NSString *title, NSMutableArray *okPaths) {
-    if (!readerVC || !readerVC.isViewLoaded || body.length == 0) return NO;
-    BOOL any = NO;
-    for (NSString *needle in @[@"TextRPageContainerPage", @"ReadPageContainerPage"]) {
-        UIView *pg = LBFindViewByClassNeedle(readerVC.view, needle);
-        if (!pg) continue;
-        if (LBInvokeShowContent(pg, body, title, okPaths,
-                                [NSString stringWithFormat:@"showContentPage@%@", needle])) {
-            any = YES;
-        }
-    }
-    return any;
-}
-
 /// divisionResponse/onFinish 后：对 container.textViewL/R 走 showContent（禁 setPageModel）
 static BOOL LBTryShowContentOnContainerTVs(id container, NSString *body, NSString *title,
                                            NSMutableArray *okPaths) {
@@ -3745,22 +3633,14 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
         return NO;
     }
     if ([NSStringFromClass(tcls) containsString:@"PageContainer"] &&
-        ![NSStringFromClass(tcls) containsString:@"ScrollContainer"] &&
         !LBObjectHasTextViewL(target)) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"contentInject onDivisionTextFinish skip noTextViewL host=%@",
                                  NSStringFromClass(tcls)]);
         if (textReadTV && body.length > 0) {
             NSString *cpTitle = LBSafeCpTitleString(@"章节");
-            if (readerVC) {
-                LBTryShowContentOnContainerPage(readerVC, body, cpTitle, okPaths);
-            }
             LBTryShowContentOnContainerTVs(target, body, cpTitle, okPaths);
             LBInvokeShowContent(textReadTV, body, cpTitle, okPaths, @"onFinishNoTVL");
-            if (LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎") ||
-                LBTextReadTVHasRenderedNeedle(textReadTV, @"斗气")) {
-                if (okPaths) [okPaths addObject:@"tvHasNeedleStrict"];
-            }
         }
         return NO;
     }
@@ -4413,10 +4293,6 @@ static NSArray *LBCollectDivisionHosts(UIViewController *readerVC) {
             [readerVC loadViewIfNeeded];
         }
     } @catch (__unused NSException *e) {}
-    id scrollHost = LBResolveScrollContainerFromReaderVC(readerVC);
-    if (scrollHost && ![raw containsObject:scrollHost]) {
-        [raw insertObject:scrollHost atIndex:0];
-    }
     for (NSString *k in @[@"container", @"pageContainer", @"pageContainerA",
                           @"pageContainerB", @"scrollContainer", @"rPageContainer",
                           @"readPageContainer", @"readScrollContainer"]) {
@@ -4469,23 +4345,21 @@ static NSArray *LBCollectDivisionHosts(UIViewController *readerVC) {
     BOOL hasHeights = sLastDivisionHeights && sLastDivisionHeights.count > 0;
     NSInteger (^prio)(id) = ^NSInteger(id obj) {
         NSString *n = NSStringFromClass([obj class]);
-        // 静态：divisionResponse 在 TextRScrollContainer
-        if ([n isEqualToString:@"TextRScrollContainer"]) return 0;
-        if ([n containsString:@"TextRScrollContainer"]) return 1;
+        // backHeights 非空时优先 ReadScrollContainer::divisionResponse:heights:
         if (hasHeights) {
-            if ([n isEqualToString:@"ReadScrollContainer"]) return 2;
-            if ([n containsString:@"ReadScrollContainer"]) return 3;
-            if ([n isEqualToString:@"ReadPageContainer"]) return 4;
-            if ([n containsString:@"ReadPageContainer"]) return 5;
-        } else {
+            if ([n isEqualToString:@"ReadScrollContainer"]) return 0;
+            if ([n containsString:@"ReadScrollContainer"]) return 1;
             if ([n isEqualToString:@"ReadPageContainer"]) return 2;
             if ([n containsString:@"ReadPageContainer"]) return 3;
-            if ([n isEqualToString:@"ReadScrollContainer"]) return 4;
-            if ([n containsString:@"ReadScrollContainer"]) return 5;
+        } else {
+            if ([n isEqualToString:@"ReadPageContainer"]) return 0;
+            if ([n containsString:@"ReadPageContainer"]) return 1;
+            if ([n isEqualToString:@"ReadScrollContainer"]) return 2;
+            if ([n containsString:@"ReadScrollContainer"]) return 3;
         }
-        if ([n containsString:@"TextRPageContainer"]) return 6;
-        if ([n containsString:@"PageContainer"]) return 7;
-        return 8;
+        if ([n containsString:@"TextRPageContainer"]) return 5;
+        if ([n containsString:@"PageContainer"]) return 4;
+        return 6;
     };
     NSArray *sorted = [raw sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
         NSInteger pa = prio(a), pb = prio(b);
@@ -4503,8 +4377,7 @@ static BOOL LBInvokeDivisionResponse(id host, id pages, NSString *title, NSInteg
                                      NSMutableArray *heights, NSMutableArray *okPaths) {
     if (!host || !pages) return NO;
     NSString *hn = NSStringFromClass([host class]);
-    BOOL isScrollHost = [hn containsString:@"ScrollContainer"];
-    if ([hn containsString:@"PageContainer"] && !isScrollHost && !LBObjectHasTextViewL(host)) {
+    if ([hn containsString:@"PageContainer"] && !LBObjectHasTextViewL(host)) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"contentInject divisionResponse skip noTextViewL host=%@",
                                  hn]);
@@ -5119,7 +4992,6 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                     NSString *hn = NSStringFromClass([host class]);
                     if (![hn containsString:@"ReadPageContainer"] &&
                         ![hn containsString:@"ReadScrollContainer"] &&
-                        ![hn containsString:@"TextRScrollContainer"] &&
                         ![hn containsString:@"TextRPageContainer"] &&
                         ![hn containsString:@"TextReadVC"]) {
                         continue;
@@ -5148,31 +5020,6 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 LBAppendOpenReaderTrace([NSString stringWithFormat:
                                          @"contentInject noSel divisionResponse hosts=%@",
                                          [names componentsJoinedByString:@","]]);
-                // Path B：PageContainer 无 textViewL 时 DR 全 skip → showContentPage + foundTV
-                if (textReadTV && body.length > 0) {
-                    LBAppendOpenReaderTrace(@"contentInject pathB enter (DR all skipped)");
-                    if (LBTryShowContentOnContainerPage(readerVC, body, title, okPaths)) {
-                        LBForceTextReadTVRefresh(textReadTV);
-                    }
-                    LBInvokeShowContent(textReadTV, body, title, okPaths, @"showContentFoundTVPathB");
-                    id scrollOnly = LBResolveScrollContainerFromReaderVC(readerVC);
-                    if (scrollOnly &&
-                        LBInvokeDivisionResponse(scrollOnly, drPages, title, cpIndex, heights, okPaths)) {
-                        drResponded = YES;
-                        [okPaths addObject:@"divisionResponseScrollOnly"];
-                        LBInvokeOnDivisionTextFinish(scrollOnly, finishPages, cpIndex, okPaths,
-                                                     readerVC, body, textReadTV);
-                        if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
-                            nativePaged = YES;
-                        }
-                    }
-                    if (!nativePaged &&
-                        (LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎") ||
-                         LBTextReadTVHasRenderedNeedle(textReadTV, @"斗气"))) {
-                        nativePaged = YES;
-                        [okPaths addObject:@"tvHasNeedleStrict"];
-                    }
-                }
             }
 
             if (drResponded && !nativePaged && textReadTV) {
@@ -5452,16 +5299,6 @@ LB_INJECT_FINISH:
         }
         if (hasDivision && !hasNativeDR) {
             LBAppendOpenReaderTrace(@"contentInject native-page-miss (divisionText ok, display pending)");
-            if (textReadTV && body.length > 0) {
-                LBTryShowContentOnContainerPage(readerVC, body, title, okPaths);
-                LBInvokeShowContent(textReadTV, body, title, okPaths, @"showContentPathBMiss");
-                LBForceTextReadTVRefresh(textReadTV);
-                if (LBTextReadTVHasRenderedNeedle(textReadTV, @"萧炎") ||
-                    LBTextReadTVHasRenderedNeedle(textReadTV, @"斗气")) {
-                    nativePaged = YES;
-                    [okPaths addObject:@"tvHasNeedleStrict"];
-                }
-            }
             LBTryShowPage0Once(readerVC, okPaths, @"showPage0");
         } else if (hasNativeDR) {
             // 主链 onDivisionTextFinish 已完成时禁止二次补链（final probeOnly 后曾 SIGABRT sig=6）
