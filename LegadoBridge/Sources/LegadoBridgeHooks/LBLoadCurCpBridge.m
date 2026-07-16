@@ -1,6 +1,7 @@
 #import "LBLoadCurCpBridge.h"
 #import "LBInternal.h"
 #import <objc/message.h>
+#import <dlfcn.h>
 
 static void (*sOrigLoadCurCp)(id, SEL) = NULL;
 static LBLoadCurCpState sState = LBLoadCurCpStateIdle;
@@ -12,6 +13,20 @@ static NSUInteger sInvokeCount = 0;
 static NSDictionary *sPendingPayload = nil;
 static __weak id sWeakReader = nil;
 static BOOL sReentryGuard = NO;
+
+static void LBTraceLoadCurCp(NSString *msg) {
+    if (msg.length == 0) return;
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_openreader_trace.txt"];
+    NSString *line = [NSString stringWithFormat:@"%@ | %@\n", [NSDate date], msg];
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!fh) {
+        [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return;
+    }
+    [fh seekToEndOfFile];
+    [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    [fh closeFile];
+}
 
 static void LBStateLog(NSString *msg) {
     NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_loadcurcp_state.txt"];
@@ -27,6 +42,7 @@ static void LBStateLog(NSString *msg) {
     [fh seekToEndOfFile];
     [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
     [fh closeFile];
+    LBTraceLoadCurCp([NSString stringWithFormat:@"loadCurCp %@ sm=%@", msg ?: @"", LBLoadCurCpBridgeStateName()]);
 }
 
 static void LBSetState(LBLoadCurCpState next, NSString *why) {
@@ -47,7 +63,13 @@ NSString *LBLoadCurCpBridgeStateName(void) {
 }
 
 void LBLoadCurCpBridgeRegisterOrig(void (*orig)(id, SEL)) {
-    if (orig && !sOrigLoadCurCp) sOrigLoadCurCp = orig;
+    if (!orig) return;
+    sOrigLoadCurCp = orig;
+    LBStateLog([NSString stringWithFormat:@"register_orig imp=%p", orig]);
+}
+
+BOOL LBLoadCurCpBridgePassThroughToNative(void) {
+    return sReentryGuard || sState == LBLoadCurCpStateInvokingOriginal;
 }
 
 void LBLoadCurCpBridgeReset(NSString *reason) {
@@ -71,6 +93,13 @@ void LBLoadCurCpBridgeMarkRendered(void) {
 static NSString *LBBodyFromPayload(NSDictionary *payload) {
     id c = payload[@"chapterContent"] ?: payload[@"content"];
     return [c isKindOfClass:[NSString class]] ? (NSString *)c : nil;
+}
+
+static BOOL LBPayloadHasRealError(NSDictionary *payload) {
+    id err = payload[@"error"];
+    if (!err || err == [NSNull null]) return NO;
+    if ([err isKindOfClass:[NSString class]]) return [(NSString *)err length] > 0;
+    return YES;
 }
 
 static NSInteger LBCpIndexFromPayload(NSDictionary *payload, id reader) {
@@ -187,15 +216,33 @@ static void LBRequestContent(NSString *chapterUrl, NSString *bookUrl, NSString *
 }
 
 static void LBInvokeOriginalLoadCurCp(id reader) {
-    if (!reader || !sOrigLoadCurCp || sReentryGuard) return;
-    if (sState == LBLoadCurCpStateInvokingOriginal || sState == LBLoadCurCpStateRendered) return;
+    if (!reader) {
+        LBStateLog(@"invoke_skip reason=null_reader");
+        return;
+    }
+    if (!sOrigLoadCurCp) {
+        LBStateLog(@"invoke_skip reason=null_orig");
+        return;
+    }
+    if (sReentryGuard) {
+        LBStateLog(@"invoke_skip reason=reentry");
+        return;
+    }
+    if (sState == LBLoadCurCpStateInvokingOriginal || sState == LBLoadCurCpStateRendered) {
+        LBStateLog([NSString stringWithFormat:@"invoke_skip reason=bad_state sm=%@",
+                    LBLoadCurCpBridgeStateName()]);
+        return;
+    }
 
     sReentryGuard = YES;
     sInvokeCount++;
     LBSetState(LBLoadCurCpStateInvokingOriginal, @"invoke_orig_begin");
+    LBTraceLoadCurCp([NSString stringWithFormat:@"sm=invokingOriginal ch=%@ orig=%p",
+                      sChapterUrl ?: @"-", sOrigLoadCurCp]);
     @try {
         sOrigLoadCurCp(reader, @selector(loadCurCp));
         LBStateLog(@"invoke_orig_OK");
+        LBTraceLoadCurCp(@"ORIG loadCurCp OK");
     } @catch (NSException *ex) {
         LBSetState(LBLoadCurCpStateFailed, [NSString stringWithFormat:@"invoke_orig_EX %@", ex.reason ?: @""]);
         sReentryGuard = NO;
@@ -240,6 +287,11 @@ BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,
                                  NSString *chapterUrl) {
     if (!isLegado) return NO;
 
+    if (LBLoadCurCpBridgePassThroughToNative()) {
+        LBStateLog(@"hook_passthrough_native");
+        return NO;
+    }
+
     sWeakReader = self;
     if (bookUrl.length > 0) sBookUrl = [bookUrl copy];
     if (chapterUrl.length > 0) {
@@ -247,8 +299,8 @@ BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,
         sToken = [chapterUrl copy];
     }
 
-    if (sState == LBLoadCurCpStateInvokingOriginal || sState == LBLoadCurCpStateRendered) {
-        LBStateLog(@"hook_skip_reentry");
+    if (sState == LBLoadCurCpStateRendered) {
+        LBStateLog(@"hook_skip_rendered");
         return YES;
     }
 
@@ -276,10 +328,25 @@ BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,
 
 void LBLoadCurCpBridgeOnContentPosted(NSDictionary *payload, id readerVC) {
     if (![payload isKindOfClass:[NSDictionary class]] || payload.count == 0) return;
-    if (payload[@"error"]) {
-        LBSetState(LBLoadCurCpStateFailed, [NSString stringWithFormat:@"content_err %@", payload[@"error"]]);
+
+    NSString *body = LBBodyFromPayload(payload);
+    BOOL hasBody = body.length > 0;
+    BOOL hasRealError = LBPayloadHasRealError(payload);
+
+    if (!hasBody && hasRealError) {
+        LBSetState(LBLoadCurCpStateFailed,
+                   [NSString stringWithFormat:@"content_err %@", payload[@"error"]]);
         return;
     }
+    if (!hasBody && !hasRealError && payload[@"error"]) {
+        LBStateLog(@"content_err_empty_ignored");
+        return;
+    }
+    if (!hasBody) {
+        LBStateLog(@"content_post_no_body");
+        return;
+    }
+
     sPendingPayload = [payload copy];
     NSString *ch = payload[@"chapterUrl"] ?: payload[@"cpUrl"];
     if ([ch isKindOfClass:[NSString class]] && ch.length > 0) {
