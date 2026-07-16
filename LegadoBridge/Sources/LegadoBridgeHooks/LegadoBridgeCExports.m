@@ -1464,6 +1464,8 @@ static void LBClearNativeOpenOnceState(NSString *reason) {
         sNativeOpenGoInFlight = NO;
         sNativeOpenChapterDone = NO;
         sNativeReadChapterOpenStarted = NO;
+        sDeferredNativeOpenIdx = -1;
+        sDeferredNativeOpenBookUrl = nil;
         LBClearNativeOpenOnceMarker();
         if (reason.length > 0) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:@"nativeOpen clearLocks reason=%@", reason]);
@@ -7121,10 +7123,19 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
         LBAppendOpenReaderTrace(@"nativeRead skip inflight sameBook");
         return;
     }
+    BOOL awaitingCatalogRelease = NO;
     if (sameBook && sDeferredNativeOpenIdx >= 0 && !sNativeOpenChapterDone &&
         sNativeOpenOnceKey.length == 0) {
-        LBAppendOpenReaderTrace(@"nativeRead skip duplicate awaitingCatalog");
-        return;
+        BOOL catalogReady = (sPendingCatalogChapters.count > 0 &&
+            (sPendingCatalogBookUrl.length == 0 ||
+             [sPendingCatalogBookUrl isEqualToString:bu]));
+        if (!catalogReady) {
+            LBAppendOpenReaderTrace(@"awaitingCatalog keep waiting");
+            return;
+        }
+        LBAppendOpenReaderTrace(@"awaitingCatalog release pendingNow");
+        wantIdx = sDeferredNativeOpenIdx;
+        awaitingCatalogRelease = YES;
     }
     // 仅换书冷启动才清占坑；同书二次深链/appear 回调不得清锁（真机曾双 preferNativeFull）
     if (!sameBook && !LBNativeOpenMarkerMatchesBook(bu)) {
@@ -7134,16 +7145,19 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
         sNativeReadChapterOpenStarted = NO;
         LBClearNativeOpenOnceMarker();
     }
-    sDeferredNativeOpenIdx = wantIdx;
-    sDeferredNativeOpenBookUrl = bu;
+    if (!awaitingCatalogRelease) {
+        sDeferredNativeOpenIdx = wantIdx;
+        sDeferredNativeOpenBookUrl = bu;
+    }
     [[NSString stringWithFormat:@"nativeOpenRequest book=%@ src=%@ idx=%ld",
       bu, su ?: @"", (long)wantIdx]
         writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_nativeread_request.txt"]
         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     LBInstallCatalogUIAppearFlush();
-    // 若目录已在 pending，立刻点章
-    if (sPendingCatalogChapters.count > 0 &&
-        (sPendingCatalogBookUrl.length == 0 || [sPendingCatalogBookUrl isEqualToString:bu])) {
+    // 若目录已在 pending（含 awaitingCatalog 释放），立刻点章
+    if (awaitingCatalogRelease ||
+        (sPendingCatalogChapters.count > 0 &&
+         (sPendingCatalogBookUrl.length == 0 || [sPendingCatalogBookUrl isEqualToString:bu]))) {
         NSInteger useIdx = wantIdx;
         if (useIdx >= (NSInteger)sPendingCatalogChapters.count) useIdx = 0;
         sDeferredNativeOpenIdx = -1;
