@@ -3305,6 +3305,17 @@ static id LBPrepareOnFinishArgFromDivisionText(id divisionTextRaw) {
     }
     LBAppendOpenReaderTrace([NSString stringWithFormat:@"onFinish_arg=%@",
                              LBDescribeOnFinishArg(pages)]);
+    // 单页：原生对首参调 length（NSString/Attr），传 @[Attr] 会 -[__NSArrayM length]
+    if (pages.count == 1) {
+        id only = pages.firstObject;
+        if ([only isKindOfClass:[NSAttributedString class]] ||
+            [only isKindOfClass:[NSString class]]) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"onFinish_arg unwrapSingle=%@",
+                                     LBDescribeOnFinishArg(only)]);
+            return only;
+        }
+    }
     return pages;
 }
 
