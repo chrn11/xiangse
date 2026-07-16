@@ -85,6 +85,35 @@ static NSString *LBForensicsDescribeValueShape(id val) {
     return LBForensicsSafeClassName(val);
 }
 
+static BOOL LBForensicsIvarIsObjectPointer(Ivar iv) {
+    const char *t = ivar_getTypeEncoding(iv);
+    if (!t || !t[0]) return NO;
+    return t[0] == '@' || t[0] == '#';
+}
+
+static id LBForensicsSafeObjectIvar(id obj, Ivar iv) {
+    if (!obj || !iv || !LBForensicsIvarIsObjectPointer(iv)) return nil;
+    @try {
+        return object_getIvar(obj, iv);
+    } @catch (__unused NSException *e) {
+        return nil;
+    }
+}
+
+static NSString *LBForensicsDescribeIvarValue(id model, Ivar iv) {
+    if (!LBForensicsIvarIsObjectPointer(iv)) {
+        const char *itype = ivar_getTypeEncoding(iv);
+        return [NSString stringWithFormat:@"scalar:%s", itype ? itype : "?"];
+    }
+    @try {
+        id val = LBForensicsSafeObjectIvar(model, iv);
+        if (!val) return @"null";
+        return LBForensicsDescribeValueShape(val);
+    } @catch (NSException *ex) {
+        return [NSString stringWithFormat:@"err:%@", ex.reason ?: @""];
+    }
+}
+
 static BOOL LBForensicsObjectIsCTFrameLike(id val) {
     if (!val) return NO;
     NSString *cn = LBForensicsSafeClassName(val);
@@ -100,8 +129,9 @@ static BOOL LBForensicsObjectIsCTFrameLike(id val) {
 }
 
 static NSDictionary *LBForensicsDescribeCTFrameIvar(id model, Ivar iv) {
+    if (!LBForensicsIvarIsObjectPointer(iv)) return @{@"exists": @NO};
     @try {
-        id val = object_getIvar(model, iv);
+        id val = LBForensicsSafeObjectIvar(model, iv);
         if (!val) return @{@"exists": @NO};
         if (LBForensicsObjectIsCTFrameLike(val)) {
             NSUInteger textLen = 0;
@@ -154,10 +184,14 @@ NSDictionary *LBForensicsDumpIvars(id obj) {
                 NSString *valueSummary = @"?";
                 NSDictionary *ctInfo = nil;
                 @try {
-                    valueSummary = LBForensicsDescribeValueShape(object_getIvar(obj, ivars[i]));
-                    if ([name.lowercaseString containsString:@"ctframe"] ||
-                        (itype && strstr(itype, "CTFrame"))) {
-                        ctInfo = LBForensicsDescribeCTFrameIvar(obj, ivars[i]);
+                    if (LBForensicsIvarIsObjectPointer(ivars[i])) {
+                        valueSummary = LBForensicsDescribeIvarValue(obj, ivars[i]);
+                        if ([name.lowercaseString containsString:@"ctframe"] ||
+                            (itype && strstr(itype, "CTFrame"))) {
+                            ctInfo = LBForensicsDescribeCTFrameIvar(obj, ivars[i]);
+                        }
+                    } else {
+                        valueSummary = [NSString stringWithFormat:@"scalar:%s", typeEnc.UTF8String];
                     }
                 } @catch (NSException *ex) {
                     valueSummary = [NSString stringWithFormat:@"err:%@", ex.reason ?: @""];

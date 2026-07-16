@@ -534,14 +534,21 @@ static void LBInstallDebugOpenURLHook(void) {
 }
 
 + (void)lb_debugDumpAction {
-    NSString *phase = LBForensicsConsumePendingDumpPhase();
-    NSDictionary *dump = LBForensicsPerformDump(phase);
-    NSDictionary<NSString *, NSString *> *paths = LBForensicsWriteDumpFiles(dump);
-    NSString *summary = dump[@"textSummary"] ?: @"";
-    NSMutableString *panel = [NSMutableString stringWithString:summary];
-    [panel appendFormat:@"\n--- files ---\njson: %@\ntext: %@\nlegacy: %@\n",
-     paths[@"json"] ?: @"-", paths[@"text"] ?: @"-", paths[@"legacy"] ?: @"-"];
-    LBAppendPanel(panel);
+    void (^work)(void) = ^{
+        NSString *phase = LBForensicsConsumePendingDumpPhase();
+        NSDictionary *dump = LBForensicsPerformDump(phase);
+        NSDictionary<NSString *, NSString *> *paths = LBForensicsWriteDumpFiles(dump);
+        NSString *summary = dump[@"textSummary"] ?: @"";
+        NSMutableString *panel = [NSMutableString stringWithString:summary];
+        [panel appendFormat:@"\n--- files ---\njson: %@\ntext: %@\nlegacy: %@\n",
+         paths[@"json"] ?: @"-", paths[@"text"] ?: @"-", paths[@"legacy"] ?: @"-"];
+        LBAppendPanel(panel);
+    };
+    if ([NSThread isMainThread]) {
+        work();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), work);
+    }
 }
 
 + (void)lb_debugRefreshAction {

@@ -18,22 +18,34 @@ MCP = "http://192.168.1.6:8090"
 OUT = ROOT / "fixtures" / "_devkit" / "forensics_stability.json"
 
 
+def tap_by_text(c: McpClient, text: str) -> bool:
+    r = c.call("tap_element", {"text": text, "index": 0}, timeout=30)
+    if not isinstance(r, dict) or not r.get("tapped"):
+        return False
+    el = r.get("element") or {}
+    rect = el.get("rect") or {}
+    x = rect.get("x", 0) + rect.get("width", 0) / 2
+    y = rect.get("y", 0) + rect.get("height", 0) / 2
+    if x > 1 and y > 1:
+        c.call("tap_screen", {"x": int(x), "y": int(y)})
+    return True
+
+
 def tap_book_on_shelf(c: McpClient) -> bool:
     """点书架内置样例书（文本_小说示例）。"""
-    markers = ("小说示例", "文本", "斗破", "示例")
-    for _ in range(3):
-        ui = c.call("get_ui_elements", {"limit": 150}, timeout=40)
-        elements = ui.get("elements", []) if isinstance(ui, dict) else []
-        for m in markers:
-            for e in elements:
-                t = (e.get("text") or "").strip()
-                if m in t and e.get("tap_point"):
-                    x, y = e["tap_point"]
-                    c.call("tap", {"x": x, "y": y})
-                    time.sleep(3)
-                    return True
-        c.call("swipe", {"x1": 200, "y1": 600, "x2": 200, "y2": 300, "duration_ms": 400})
-        time.sleep(1)
+    markers = ("小说示例", "文本|小说", "使用示例")
+    for m in markers:
+        if tap_by_text(c, m):
+            time.sleep(3)
+            return True
+    return False
+
+
+def open_first_chapter(c: McpClient) -> bool:
+    for m in ("使用示例", "第一章", "第1章", "新•使用示例"):
+        if tap_by_text(c, m):
+            time.sleep(4)
+            return True
     return False
 
 
@@ -44,6 +56,7 @@ def main() -> int:
     if not tap_book_on_shelf(c):
         print(json.dumps({"error": "no_book_tapped"}, ensure_ascii=False))
         return 2
+    open_first_chapter(c)
     time.sleep(5)
 
     results: list[dict] = []

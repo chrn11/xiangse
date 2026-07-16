@@ -3,6 +3,17 @@
 #import <objc/runtime.h>
 
 extern NSString *LBForensicsPointer(id obj);
+
+static BOOL LBFIvarIsObject(Ivar iv) {
+    const char *t = ivar_getTypeEncoding(iv);
+    if (!t || !t[0]) return NO;
+    return t[0] == '@' || t[0] == '#';
+}
+
+static id LBFSafeObjectIvar(id obj, Ivar iv) {
+    if (!obj || !iv || !LBFIvarIsObject(iv)) return nil;
+    @try { return object_getIvar(obj, iv); } @catch (__unused NSException *e) { return nil; }
+}
 extern NSDictionary *LBForensicsDumpIvars(id obj);
 extern NSDictionary *LBForensicsDumpObjectRelations(id obj);
 extern NSString *LBForensicsUTCNowString(void);
@@ -100,8 +111,9 @@ static void LBFScanIvarsForClass(id root, NSString *targetClass, NSMutableArray 
         Ivar *ivars = class_copyIvarList(cls, &count);
         if (ivars) {
             for (unsigned int i = 0; i < count; i++) {
+                if (!LBFIvarIsObject(ivars[i])) continue;
                 @try {
-                    id val = object_getIvar(root, ivars[i]);
+                    id val = LBFSafeObjectIvar(root, ivars[i]);
                     if (!val) continue;
                     NSString *cn = NSStringFromClass(object_getClass(val));
                     if (LBFClassNameMatchesCandidate(cn, targetClass)) {
