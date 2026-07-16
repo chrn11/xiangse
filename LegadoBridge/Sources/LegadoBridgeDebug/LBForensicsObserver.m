@@ -35,6 +35,7 @@ static _Thread_local int g_earlyWrapDepth = 0;
 static void LBFEarlyWrap_viewDidLoad(id self, SEL _cmd);
 static void LBFEarlyWrap_loadCurCp(id self, SEL _cmd);
 static void LBFWriteHookPing(NSString *line);
+static void LBFInitEarlyWrapGlobals(void);
 static void LBFRegisterResolveSlot(void);
 static BOOL LBFIsKnownHookIMP(IMP imp);
 static void LBFEnsureOrigLocked(NSString *key, IMP candidate);
