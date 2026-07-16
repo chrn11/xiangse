@@ -564,41 +564,6 @@ static void LBFHook_v_at_id_q(id self, SEL _cmd, id a1, NSInteger a2) {
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
 }
 
-/// divisionResponse:cpTitle:cpIndex: enc=v40@0:8@16@24q32 — 第三参为 NSInteger，禁当 id 转发
-static void LBFHook_divisionResponse_cpTitle_cpIndex(id self, SEL _cmd, id pages, id cpTitle,
-                                                     NSInteger cpIndex) {
-    NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
-    NSArray *args = @[
-        LBF_SHAPE_OBJ(pages), LBF_SHAPE_OBJ(cpTitle),
-        [NSString stringWithFormat:@"NSInteger:%ld", (long)cpIndex],
-    ];
-    LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
-    IMP imp = LBFGetOrigIMP(owner, _cmd);
-    if (imp) {
-        ((void (*)(id, SEL, id, id, NSInteger))imp)(self, _cmd, pages, cpTitle, cpIndex);
-    }
-    LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
-}
-
-/// divisionResponse:cpTitle:cpIndex:heights: enc=@48@0:8@16@24q32@40 — cpIndex 为 NSInteger
-static void LBFHook_divisionResponse_cpTitle_cpIndex_heights(id self, SEL _cmd, id pages, id cpTitle,
-                                                             NSInteger cpIndex, id heights) {
-    NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
-    NSArray *args = @[
-        LBF_SHAPE_OBJ(pages), LBF_SHAPE_OBJ(cpTitle),
-        [NSString stringWithFormat:@"NSInteger:%ld", (long)cpIndex],
-        LBF_SHAPE_OBJ(heights),
-    ];
-    LBFRecordEvent(@"before", self, _cmd, args, @"id", owner);
-    IMP imp = LBFGetOrigIMP(owner, _cmd);
-    id ret = nil;
-    if (imp) {
-        ret = ((id (*)(id, SEL, id, id, NSInteger, id))imp)(self, _cmd, pages, cpTitle, cpIndex,
-                                                              heights);
-    }
-    LBFRecordEvent(@"after", self, _cmd, args, LBF_SHAPE_OBJ(ret), owner);
-}
-
 static void LBFHook_v_at_id_id_id(id self, SEL _cmd, id a1, id a2, id a3) {
     NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
     NSArray *args = @[LBF_SHAPE_OBJ(a1), LBF_SHAPE_OBJ(a2), LBF_SHAPE_OBJ(a3)];
@@ -673,12 +638,8 @@ static IMP LBFHookIMPForSelector(NSString *selName) {
     if ([selName isEqualToString:@"resetContentPosByScreenSize:"]) return (IMP)LBFHook_v_at_CGSize;
     if ([selName isEqualToString:@"showContent:title:"]) return (IMP)LBFHook_v_at_id_id;
     if ([selName isEqualToString:@"onDivisionTextFinish:cpIndex:"]) return (IMP)LBFHook_v_at_id_q;
-    if ([selName isEqualToString:@"divisionResponse:cpTitle:cpIndex:"]) {
-        return (IMP)LBFHook_divisionResponse_cpTitle_cpIndex;
-    }
-    if ([selName isEqualToString:@"divisionResponse:cpTitle:cpIndex:heights:"]) {
-        return (IMP)LBFHook_divisionResponse_cpTitle_cpIndex_heights;
-    }
+    if ([selName isEqualToString:@"divisionResponse:cpTitle:cpIndex:"]) return (IMP)LBFHook_v_at_id_id_id;
+    if ([selName isEqualToString:@"divisionResponse:cpTitle:cpIndex:heights:"]) return (IMP)LBFHook_v_at_id_id_id_id;
     if ([selName isEqualToString:@"divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:"]) {
         return (IMP)LBFHook_v_at_id_id_id_id_id;
     }

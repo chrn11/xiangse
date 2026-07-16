@@ -4249,25 +4249,7 @@ static NSArray *LBCollectDivisionHosts(UIViewController *readerVC) {
     return out;
 }
 
-/// 按 method-map encoding 记录 divisionResponse 各槽 class（禁对 NSArray 调 length）
-static void LBTraceDivisionResponseSlots(NSString *tag, SEL sel, const char *enc, id pages,
-                                       NSString *title, NSInteger cpIndex, id heights) {
-    NSString *encStr = enc ? [NSString stringWithUTF8String:enc] : @"-";
-    LBAppendOpenReaderTrace([NSString stringWithFormat:@"%@ DR_enc=%@ sel=%@",
-                             tag, encStr, NSStringFromSelector(sel)]);
-    LBAppendOpenReaderTrace([NSString stringWithFormat:@"%@ DR_arg0=%@",
-                             tag, LBDescribeOnFinishArg(pages)]);
-    LBAppendOpenReaderTrace([NSString stringWithFormat:@"%@ DR_arg1=%@",
-                             tag, NSStringFromClass([title class])]);
-    LBAppendOpenReaderTrace([NSString stringWithFormat:@"%@ DR_arg2=NSInteger:%ld",
-                             tag, (long)cpIndex]);
-    if (heights) {
-        LBAppendOpenReaderTrace([NSString stringWithFormat:@"%@ DR_arg3=%@",
-                                 tag, LBDescribeOnFinishArg(heights)]);
-    }
-}
-
-/// 调 divisionResponse；按 type encoding 组装参数，字符串槽仅 LBSafeCpTitleString
+/// 调 divisionResponse；Attr 页须先 wrapReadPageModel（class_getInstanceMethod 兜底 respondsToSelector 误报）
 static BOOL LBInvokeDivisionResponse(id host, id pages, NSString *title, NSInteger cpIndex,
                                      NSMutableArray *heights, NSMutableArray *okPaths) {
     if (!host || !pages) return NO;
@@ -4275,40 +4257,20 @@ static BOOL LBInvokeDivisionResponse(id host, id pages, NSString *title, NSInteg
     SEL dr2 = NSSelectorFromString(@"divisionResponse:cpTitle:cpIndex:heights:");
     SEL dr = NSSelectorFromString(@"divisionResponse:cpTitle:cpIndex:");
     Class hcls = object_getClass(host);
-    Method mDr = class_getInstanceMethod(hcls, dr);
-    Method mDr2 = class_getInstanceMethod(hcls, dr2);
-    BOOL hasDr = [host respondsToSelector:dr] || mDr;
-    BOOL hasDr2 = [host respondsToSelector:dr2] || mDr2;
+    BOOL hasDr2 = [host respondsToSelector:dr2] || class_getInstanceMethod(hcls, dr2);
+    BOOL hasDr = [host respondsToSelector:dr] || class_getInstanceMethod(hcls, dr);
     if (!hasDr && !hasDr2) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"contentInject drProbe miss host=%@ mdr=%p mdr2=%p",
-                                 hn, mDr, mDr2]);
+                                 hn, class_getInstanceMethod(hcls, dr),
+                                 class_getInstanceMethod(hcls, dr2)]);
         return NO;
-    }
-    NSString *safeTitle = LBSafeCpTitleString(title);
-    if (safeTitle.length == 0) safeTitle = @"章节";
-    BOOL prefer3 = [hn containsString:@"PageContainer"] && !([hn containsString:@"Scroll"]);
-    if (hasDr && (prefer3 || !hasDr2)) {
-        const char *enc = mDr ? method_getTypeEncoding(mDr) : "v40@0:8@16@24q32";
-        LBTraceDivisionResponseSlots(@"division_kick_sync", dr, enc, pages, safeTitle, cpIndex, nil);
-        @try {
-            ((void (*)(id, SEL, id, id, NSInteger))objc_msgSend)(
-                host, dr, pages, safeTitle, cpIndex);
-            [okPaths addObject:[NSString stringWithFormat:@"divisionResponse@%@", hn]];
-            return YES;
-        } @catch (NSException *ex) {
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"contentInject dr EX %@ %@",
-                                     hn, ex.reason ?: @""]);
-        }
     }
     if (hasDr2) {
         NSMutableArray *h = heights ?: [NSMutableArray array];
-        const char *enc = mDr2 ? method_getTypeEncoding(mDr2) : "@48@0:8@16@24q32@40";
-        LBTraceDivisionResponseSlots(@"division_kick_sync", dr2, enc, pages, safeTitle, cpIndex, h);
         @try {
             id ret = ((id (*)(id, SEL, id, id, NSInteger, id))objc_msgSend)(
-                host, dr2, pages, safeTitle, cpIndex, h);
+                host, dr2, pages, title, cpIndex, h);
             [okPaths addObject:[NSString stringWithFormat:@"divisionResponseHeights@%@", hn]];
             if (ret) {
                 LBAppendOpenReaderTrace([NSString stringWithFormat:
@@ -4323,11 +4285,9 @@ static BOOL LBInvokeDivisionResponse(id host, id pages, NSString *title, NSInteg
         }
     }
     if (hasDr) {
-        const char *enc = mDr ? method_getTypeEncoding(mDr) : "v40@0:8@16@24q32";
-        LBTraceDivisionResponseSlots(@"division_kick_sync", dr, enc, pages, safeTitle, cpIndex, nil);
         @try {
             ((void (*)(id, SEL, id, id, NSInteger))objc_msgSend)(
-                host, dr, pages, safeTitle, cpIndex);
+                host, dr, pages, title, cpIndex);
             [okPaths addObject:[NSString stringWithFormat:@"divisionResponse@%@", hn]];
             return YES;
         } @catch (NSException *ex) {
@@ -6669,29 +6629,15 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
         if (pageResult) {
             id divisionTextRaw = pageResult;
             NSArray *flatAttrPages = LBFlattenDivisionPages(pageResult);
-            // 假设 M：encoding 首参 @ → 传 divisionText 未 flatten 产物（baseline @[@[Attr]]）
-            id drPages = divisionTextRaw;
+            id drPages = flatAttrPages.count > 0 ? flatAttrPages : divisionTextRaw;
             LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"division_kick_sync DR_variant=raw %@",
-                                     LBDescribeOnFinishArg(divisionTextRaw)]);
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"division_kick_sync DR_flat=%@",
-                                     LBDescribeOnFinishArg(flatAttrPages)]);
+                                     @"division_kick_sync DR_arg=%@",
+                                     LBDescribeOnFinishArg(drPages)]);
             NSMutableArray *heights = sLastDivisionHeights
                 ? [sLastDivisionHeights mutableCopy]
                 : [NSMutableArray array];
             NSString *safeTitle = LBSafeCpTitleString(title);
-            if (safeTitle.length == 0) safeTitle = @"章节";
-            BOOL drOk = LBInvokeDivisionResponse(container, drPages, safeTitle, cpIndex, heights, okPaths);
-            if (!drOk && flatAttrPages.count > 0 &&
-                flatAttrPages != (id)divisionTextRaw) {
-                LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                         @"division_kick_sync DR_variant=flat_retry %@",
-                                         LBDescribeOnFinishArg(flatAttrPages)]);
-                drOk = LBInvokeDivisionResponse(container, flatAttrPages, safeTitle, cpIndex,
-                                                heights, okPaths);
-            }
-            if (drOk) {
+            if (LBInvokeDivisionResponse(container, drPages, safeTitle, cpIndex, heights, okPaths)) {
                 LBAppendOpenReaderTrace(@"division_kick_sync divisionResponse_OK");
                 textReadTV = LBSyncKickFindTextReadTV(readerVC, container);
                 LBSyncKickLogPostDR(@"afterDR", container, readerVC, textReadTV);
