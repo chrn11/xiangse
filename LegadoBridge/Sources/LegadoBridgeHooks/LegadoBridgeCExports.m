@@ -3249,30 +3249,63 @@ static NSArray *LBFlattenDivisionPages(id pageResult) {
     return cur;
 }
 
-/// onDivisionTextFinish 期望 @[@[Attr|RPM...]]；扁平 @[Attr] 会触发 -[NSAttributedString firstObject]
-static id LBWrapPageResultForOnDivisionTextFinish(id pageResult) {
-    if (!pageResult) return pageResult;
-    NSArray *flat = LBFlattenDivisionPages(pageResult);
-    if (!flat || flat.count == 0) return nil;
-    id first = flat.firstObject;
-    if ([first isKindOfClass:[NSArray class]]) {
-        LBAppendOpenReaderTrace(@"contentInject wrapFinishArg alreadyNested");
-        return flat;
+/// onFinish 入参诊断（禁对 NSArray 调 length，只用 count）
+static NSString *LBDescribeOnFinishArg(id arg) {
+    if (!arg) return @"(null)";
+    if ([arg isKindOfClass:[NSArray class]]) {
+        NSArray *arr = (NSArray *)arg;
+        NSMutableArray *elemCls = [NSMutableArray array];
+        NSUInteger n = arr.count < 4 ? arr.count : 4;
+        for (NSUInteger i = 0; i < n; i++) {
+            [elemCls addObject:NSStringFromClass([[arr objectAtIndex:i] class])];
+        }
+        return [NSString stringWithFormat:@"%@[cnt=%lu,elem=%@]",
+                NSStringFromClass([arg class]), (unsigned long)arr.count,
+                [elemCls componentsJoinedByString:@","]];
+    }
+    return NSStringFromClass([arg class]);
+}
+
+/// onDivisionTextFinish 须 divisionText 原生产页列表（@[Attr...]）；再 nest 会 -[__NSArrayM length]
+static id LBPrepareOnFinishArgFromDivisionText(id divisionTextRaw) {
+    if (!divisionTextRaw) return nil;
+    NSArray *pages = LBFlattenDivisionPages(divisionTextRaw);
+    if (!pages || pages.count == 0) {
+        if ([divisionTextRaw isKindOfClass:[NSAttributedString class]] ||
+            [divisionTextRaw isKindOfClass:[NSString class]]) {
+            pages = @[divisionTextRaw];
+        } else {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"onFinish_arg=REJECT root=%@",
+                                     NSStringFromClass([divisionTextRaw class])]);
+            return nil;
+        }
+    }
+    if (pages.count == 1 && [pages.firstObject isKindOfClass:[NSArray class]]) {
+        pages = pages.firstObject;
+        LBAppendOpenReaderTrace(@"onFinish_arg unwrapSingleInnerArray");
     }
     Class rpmCls = NSClassFromString(@"ReadPageModel");
-    if (rpmCls && [first isKindOfClass:rpmCls]) {
-        NSString *plain = LBExtractPlainFromPageModel(first);
-        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"contentInject wrapFinishArg nestRPM empty=%d",
-                                 plain.length == 0 ? 1 : 0]);
-    } else if ([first isKindOfClass:[NSAttributedString class]] ||
-               [first isKindOfClass:[NSString class]]) {
-        LBAppendOpenReaderTrace(@"contentInject wrapFinishArg nestAttrOuter");
-    } else {
-        LBAppendOpenReaderTrace(@"contentInject wrapFinishArg unknownFirst (skip finish)");
-        return nil;
+    for (id p in pages) {
+        if ([p isKindOfClass:[NSArray class]]) {
+            LBAppendOpenReaderTrace(@"onFinish_arg=REJECT nestedElem");
+            return nil;
+        }
+        if (rpmCls && [p isKindOfClass:rpmCls]) {
+            LBAppendOpenReaderTrace(@"onFinish_arg=REJECT ReadPageModel (use divisionText Attr)");
+            return nil;
+        }
+        if (![p isKindOfClass:[NSAttributedString class]] &&
+            ![p isKindOfClass:[NSString class]]) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"onFinish_arg=REJECT elem=%@",
+                                     NSStringFromClass([p class])]);
+            return nil;
+        }
     }
-    return @[flat];
+    LBAppendOpenReaderTrace([NSString stringWithFormat:@"onFinish_arg=%@",
+                             LBDescribeOnFinishArg(pages)]);
+    return pages;
 }
 
 static NSArray *LBCollectDivisionHosts(UIViewController *readerVC);
@@ -3448,7 +3481,7 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
         LBAppendOpenReaderTrace(@"contentInject onDivisionTextFinish skip duplicate");
         return YES;
     }
-    id finishArg = LBWrapPageResultForOnDivisionTextFinish(pageResult);
+    id finishArg = LBPrepareOnFinishArgFromDivisionText(pageResult);
     if (!finishArg) return NO;
     SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
     Class tcls = object_getClass(target);
@@ -3487,10 +3520,10 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
         LBInvokeProcessPageData(readerVC, procPages, readerVC, cpIndex, cpTitle, okPaths);
     }
     @try {
-        // 真机无 setPageModel/processPageData：native onFinish 返回 OK 但 defer SIGABRT sig=6
+        ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(target, finish, finishArg, cpIndex);
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"contentInject onDivisionTextFinish skipNative host=%@",
-                                 NSStringFromClass(tcls)]);
+                                 @"contentInject onDivisionTextFinish nativeOK host=%@ %@",
+                                 NSStringFromClass(tcls), LBDescribeOnFinishArg(finishArg)]);
         LBRefreshContainerAfterDivisionFinish(target, readerVC);
         if (readerVC) {
             @try {
@@ -3857,7 +3890,7 @@ static void LBPostDivisionResponseRefresh(UIViewController *readerVC, UIView *te
     }
     // divisionResponse 已完成分页；onFinish 已在主链路过则跳过（防双调 SIGABRT）
     LBAppendOpenReaderTrace(@"contentInject postDR safePath onDivisionTextFinish");
-    id finishArg = flatPages.count > 0 ? flatPages : pageResult;
+    id finishArg = LBPrepareOnFinishArgFromDivisionText(pageResult);
     if (finishArg && !sOnDivisionFinishDoneThisInject) {
         BOOL finishOk = NO;
         for (id h in containers) {
@@ -4800,8 +4833,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
             id normalized = LBNormalizePageResultForDivision(pageResult, okPaths, normSz);
             sLastNormalizedDrPages = normalized;
             id drPages = normalized ?: divisionTextRaw;
-            // divisionResponse 吃 ReadPageModel；onFinish 须 divisionText 原始 Attr（传 RPM 会 -[ReadPageModel length]）
-            id finishPages = flatAttrPages ?: pageResult;
+            // divisionResponse 吃 ReadPageModel；onFinish 须 divisionText 原始 Attr（禁 wrapReadPageModel）
             pageResult = normalized ?: flatAttrPages ?: pageResult;
             id sample = nil;
             NSString *fcls = @"-";
@@ -4826,7 +4858,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                     continue;
                 }
                 drResponded = YES;
-                LBInvokeOnDivisionTextFinish(host, finishPages, cpIndex, okPaths, readerVC, body, textReadTV);
+                LBInvokeOnDivisionTextFinish(host, divisionTextRaw, cpIndex, okPaths, readerVC, body, textReadTV);
                 if (textReadTV) LBForceTextReadTVRefresh(textReadTV);
                 if (LBVerifyNativeOnScreenHost(textReadTV, readerVC, host, okPaths)) {
                     nativePaged = YES;
@@ -4876,7 +4908,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                     }
                     [okPaths addObject:@"divisionResponseRawAttr"];
                     drResponded = YES;
-                    LBInvokeOnDivisionTextFinish(host, finishPages, cpIndex, okPaths, readerVC, body, textReadTV);
+                    LBInvokeOnDivisionTextFinish(host, divisionTextRaw, cpIndex, okPaths, readerVC, body, textReadTV);
                     if (LBVerifyNativeOnScreen(textReadTV, readerVC, okPaths)) {
                         nativePaged = YES;
                         break;
@@ -4884,7 +4916,7 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 }
             }
             if (drResponded && !nativePaged) {
-                LBPostDivisionResponseRefresh(readerVC, textReadTV, finishPages, title,
+                LBPostDivisionResponseRefresh(readerVC, textReadTV, divisionTextRaw, title,
                                               cpIndex, body, containers, okPaths, &nativePaged);
             }
             if (!drResponded) {
@@ -6398,16 +6430,16 @@ static BOOL LBSyncKickInvokeOnDivisionTextFinish(id container, id pageResult, NS
                                  NSStringFromClass(tcls)]);
         return NO;
     }
-    id finishArg = LBWrapPageResultForOnDivisionTextFinish(pageResult);
+    id finishArg = LBPrepareOnFinishArgFromDivisionText(pageResult);
     if (!finishArg) {
-        LBAppendOpenReaderTrace(@"division_kick_sync onFinish_MISS wrapFail");
+        LBAppendOpenReaderTrace(@"division_kick_sync onFinish_MISS argReject");
         return NO;
     }
     @try {
         ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(container, finish, finishArg, cpIndex);
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"division_kick_sync onFinish_OK@%@",
-                                 NSStringFromClass(tcls)]);
+                                 @"division_kick_sync onFinish_OK@%@ %@",
+                                 NSStringFromClass(tcls), LBDescribeOnFinishArg(finishArg)]);
         return YES;
     } @catch (NSException *ex) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
@@ -6536,16 +6568,14 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
         }
         if (pageResult) {
             id divisionTextRaw = pageResult;
-            NSArray *flatAttrPages = LBFlattenDivisionPages(pageResult);
             id normalized = LBNormalizePageResultForDivision(pageResult, okPaths, tvSize);
             id drPages = normalized ?: divisionTextRaw;
-            id finishPages = flatAttrPages ?: pageResult;
             NSMutableArray *heights = sLastDivisionHeights
                 ? [sLastDivisionHeights mutableCopy]
                 : [NSMutableArray array];
             if (LBInvokeDivisionResponse(container, drPages, title, cpIndex, heights, okPaths)) {
                 LBAppendOpenReaderTrace(@"division_kick_sync divisionResponse_OK");
-                if (LBSyncKickInvokeOnDivisionTextFinish(container, finishPages, cpIndex)) {
+                if (LBSyncKickInvokeOnDivisionTextFinish(container, divisionTextRaw, cpIndex)) {
                     chainOk = YES;
                 }
             } else {
