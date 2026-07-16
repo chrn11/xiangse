@@ -281,6 +281,27 @@ static void LBLoadCurCp_IMP(id self, SEL _cmd) {
     }
 }
 
+static void (*LBOrig_loadViewIfNeeded)(id, SEL) = NULL;
+static void LBLoadViewIfNeeded_IMP(id self, SEL _cmd) {
+    if (LBOrig_loadViewIfNeeded) {
+        LBOrig_loadViewIfNeeded(self, _cmd);
+    } else {
+        struct objc_super sup = { self, [UIViewController class] };
+        ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, _cmd);
+    }
+    NSString *cn = NSStringFromClass([self class]);
+    if ([cn hasPrefix:@"TextReadVC"] || [cn hasPrefix:@"ReadVCBase"]) {
+        NSString *bookUrl = nil;
+        NSString *sourceUrl = nil;
+        if (LBReadingObjectIsLegado(self, &bookUrl, &sourceUrl)) {
+            LBLoadCurCpBridgeReaderActivated(self);
+            LBReadingOpenTrace([NSString stringWithFormat:
+                                @"loadViewIfNeeded readerActivated %@ sm=%@",
+                                cn, LBLoadCurCpBridgeStateName()]);
+        }
+    }
+}
+
 static Class LBFindClassImplementing(NSArray<NSString *> *candidates, SEL sel) {
     for (NSString *cn in candidates) {
         Class c = NSClassFromString(cn);
@@ -382,7 +403,28 @@ void LBInstallReadingHooks(void) {
                                   NSStringFromClass(curOwner), trueOrig]];
         }
 
-        // 4) addBook:groupKey:tempBook: — 加书架时落盘绑定；进度/缓存不 Hook
+        // 5) loadViewIfNeeded — pushNativeFull 走 ivar 写 dicBook，在此激活 loadCurCp
+        NSArray *readVCNames = @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1",
+                                 @"ReadVCBase2", @"ReadVCBase1"];
+        SEL lvSel = @selector(loadViewIfNeeded);
+        NSMutableSet *lvHooked = [NSMutableSet set];
+        for (NSString *cn in readVCNames) {
+            Class cls = NSClassFromString(cn);
+            if (!cls) continue;
+            Class owner = LBClassOwningInstanceMethod(cls, lvSel) ?: cls;
+            NSString *ownerKey = NSStringFromClass(owner);
+            if ([lvHooked containsObject:ownerKey]) continue;
+            Method m = class_getInstanceMethod(owner, lvSel);
+            if (!m) continue;
+            if (!LBOrig_loadViewIfNeeded) {
+                LBOrig_loadViewIfNeeded = (void (*)(id, SEL))method_getImplementation(m);
+            }
+            method_setImplementation(m, (IMP)LBLoadViewIfNeeded_IMP);
+            [lvHooked addObject:ownerKey];
+            [installed addObject:[NSString stringWithFormat:@"loadViewIfNeeded@%@", ownerKey]];
+        }
+
+        // 4) addBook:groupKey:tempBook:
         Class shelfMgr = NSClassFromString(@"BookShelfManager");
         SEL addSel = NSSelectorFromString(@"addBook:groupKey:tempBook:");
         if (shelfMgr && LBValidateInstanceMethod(shelfMgr, addSel, NULL, &enc, &reason)) {
