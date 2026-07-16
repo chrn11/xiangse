@@ -7,8 +7,10 @@
 #import <signal.h>
 #import <fcntl.h>
 #import <unistd.h>
+#import <dlfcn.h>
 #import "LegadoBridge.h"
 #import "LBInternal.h"
+#import "LBLoadCurCpBridge.h"
 
 @class LegadoBridgeCore;
 
@@ -2511,7 +2513,13 @@ static BOOL LBNavStackHasTextReader(void) {
     return NO;
 }
 
+static UIViewController *LBFindVisibleTextReaderVC(void);
+
 static BOOL LBIsTextReaderVisible(void) {
+    return LBFindVisibleTextReaderVC() != nil;
+}
+
+static UIViewController *LBFindVisibleTextReaderVC(void) {
     for (UIWindow *w in LBAllAppWindows()) {
         UIViewController *root = w.rootViewController;
         if (!root) continue;
@@ -2521,7 +2529,7 @@ static BOOL LBIsTextReaderVisible(void) {
             [stack removeLastObject];
             NSString *cn = NSStringFromClass([vc class]);
             if ([cn containsString:@"TextReadVC"] || [cn containsString:@"ReadVCBase"]) {
-                if (LBVCIsVisibleInWindow(vc)) return YES;
+                if (LBVCIsVisibleInWindow(vc)) return vc;
             }
             for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
             if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
@@ -2537,7 +2545,24 @@ static BOOL LBIsTextReaderVisible(void) {
             }
         }
     }
-    return NO;
+    return nil;
+}
+
+static IMP LBResolveHookOrigIMP(Class cls, SEL sel) {
+    if (NSClassFromString(@"LBDebugPanel")) {
+        typedef IMP (*ResolveFn)(Class, SEL);
+        static ResolveFn resolve = NULL;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            resolve = (ResolveFn)dlsym(RTLD_DEFAULT, "LBForensicsResolveOrigIMP");
+        });
+        if (resolve) {
+            IMP r = resolve(cls, sel);
+            if (r) return r;
+        }
+    }
+    Method m = class_getInstanceMethod(cls, sel);
+    return m ? method_getImplementation(m) : NULL;
 }
 
 /// 调用 AppDelegate.openReader:sourceName:record:（经护栏消毒后进原生）
@@ -5813,12 +5838,11 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
                 ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
             } @catch (__unused NSException *e2) {}
         }
-        LBDeliverContentToVisibleReaders(@"nativeAppear");
-        // 延迟再投一次：正文异步到达 / didAppear 异常后 TextReadTV 可能已就绪
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            LBDeliverContentToVisibleReaders(@"nativeAppear0.5");
-        });
+        if (sPendingResetContent.count > 0) {
+            LBLoadCurCpBridgeOnContentPosted(sPendingResetContent, self);
+        }
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"nativeAppear sm=%@", LBLoadCurCpBridgeStateName()]);
         return;
     }
     if (LBOrig_TR_viewDidAppear) LBOrig_TR_viewDidAppear(self, _cmd, animated);
@@ -5832,17 +5856,20 @@ static void LBInstallSafeTextReadShellHooks(void) {
             if (!cls) continue;
             Method m1 = class_getInstanceMethod(cls, @selector(viewDidLoad));
             if (m1 && !LBOrig_TR_viewDidLoad) {
-                LBOrig_TR_viewDidLoad = (void (*)(id, SEL))method_getImplementation(m1);
+                IMP trueOrig = LBResolveHookOrigIMP(cls, @selector(viewDidLoad));
+                LBOrig_TR_viewDidLoad = (void (*)(id, SEL))trueOrig;
                 method_setImplementation(m1, (IMP)LBTextRead_viewDidLoad_Safe);
             }
             Method m2 = class_getInstanceMethod(cls, @selector(viewWillAppear:));
             if (m2 && !LBOrig_TR_viewWillAppear) {
-                LBOrig_TR_viewWillAppear = (void (*)(id, SEL, BOOL))method_getImplementation(m2);
+                IMP trueOrig = LBResolveHookOrigIMP(cls, @selector(viewWillAppear:));
+                LBOrig_TR_viewWillAppear = (void (*)(id, SEL, BOOL))trueOrig;
                 method_setImplementation(m2, (IMP)LBTextRead_viewWillAppear_Safe);
             }
             Method m3 = class_getInstanceMethod(cls, @selector(viewDidAppear:));
             if (m3 && !LBOrig_TR_viewDidAppear) {
-                LBOrig_TR_viewDidAppear = (void (*)(id, SEL, BOOL))method_getImplementation(m3);
+                IMP trueOrig = LBResolveHookOrigIMP(cls, @selector(viewDidAppear:));
+                LBOrig_TR_viewDidAppear = (void (*)(id, SEL, BOOL))trueOrig;
                 method_setImplementation(m3, (IMP)LBTextRead_viewDidAppear_Safe);
             }
             LBAppendOpenReaderTrace([NSString stringWithFormat:@"textReadHooks hooked %@", cn]);
@@ -6186,9 +6213,14 @@ void LBNoteResetContentPosted(NSDictionary *userInfo) {
                         ch, (unsigned long)sPendingResetContent.count, sLegadoReaderMode];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_content_pending.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    UIViewController *visibleReader = LBFindVisibleTextReaderVC();
+    LBLoadCurCpBridgeOnContentPosted(enriched, visibleReader);
     if (LBIsTextReaderVisible()) {
         if (sLegadoReaderMode == 1) {
-            LBDeliverContentToVisibleReaders(@"notePosted");
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"notePosted sm=%@ reader=%@",
+                                     LBLoadCurCpBridgeStateName(),
+                                     visibleReader ? NSStringFromClass([visibleReader class]) : @"-"]);
         } else {
             // safeShell：禁止 post ResetContent；UITextView 直灌
             for (UIWindow *w in LBAllAppWindows()) {

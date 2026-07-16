@@ -25,6 +25,7 @@ static NSString *g_pendingDumpPhase = nil;
 static pthread_mutex_t g_forensicsLock = PTHREAD_MUTEX_INITIALIZER;
 static dispatch_queue_t g_autoDumpQueue = NULL;
 static NSMutableDictionary<NSString *, NSValue *> *g_earlyNextIMPs = nil;
+static NSMutableDictionary<NSString *, NSValue *> *g_earlyOrigIMPs = nil;
 static IMP (*g_orig_method_setImplementation)(Method, IMP) = NULL;
 static BOOL g_installingEarlyWrap = NO;
 static _Thread_local int g_earlyWrapDepth = 0;
@@ -231,6 +232,7 @@ static void LBFInitEarlyWrapGlobals(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         if (!g_earlyNextIMPs) g_earlyNextIMPs = [NSMutableDictionary dictionary];
+        if (!g_earlyOrigIMPs) g_earlyOrigIMPs = [NSMutableDictionary dictionary];
     });
 }
 
@@ -329,6 +331,9 @@ static BOOL LBFEnsureEarlyWrap(Class cls, NSString *selName) {
     if (current == wrapper) return YES;
 
     g_earlyNextIMPs[key] = [NSValue valueWithPointer:current];
+    if (!g_earlyOrigIMPs[key]) {
+        g_earlyOrigIMPs[key] = [NSValue valueWithPointer:current];
+    }
     LBFEnsureOrigMethodSetIMP();
     g_installingEarlyWrap = YES;
     g_orig_method_setImplementation(m, wrapper);
@@ -710,6 +715,21 @@ static void LBFInstallObserverHooks(void) {
         }
     }
     // viewDidLoad/loadCurCp 由 LBFEarlyWrap 专责，observer 不再重复挂钩
+}
+
+IMP LBForensicsResolveOrigIMP(Class cls, SEL sel) {
+    if (!cls) return NULL;
+    LBFInitEarlyWrapGlobals();
+    NSString *selName = NSStringFromSelector(sel);
+    Class walk = cls;
+    while (walk) {
+        NSString *key = LBFEarlyWrapKey(NSStringFromClass(walk), selName);
+        NSValue *orig = g_earlyOrigIMPs[key];
+        if (orig) return (IMP)orig.pointerValue;
+        walk = class_getSuperclass(walk);
+    }
+    Method m = class_getInstanceMethod(cls, sel);
+    return m ? method_getImplementation(m) : NULL;
 }
 
 void LBForensicsInstallEarlyWrap(void) {

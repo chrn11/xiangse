@@ -18,6 +18,9 @@ FOUNDATION_EXPORT NSDictionary<NSString *, NSString *> *LBForensicsWriteDumpFile
 /// 尽早安装 viewDidLoad/loadCurCp IMP 包装（+load/constructor 调用）
 FOUNDATION_EXPORT void LBForensicsInstallEarlyWrap(void);
 
+/// 返回 early-wrap 安装前捕获的真原版 IMP（供生产 shell hook 解环）
+FOUNDATION_EXPORT IMP LBForensicsResolveOrigIMP(Class cls, SEL sel);
+
 /// 安装只读 lifecycle observer（+load 调用一次）
 FOUNDATION_EXPORT void LBForensicsInstallObservers(void);
 
