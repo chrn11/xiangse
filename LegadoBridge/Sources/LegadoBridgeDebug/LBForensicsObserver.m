@@ -3,6 +3,7 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <pthread.h>
+#import <dlfcn.h>
 
 extern NSString *LBForensicsPointer(id obj);
 extern NSString *LBForensicsUTCNowString(void);
@@ -23,6 +24,9 @@ static NSString *g_pendingDumpPhase = nil;
 static pthread_mutex_t g_forensicsLock = PTHREAD_MUTEX_INITIALIZER;
 static dispatch_queue_t g_autoDumpQueue = NULL;
 static NSMutableDictionary<NSString *, NSValue *> *g_earlyNextIMPs = nil;
+static IMP (*g_orig_method_setImplementation)(Method, IMP) = NULL;
+static BOOL g_installingEarlyWrap = NO;
+static _Thread_local int g_earlyWrapDepth = 0;
 
 static void LBFEarlyWrap_viewDidLoad(id self, SEL _cmd);
 static void LBFEarlyWrap_loadCurCp(id self, SEL _cmd);
@@ -205,6 +209,51 @@ static void LBFMaybeScheduleAutoDump(id selfObj, SEL sel, NSString *ownerClassNa
     LBFScheduleAutoDumpPhase(selfObj, phase);
 }
 
+static IMP LBFEarlyWrapperForSelectorName(NSString *selName) {
+    if ([selName isEqualToString:@"viewDidLoad"]) return (IMP)LBFEarlyWrap_viewDidLoad;
+    if ([selName isEqualToString:@"loadCurCp"]) return (IMP)LBFEarlyWrap_loadCurCp;
+    return NULL;
+}
+
+static void LBFEnsureOrigMethodSetIMP(void) {
+    if (!g_orig_method_setImplementation) {
+        g_orig_method_setImplementation =
+            (IMP (*)(Method, IMP))dlsym(RTLD_NEXT, "method_setImplementation");
+    }
+}
+
+/// 拦截生产 Bridge 的 method_setImplementation，在 viewDidLoad/loadCurCp 安装时同步套上 forensics wrapper
+static IMP LBFReplaced_method_setImplementation(Method m, IMP imp) {
+    LBFEnsureOrigMethodSetIMP();
+    if (!g_installingEarlyWrap && m && imp) {
+        SEL sel = method_getName(m);
+        NSString *selName = NSStringFromSelector(sel);
+        IMP wrapper = LBFEarlyWrapperForSelectorName(selName);
+        if (wrapper && imp != wrapper) {
+            Class cls = method_getClass(m);
+            NSString *cn = NSStringFromClass(cls);
+            if (LBFIsReadVCClassName(cn)) {
+                LBFInitEarlyWrapGlobals();
+                NSString *key = LBFEarlyWrapKey(cn, selName);
+                g_earlyNextIMPs[key] = [NSValue valueWithPointer:imp];
+                imp = wrapper;
+                LBFWriteHookPing([NSString stringWithFormat:@"intercept wrap %@ %@", cn, selName]);
+            }
+        }
+    }
+    return g_orig_method_setImplementation(m, imp);
+}
+
+typedef struct {
+    const void *replacement;
+    const void *replacee;
+} LBFDyldInterposeTuple;
+
+__attribute__((used)) static const LBFDyldInterposeTuple s_methodSetInterposers[]
+    __attribute__((section("__DATA, __interpose"))) = {
+    { (const void *)LBFReplaced_method_setImplementation, (const void *)method_setImplementation },
+};
+
 static NSString *LBFEarlyWrapKey(NSString *clsName, NSString *selName) {
     return [NSString stringWithFormat:@"early|%@|%@", clsName, selName];
 }
@@ -237,9 +286,7 @@ static BOOL LBFEnsureEarlyWrap(Class cls, NSString *selName) {
     Method m = class_getInstanceMethod(cls, sel);
     if (!m) return NO;
 
-    IMP wrapper = NULL;
-    if ([selName isEqualToString:@"viewDidLoad"]) wrapper = (IMP)LBFEarlyWrap_viewDidLoad;
-    else if ([selName isEqualToString:@"loadCurCp"]) wrapper = (IMP)LBFEarlyWrap_loadCurCp;
+    IMP wrapper = LBFEarlyWrapperForSelectorName(selName);
     if (!wrapper) return NO;
 
     NSString *clsName = NSStringFromClass(cls);
@@ -248,7 +295,10 @@ static BOOL LBFEnsureEarlyWrap(Class cls, NSString *selName) {
     if (current == wrapper) return YES;
 
     g_earlyNextIMPs[key] = [NSValue valueWithPointer:current];
-    method_setImplementation(m, wrapper);
+    LBFEnsureOrigMethodSetIMP();
+    g_installingEarlyWrap = YES;
+    g_orig_method_setImplementation(m, wrapper);
+    g_installingEarlyWrap = NO;
     return YES;
 }
 
@@ -281,6 +331,12 @@ static void LBFEarlyWrapDiscoverAndInstall(void) {
 }
 
 static void LBFEarlyWrap_viewDidLoad(id self, SEL _cmd) {
+    if (g_earlyWrapDepth > 0) {
+        IMP next = LBFEarlyNextIMP(self, _cmd);
+        if (next) ((void (*)(id, SEL))next)(self, _cmd);
+        return;
+    }
+    g_earlyWrapDepth++;
     NSString *owner = NSStringFromClass(object_getClass(self));
     LBFWriteHookPing([NSString stringWithFormat:@"early before viewDidLoad %@", owner]);
     LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner);
@@ -291,13 +347,21 @@ static void LBFEarlyWrap_viewDidLoad(id self, SEL _cmd) {
     } @catch (NSException *ex) {
         LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
         LBFMaybeScheduleAutoDump(self, _cmd, owner);
+        g_earlyWrapDepth--;
         @throw ex;
     }
     LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
     LBFMaybeScheduleAutoDump(self, _cmd, owner);
+    g_earlyWrapDepth--;
 }
 
 static void LBFEarlyWrap_loadCurCp(id self, SEL _cmd) {
+    if (g_earlyWrapDepth > 0) {
+        IMP next = LBFEarlyNextIMP(self, _cmd);
+        if (next) ((void (*)(id, SEL))next)(self, _cmd);
+        return;
+    }
+    g_earlyWrapDepth++;
     NSString *owner = NSStringFromClass(object_getClass(self));
     LBFWriteHookPing([NSString stringWithFormat:@"early before loadCurCp %@", owner]);
     LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner);
@@ -308,10 +372,12 @@ static void LBFEarlyWrap_loadCurCp(id self, SEL _cmd) {
     } @catch (NSException *ex) {
         LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
         LBFMaybeScheduleAutoDump(self, _cmd, owner);
+        g_earlyWrapDepth--;
         @throw ex;
     }
     LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
     LBFMaybeScheduleAutoDump(self, _cmd, owner);
+    g_earlyWrapDepth--;
 }
 
 static void LBFScheduleEarlyWrapRetry(void) {
@@ -628,6 +694,8 @@ void LBForensicsInstallObservers(void) {
 
 __attribute__((constructor))
 static void LBFInstallObserversAtLoad(void) {
+    LBFEnsureOrigMethodSetIMP();
+    LBFWriteHookPing(@"early wrap constructor");
     LBFEarlyWrapDiscoverAndInstall();
     dispatch_async(dispatch_get_main_queue(), ^{
         LBFScheduleEarlyWrapRetry();
