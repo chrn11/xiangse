@@ -20,8 +20,8 @@ from tools.repack.manifest import validate_manifest
 MCP = "http://192.168.1.6:8090"
 BUNDLE = "com.appbox.StandarReader"
 OUT_DIR = ROOT / "fixtures" / "_devkit"
-EXPECTED_GIT = "0fc5bf9"  # 含同步 dump；SIGSEGV 修复后需新 run
-FORENSICS_RUN = "29470798256"
+EXPECTED_GIT = "2c4f0ec"
+FORENSICS_RUN = "29471717536"
 STABILITY_N = 10
 
 
@@ -138,8 +138,29 @@ def ensure_dumpagent(c: McpClient, retries: int = 3) -> str:
     raise RuntimeError(f"refresh_dump 失败（{retries} 次）: {last_err}")
 
 
+def invoke_dump_open_url(c: McpClient, phase: str) -> str:
+    """经 AppDelegate/UIApplication openURL hook 同步写盘（不依赖 dumpagent）。"""
+    before = set(list_forensics_files(c))
+    c.call("open_url", {"url": f"legado://debugDump?phase={phase}"})
+    last_err = ""
+    for _ in range(60):
+        time.sleep(0.5)
+        ready = c.read_sandbox_text("legado_debug_dump_ready.txt", max_bytes=4096).strip()
+        if ready and ready.endswith(".json") and ready.startswith("/"):
+            return ready
+        after = set(list_forensics_files(c))
+        new_files = sorted(after - before)
+        if new_files:
+            return new_files[-1]
+    raise RuntimeError(last_err or f"open_url dump 无新 json phase={phase}")
+
+
 def invoke_dump_sync(c: McpClient, phase: str) -> str:
-    """优先同步 selector；回退异步 + 等待新 json。"""
+    """优先 open_url（已验证写 v2）；dumpagent 可用时再试 objc_invoke。"""
+    try:
+        return invoke_dump_open_url(c, phase)
+    except RuntimeError:
+        pass
     before = set(list_forensics_files(c))
     attempts = [
         {
@@ -189,7 +210,7 @@ def invoke_dump_sync(c: McpClient, phase: str) -> str:
             if ready and ready.endswith(".json"):
                 return ready
         last_err = f"no new json after {args['selector']}"
-    raise RuntimeError(last_err or "objc_invoke dump failed")
+    raise RuntimeError(last_err or "dump failed (open_url + objc_invoke)")
 
 
 def open_native_txt_reader(c: McpClient) -> list[str]:
@@ -210,7 +231,11 @@ def open_native_txt_reader(c: McpClient) -> list[str]:
         steps.append("tap_chapter_coord")
     else:
         steps.append("tap_chapter")
-    time.sleep(8)
+    time.sleep(12)
+    # 二次点章兜底（目录页未进阅读时）
+    if not tap_rect_center(c, "使用示例"):
+        c.call("tap_screen", {"x": 195, "y": 280})
+    time.sleep(6)
     stack = c.get_vc_stack()
     steps.append(f"vc_stack={stack}")
     return steps
@@ -232,7 +257,7 @@ def main() -> int:
     manifest = ensure_ipa(c)
     report["manifest"] = manifest
     git = manifest.get("git_commit", "")
-    if not str(git).startswith("0fc5bf9"):
+    if not str(git).startswith("2c4f0ec"):
         report["error"] = f"manifest git 不符: {git}"
         out = OUT_DIR / f"forensics_hard_accept_FAIL_{ts()}.json"
         out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -248,13 +273,10 @@ def main() -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 2
 
-    try:
-        agent_note = ensure_dumpagent(c, retries=3)
-        report["steps"].append(f"dumpagent_ok={agent_note[:80]}")
-    except Exception as exc:
-        report["steps"].append(f"dumpagent_warn={exc}")
+    # open_url dump 不依赖 dumpagent；此处禁止 kill_app 以免退出阅读页
+    report["steps"].append("dump_via_open_url")
 
-    # 首次阅读页 dump
+    # 首次阅读页 dump（主路径 open_url hook）
     try:
         json_path = invoke_dump_sync(c, "reader_ch1")
         doc = read_json_at(c, json_path)
@@ -296,7 +318,8 @@ def main() -> int:
     report["unknown"] = (doc or {}).get("unknown") or []
 
     report["passed"] = bool(report.get("sample_json", {}).get("reader_ok")) and all_ok and not report.get("error")
-    out = OUT_DIR / ("forensics_hard_accept_PASS_" if report["passed"] else "forensics_hard_accept_FAIL_") + ts() + ".json"
+    tag = "PASS" if report["passed"] else "FAIL"
+    out = OUT_DIR / f"forensics_hard_accept_{tag}_{ts()}.json"
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     report["report_path"] = str(out)
     print(json.dumps(report, ensure_ascii=False, indent=2))
