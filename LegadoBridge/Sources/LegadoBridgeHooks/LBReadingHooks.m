@@ -217,19 +217,6 @@ static void LBLoadCatalog_IMP(id self, SEL _cmd, void *argRaw, BOOL ignoringCach
 }
 
 static void (*LBOrig_loadCurCp)(id, SEL) = NULL;
-
-BOOL LBInvokeOrigLoadCurCpShell(id readerVC) {
-    if (!readerVC || !LBOrig_loadCurCp) return NO;
-    @try {
-        LBOrig_loadCurCp(readerVC, @selector(loadCurCp));
-        LBReadingDiagLog(@"origLoadCurCp shell invoked");
-        return YES;
-    } @catch (NSException *e) {
-        LBReadingDiagLog([NSString stringWithFormat:@"origLoadCurCp shell EX %@", e.reason ?: @""]);
-        return NO;
-    }
-}
-
 static void LBLoadCurCp_IMP(id self, SEL _cmd) {
     NSString *bookUrl = nil;
     NSString *sourceUrl = nil;

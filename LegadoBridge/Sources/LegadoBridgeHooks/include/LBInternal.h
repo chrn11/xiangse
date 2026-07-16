@@ -66,9 +66,6 @@ NSString * _Nullable LBReadingBookUrlFromDic(NSDictionary * _Nullable dic);
 NSString * _Nullable LBReadingSourceUrlFromDic(NSDictionary * _Nullable dic);
 NSDictionary * _Nullable LBReadingDicFromObject(id _Nullable object);
 
-/// Legado loadCurCp 短路后补建 TextRPageContainer.textViewL：直调 ORIG（须已 setCpCached）
-BOOL LBInvokeOrigLoadCurCpShell(id _Nullable readerVC);
-
 NS_ASSUME_NONNULL_END
 
 #endif /* LBInternal_h */
