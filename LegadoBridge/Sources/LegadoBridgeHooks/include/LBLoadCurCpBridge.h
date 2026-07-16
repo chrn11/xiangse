@@ -29,9 +29,6 @@ BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,
 /// 正文载荷到达（LBNoteResetContentPosted 接线）
 void LBLoadCurCpBridgeOnContentPosted(NSDictionary *payload, id _Nullable readerVC);
 
-/// 阅读页激活（setDicBook 后）：若有 pending 正文则 contentReady→invoke，否则启动 fetch
-void LBLoadCurCpBridgeReaderActivated(id reader);
-
 /// 原生绘制证据置位（forensics / 验收探针）
 void LBLoadCurCpBridgeMarkRendered(void);
 
