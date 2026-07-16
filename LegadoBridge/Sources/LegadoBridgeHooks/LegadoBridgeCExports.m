@@ -699,9 +699,6 @@ static BOOL sContentInjectBusy = NO;
 static BOOL sShowPage0ThisInject = NO;
 /// 单次 contentInject 内仅调一次 onDivisionTextFinish（重复曾 SIGABRT sig=6）
 static BOOL sOnDivisionFinishDoneThisInject = NO;
-/// 跨 inject 章节级 onFinish 去重（二次 nativeRead 曾 SIGABRT sig=6）
-static NSString *sLastNativeOnFinishKey = nil;
-static NSTimeInterval sLastNativeOnFinishTs = 0;
 static UIViewController *sHiddenBookDetail = nil;
 
 static void LBFlushPendingResetContent(NSString *phase);
@@ -3400,37 +3397,6 @@ static void LBRefreshContainerAfterDivisionFinish(id host, UIViewController *rea
                              NSStringFromClass(hcls)]);
 }
 
-static BOOL LBInvokeShowContent(id target, NSString *body, NSString *title,
-                                NSMutableArray *okPaths, NSString *tag);
-static void LBForceTextReadTVRefresh(UIView *textReadTV);
-static BOOL LBTextReadTVHasRenderedNeedle(UIView *tv, NSString *needle);
-
-/// divisionResponse/onFinish 后：对 container.textViewL/R 走 showContent（禁 setPageModel）
-static BOOL LBTryShowContentOnContainerTVs(id container, NSString *body, NSString *title,
-                                           NSMutableArray *okPaths) {
-    if (!container || body.length == 0) return NO;
-    BOOL any = NO;
-    for (NSString *k in @[@"textViewL", @"textViewR", @"curPageTV", @"textView"]) {
-        @try {
-            id tv = [container valueForKey:k];
-            if (!tv) continue;
-            if (LBInvokeShowContent(tv, body, title, okPaths,
-                                    [NSString stringWithFormat:@"showContentTV@%@", k])) {
-                any = YES;
-            }
-            if ([tv isKindOfClass:[UIView class]]) {
-                LBForceTextReadTVRefresh((UIView *)tv);
-            }
-            if (LBTextReadTVHasRenderedNeedle((UIView *)tv, @"萧炎") ||
-                LBTextReadTVHasRenderedNeedle((UIView *)tv, @"斗气")) {
-                if (okPaths) [okPaths addObject:@"tvHasNeedleStrict"];
-                return YES;
-            }
-        } @catch (__unused NSException *e) {}
-    }
-    return any;
-}
-
 /// 原版 onDivisionTextFinish:cpIndex:（divisionResponse 后走容器原生刷新链）
 static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
                                        NSInteger cpIndex, NSMutableArray *okPaths,
@@ -3477,54 +3443,20 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
         procPages = finishArg;
     }
     LBInvokeProcessPageData(target, procPages, readerVC, cpIndex, cpTitle, okPaths);
-    if (readerVC && readerVC != target) {
-        LBInvokeProcessPageData(readerVC, procPages, readerVC, cpIndex, cpTitle, okPaths);
-        id scroll = LBResolveContainerFromReaderVC(readerVC);
-        if (scroll && scroll != target) {
-            LBInvokeProcessPageData(scroll, procPages, readerVC, cpIndex, cpTitle, okPaths);
-        }
-    }
-    NSString *finishKey = [NSString stringWithFormat:@"%@|%@|%ld|%lu",
-                           NSStringFromClass(tcls),
-                           readerVC ? NSStringFromClass([readerVC class]) : @"-",
-                           (long)cpIndex,
-                           (unsigned long)LBFlattenDivisionPages(pageResult).count];
-    NSTimeInterval nowFinish = CFAbsoluteTimeGetCurrent();
-    if (sLastNativeOnFinishTs > 0 &&
-        (nowFinish - sLastNativeOnFinishTs) < 45.0 &&
-        [finishKey isEqualToString:sLastNativeOnFinishKey]) {
-        LBAppendOpenReaderTrace(@"contentInject onDivisionTextFinish skip chapterDedupe");
-        sOnDivisionFinishDoneThisInject = YES;
-        LBRefreshContainerAfterDivisionFinish(target, readerVC);
-        return YES;
-    }
-    LBRefreshContainerAfterDivisionFinish(target, readerVC);
     @try {
         ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(target, finish, finishArg, cpIndex);
-        sLastNativeOnFinishKey = [finishKey copy];
-        sLastNativeOnFinishTs = nowFinish;
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"contentInject onDivisionTextFinish native host=%@",
                                  NSStringFromClass(tcls)]);
-        if (readerVC && readerVC != target &&
-            ([readerVC respondsToSelector:finish] ||
-             class_getInstanceMethod(object_getClass(readerVC), finish))) {
+        LBRefreshContainerAfterDivisionFinish(target, readerVC);
+        if (readerVC && readerVC != target) {
+            LBInvokeProcessPageData(readerVC, procPages, readerVC, cpIndex, cpTitle, okPaths);
             @try {
-                ((void (*)(id, SEL, id, NSInteger))objc_msgSend)(
-                    readerVC, finish, finishArg, cpIndex);
-                LBAppendOpenReaderTrace(@"contentInject onDivisionTextFinish native readerVC");
-            } @catch (NSException *ex2) {
-                LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                         @"contentInject onDivisionTextFinish readerVC EX %@",
-                                         ex2.reason ?: @""]);
-            }
-        }
-        LBTryShowContentOnContainerTVs(target, body, cpTitle, okPaths);
-        if (readerVC) {
-            id ctr = LBResolveContainerFromReaderVC(readerVC);
-            if (ctr && ctr != target) {
-                LBTryShowContentOnContainerTVs(ctr, body, cpTitle, okPaths);
-            }
+                id ctr = LBResolveContainerFromReaderVC(readerVC);
+                if (ctr && ctr != target) {
+                    LBRefreshContainerAfterDivisionFinish(ctr, readerVC);
+                }
+            } @catch (__unused NSException *e) {}
         }
         if (okPaths) {
             [okPaths addObject:[NSString stringWithFormat:@"onDivisionTextFinish@%@",

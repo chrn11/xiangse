@@ -137,13 +137,9 @@ static UIViewController *LBTopViewController(UIViewController *root) {
 }
 
 static UIViewController *LBFindReaderVC(NSArray<UIViewController *> *stack) {
+    NSArray *needles = @[@"TextRead", @"ReadVC", @"PageContainer", @"TextRPage"];
     for (NSInteger i = (NSInteger)stack.count - 1; i >= 0; i--) {
-        NSString *cn = NSStringFromClass(object_getClass(stack[(NSUInteger)i]));
-        if ([cn hasPrefix:@"TextReadVC"]) return stack[(NSUInteger)i];
-    }
-    for (NSInteger i = (NSInteger)stack.count - 1; i >= 0; i--) {
-        NSString *cn = NSStringFromClass(object_getClass(stack[(NSUInteger)i]));
-        if ([cn containsString:@"ReadVCBase"]) return stack[(NSUInteger)i];
+        if (LBClassNameContains(stack[(NSUInteger)i], needles)) return stack[(NSUInteger)i];
     }
     return nil;
 }
