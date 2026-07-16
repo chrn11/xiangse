@@ -120,21 +120,18 @@ def validate_manifest(
         errors.append(f"github_run_id 不符: 期望 {expected_run} 实际 {manifest.get('github_run_id')}")
 
     if expected_sha:
-        for key in ("base_ipa_sha256", "app_binary_sha256", "legado_debug_sha256"):
-            val = manifest.get(key)
-            if isinstance(val, str) and val != expected_sha:
-                errors.append(f"{key} 不符: 期望 {expected_sha} 实际 {val}")
-                break
-        else:
-            if manifest.get("legado_bridge_sha256") == expected_sha:
-                pass
-            elif expected_sha not in (
-                manifest.get("base_ipa_sha256"),
-                manifest.get("app_binary_sha256"),
-                manifest.get("legado_bridge_sha256"),
-                manifest.get("legado_debug_sha256"),
-            ):
-                errors.append(f"expected_sha 与 manifest 各哈希均不匹配: {expected_sha}")
+        commit = str(manifest.get("git_commit", ""))
+        sha_ok = expected_sha in (
+            manifest.get("base_ipa_sha256"),
+            manifest.get("app_binary_sha256"),
+            manifest.get("legado_bridge_sha256"),
+            manifest.get("legado_debug_sha256"),
+        )
+        commit_ok = bool(commit) and (
+            commit == expected_sha or commit.startswith(expected_sha)
+        )
+        if not sha_ok and not commit_ok:
+            errors.append(f"expected_sha 与 manifest 哈希/git_commit 均不匹配: {expected_sha}")
 
     if variant == "baseline-debug" and manifest.get("legado_bridge_sha256") is not None:
         errors.append("baseline-debug 的 legado_bridge_sha256 必须为 null")

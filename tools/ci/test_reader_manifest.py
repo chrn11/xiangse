@@ -69,6 +69,10 @@ class ManifestTests(unittest.TestCase):
         errs = validate_manifest(m, expected_sha="f" * 64)
         self.assertTrue(errs)
 
+    def test_expected_sha_matches_git_commit(self) -> None:
+        m = _sample_manifest(git_commit="deadbeef" + "0" * 32)
+        self.assertEqual(validate_manifest(m, expected_sha="deadbeef"), [])
+
     def test_baseline_bridge_must_be_null(self) -> None:
         m = _sample_manifest(legado_bridge_sha256="d" * 64)
         errs = validate_manifest(m)
@@ -151,6 +155,31 @@ class IpaZipManifestTests(unittest.TestCase):
             with zipfile.ZipFile(ipa) as zf:
                 names = [n for n in zf.namelist() if n.endswith("reader-build-manifest.json")]
             self.assertEqual(len(names), 1)
+
+
+class McpClientManifestTests(unittest.TestCase):
+    def test_app_paths_includes_top_level_bundle_path(self) -> None:
+        from tools.ios_mcp_client import McpClient
+
+        client = McpClient("http://example.test")
+        client.call = mock.Mock(
+            return_value={
+                "bundle_path": "/var/containers/Bundle/Application/UUID/StandarReader.app",
+                "paths": {"documents": "/var/mobile/.../Documents"},
+            }
+        )
+        paths = client.app_paths()
+        self.assertIn("bundle_path", paths)
+        self.assertIn("bundle", paths)
+        self.assertTrue(paths["bundle_path"].endswith("StandarReader.app"))
+
+    def test_extract_read_file_json_format(self) -> None:
+        from tools.ios_mcp_client import McpClient
+
+        text = McpClient._extract_read_file_text(
+            {"format": "json", "content": '{"variant":"baseline-debug"}'}
+        )
+        self.assertIn("baseline-debug", text)
 
 
 if __name__ == "__main__":

@@ -26,6 +26,16 @@ static void LBWriteDebugFile(NSString *name, NSString *content) {
     [body writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
 
+/// 启动时将 Bundle 内 reader-build-manifest.json 复制到 Documents，供 ios-mcp 沙盒读取
+static void LBCopyBuildManifestToDocuments(void) {
+    NSBundle *bundle = [NSBundle mainBundle];
+    NSString *src = [bundle pathForResource:@"reader-build-manifest" ofType:@"json"];
+    if (!src.length) return;
+    NSString *text = [NSString stringWithContentsOfFile:src encoding:NSUTF8StringEncoding error:nil];
+    if (!text.length) return;
+    LBWriteDebugFile(@"reader-build-manifest.json", text);
+}
+
 static void LBAppendPanel(NSString *line) {
     if (!line) return;
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -617,6 +627,7 @@ static void LBInstallDebugOpenURLHook(void) {
 @implementation LBDebugPanel
 
 + (void)load {
+    LBCopyBuildManifestToDocuments();
     dispatch_async(dispatch_get_main_queue(), ^{
         LBInstallThreeFingerGesture();
         LBInstallDebugOpenURLHook();

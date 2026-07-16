@@ -117,8 +117,37 @@ class McpClient:
         info = self.call("get_app_info", {"bundle_id": self.bundle_id})
         if not isinstance(info, dict):
             return {}
-        paths = info.get("paths", {})
-        return paths if isinstance(paths, dict) else {}
+        paths: dict[str, str] = {}
+        inner = info.get("paths", {})
+        if isinstance(inner, dict):
+            paths.update({k: v for k, v in inner.items() if isinstance(v, str)})
+        for key in ("bundle_path", "bundlePath", "data_container", "executable_path"):
+            val = info.get(key)
+            if isinstance(val, str) and val:
+                paths[key] = val
+                if key == "bundle_path":
+                    paths.setdefault("bundle", val)
+        return paths
+
+    @staticmethod
+    def _extract_read_file_text(result: Any) -> str:
+        if not isinstance(result, dict):
+            return str(result) if result else ""
+        if result.get("isError"):
+            return ""
+        content = result.get("content")
+        if isinstance(content, str):
+            return content
+        return ""
+
+    def read_file_at(self, path: str, max_bytes: int = 65536) -> str:
+        if not path:
+            return ""
+        try:
+            res = self.call("read_file", {"path": path, "max_bytes": max_bytes}, timeout=30)
+            return self._extract_read_file_text(res)
+        except McpError:
+            return ""
 
     def open_once_candidates(self, paths: dict[str, str] | None = None) -> list[str]:
         paths = paths or self.app_paths()
@@ -156,63 +185,43 @@ class McpClient:
             if not doc:
                 return ""
             path = f"{doc}/{rel_or_abs}"
-        try:
-            res = self.call("read_file", {"path": path, "max_bytes": max_bytes}, timeout=30)
-            if isinstance(res, dict):
-                return res.get("content", "") or ""
-            return str(res)
-        except McpError:
-            return ""
-
-    def read_file_at(self, path: str, max_bytes: int = 65536) -> str:
-        if not path:
-            return ""
-        try:
-            res = self.call("read_file", {"path": path, "max_bytes": max_bytes}, timeout=30)
-            if isinstance(res, dict):
-                return res.get("content", "") or ""
-            return str(res)
-        except McpError:
-            return ""
+        return self.read_file_at(path, max_bytes=max_bytes)
 
     def read_build_manifest(self) -> dict[str, Any] | None:
         """从已安装 App 的 Bundle 或 Documents 读取 reader-build-manifest.json。"""
         paths = self.app_paths()
         candidates: list[str] = []
-        for key in ("bundle", "app", "bundle_path", "bundlePath"):
+        for key in ("bundle_path", "bundle", "bundlePath"):
             base = paths.get(key, "")
             if base:
                 candidates.append(f"{base.rstrip('/')}/reader-build-manifest.json")
         doc = paths.get("documents", "")
         if doc:
             candidates.append(f"{doc}/reader-build-manifest.json")
+
         for path in candidates:
-            text = self.read_file_at(path, max_bytes=16384)
-            if text.strip():
-                try:
-                    data = json.loads(text)
-                    if isinstance(data, dict):
-                        return data
-                except json.JSONDecodeError:
-                    continue
-        # run_command 兜底：通过 bundle 容器定位
-        if self.bundle_id:
-            cmd = (
-                f"for p in $(find /var/containers/Bundle/Application -name reader-build-manifest.json "
-                f"2>/dev/null | head -5); do "
-                f"if echo \"$p\" | grep -q '{self.bundle_id}' 2>/dev/null || "
-                f"defaults read \"$(dirname \"$p\")/Info.plist\" CFBundleIdentifier 2>/dev/null | "
-                f"grep -q '{self.bundle_id}'; then cat \"$p\"; break; fi; done"
-            )
+            text = self.read_file_at(path, max_bytes=16384).strip()
+            if not text:
+                continue
             try:
-                res = self.call("run_command", {"command": cmd, "timeout_sec": 15}, timeout=25)
+                data = json.loads(text)
+                if isinstance(data, dict):
+                    return data
+            except json.JSONDecodeError:
+                continue
+
+        bundle = paths.get("bundle_path") or paths.get("bundle", "")
+        if bundle:
+            cmd = f"cat '{bundle.rstrip('/')}/reader-build-manifest.json' 2>/dev/null"
+            try:
+                res = self.call("run_command", {"command": cmd, "timeout_sec": 10}, timeout=20)
                 text = ""
                 if isinstance(res, dict):
-                    text = res.get("output", "") or res.get("content", "") or ""
+                    text = (res.get("output") or res.get("content") or "").strip()
                 elif isinstance(res, str):
-                    text = res
-                if text.strip():
-                    data = json.loads(text.strip())
+                    text = res.strip()
+                if text:
+                    data = json.loads(text)
                     if isinstance(data, dict):
                         return data
             except (McpError, json.JSONDecodeError):

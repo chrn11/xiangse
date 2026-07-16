@@ -449,6 +449,12 @@ def cmd_install(client: McpClient, args: argparse.Namespace) -> int:
     ins = client.call("install_app", {"path": device_path}, timeout=args.timeout)
     steps.append(f"install={ins}")
     time.sleep(2)
+    try:
+        client.call("launch_app", {"bundle_id": client.bundle_id})
+        steps.append("launch_app_for_manifest")
+        time.sleep(3)
+    except McpError:
+        steps.append("launch_app_for_manifest_skipped")
 
     manifest = _read_device_manifest(client)
     errors, manifest = _check_manifest_expectations(manifest, args, require_device=True)
