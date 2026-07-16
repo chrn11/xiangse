@@ -1,4 +1,5 @@
 #import "LBForensics.h"
+#import "fishhook.h"
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
@@ -285,15 +286,18 @@ static IMP LBFReplaced_method_setImplementation(Method m, IMP imp) {
     return g_orig_method_setImplementation(m, imp);
 }
 
-typedef struct {
-    const void *replacement;
-    const void *replacee;
-} LBFDyldInterposeTuple;
-
-__attribute__((used)) static const LBFDyldInterposeTuple s_methodSetInterposers[]
-    __attribute__((section("__DATA, __interpose"))) = {
-    { (const void *)LBFReplaced_method_setImplementation, (const void *)method_setImplementation },
-};
+static void LBFEnsureMethodSetHook(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        struct rebinding rebind = {
+            .name = "method_setImplementation",
+            .replacement = (void *)LBFReplaced_method_setImplementation,
+            .replaced = (void **)&g_orig_method_setImplementation,
+        };
+        rebind_symbols(&rebind, 1);
+        LBFWriteHookPing(@"fishhook method_setImplementation");
+    });
+}
 
 static IMP LBFEarlyNextIMP(id self, SEL sel) {
     NSString *selName = NSStringFromSelector(sel);
@@ -709,6 +713,7 @@ static void LBFInstallObserverHooks(void) {
 }
 
 void LBForensicsInstallEarlyWrap(void) {
+    LBFEnsureMethodSetHook();
     LBFEarlyWrapDiscoverAndInstall();
 }
 
@@ -724,7 +729,7 @@ void LBForensicsInstallObservers(void) {
 
 __attribute__((constructor))
 static void LBFInstallObserversAtLoad(void) {
-    LBFEnsureOrigMethodSetIMP();
+    LBFEnsureMethodSetHook();
     LBFWriteHookPing(@"early wrap constructor");
     LBFEarlyWrapDiscoverAndInstall();
     dispatch_async(dispatch_get_main_queue(), ^{
