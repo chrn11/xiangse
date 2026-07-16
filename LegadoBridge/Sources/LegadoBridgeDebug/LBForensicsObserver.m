@@ -558,10 +558,20 @@ static void LBFHook_v_at_id_q(id self, SEL _cmd, id a1, NSInteger a2) {
     NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
     NSArray *args = @[LBF_SHAPE_OBJ(a1),
                       [NSString stringWithFormat:@"NSInteger:%ld", (long)a2]];
+    NSString *selName = NSStringFromSelector(_cmd);
+    if ([selName isEqualToString:@"onDivisionTextFinish:cpIndex:"]) {
+        LBFWriteHookPing([NSString stringWithFormat:
+                          @"natural_onDivisionTextFinish host=%@ arg=%@ cpIndex=%ld",
+                          owner, LBF_SHAPE_OBJ(a1), (long)a2]);
+    }
     LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
     IMP imp = LBFGetOrigIMP(owner, _cmd);
     if (imp) ((void (*)(id, SEL, id, NSInteger))imp)(self, _cmd, a1, a2);
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
+    if ([selName isEqualToString:@"onDivisionTextFinish:cpIndex:"]) {
+        LBFWriteHookPing([NSString stringWithFormat:
+                          @"natural_onDivisionTextFinish_after host=%@", owner]);
+    }
 }
 
 static void LBFHook_v_at_id_id_id(id self, SEL _cmd, id a1, id a2, id a3) {
