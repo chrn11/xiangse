@@ -222,6 +222,47 @@ static void LBFEnsureOrigMethodSetIMP(void) {
     }
 }
 
+static NSString *LBFEarlyWrapKey(NSString *clsName, NSString *selName) {
+    return [NSString stringWithFormat:@"early|%@|%@", clsName, selName];
+}
+
+static void LBFInitEarlyWrapGlobals(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        if (!g_earlyNextIMPs) g_earlyNextIMPs = [NSMutableDictionary dictionary];
+    });
+}
+
+static Class LBFClassForInstanceMethod(Method m, SEL sel) {
+    if (!m) return Nil;
+    NSArray<NSString *> *names = @[
+        @"TextReadVC3", @"TextReadVC2", @"TextReadVC1",
+        @"ReadVCBase2", @"ReadVCBase1", @"ReadVCBase",
+    ];
+    for (NSString *cn in names) {
+        Class cls = objc_getClass(cn.UTF8String);
+        if (!cls) cls = NSClassFromString(cn);
+        if (cls && class_getInstanceMethod(cls, sel) == m) return cls;
+    }
+    int n = objc_getClassList(NULL, 0);
+    if (n <= 0) return Nil;
+    Class *buf = (Class *)calloc((size_t)n, sizeof(Class));
+    if (!buf) return Nil;
+    objc_getClassList(buf, n);
+    Class found = Nil;
+    for (int i = 0; i < n; i++) {
+        const char *name = class_getName(buf[i]);
+        if (!name) continue;
+        if (strstr(name, "TextReadVC") == NULL && strstr(name, "ReadVCBase") == NULL) continue;
+        if (class_getInstanceMethod(buf[i], sel) == m) {
+            found = buf[i];
+            break;
+        }
+    }
+    free(buf);
+    return found;
+}
+
 /// 拦截生产 Bridge 的 method_setImplementation，在 viewDidLoad/loadCurCp 安装时同步套上 forensics wrapper
 static IMP LBFReplaced_method_setImplementation(Method m, IMP imp) {
     LBFEnsureOrigMethodSetIMP();
@@ -230,8 +271,8 @@ static IMP LBFReplaced_method_setImplementation(Method m, IMP imp) {
         NSString *selName = NSStringFromSelector(sel);
         IMP wrapper = LBFEarlyWrapperForSelectorName(selName);
         if (wrapper && imp != wrapper) {
-            Class cls = method_getClass(m);
-            NSString *cn = NSStringFromClass(cls);
+            Class cls = LBFClassForInstanceMethod(m, sel);
+            NSString *cn = cls ? NSStringFromClass(cls) : @"";
             if (LBFIsReadVCClassName(cn)) {
                 LBFInitEarlyWrapGlobals();
                 NSString *key = LBFEarlyWrapKey(cn, selName);
@@ -253,17 +294,6 @@ __attribute__((used)) static const LBFDyldInterposeTuple s_methodSetInterposers[
     __attribute__((section("__DATA, __interpose"))) = {
     { (const void *)LBFReplaced_method_setImplementation, (const void *)method_setImplementation },
 };
-
-static NSString *LBFEarlyWrapKey(NSString *clsName, NSString *selName) {
-    return [NSString stringWithFormat:@"early|%@|%@", clsName, selName];
-}
-
-static void LBFInitEarlyWrapGlobals(void) {
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        if (!g_earlyNextIMPs) g_earlyNextIMPs = [NSMutableDictionary dictionary];
-    });
-}
 
 static IMP LBFEarlyNextIMP(id self, SEL sel) {
     NSString *selName = NSStringFromSelector(sel);
