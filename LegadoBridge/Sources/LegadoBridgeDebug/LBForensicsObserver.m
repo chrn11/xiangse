@@ -732,6 +732,10 @@ IMP LBForensicsResolveOrigIMP(Class cls, SEL sel) {
     return m ? method_getImplementation(m) : NULL;
 }
 
+IMP LBForensicsEarlyWrapIMPForSelectorName(NSString *selName) {
+    return LBFEarlyWrapperForSelectorName(selName);
+}
+
 void LBForensicsInstallEarlyWrap(void) {
     LBFEnsureMethodSetHook();
     LBFEarlyWrapDiscoverAndInstall();

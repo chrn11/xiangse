@@ -21,6 +21,9 @@ FOUNDATION_EXPORT void LBForensicsInstallEarlyWrap(void);
 /// 返回 early-wrap 安装前捕获的真原版 IMP（供生产 shell hook 解环）
 FOUNDATION_EXPORT IMP LBForensicsResolveOrigIMP(Class cls, SEL sel);
 
+/// 返回 forensics EarlyWrap 钩子 IMP（供 Bridge 解包识别）
+FOUNDATION_EXPORT IMP LBForensicsEarlyWrapIMPForSelectorName(NSString *selName);
+
 /// 安装只读 lifecycle observer（+load 调用一次）
 FOUNDATION_EXPORT void LBForensicsInstallObservers(void);
 

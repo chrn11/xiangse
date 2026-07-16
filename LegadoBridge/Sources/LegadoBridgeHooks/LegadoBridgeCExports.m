@@ -5705,8 +5705,84 @@ static BOOL sLegadoSafeTextReadShell = NO;
 static void (*LBOrig_TR_viewDidLoad)(id, SEL) = NULL;
 static void (*LBOrig_TR_viewWillAppear)(id, SEL, BOOL) = NULL;
 static void (*LBOrig_TR_viewDidAppear)(id, SEL, BOOL) = NULL;
+static int sTRViewDidLoadDepth = 0;
+static int sTRViewWillAppearDepth = 0;
+static int sTRViewDidAppearDepth = 0;
+
+static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd);
+static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated);
+static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated);
+
+typedef IMP (*LBForensicsEarlyWrapIMPFn)(NSString *);
+typedef IMP (*LBForensicsResolveOrigIMPFn)(Class, SEL);
+
+static BOOL LBIsKnownTextReadHookIMP(IMP imp, SEL sel) {
+    if (!imp) return NO;
+    if (sel == @selector(viewDidLoad) && imp == (IMP)LBTextRead_viewDidLoad_Safe) return YES;
+    if (sel == @selector(viewWillAppear:) && imp == (IMP)LBTextRead_viewWillAppear_Safe) return YES;
+    if (sel == @selector(viewDidAppear:) && imp == (IMP)LBTextRead_viewDidAppear_Safe) return YES;
+    static LBForensicsEarlyWrapIMPFn earlyWrapFn = NULL;
+    static dispatch_once_t onceEarly;
+    dispatch_once(&onceEarly, ^{
+        earlyWrapFn = (LBForensicsEarlyWrapIMPFn)dlsym(RTLD_DEFAULT,
+                                                        "LBForensicsEarlyWrapIMPForSelectorName");
+    });
+    if (earlyWrapFn) {
+        IMP early = earlyWrapFn(NSStringFromSelector(sel));
+        if (early && imp == early) return YES;
+    }
+    return NO;
+}
+
+/// 沿 Safe / EarlyWrap / ResolveOrig 解包，直到 IMP 不再是已知钩子
+static IMP LBUnwrapHookIMP(Class cls, SEL sel, IMP start) {
+    IMP imp = start;
+    if (!imp) {
+        Method m = class_getInstanceMethod(cls, sel);
+        imp = m ? method_getImplementation(m) : NULL;
+    }
+    static LBForensicsResolveOrigIMPFn resolveOrig = NULL;
+    static dispatch_once_t onceResolve;
+    dispatch_once(&onceResolve, ^{
+        resolveOrig = (LBForensicsResolveOrigIMPFn)dlsym(RTLD_DEFAULT, "LBForensicsResolveOrigIMP");
+    });
+    for (int hop = 0; hop < 12 && imp; hop++) {
+        if (!LBIsKnownTextReadHookIMP(imp, sel)) break;
+        IMP next = NULL;
+        if (sel == @selector(viewDidLoad) && imp == (IMP)LBTextRead_viewDidLoad_Safe) {
+            next = (IMP)LBOrig_TR_viewDidLoad;
+        } else if (sel == @selector(viewWillAppear:) && imp == (IMP)LBTextRead_viewWillAppear_Safe) {
+            next = (IMP)LBOrig_TR_viewWillAppear;
+        } else if (sel == @selector(viewDidAppear:) && imp == (IMP)LBTextRead_viewDidAppear_Safe) {
+            next = (IMP)LBOrig_TR_viewDidAppear;
+        }
+        if (resolveOrig) {
+            IMP forensics = resolveOrig(cls, sel);
+            if (forensics && !LBIsKnownTextReadHookIMP(forensics, sel)) {
+                imp = forensics;
+                break;
+            }
+            if (forensics && forensics != imp) next = forensics;
+        }
+        if (!next || next == imp) break;
+        imp = next;
+    }
+    return imp;
+}
+
+static IMP LBUnwrapViewDidLoadIMP(Class cls) {
+    return LBUnwrapHookIMP(cls, @selector(viewDidLoad), (IMP)LBOrig_TR_viewDidLoad);
+}
 
 static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
+    if (sTRViewDidLoadDepth > 0) {
+        LBAppendOpenReaderTrace(@"TR viewDidLoad reenter-skip");
+        struct objc_super sup = { self, [UIViewController class] };
+        ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, _cmd);
+        return;
+    }
+    sTRViewDidLoadDepth++;
+    @try {
     LBAppendOpenReaderTrace([NSString stringWithFormat:
                              @"TR viewDidLoad enter mode=%d shell=%d cls=%@",
                              sLegadoReaderMode, sLegadoSafeTextReadShell ? 1 : 0,
@@ -5747,18 +5823,24 @@ static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
     if (isLegadoReader && sLegadoReaderMode == 1) {
         LBAppendOpenReaderTrace(@"nativeFull viewDidLoad begin");
         LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
+        Class cls = object_getClass(self);
+        IMP orig = LBUnwrapViewDidLoadIMP(cls);
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"unwrapImp=%p", orig]);
         @try {
-            if (LBOrig_TR_viewDidLoad) {
-                LBOrig_TR_viewDidLoad(self, _cmd);
+            if (orig && !LBIsKnownTextReadHookIMP(orig, _cmd)) {
+                ((void (*)(id, SEL))orig)(self, _cmd);
+                LBAppendOpenReaderTrace(@"nativeFull viewDidLoad ORIG_OK");
+                LBWriteOpenReaderMarker(@"nativeOpen viewDidLoad ORIG_OK via=nativeFull");
+            } else {
+                LBAppendOpenReaderTrace(@"nativeFull viewDidLoad ORIG_SKIP unwrap-miss");
+                struct objc_super sup = { self, [UIViewController class] };
+                ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, _cmd);
             }
-            LBAppendOpenReaderTrace(@"nativeFull viewDidLoad ORIG_OK");
-            LBWriteOpenReaderMarker(@"nativeOpen viewDidLoad ORIG_OK via=nativeFull");
         } @catch (NSException *ex) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                      @"nativeFull viewDidLoad EX %@", ex.reason ?: @""]);
             LBWriteOpenReaderMarker([NSString stringWithFormat:
                                      @"nativeOpen viewDidLoad EX %@", ex.reason ?: @""]);
-            // 保持 nativeFull，禁止自动降级 safeShell（用户硬性要求原版 UI）
             struct objc_super sup = { self, [UIViewController class] };
             @try {
                 ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, _cmd);
@@ -5767,9 +5849,20 @@ static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
         return;
     }
     if (LBOrig_TR_viewDidLoad) LBOrig_TR_viewDidLoad(self, _cmd);
+    } @finally {
+        sTRViewDidLoadDepth--;
+    }
 }
 
 static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
+    if (sTRViewWillAppearDepth > 0) {
+        LBAppendOpenReaderTrace(@"TR viewWillAppear reenter-skip");
+        struct objc_super sup = { self, [UIViewController class] };
+        ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
+        return;
+    }
+    sTRViewWillAppearDepth++;
+    @try {
     BOOL isLegadoReader = NO;
     id dicProbe = nil;
     @try { dicProbe = [self valueForKey:@"dicBook"]; } @catch (__unused NSException *e) {}
@@ -5785,13 +5878,17 @@ static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
         LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
+        Class cls = object_getClass(self);
+        IMP orig = LBUnwrapHookIMP(cls, @selector(viewWillAppear:), (IMP)LBOrig_TR_viewWillAppear);
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"unwrapWillAppear=%p", orig]);
         @try {
-            if (LBOrig_TR_viewWillAppear) LBOrig_TR_viewWillAppear(self, _cmd, animated);
-            else {
+            if (orig && !LBIsKnownTextReadHookIMP(orig, _cmd)) {
+                ((void (*)(id, SEL, BOOL))orig)(self, _cmd, animated);
+                LBAppendOpenReaderTrace(@"nativeFull viewWillAppear ORIG_OK");
+            } else {
                 struct objc_super sup = { self, [UIViewController class] };
                 ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
             }
-            LBAppendOpenReaderTrace(@"nativeFull viewWillAppear ORIG_OK");
         } @catch (NSException *ex) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                      @"nativeFull willAppear EX %@", ex.reason ?: @""]);
@@ -5801,9 +5898,20 @@ static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (LBOrig_TR_viewWillAppear) LBOrig_TR_viewWillAppear(self, _cmd, animated);
+    } @finally {
+        sTRViewWillAppearDepth--;
+    }
 }
 
 static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
+    if (sTRViewDidAppearDepth > 0) {
+        LBAppendOpenReaderTrace(@"TR viewDidAppear reenter-skip");
+        struct objc_super sup = { self, [UIViewController class] };
+        ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
+        return;
+    }
+    sTRViewDidAppearDepth++;
+    @try {
     BOOL isLegadoReader = NO;
     id dicProbe = nil;
     @try { dicProbe = [self valueForKey:@"dicBook"]; } @catch (__unused NSException *e) {}
@@ -5821,17 +5929,20 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
     if (isLegadoReader && sLegadoReaderMode == 1) {
         LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
         LBSeedTextReadAppearFields(self, sPendingNativeFullBook);
+        Class cls = object_getClass(self);
+        IMP orig = LBUnwrapHookIMP(cls, @selector(viewDidAppear:), (IMP)LBOrig_TR_viewDidAppear);
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"unwrapDidAppear=%p", orig]);
         @try {
-            if (LBOrig_TR_viewDidAppear) LBOrig_TR_viewDidAppear(self, _cmd, animated);
-            else {
+            if (orig && !LBIsKnownTextReadHookIMP(orig, _cmd)) {
+                ((void (*)(id, SEL, BOOL))orig)(self, _cmd, animated);
+                LBAppendOpenReaderTrace(@"nativeFull viewDidAppear ORIG_OK");
+            } else {
                 struct objc_super sup = { self, [UIViewController class] };
                 ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
             }
-            LBAppendOpenReaderTrace(@"nativeFull viewDidAppear ORIG_OK");
         } @catch (NSException *ex) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                      @"nativeFull didAppear EX %@", ex.reason ?: @""]);
-            // 再消毒一次后只走 UIViewController 基类 appear，保持 nativeFull，禁止降级 safeShell
             LBSeedTextReadAppearFields(self, sPendingNativeFullBook);
             @try {
                 struct objc_super sup = { self, [UIViewController class] };
@@ -5846,6 +5957,9 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (LBOrig_TR_viewDidAppear) LBOrig_TR_viewDidAppear(self, _cmd, animated);
+    } @finally {
+        sTRViewDidAppearDepth--;
+    }
 }
 
 static void LBInstallSafeTextReadShellHooks(void) {
