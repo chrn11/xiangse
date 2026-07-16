@@ -1,4 +1,5 @@
 #import "LBInternal.h"
+#import "LBLoadCurCpBridge.h"
 #import "LegadoBridge.h"
 #include <stdint.h>
 
@@ -222,14 +223,12 @@ static void LBLoadCurCp_IMP(id self, SEL _cmd) {
     NSString *sourceUrl = nil;
     if (LBReadingObjectIsLegado(self, &bookUrl, &sourceUrl)) {
         NSString *chapterUrl = LBReadingChapterUrlFromObject(self);
-        if (chapterUrl.length > 0) {
-            LBReadingRequestContent(chapterUrl, bookUrl, sourceUrl);
+        if (LBLoadCurCpBridgeHandleHook(self, _cmd, YES, bookUrl, sourceUrl, chapterUrl)) {
+            LBReadingDiagLog([NSString stringWithFormat:
+                             @"loadCurCp sm=%@ book=%@ ch=%@",
+                             LBLoadCurCpBridgeStateName(), bookUrl ?: @"", chapterUrl ?: @""]);
+            return;
         }
-        // Legado：禁止回原生 loadCurCp（TextReadVC 内部会 abort）
-        LBReadingDiagLog([NSString stringWithFormat:
-                         @"loadCurCp short-circuit book=%@ ch=%@",
-                         bookUrl ?: @"", chapterUrl ?: @""]);
-        return;
     }
     if (LBOrig_loadCurCp) {
         LBOrig_loadCurCp(self, _cmd);
@@ -329,6 +328,7 @@ void LBInstallReadingHooks(void) {
         if (curOwner && LBValidateInstanceMethod(curOwner, curSel, "v16", &enc, &reason)) {
             Method m = class_getInstanceMethod(curOwner, curSel);
             LBOrig_loadCurCp = (void (*)(id, SEL))method_getImplementation(m);
+            LBLoadCurCpBridgeRegisterOrig(LBOrig_loadCurCp);
             method_setImplementation(m, (IMP)LBLoadCurCp_IMP);
             [installed addObject:[NSString stringWithFormat:@"loadCurCp@%@", NSStringFromClass(curOwner)]];
         }

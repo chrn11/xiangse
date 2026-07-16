@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HOOKS_DIR = ROOT / "LegadoBridge" / "Sources" / "LegadoBridgeHooks"
-HOOKS_FILES = ("LegadoBridgeCExports.m", "LBReadingHooks.m", "LBBridgeReaderVC.m")
+HOOKS_FILES = ("LegadoBridgeCExports.m", "LBReadingHooks.m", "LBBridgeReaderVC.m", "LBLoadCurCpBridge.m")
 
 READER_IVAR_PATTERN = re.compile(
     r"(?:object_setIvar|LBForceSetIvar)\(\s*readerVC\s*,\s*@\"("
