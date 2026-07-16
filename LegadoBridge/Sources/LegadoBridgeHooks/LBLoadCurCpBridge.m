@@ -112,6 +112,95 @@ static NSInteger LBCpIndexFromPayload(NSDictionary *payload, id reader) {
     return 0;
 }
 
+static BOOL LBObjectIsReadPageContainerLike(id obj) {
+    if (!obj) return NO;
+    NSString *n = NSStringFromClass(object_getClass(obj));
+    if ([n containsString:@"ScrollContainer"]) return NO;
+    if ([n isEqualToString:@"ReadPageContainer"] ||
+        [n isEqualToString:@"TextRPageContainer"] ||
+        [n containsString:@"ReadPageContainer"] ||
+        [n containsString:@"TextRPageContainer"]) {
+        return YES;
+    }
+    return [obj respondsToSelector:NSSelectorFromString(@"curPageVC")];
+}
+
+static NSInteger LBReadPageContainerPriority(id obj) {
+    NSString *n = NSStringFromClass(object_getClass(obj));
+    if ([n isEqualToString:@"TextRPageContainer"]) return 0;
+    if ([n isEqualToString:@"ReadPageContainer"]) return 1;
+    if ([n containsString:@"TextRPageContainer"]) return 2;
+    if ([n containsString:@"ReadPageContainer"]) return 3;
+    if ([obj respondsToSelector:NSSelectorFromString(@"curPageVC")]) return 4;
+    return 99;
+}
+
+/// 从 TextReadVC3 解析 loadCurCp IMP owner（ReadPageContainer，非 VC3 自身）
+static id LBFindReadPageContainerForReader(id readerVC) {
+    if (!readerVC) return nil;
+    if ([readerVC isKindOfClass:[UIViewController class]]) {
+        UIViewController *vc = (UIViewController *)readerVC;
+        @try {
+            if (!vc.isViewLoaded) [vc loadViewIfNeeded];
+        } @catch (__unused NSException *e) {}
+    }
+    NSMutableArray *raw = [NSMutableArray array];
+    void (^add)(id) = ^(id v) {
+        if (v && ![raw containsObject:v]) [raw addObject:v];
+    };
+    for (NSString *k in @[@"container", @"pageContainer", @"pageContainerA",
+                          @"pageContainerB", @"rPageContainer", @"readPageContainer",
+                          @"curPageContainer"]) {
+        @try { add([readerVC valueForKey:k]); } @catch (__unused NSException *e) {}
+    }
+    @try {
+        id dpv = [readerVC valueForKey:@"dicPageVC"];
+        if ([dpv isKindOfClass:[NSDictionary class]]) {
+            for (id v in [(NSDictionary *)dpv allValues]) add(v);
+        }
+    } @catch (__unused NSException *e) {}
+    if ([readerVC isKindOfClass:[UIViewController class]]) {
+        for (UIViewController *ch in ((UIViewController *)readerVC).childViewControllers) {
+            add(ch);
+        }
+    }
+    id best = nil;
+    NSInteger bestPrio = 99;
+    for (id c in raw) {
+        if (!LBObjectIsReadPageContainerLike(c)) continue;
+        NSInteger p = LBReadPageContainerPriority(c);
+        if (p < bestPrio) {
+            bestPrio = p;
+            best = c;
+        }
+    }
+    return best;
+}
+
+static id LBReaderVCFromContext(id obj) {
+    if (!obj) return nil;
+    if ([obj isKindOfClass:[UIViewController class]]) return obj;
+    if (LBObjectIsReadPageContainerLike(obj)) {
+        @try {
+            id r = [obj valueForKey:@"reader"];
+            if ([r isKindOfClass:[UIViewController class]]) return r;
+        } @catch (__unused NSException *e) {}
+    }
+    return obj;
+}
+
+static void LBApplyDicContents(id target, NSMutableDictionary *dc, NSMutableArray *paths, NSString *tag) {
+    if (!target || !dc || dc.count == 0) return;
+    @try {
+        if ([target respondsToSelector:@selector(setDicContents:)]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(target, @selector(setDicContents:), dc);
+        } else {
+            @try { [target setValue:dc forKey:@"dicContents"]; } @catch (__unused NSException *e) {}
+        }
+        if (tag.length > 0) [paths addObject:tag];
+    } @catch (__unused NSException *e) {}
+}
+
 /// confirmed 边界：dicContents / xsfolder / setCpCached（禁 UI / pageModel）
 static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArray *paths) {
     if (!reader || ![payload isKindOfClass:[NSDictionary class]]) return NO;
@@ -156,6 +245,12 @@ static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArra
             @try { [reader setValue:dc forKey:@"dicContents"]; } @catch (__unused NSException *e) {}
         }
         [paths addObject:@"dicContents"];
+        id container = LBFindReadPageContainerForReader(reader);
+        if (container) {
+            LBApplyDicContents(container, dc, paths,
+                               [NSString stringWithFormat:@"dicContents@%@",
+                                NSStringFromClass(object_getClass(container))]);
+        }
     } @catch (__unused NSException *e) {}
 
     // 2) xsfolder 本地章文件
@@ -234,14 +329,22 @@ static void LBInvokeOriginalLoadCurCp(id reader) {
         return;
     }
 
+    id container = LBFindReadPageContainerForReader(reader);
+    if (!container) {
+        LBStateLog(@"invoke_skip reason=no_container");
+        return;
+    }
+    NSString *containerName = NSStringFromClass(object_getClass(container));
+
     sReentryGuard = YES;
     sInvokeCount++;
     LBSetState(LBLoadCurCpStateInvokingOriginal, @"invoke_orig_begin");
-    LBTraceLoadCurCp([NSString stringWithFormat:@"sm=invokingOriginal ch=%@ orig=%p",
-                      sChapterUrl ?: @"-", sOrigLoadCurCp]);
+    LBTraceLoadCurCp([NSString stringWithFormat:
+                      @"sm=invokingOriginal ch=%@ target=%@ orig=%p",
+                      sChapterUrl ?: @"-", containerName, sOrigLoadCurCp]);
     @try {
-        sOrigLoadCurCp(reader, @selector(loadCurCp));
-        LBStateLog(@"invoke_orig_OK");
+        sOrigLoadCurCp(container, @selector(loadCurCp));
+        LBStateLog([NSString stringWithFormat:@"invoke_orig_OK target=%@", containerName]);
         LBTraceLoadCurCp(@"ORIG loadCurCp OK");
     } @catch (NSException *ex) {
         LBSetState(LBLoadCurCpStateFailed, [NSString stringWithFormat:@"invoke_orig_EX %@", ex.reason ?: @""]);
@@ -292,7 +395,7 @@ BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,
         return NO;
     }
 
-    sWeakReader = self;
+    sWeakReader = LBReaderVCFromContext(self) ?: self;
     if (bookUrl.length > 0) sBookUrl = [bookUrl copy];
     if (chapterUrl.length > 0) {
         sChapterUrl = [chapterUrl copy];
@@ -306,7 +409,8 @@ BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,
 
     if (sPendingPayload && LBBodyFromPayload(sPendingPayload).length > 0 &&
         sState != LBLoadCurCpStateFetching) {
-        LBTryContentReadyAndInvoke(self, sPendingPayload);
+        id readerVC = LBReaderVCFromContext(self) ?: self;
+        LBTryContentReadyAndInvoke(readerVC, sPendingPayload);
         return YES;
     }
 
