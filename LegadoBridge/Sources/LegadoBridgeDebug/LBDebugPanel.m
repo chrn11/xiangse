@@ -520,10 +520,11 @@ static void LBInstallDebugOpenURLHook(void) {
 
 + (void)load {
     LBCopyBuildManifestToDocuments();
-    LBForensicsInstallObservers();
     dispatch_async(dispatch_get_main_queue(), ^{
         LBInstallThreeFingerGesture();
-        LBInstallDebugOpenURLHook();
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            LBInstallDebugOpenURLHook();
+        });
     });
     NSSetUncaughtExceptionHandler(&LBUncaughtExceptionHandler);
     LBInstallSignalHandlers();
@@ -536,6 +537,7 @@ static void LBInstallDebugOpenURLHook(void) {
 + (void)lb_debugDumpAction {
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
+            LBForensicsInstallObservers();
             NSString *phase = LBForensicsConsumePendingDumpPhase();
             NSDictionary *dump = LBForensicsPerformDump(phase);
             NSDictionary<NSString *, NSString *> *paths = LBForensicsWriteDumpFiles(dump);
