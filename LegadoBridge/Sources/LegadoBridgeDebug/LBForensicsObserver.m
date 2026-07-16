@@ -6,6 +6,8 @@
 #import <pthread.h>
 #import <dlfcn.h>
 
+IMP LBForensicsResolveOrigIMP(Class cls, SEL sel);
+
 extern NSString *LBForensicsPointer(id obj);
 extern NSString *LBForensicsUTCNowString(void);
 extern NSString *LBForensicsManifestSHAPrefix(void);
@@ -33,6 +35,54 @@ static _Thread_local int g_earlyWrapDepth = 0;
 static void LBFEarlyWrap_viewDidLoad(id self, SEL _cmd);
 static void LBFEarlyWrap_loadCurCp(id self, SEL _cmd);
 static void LBFWriteHookPing(NSString *line);
+static void LBFRegisterResolveSlot(void);
+static BOOL LBFIsKnownHookIMP(IMP imp);
+static void LBFEnsureOrigLocked(NSString *key, IMP candidate);
+
+static void LBFRegisterResolveSlot(void) {
+    IMP (**slot)(Class, SEL) =
+        (IMP (**)(Class, SEL))dlsym(RTLD_DEFAULT, "LBForensicsResolveOrigIMPPtr");
+    if (slot) {
+        if (*slot == NULL) {
+            *slot = LBForensicsResolveOrigIMP;
+            LBFWriteHookPing(@"resolveSlot=registered");
+        } else {
+            LBFWriteHookPing(@"resolveSlot=already_set");
+        }
+        return;
+    }
+    LBFWriteHookPing(@"resolveSlot=miss");
+}
+
+static BOOL LBFIsKnownHookIMP(IMP imp) {
+    if (!imp) return YES;
+    if (imp == (IMP)LBFEarlyWrap_viewDidLoad) return YES;
+    if (imp == (IMP)LBFEarlyWrap_loadCurCp) return YES;
+    static IMP sSafeVDL = NULL;
+    static IMP sSafeVWA = NULL;
+    static IMP sSafeVDA = NULL;
+    static IMP sSafeLCC = NULL;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        sSafeVDL = dlsym(RTLD_DEFAULT, "LBTextRead_viewDidLoad_Safe");
+        sSafeVWA = dlsym(RTLD_DEFAULT, "LBTextRead_viewWillAppear_Safe");
+        sSafeVDA = dlsym(RTLD_DEFAULT, "LBTextRead_viewDidAppear_Safe");
+        sSafeLCC = dlsym(RTLD_DEFAULT, "LBLoadCurCp_IMP");
+    });
+    if (sSafeVDL && imp == sSafeVDL) return YES;
+    if (sSafeVWA && imp == sSafeVWA) return YES;
+    if (sSafeVDA && imp == sSafeVDA) return YES;
+    if (sSafeLCC && imp == sSafeLCC) return YES;
+    return NO;
+}
+
+static void LBFEnsureOrigLocked(NSString *key, IMP candidate) {
+    if (!key.length || !candidate || LBFIsKnownHookIMP(candidate)) return;
+    LBFInitEarlyWrapGlobals();
+    if (!g_earlyOrigIMPs[key]) {
+        g_earlyOrigIMPs[key] = [NSValue valueWithPointer:candidate];
+    }
+}
 
 static void LBFInitObserverGlobals(void);
 static BOOL LBFInstallHookOnMethod(Class owner, NSString *ownerName, NSString *selName);
@@ -280,6 +330,7 @@ static IMP LBFReplaced_method_setImplementation(Method m, IMP imp) {
                 LBFInitEarlyWrapGlobals();
                 NSString *key = LBFEarlyWrapKey(cn, selName);
                 g_earlyNextIMPs[key] = [NSValue valueWithPointer:imp];
+                LBFEnsureOrigLocked(key, imp);
                 imp = wrapper;
                 LBFWriteHookPing([NSString stringWithFormat:@"intercept wrap %@ %@", cn, selName]);
             }
@@ -331,9 +382,7 @@ static BOOL LBFEnsureEarlyWrap(Class cls, NSString *selName) {
     if (current == wrapper) return YES;
 
     g_earlyNextIMPs[key] = [NSValue valueWithPointer:current];
-    if (!g_earlyOrigIMPs[key]) {
-        g_earlyOrigIMPs[key] = [NSValue valueWithPointer:current];
-    }
+    LBFEnsureOrigLocked(key, current);
     LBFEnsureOrigMethodSetIMP();
     g_installingEarlyWrap = YES;
     g_orig_method_setImplementation(m, wrapper);
@@ -717,6 +766,7 @@ static void LBFInstallObserverHooks(void) {
     // viewDidLoad/loadCurCp 由 LBFEarlyWrap 专责，observer 不再重复挂钩
 }
 
+__attribute__((visibility("default")))
 IMP LBForensicsResolveOrigIMP(Class cls, SEL sel) {
     if (!cls) return NULL;
     LBFInitEarlyWrapGlobals();
@@ -725,11 +775,13 @@ IMP LBForensicsResolveOrigIMP(Class cls, SEL sel) {
     while (walk) {
         NSString *key = LBFEarlyWrapKey(NSStringFromClass(walk), selName);
         NSValue *orig = g_earlyOrigIMPs[key];
-        if (orig) return (IMP)orig.pointerValue;
+        if (orig) {
+            IMP cand = (IMP)orig.pointerValue;
+            if (cand && !LBFIsKnownHookIMP(cand)) return cand;
+        }
         walk = class_getSuperclass(walk);
     }
-    Method m = class_getInstanceMethod(cls, sel);
-    return m ? method_getImplementation(m) : NULL;
+    return NULL;
 }
 
 void LBForensicsInstallEarlyWrap(void) {
@@ -750,6 +802,7 @@ void LBForensicsInstallObservers(void) {
 __attribute__((constructor))
 static void LBFInstallObserversAtLoad(void) {
     LBFEnsureMethodSetHook();
+    LBFRegisterResolveSlot();
     LBFWriteHookPing(@"early wrap constructor");
     LBFEarlyWrapDiscoverAndInstall();
     dispatch_async(dispatch_get_main_queue(), ^{

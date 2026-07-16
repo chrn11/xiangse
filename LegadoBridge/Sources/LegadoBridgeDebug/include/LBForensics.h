@@ -2,6 +2,7 @@
 #define LBForensics_h
 
 #import <Foundation/Foundation.h>
+#import <objc/runtime.h>
 
 /// Forensics dump schema_version（与 reader-build-manifest 无关）
 FOUNDATION_EXPORT const NSInteger LBForensicsDumpSchemaVersion;
@@ -20,6 +21,9 @@ FOUNDATION_EXPORT void LBForensicsInstallEarlyWrap(void);
 
 /// 返回 early-wrap 安装前捕获的真原版 IMP（供生产 shell hook 解环）
 FOUNDATION_EXPORT IMP LBForensicsResolveOrigIMP(Class cls, SEL sel);
+
+/// 全局槽：Debug 写入函数指针，Bridge 读取（避免 dlsym 未导出）
+FOUNDATION_EXPORT IMP (*LBForensicsResolveOrigIMPPtr)(Class, SEL);
 
 /// 安装只读 lifecycle observer（+load 调用一次）
 FOUNDATION_EXPORT void LBForensicsInstallObservers(void);

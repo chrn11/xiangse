@@ -179,10 +179,10 @@ jobs:
             echo "$HOME/bin" >> "$GITHUB_PATH"
           fi
 
-      - name: 重打包 debug IPA（双 dylib）
+      - name: 重打包 debug IPA（双 dylib + manifest）
         run: |
           set -euo pipefail
-          chmod +x tools/repack/repack.sh tools/repack/verify_ipa.sh
+          chmod +x tools/repack/repack_forensics.sh tools/repack/verify_forensics_ipa.sh
           DYLIB=$(find LegadoBridge/.build -type f -name 'LegadoBridge' \
             -path '*Release-iphoneos*' -not -path '*dSYM*' 2>/dev/null | head -1 || true)
           if [[ -z "$DYLIB" ]]; then
@@ -198,11 +198,12 @@ jobs:
           echo "==> 主 dylib: ${DYLIB:-（无）}"
           echo "==> 调试 dylib: ${DEBUG_DYLIB:-（无）}"
           mkdir -p dist
-          bash tools/repack/repack.sh \
+          bash tools/repack/repack_forensics.sh \
+            legado-debug \
             "ipa/香色闺阁2.56.1_未加密.ipa" \
             "${DYLIB:-}" \
-            "dist/StandarReader-legado-bridge-debug.ipa" \
-            "${DEBUG_DYLIB:-}"
+            "${DEBUG_DYLIB:-}" \
+            "dist/StandarReader-legado-bridge-debug.ipa"
           ls -la dist/
           test -f dist/StandarReader-legado-bridge-debug.ipa.sha256
 

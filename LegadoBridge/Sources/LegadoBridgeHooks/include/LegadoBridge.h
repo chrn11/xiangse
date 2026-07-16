@@ -37,6 +37,9 @@ FOUNDATION_EXPORT void LBBridgeReaderApplyContent(NSDictionary * _Nullable userI
 /// Bridge 阅读页 appear 时重灌 pending 正文（正文常早于 VC 可见）
 FOUNDATION_EXPORT void LBBridgeReaderApplyPendingOnAppear(void);
 
+/// Debug forensics 真原版 IMP 解析槽（定义于 LBForensicsSlot.m）
+extern IMP (*LBForensicsResolveOrigIMPPtr)(Class, SEL);
+
 FOUNDATION_EXPORT NSString *LBBridgeVersion(void);
 
 /// 弹出 Legado 书源导入 alert（URL / 粘贴 JSON）；仅用户主动触发，不再启动强弹

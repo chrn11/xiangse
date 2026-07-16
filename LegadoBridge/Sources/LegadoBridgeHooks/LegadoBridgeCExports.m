@@ -2515,6 +2515,12 @@ static BOOL LBNavStackHasTextReader(void) {
 
 static UIViewController *LBFindVisibleTextReaderVC(void);
 
+void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd);
+void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated);
+void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated);
+static BOOL LBFIsResolvedIMPUsable(IMP imp);
+static void LBInvokeResolvedViewDidLoad(id self, SEL _cmd);
+
 static BOOL LBIsTextReaderVisible(void) {
     return LBFindVisibleTextReaderVC() != nil;
 }
@@ -2549,20 +2555,46 @@ static UIViewController *LBFindVisibleTextReaderVC(void) {
 }
 
 static IMP LBResolveHookOrigIMP(Class cls, SEL sel) {
-    if (NSClassFromString(@"LBDebugPanel")) {
+    IMP resolved = NULL;
+    if (LBForensicsResolveOrigIMPPtr) {
+        resolved = LBForensicsResolveOrigIMPPtr(cls, sel);
+    }
+    if (!resolved && NSClassFromString(@"LBDebugPanel")) {
         typedef IMP (*ResolveFn)(Class, SEL);
         static ResolveFn resolve = NULL;
         static dispatch_once_t once;
         dispatch_once(&once, ^{
             resolve = (ResolveFn)dlsym(RTLD_DEFAULT, "LBForensicsResolveOrigIMP");
         });
-        if (resolve) {
-            IMP r = resolve(cls, sel);
-            if (r) return r;
-        }
+        if (resolve) resolved = resolve(cls, sel);
     }
-    Method m = class_getInstanceMethod(cls, sel);
-    return m ? method_getImplementation(m) : NULL;
+    if (resolved && !LBFIsResolvedIMPUsable(resolved)) {
+        resolved = NULL;
+    }
+    return resolved;
+}
+
+static BOOL LBFIsResolvedIMPUsable(IMP imp) {
+    if (!imp) return NO;
+    if (imp == (IMP)LBTextRead_viewDidLoad_Safe) return NO;
+    if (imp == (IMP)LBTextRead_viewWillAppear_Safe) return NO;
+    if (imp == (IMP)LBTextRead_viewDidAppear_Safe) return NO;
+    return YES;
+}
+
+static void LBInvokeResolvedViewDidLoad(id self, SEL _cmd) {
+    Class cls = object_getClass(self);
+    IMP origIMP = LBResolveHookOrigIMP(cls, _cmd);
+    if (origIMP) {
+        LBAppendOpenReaderTrace(@"resolveOrig=hit");
+        ((void (*)(id, SEL))origIMP)(self, _cmd);
+        LBAppendOpenReaderTrace(@"nativeFull viewDidLoad ORIG_OK");
+        LBWriteOpenReaderMarker(@"nativeOpen viewDidLoad ORIG_OK via=nativeFull");
+        return;
+    }
+    LBAppendOpenReaderTrace(@"resolveOrig=miss");
+    LBAppendOpenReaderTrace(@"nativeFull viewDidLoad ORIG_SKIP");
+    LBWriteOpenReaderMarker(@"nativeOpen viewDidLoad ORIG_SKIP resolveOrig=miss");
 }
 
 /// 调用 AppDelegate.openReader:sourceName:record:（经护栏消毒后进原生）
@@ -5706,7 +5738,7 @@ static void (*LBOrig_TR_viewDidLoad)(id, SEL) = NULL;
 static void (*LBOrig_TR_viewWillAppear)(id, SEL, BOOL) = NULL;
 static void (*LBOrig_TR_viewDidAppear)(id, SEL, BOOL) = NULL;
 
-static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
+void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
     LBAppendOpenReaderTrace([NSString stringWithFormat:
                              @"TR viewDidLoad enter mode=%d shell=%d cls=%@",
                              sLegadoReaderMode, sLegadoSafeTextReadShell ? 1 : 0,
@@ -5748,11 +5780,7 @@ static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
         LBAppendOpenReaderTrace(@"nativeFull viewDidLoad begin");
         LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
         @try {
-            if (LBOrig_TR_viewDidLoad) {
-                LBOrig_TR_viewDidLoad(self, _cmd);
-            }
-            LBAppendOpenReaderTrace(@"nativeFull viewDidLoad ORIG_OK");
-            LBWriteOpenReaderMarker(@"nativeOpen viewDidLoad ORIG_OK via=nativeFull");
+            LBInvokeResolvedViewDidLoad(self, _cmd);
         } @catch (NSException *ex) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                      @"nativeFull viewDidLoad EX %@", ex.reason ?: @""]);
@@ -5766,10 +5794,16 @@ static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
         }
         return;
     }
-    if (LBOrig_TR_viewDidLoad) LBOrig_TR_viewDidLoad(self, _cmd);
+    IMP fallback = LBResolveHookOrigIMP(object_getClass(self), _cmd);
+    if (fallback) {
+        LBAppendOpenReaderTrace(@"resolveOrig=hit");
+        ((void (*)(id, SEL))fallback)(self, _cmd);
+    } else {
+        LBAppendOpenReaderTrace(@"resolveOrig=miss");
+    }
 }
 
-static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
+void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
     BOOL isLegadoReader = NO;
     id dicProbe = nil;
     @try { dicProbe = [self valueForKey:@"dicBook"]; } @catch (__unused NSException *e) {}
@@ -5803,7 +5837,7 @@ static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
     if (LBOrig_TR_viewWillAppear) LBOrig_TR_viewWillAppear(self, _cmd, animated);
 }
 
-static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
+void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
     BOOL isLegadoReader = NO;
     id dicProbe = nil;
     @try { dicProbe = [self valueForKey:@"dicBook"]; } @catch (__unused NSException *e) {}
@@ -5859,6 +5893,8 @@ static void LBInstallSafeTextReadShellHooks(void) {
                 IMP trueOrig = LBResolveHookOrigIMP(cls, @selector(viewDidLoad));
                 LBOrig_TR_viewDidLoad = (void (*)(id, SEL))trueOrig;
                 method_setImplementation(m1, (IMP)LBTextRead_viewDidLoad_Safe);
+                LBAppendOpenReaderTrace(trueOrig ? @"textReadHooks resolveOrig=hit"
+                                                 : @"textReadHooks resolveOrig=miss");
             }
             Method m2 = class_getInstanceMethod(cls, @selector(viewWillAppear:));
             if (m2 && !LBOrig_TR_viewWillAppear) {
