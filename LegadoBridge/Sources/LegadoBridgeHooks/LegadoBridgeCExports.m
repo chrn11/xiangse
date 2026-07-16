@@ -3223,92 +3223,6 @@ static BOOL LBObjectHasTextViewL(id obj) {
     }
 }
 
-static UIView *LBFindTextReadTVInSubviewTree(UIView *root) {
-    if (!root) return nil;
-    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
-    while (stack.count > 0) {
-        UIView *v = stack.lastObject;
-        [stack removeLastObject];
-        if ([NSStringFromClass([v class]) containsString:@"TextReadTV"]) return v;
-        for (UIView *sub in v.subviews) [stack addObject:sub];
-    }
-    return nil;
-}
-
-/// initWithReaderVC 产物挂回 TextReadVC（KVC 失败时走 _container ivar）
-static BOOL LBWireContainerOnReaderVC(UIViewController *readerVC, id newContainer,
-                                      NSMutableArray *okPaths, NSString *tag) {
-    if (!readerVC || !newContainer) return NO;
-    for (NSString *k in @[@"container", @"pageContainer", @"rPageContainer",
-                          @"readPageContainer", @"scrollContainer"]) {
-        @try {
-            [readerVC setValue:newContainer forKey:k];
-            if (okPaths) {
-                [okPaths addObject:[NSString stringWithFormat:@"ensureTV %@@%@", tag, k]];
-            }
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"contentInject ensureTV %@@%@", tag, k]);
-            return YES;
-        } @catch (__unused NSException *e) {}
-    }
-    Class walk = object_getClass(readerVC);
-    while (walk && walk != [NSObject class]) {
-        Ivar iv = class_getInstanceVariable(walk, "_container");
-        if (iv) {
-            @try {
-                object_setIvar(readerVC, iv, newContainer);
-                if (okPaths) {
-                    [okPaths addObject:[NSString stringWithFormat:@"ensureTV %@_ivar_container", tag]];
-                }
-                LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                         @"contentInject ensureTV %@ ivar_container", tag]);
-                return YES;
-            } @catch (NSException *ex) {
-                LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                         @"contentInject ensureTV %@ ivar_container EX %@",
-                                         tag, ex.reason ?: @""]);
-            }
-        }
-        walk = class_getSuperclass(walk);
-    }
-    return NO;
-}
-
-/// textViewL 只读：用 _textViewL ivar 把视图树里已有 TextReadTV 挂回 container
-static BOOL LBPatchContainerTextViewL(id container, UIViewController *readerVC,
-                                      NSMutableArray *okPaths) {
-    if (!container || LBObjectHasTextViewL(container)) return LBObjectHasTextViewL(container);
-    UIView *found = nil;
-    if (readerVC.isViewLoaded && readerVC.view) {
-        found = LBFindTextReadTVInSubviewTree(readerVC.view);
-    }
-    if (!found) return NO;
-    Class ccls = object_getClass(container);
-    Ivar ivL = class_getInstanceVariable(ccls, "_textViewL");
-    if (!ivL) {
-        for (Class walk = ccls; walk && walk != [NSObject class]; walk = class_getSuperclass(walk)) {
-            ivL = class_getInstanceVariable(walk, "_textViewL");
-            if (ivL) break;
-        }
-    }
-    if (!ivL) return NO;
-    @try {
-        object_setIvar(container, ivL, found);
-        if (LBObjectHasTextViewL(container)) {
-            if (okPaths) [okPaths addObject:@"ensureTV patchTVL"];
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"contentInject ensureTV patchTVL@%@ tv=%@",
-                                     NSStringFromClass(ccls),
-                                     NSStringFromClass([found class])]);
-            return YES;
-        }
-    } @catch (NSException *ex) {
-        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"contentInject ensureTV patchTVL EX %@", ex.reason ?: @""]);
-    }
-    return NO;
-}
-
 /// loadCurCp 短路后 TextRPageContainer 可能无 textViewL；divisionResponse 前补建（禁 setPageModel）
 static id LBResolveContainerFromReaderVC(UIViewController *readerVC);
 static BOOL LBEnsureContainerTextViews(UIViewController *readerVC, NSMutableArray *okPaths) {
@@ -3330,15 +3244,16 @@ static BOOL LBEnsureContainerTextViews(UIViewController *readerVC, NSMutableArra
     if (rpcCls && class_getInstanceMethod(rpcCls, initSel)) {
         @try {
             id newCtr = ((id (*)(id, SEL, id))objc_msgSend)([rpcCls alloc], initSel, readerVC);
-            if (newCtr) {
-                BOOL hasTVL = LBObjectHasTextViewL(newCtr);
-                LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                         @"contentInject ensureTV initWithReaderVC ret=%@ hasTVL=%d",
-                                         NSStringFromClass([newCtr class]), hasTVL ? 1 : 0]);
-                if (hasTVL && LBWireContainerOnReaderVC(readerVC, newCtr, okPaths, @"initWithReaderVC")) {
-                    container = LBResolveContainerFromReaderVC(readerVC);
-                    if (container && LBObjectHasTextViewL(container)) return YES;
-                    if (newCtr && LBObjectHasTextViewL(newCtr)) return YES;
+            if (newCtr && LBObjectHasTextViewL(newCtr)) {
+                for (NSString *k in @[@"container", @"pageContainer", @"rPageContainer",
+                                      @"readPageContainer", @"scrollContainer"]) {
+                    @try {
+                        [readerVC setValue:newCtr forKey:k];
+                        if (okPaths) [okPaths addObject:[NSString stringWithFormat:@"ensureTV init@%@", k]];
+                        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                 @"contentInject ensureTV initWithReaderVC@%@", k]);
+                        return YES;
+                    } @catch (__unused NSException *e) {}
                 }
             }
         } @catch (NSException *ex) {
@@ -3346,9 +3261,6 @@ static BOOL LBEnsureContainerTextViews(UIViewController *readerVC, NSMutableArra
                                      @"contentInject ensureTV initWithReaderVC EX %@",
                                      ex.reason ?: @""]);
         }
-    }
-    if (container && LBPatchContainerTextViewL(container, readerVC, okPaths)) {
-        return YES;
     }
     if (container) {
         SEL rcs = NSSelectorFromString(@"resetContentPosByScreenSize:");
@@ -3494,13 +3406,6 @@ static BOOL LBInvokeProcessPageData(id host, id pages, UIViewController *readerV
 /// onDivisionTextFinish 后刷新 container / textViewL/R（resetContentPosByScreenSize 等）
 static void LBRefreshContainerAfterDivisionFinish(id host, UIViewController *readerVC) {
     if (!host) return;
-    if ([NSStringFromClass(object_getClass(host)) containsString:@"PageContainer"] &&
-        !LBObjectHasTextViewL(host)) {
-        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"contentInject containerRefresh skip noTextViewL host=%@",
-                                 NSStringFromClass(object_getClass(host))]);
-        return;
-    }
     Class hcls = object_getClass(host);
     SEL rcs = NSSelectorFromString(@"resetContentPosByScreenSize:");
     if ([host respondsToSelector:rcs] || class_getInstanceMethod(hcls, rcs)) {
@@ -3610,18 +3515,6 @@ static BOOL LBInvokeOnDivisionTextFinish(id target, id pageResult,
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"contentInject onDivisionTextFinish noSel host=%@",
                                  NSStringFromClass(tcls)]);
-        return NO;
-    }
-    if ([NSStringFromClass(tcls) containsString:@"PageContainer"] &&
-        !LBObjectHasTextViewL(target)) {
-        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"contentInject onDivisionTextFinish skip noTextViewL host=%@",
-                                 NSStringFromClass(tcls)]);
-        if (textReadTV && body.length > 0) {
-            NSString *cpTitle = LBSafeCpTitleString(@"章节");
-            LBTryShowContentOnContainerTVs(target, body, cpTitle, okPaths);
-            LBInvokeShowContent(textReadTV, body, cpTitle, okPaths, @"onFinishNoTVL");
-        }
         return NO;
     }
     NSString *cpTitle = @"章节";
