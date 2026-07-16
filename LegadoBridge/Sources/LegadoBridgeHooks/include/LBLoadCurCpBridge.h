@@ -41,11 +41,6 @@ void LBLoadCurCpBridgeReset(NSString * _Nullable reason);
 /// 诊断：当前状态名
 NSString *LBLoadCurCpBridgeStateName(void);
 
-/// 假设 F：invoke_orig_OK 后同步补 division 链（禁 dispatch_after）
-void LBLoadCurCpBridgeKickDivisionChain(id _Nullable readerVC,
-                                        id _Nullable container,
-                                        NSDictionary * _Nullable payload);
-
 NS_ASSUME_NONNULL_END
 
 #endif /* LBLoadCurCpBridge_h */

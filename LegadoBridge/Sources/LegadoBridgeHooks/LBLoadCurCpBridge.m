@@ -253,7 +253,7 @@ static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArra
         }
     } @catch (__unused NSException *e) {}
 
-    // 2) xsfolder + localSourceText（供 queryCpFileByBook 读本地缓存）
+    // 2) xsfolder 本地章文件
     @try {
         NSString *bookDir = [NSHomeDirectory() stringByAppendingPathComponent:
                              [NSString stringWithFormat:@"Documents/xsfolder/book/%@", bookKey]];
@@ -264,27 +264,7 @@ static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArra
         NSString *cpPath = [bookDir stringByAppendingPathComponent:
                             [NSString stringWithFormat:@"%ld", (long)cpIndex]];
         [body writeToFile:cpPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        NSString *altPath = [bookDir stringByAppendingPathComponent:
-                             [NSString stringWithFormat:@"%@%ld", bookKey, (long)cpIndex]];
-        [body writeToFile:altPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        NSDictionary *lstPlist = @{
-            @"list": @[ @{
-                @"title": title,
-                @"url": [@(cpIndex) stringValue]
-            } ]
-        };
-        [lstPlist writeToFile:[bookDir stringByAppendingPathComponent:@"localSourceText"]
-                   atomically:YES];
-        for (id tgt in @[reader, LBFindReadPageContainerForReader(reader) ?: [NSNull null]]) {
-            if (tgt == (id)[NSNull null]) continue;
-            @try { [tgt setValue:bookDir forKey:@"bookDirPath"]; } @catch (__unused NSException *e) {}
-            if ([tgt respondsToSelector:NSSelectorFromString(@"setBookDirPath:")]) {
-                ((void (*)(id, SEL, id))objc_msgSend)(
-                    tgt, NSSelectorFromString(@"setBookDirPath:"), bookDir);
-            }
-        }
         [paths addObject:@"xsfolder"];
-        [paths addObject:@"localSourceText"];
     } @catch (__unused NSException *e) {}
 
     // 3) BookDbManager#setCpCached
@@ -330,64 +310,6 @@ static void LBRequestContent(NSString *chapterUrl, NSString *bookUrl, NSString *
     );
 }
 
-static BOOL LBHasNativeRenderEvidence(id reader, id container) {
-    NSArray *hosts = @[container ?: [NSNull null], reader ?: [NSNull null]];
-    for (id host in hosts) {
-        if (host == (id)[NSNull null]) continue;
-        @try {
-            for (NSString *k in @[@"textViewL", @"textViewR", @"curPageTV"]) {
-                id tv = nil;
-                @try { tv = [host valueForKey:k]; } @catch (__unused NSException *e) {}
-                if (!tv) continue;
-                NSString *txt = nil;
-                if ([tv respondsToSelector:@selector(text)]) {
-                    txt = ((id (*)(id, SEL))objc_msgSend)(tv, @selector(text));
-                } else {
-                    @try { txt = [tv valueForKey:@"text"]; } @catch (__unused NSException *e) {}
-                }
-                if ([txt isKindOfClass:[NSString class]] && [(NSString *)txt length] > 20) return YES;
-                id pm = nil;
-                @try { pm = [tv valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
-                if (pm) return YES;
-            }
-        } @catch (__unused NSException *e) {}
-    }
-    return NO;
-}
-
-/// 假设 F：invoke_orig_OK 同栈同步补链（禁 dispatch_after）
-static void LBSyncKickDivisionAfterInvoke(id reader, id container, NSDictionary *payload) {
-    LBTraceLoadCurCp(@"division_kick_sync_begin");
-    LBStateLog(@"division_kick_sync_begin");
-    if (sState == LBLoadCurCpStateRendered) {
-        LBStateLog(@"division_kick_sync_skip rendered");
-        return;
-    }
-    if (![payload isKindOfClass:[NSDictionary class]] || LBBodyFromPayload(payload).length == 0) {
-        LBStateLog(@"division_kick_sync_skip no_payload");
-        return;
-    }
-    if (LBHasNativeRenderEvidence(reader, container)) {
-        LBLoadCurCpBridgeMarkRendered();
-        LBStateLog(@"division_kick_sync_skip render_evidence");
-        return;
-    }
-    void (^runKick)(void) = ^{
-        LBLoadCurCpBridgeKickDivisionChain(reader, container, payload);
-        if (LBHasNativeRenderEvidence(reader, container)) {
-            LBLoadCurCpBridgeMarkRendered();
-            LBStateLog(@"division_kick_sync_OK render_evidence");
-        } else {
-            LBStateLog(@"division_kick_sync_done pending_render");
-        }
-    };
-    if ([NSThread isMainThread]) {
-        runKick();
-    } else {
-        dispatch_sync(dispatch_get_main_queue(), runKick);
-    }
-}
-
 static void LBInvokeOriginalLoadCurCp(id reader) {
     if (!reader) {
         LBStateLog(@"invoke_skip reason=null_reader");
@@ -420,16 +342,10 @@ static void LBInvokeOriginalLoadCurCp(id reader) {
     LBTraceLoadCurCp([NSString stringWithFormat:
                       @"sm=invokingOriginal ch=%@ target=%@ orig=%p",
                       sChapterUrl ?: @"-", containerName, sOrigLoadCurCp]);
-    NSDictionary *payloadForKick = [sPendingPayload copy];
     @try {
         sOrigLoadCurCp(container, @selector(loadCurCp));
         LBStateLog([NSString stringWithFormat:@"invoke_orig_OK target=%@", containerName]);
         LBTraceLoadCurCp(@"ORIG loadCurCp OK");
-        if (payloadForKick && LBBodyFromPayload(payloadForKick).length > 0) {
-            LBSyncKickDivisionAfterInvoke(reader, container, payloadForKick);
-        } else {
-            LBStateLog(@"division_kick_sync_skip no_payload_copy");
-        }
     } @catch (NSException *ex) {
         LBSetState(LBLoadCurCpStateFailed, [NSString stringWithFormat:@"invoke_orig_EX %@", ex.reason ?: @""]);
         sReentryGuard = NO;
