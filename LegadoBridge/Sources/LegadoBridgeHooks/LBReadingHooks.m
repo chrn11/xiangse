@@ -2,6 +2,7 @@
 #import "LBLoadCurCpBridge.h"
 #import "LegadoBridge.h"
 #include <stdint.h>
+#include <dlfcn.h>
 
 /// 阅读链路（生产路径收窄）：
 /// 1) BookDetailController setDicBook: — 记忆 bookUrl↔sourceUrl，并请求目录
@@ -218,6 +219,53 @@ static void LBLoadCatalog_IMP(id self, SEL _cmd, void *argRaw, BOOL ignoringCach
 }
 
 static void (*LBOrig_loadCurCp)(id, SEL) = NULL;
+static void LBLoadCurCp_IMP(id self, SEL _cmd);
+
+typedef IMP (*LBForensicsEarlyWrapIMPFn)(NSString *);
+typedef IMP (*LBForensicsResolveOrigIMPFn)(Class, SEL);
+
+static BOOL LBIsKnownLoadCurCpHookIMP(IMP imp) {
+    if (!imp) return NO;
+    if (imp == (IMP)LBLoadCurCp_IMP) return YES;
+    static LBForensicsEarlyWrapIMPFn earlyWrapFn = NULL;
+    static dispatch_once_t onceEarly;
+    dispatch_once(&onceEarly, ^{
+        earlyWrapFn = (LBForensicsEarlyWrapIMPFn)dlsym(RTLD_DEFAULT,
+                                                        "LBForensicsEarlyWrapIMPForSelectorName");
+    });
+    if (earlyWrapFn) {
+        IMP early = earlyWrapFn(@"loadCurCp");
+        if (early && imp == early) return YES;
+    }
+    return NO;
+}
+
+/// 沿 Bridge hook / EarlyWrap / ResolveOrig 解包到真 native IMP
+static IMP LBUnwrapLoadCurCpOrigIMP(Class cls, IMP start) {
+    SEL sel = @selector(loadCurCp);
+    IMP imp = start;
+    static LBForensicsResolveOrigIMPFn resolveOrig = NULL;
+    static dispatch_once_t onceResolve;
+    dispatch_once(&onceResolve, ^{
+        resolveOrig = (LBForensicsResolveOrigIMPFn)dlsym(RTLD_DEFAULT, "LBForensicsResolveOrigIMP");
+    });
+    for (int hop = 0; hop < 12 && imp; hop++) {
+        if (!LBIsKnownLoadCurCpHookIMP(imp)) break;
+        IMP next = NULL;
+        if (resolveOrig) {
+            IMP forensics = resolveOrig(cls, sel);
+            if (forensics && !LBIsKnownLoadCurCpHookIMP(forensics)) {
+                imp = forensics;
+                break;
+            }
+            if (forensics && forensics != imp) next = forensics;
+        }
+        if (!next || next == imp) break;
+        imp = next;
+    }
+    return imp;
+}
+
 static void LBLoadCurCp_IMP(id self, SEL _cmd) {
     NSString *bookUrl = nil;
     NSString *sourceUrl = nil;
@@ -321,16 +369,27 @@ void LBInstallReadingHooks(void) {
             LBReadingDiagLog([NSString stringWithFormat:@"loadCatalog skip: %@", reason]);
         }
 
-        // 3) loadCurCp — 正文请求侧
-        NSArray *cpCandidates = @[@"ReadVCBase1", @"ReadVCBase2", @"TextReadVC1", @"TextReadVC2", @"TextReadVC3"];
+        // 3) loadCurCp — 正文请求侧（ReadPageContainer 为常见真正实现类）
+        NSArray *cpCandidates = @[
+            @"ReadPageContainer", @"ReadVCBase1", @"ReadVCBase2",
+            @"TextReadVC1", @"TextReadVC2", @"TextReadVC3"
+        ];
         SEL curSel = NSSelectorFromString(@"loadCurCp");
         Class curOwner = LBFindClassImplementing(cpCandidates, curSel);
         if (curOwner && LBValidateInstanceMethod(curOwner, curSel, "v16", &enc, &reason)) {
             Method m = class_getInstanceMethod(curOwner, curSel);
-            LBOrig_loadCurCp = (void (*)(id, SEL))method_getImplementation(m);
+            IMP raw = method_getImplementation(m);
+            IMP native = LBUnwrapLoadCurCpOrigIMP(curOwner, raw);
+            if (!native) native = raw;
+            LBOrig_loadCurCp = (void (*)(id, SEL))native;
             LBLoadCurCpBridgeRegisterOrig(LBOrig_loadCurCp);
             method_setImplementation(m, (IMP)LBLoadCurCp_IMP);
+            LBReadingDiagLog([NSString stringWithFormat:
+                             @"loadCurCp@%@ raw=%p native=%p",
+                             NSStringFromClass(curOwner), raw, native]);
             [installed addObject:[NSString stringWithFormat:@"loadCurCp@%@", NSStringFromClass(curOwner)]];
+        } else if (reason) {
+            LBReadingDiagLog([NSString stringWithFormat:@"loadCurCp skip: %@", reason]);
         }
 
         // 4) addBook:groupKey:tempBook: — 加书架时落盘绑定；进度/缓存不 Hook

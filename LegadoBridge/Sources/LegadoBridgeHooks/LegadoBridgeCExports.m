@@ -2772,7 +2772,7 @@ static NSDictionary *LBSanitizeResetContentUserInfo(NSDictionary *userInfo) {
         [m addEntriesFromDictionary:userInfo];
     }
     for (NSString *k in @[@"chapterUrl", @"chapterContent", @"content", @"cpTitle", @"title",
-                          @"bookUrl", @"sourceUrl", @"sourceName", @"error", @"cpUrl", @"name",
+                          @"bookUrl", @"sourceUrl", @"sourceName", @"cpUrl", @"name",
                           @"bookKey"]) {
         id v = m[k];
         if (v == nil || v == [NSNull null]) {
@@ -2783,6 +2783,12 @@ static NSDictionary *LBSanitizeResetContentUserInfo(NSDictionary *userInfo) {
                    ![v isKindOfClass:[NSDictionary class]]) {
             m[k] = [[v description] copy] ?: @"";
         }
+    }
+    id errVal = m[@"error"];
+    if ([errVal isKindOfClass:[NSString class]] && [(NSString *)errVal length] == 0) {
+        [m removeObjectForKey:@"error"];
+    } else if (errVal == nil || errVal == [NSNull null]) {
+        [m removeObjectForKey:@"error"];
     }
     if (m[@"cpIndex"] == nil || m[@"cpIndex"] == [NSNull null]) {
         // 保留缺省，由 NoteReset 用目录补
@@ -6079,6 +6085,15 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
                                  @"pushNativeFull loadViewIfNeeded done mode=%d loaded=%d",
                                  sLegadoReaderMode,
                                  ((UIViewController *)vc).isViewLoaded ? 1 : 0]);
+        if (sPendingResetContent.count > 0) {
+            id body = sPendingResetContent[@"chapterContent"] ?: sPendingResetContent[@"content"];
+            if ([body isKindOfClass:[NSString class]] && [(NSString *)body length] > 0) {
+                LBLoadCurCpBridgeOnContentPosted(sPendingResetContent, vc);
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"pushNativeFull postCurCp sm=%@",
+                                         LBLoadCurCpBridgeStateName()]);
+            }
+        }
     } @catch (NSException *ex) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"pushNativeFull loadView EX %@", ex.reason ?: @""]);
