@@ -163,9 +163,31 @@ python tools/xiangse_devkit.py crash
 
 # 一键验收：reset → mock 检查 → nativeRead → 萧炎 assert → 阅读页门禁 → JSON
 python tools/xiangse_devkit.py accept
-python tools/xiangse_devkit.py accept --install
+python tools/xiangse_devkit.py accept --install --trigger-dump
+python tools/xiangse_devkit.py accept --expected-variant legado-debug --expected-run 12345 --expected-sha <app_binary_sha256>
 ```
 
-`accept` 报告字段（节选）：`prefer_count`、`xiaoyan_passed`、`reader_ui_ok`（排除仍停在空书架）、`still_in_app`、`signals`、`trace_tail`、`report_path`。套件**不修复** Bridge 正文上屏；`SIGNAL sig=6`、空书架等会如实写入报告供后续排查。
+`accept` 报告接入 **acceptance-contract** 严格合同（`strict_passed` 与 `passed` 同义）。必须全部满足才通过：
+
+| 检查项 | 说明 |
+| --- | --- |
+| manifest_identity | expected/actual variant、github_run_id、SHA、app_binary_sha256 等；不符或文件缺失立即失败 |
+| frontmost | `com.appbox.StandarReader` |
+| vc_stack | 含 TextReadVC / TextRPageContainer 等原生阅读 VC |
+| screen_class | 非 SpringBoard、空书架、Debug 面板、错误页 |
+| ocr_body_needle | OCR bounding box 在正文区域命中「萧炎」 |
+| trace | `preferNativeFull` 恰好 1 次；无 SIGNAL；probeOnly 不计分；`nativePaged=1` 或 strict 等价信号 |
+| open_once | 最终不存在 |
+| overlay | tag=92011 / trace overlay92011 不存在 |
+| native_dump | debug dump 显示 host/pageModel/CTFrame 非空；dump 不得 stale |
+
+本地仅跑合同单测（无需真机）：
+
+```powershell
+python -m unittest discover -s tools/ci -p "test_*.py"
+python tools/ci/validate_hooks_gate.py
+```
+
+`accept` 报告字段（节选）：`manifest_identity`、`checks`、`fail_reasons`、`preferNativeFull_count`、`ocr_body_needle`、`vc_stack`、`rejection_preview`。套件**不修复** Bridge 正文上屏；SpringBoard/overlay/probe 假通过会被 `strict_passed=false` 拒绝。
 
 共用 MCP 客户端：`tools/ios_mcp_client.py`（`fixtures/_accept_strict_render.py` 等脚本可 `from tools.ios_mcp_client import McpClient`）。

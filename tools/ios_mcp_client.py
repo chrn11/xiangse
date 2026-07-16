@@ -228,6 +228,87 @@ class McpClient:
                 pass
         return None
 
+    def get_vc_stack(self) -> list[str]:
+        """前台 VC 栈（类名列表）；失败时返回空列表。"""
+        for tool in ("get_view_controller_stack", "get_vc_stack", "get_navigation_stack"):
+            try:
+                res = self.call(tool, timeout=30)
+                if isinstance(res, dict):
+                    stack = res.get("stack") or res.get("viewControllers") or res.get("controllers")
+                    if isinstance(stack, list):
+                        out: list[str] = []
+                        for item in stack:
+                            if isinstance(item, str):
+                                out.append(item)
+                            elif isinstance(item, dict):
+                                name = item.get("class") or item.get("className") or item.get("name")
+                                if name:
+                                    out.append(str(name))
+                        if out:
+                            return out
+                elif isinstance(res, list):
+                    return [str(x) for x in res]
+            except McpError:
+                continue
+        return []
+
+    def overlay_tag_92011_present(self) -> bool:
+        """检查当前 UI 树是否存在 tag=92011 的 overlay。"""
+        try:
+            ui = self.call("get_ui_elements", {"limit": 200}, timeout=40)
+            if isinstance(ui, dict):
+                for el in ui.get("elements", []):
+                    if not isinstance(el, dict):
+                        continue
+                    tag = el.get("tag") or el.get("accessibilityIdentifier")
+                    if str(tag) == "92011":
+                        return True
+                    ident = str(el.get("identifier", ""))
+                    if "92011" in ident or "overlay92011" in ident:
+                        return True
+        except McpError:
+            pass
+        paths = self.app_paths()
+        doc = paths.get("documents", "")
+        if doc:
+            try:
+                res = self.call(
+                    "run_command",
+                    {
+                        "command": (
+                            f"grep -l '92011' '{doc}/legado_openreader_trace.txt' 2>/dev/null || true"
+                        ),
+                        "timeout_sec": 5,
+                    },
+                    timeout=15,
+                )
+                text = json.dumps(res, ensure_ascii=False) if not isinstance(res, str) else res
+                if "overlay92011" in text:
+                    return True
+            except McpError:
+                pass
+        return False
+
+    def ocr_screen_full(self, timeout: float = 50) -> dict[str, Any]:
+        """ocr_screen 结构化结果（含 texts/rect）。"""
+        try:
+            res = self.call("ocr_screen", timeout=timeout)
+            if isinstance(res, dict):
+                return res
+        except McpError:
+            pass
+        return {"texts": []}
+
+    def collect_crash_evidence(self) -> dict[str, Any]:
+        """崩溃日志 + 沙盒 legado_debug_crash.txt。"""
+        out: dict[str, Any] = {}
+        try:
+            out["crash_logs"] = self.call("get_crash_logs", timeout=60)
+        except McpError as exc:
+            out["crash_logs_error"] = str(exc)
+        out["sandbox_crash"] = self.read_sandbox_text("legado_debug_crash.txt", max_bytes=65536)
+        return out
+
 
 def call(tool: str, arguments: dict | None = None, timeout: float = 180, base_url: str | None = None) -> Any:
     """模块级快捷调用（默认端点）。"""

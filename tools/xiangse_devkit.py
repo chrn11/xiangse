@@ -21,6 +21,12 @@ if str(ROOT) not in sys.path:
 
 from tools.ios_mcp_client import DEFAULT_BUNDLE, McpClient, McpError
 from tools.repack.manifest import REQUIRED_FIELDS, validate_manifest
+from tools.ci.acceptance_contract import (
+    evaluate_acceptance,
+    format_rejection_cli,
+    is_dump_stale,
+    manifest_identity_block,
+)
 
 DEFAULT_MOCK = os.environ.get("XIANGSE_MOCK", "http://192.168.1.4:8765")
 OUT_DIR = ROOT / "fixtures" / "_devkit"
@@ -139,22 +145,7 @@ def _guard_manifest(client: McpClient, args: argparse.Namespace, *, require_devi
 
 
 def _is_dump_stale(dump_text: str, install_state: dict[str, Any]) -> bool:
-    if not dump_text.strip():
-        return False
-    installed_at = _parse_iso_utc(install_state.get("installed_at_utc", ""))
-    manifest = install_state.get("manifest") if isinstance(install_state.get("manifest"), dict) else {}
-    built_at = _parse_iso_utc(str(manifest.get("built_at_utc", "")))
-    ref = installed_at or built_at
-    if not ref:
-        return False
-    # dump 首行常含 UTC 时间戳
-    m = re.search(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)", dump_text[:200])
-    if not m:
-        return False
-    dump_at = _parse_iso_utc(m.group(1))
-    if not dump_at:
-        return False
-    return dump_at < ref
+    return is_dump_stale(dump_text, install_state)
 
 
 def add_manifest_args(parser: argparse.ArgumentParser) -> None:
@@ -166,6 +157,25 @@ def add_manifest_args(parser: argparse.ArgumentParser) -> None:
 def attach_manifest_to_output(out: dict[str, Any], manifest: dict[str, Any] | None) -> None:
     if manifest is not None:
         out["build_manifest"] = manifest
+
+
+def attach_manifest_identity(
+    out: dict[str, Any],
+    manifest: dict[str, Any] | None,
+    args: argparse.Namespace,
+    *,
+    manifest_missing: bool = False,
+) -> None:
+    ident = manifest_identity_block(
+        manifest,
+        expected_variant=getattr(args, "expected_variant", None),
+        expected_run=getattr(args, "expected_run", None),
+        expected_sha=getattr(args, "expected_sha", None),
+        manifest_missing=manifest_missing,
+    )
+    out["manifest_identity"] = ident
+    out["expected"] = ident["expected"]
+    out["actual"] = ident["actual"]
 
 
 def make_client(args: argparse.Namespace) -> McpClient:
@@ -596,6 +606,8 @@ def cmd_accept(client: McpClient, args: argparse.Namespace) -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     stamp = _ts()
     report: dict[str, Any] = {"timestamp": stamp, "steps": []}
+    manifest: dict[str, Any] | None = None
+    manifest_missing = False
 
     # optional install
     if args.install:
@@ -611,12 +623,17 @@ def cmd_accept(client: McpClient, args: argparse.Namespace) -> int:
         report["steps"].append("install")
         time.sleep(2)
         manifest = _read_device_manifest(client)
+        if manifest is None:
+            manifest_missing = True
         errors, manifest = _check_manifest_expectations(manifest, args, require_device=True)
-        if errors:
+        attach_manifest_identity(report, manifest, args, manifest_missing=manifest_missing)
+        if errors or manifest_missing:
             report["manifest_errors"] = errors
             report["build_manifest"] = manifest
             report["passed"] = False
+            report["strict_passed"] = False
             report["fail_reason"] = "manifest_mismatch"
+            report["fail_reasons"] = ["manifest_identity_failed"] + errors
             out_path = OUT_DIR / f"accept_{stamp}.json"
             out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
             _print(report)
@@ -626,12 +643,24 @@ def cmd_accept(client: McpClient, args: argparse.Namespace) -> int:
             report["build_manifest"] = manifest
             report["manifest_copy"] = str(_save_manifest_copy(manifest, "accept_install"))
     else:
-        manifest = _guard_manifest(client, args, require_device=bool(
-            args.expected_variant or args.expected_run or args.expected_sha
-        ))
+        if args.expected_variant or args.expected_run or args.expected_sha:
+            manifest = _guard_manifest(client, args, require_device=True)
+        else:
+            manifest = _read_device_manifest(client)
+        if manifest is None and (args.expected_variant or args.expected_run or args.expected_sha):
+            manifest_missing = True
         attach_manifest_to_output(report, manifest)
+        attach_manifest_identity(report, manifest, args, manifest_missing=manifest_missing)
         if manifest:
             report["manifest_copy"] = str(_save_manifest_copy(manifest, "accept"))
+        elif args.require_manifest:
+            report["passed"] = False
+            report["strict_passed"] = False
+            report["fail_reasons"] = ["manifest_identity_failed"]
+            out_path = OUT_DIR / f"accept_{stamp}.json"
+            out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            _print(report)
+            return 3
 
     # reset
     paths = client.app_paths()
@@ -640,13 +669,13 @@ def cmd_accept(client: McpClient, args: argparse.Namespace) -> int:
     removed = clear_trace_files(client, paths) if not args.keep_trace else []
     report["reset"] = {"deleted_open_once": deleted, "removed_trace": removed}
 
-    # optional install already handled above
-    # mock check
     mock_status = check_mock_reachable(args.mock)
     report["mock"] = mock_status
     if args.require_mock and not mock_status["reachable"]:
         report["passed"] = False
+        report["strict_passed"] = False
         report["fail_reason"] = "mock_unreachable"
+        report["fail_reasons"] = ["mock_unreachable"]
         out_path = OUT_DIR / f"accept_{stamp}.json"
         out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         _print(report)
@@ -672,10 +701,16 @@ def cmd_accept(client: McpClient, args: argparse.Namespace) -> int:
     report["steps"].append("nativeRead")
     time.sleep(args.wait)
 
+    if args.trigger_dump:
+        try:
+            client.call("open_url", {"url": "legado://debugDump?phase=accept"})
+            time.sleep(args.dump_wait)
+            report["steps"].append("debugDump")
+        except McpError as exc:
+            report["debug_dump_trigger_error"] = str(exc)
+
     front = client.call("get_frontmost_app")
     front_bundle = front.get("bundleId") if isinstance(front, dict) else str(front)
-    still_in_app = front_bundle == client.bundle_id
-    report["still_in_app"] = still_in_app
     report["frontmost"] = front
 
     shot_path = OUT_DIR / f"accept_{stamp}.png"
@@ -683,56 +718,77 @@ def cmd_accept(client: McpClient, args: argparse.Namespace) -> int:
     report["screenshot"] = str(shot_path) if saved else None
 
     xiaoyan = client.call("assert_text_present", {"text": "萧炎", "timeout_ms": args.assert_timeout})
-    xiaoyan_passed = bool(xiaoyan.get("passed")) if isinstance(xiaoyan, dict) else False
-    report["xiaoyan"] = xiaoyan
-    report["xiaoyan_passed"] = xiaoyan_passed
-
     ui_texts, ocr_texts = collect_ui_texts(client)
-    ui_gate = assess_reader_ui(ui_texts, ocr_texts, xiaoyan_passed)
-    report["reader_ui"] = ui_gate
-    report["reader_ui_ok"] = ui_gate["reader_ui_ok"]
+    ocr_full = client.ocr_screen_full()
+    vc_stack = client.get_vc_stack()
 
     trace_text = client.read_sandbox_text("legado_openreader_trace.txt")
     marker_text = client.read_sandbox_text("legado_catalog_openreader.txt")
-    dump_text = client.read_sandbox_text("legado_debug_dump.txt", max_bytes=65536)
-    if _is_dump_stale(dump_text, _load_install_state()):
-        report["passed"] = False
-        report["fail_reason"] = "stale_dump"
-        out_path = OUT_DIR / f"accept_{stamp}.json"
-        out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-        _print(report)
-        return 4
+    dump_text = client.read_sandbox_text("legado_debug_dump.txt", max_bytes=131072)
+    crash_text = client.read_sandbox_text("legado_debug_crash.txt", max_bytes=65536)
+    crash_evidence = client.collect_crash_evidence()
 
-    prefer_lines = [ln for ln in trace_text.splitlines() if "goStart preferNativeFull" in ln]
-    strict_hits = [ln for ln in trace_text.splitlines() if "tvHasNeedleStrict" in ln]
-    probe_only = [ln for ln in trace_text.splitlines() if "tvHasNeedleProbeOnly" in ln or "probeOnly" in ln]
-    false_paged = [
-        ln for ln in trace_text.splitlines()
-        if "nativePaged=1" in ln and "tvHasNeedle+" in ln and "tvHasNeedleStrict" not in ln
-    ]
+    open_once_after: dict[str, bool] = {}
+    for p in client.open_once_candidates(paths):
+        open_once_after[p] = client.file_exists(p)
+    report["open_once_after"] = open_once_after
+    open_once_present = any(open_once_after.values())
 
-    report["prefer_count"] = len(prefer_lines)
-    report["preferNativeFull_count"] = len(prefer_lines)
-    report["tvHasNeedleStrict_lines"] = len(strict_hits)
-    report["tvHasNeedleProbeOnly_lines"] = len(probe_only)
-    report["false_nativePaged_probe_only"] = len(false_paged)
-    report["signals"] = extract_signal(marker_text, trace_text)
-    report["has_signal"] = bool(report["signals"]) or ("SIGNAL sig=" in trace_text)
+    install_state = _load_install_state()
+    accept_result = evaluate_acceptance(
+        front_bundle=front_bundle,
+        vc_stack=vc_stack,
+        ui_texts=ui_texts,
+        ocr_texts=ocr_texts,
+        ocr_result=ocr_full,
+        xiaoyan_assert=xiaoyan if isinstance(xiaoyan, dict) else None,
+        trace_text=trace_text,
+        marker_text=marker_text,
+        dump_text=dump_text,
+        crash_text=crash_text,
+        open_once_present=open_once_present,
+        overlay_tag_present=client.overlay_tag_92011_present(),
+        manifest=manifest,
+        manifest_missing=manifest_missing,
+        install_state=install_state,
+        expected_variant=args.expected_variant,
+        expected_run=args.expected_run,
+        expected_sha=args.expected_sha,
+        mock_reachable=mock_status["reachable"],
+        new_crash_detected=bool(crash_evidence.get("crash_logs")) and bool(crash_text),
+    )
+
+    report.update(accept_result.to_dict())
+    report["xiaoyan"] = xiaoyan
+    report["reader_ui"] = assess_reader_ui(ui_texts, ocr_texts, accept_result.checks.get("xiaoyan_passed", False))
     report["trace_tail"] = trace_text[-6000:]
     report["marker_tail"] = marker_text[-2000:]
-
-    report["passed"] = (
-        still_in_app
-        and xiaoyan_passed
-        and report["reader_ui_ok"]
-        and mock_status["reachable"]
-    )
+    report["dump_tail"] = dump_text[-4000:]
+    report["crash_evidence"] = {
+        k: v for k, v in crash_evidence.items() if k != "sandbox_crash" or len(str(v)) < 4000
+    }
+    report["preferNativeFull_count"] = accept_result.checks.get("trace", {}).get("preferNativeFull_count", 0)
+    report["has_signal"] = accept_result.checks.get("trace", {}).get("has_signal", False)
+    report["signals"] = accept_result.checks.get("trace", {}).get("signals", [])
 
     out_path = OUT_DIR / f"accept_{stamp}.json"
     out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     report["report_path"] = str(out_path)
+
+    if not accept_result.passed and accept_result.fail_reasons:
+        report["rejection_preview"] = format_rejection_cli(accept_result)
+
     _print(report)
-    return 0 if report["passed"] else 1
+
+    if accept_result.fail_reasons:
+        if "manifest_identity_failed" in accept_result.fail_reasons:
+            return 3
+        if "stale_dump" in accept_result.fail_reasons:
+            return 4
+        if "mock_unreachable" in accept_result.fail_reasons:
+            return 2
+        return 1
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -805,6 +861,9 @@ def build_parser() -> argparse.ArgumentParser:
     pa.add_argument("--no-import-source", dest="import_source", action="store_false")
     pa.add_argument("--assert-timeout", type=int, default=15000)
     pa.add_argument("--install-timeout", type=float, default=300)
+    pa.add_argument("--trigger-dump", action="store_true", help="nativeRead 后 legado://debugDump 拉 native dump")
+    pa.add_argument("--dump-wait", type=float, default=2.0)
+    pa.add_argument("--require-manifest", action="store_true", help="无 manifest 时立即失败")
     pa.add_argument("--forensics", action="store_true", help="安装 forensics artifact")
     add_manifest_args(pa)
 

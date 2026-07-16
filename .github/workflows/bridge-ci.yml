@@ -14,8 +14,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: 固定夹具硬门禁
-        run: python3 tools/ci/validate_fixtures.py
+      - name: 固定夹具与 Hooks 硬门禁
+        run: |
+          python3 tools/ci/validate_fixtures.py
+          python3 tools/ci/validate_hooks_gate.py
+          python3 -m unittest discover -s tools/ci -p 'test_*.py'
 
   build-bridge:
     needs: [fixture-gate]
