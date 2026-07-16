@@ -13,20 +13,6 @@ static NSDictionary *sPendingPayload = nil;
 static __weak id sWeakReader = nil;
 static BOOL sReentryGuard = NO;
 
-static void LBTraceLoadCurCp(NSString *msg) {
-    if (msg.length == 0) return;
-    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_openreader_trace.txt"];
-    NSString *line = [NSString stringWithFormat:@"%@ | %@\n", [NSDate date], msg];
-    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
-    if (!fh) {
-        [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        return;
-    }
-    [fh seekToEndOfFile];
-    [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-    [fh closeFile];
-}
-
 static void LBStateLog(NSString *msg) {
     NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_loadcurcp_state.txt"];
     NSString *line = [NSString stringWithFormat:@"%@ | %@ | state=%@ token=%@ ch=%@ inv=%lu\n",
@@ -41,7 +27,6 @@ static void LBStateLog(NSString *msg) {
     [fh seekToEndOfFile];
     [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
     [fh closeFile];
-    LBTraceLoadCurCp([NSString stringWithFormat:@"loadCurCp %@ sm=%@", msg ?: @"", LBLoadCurCpBridgeStateName()]);
 }
 
 static void LBSetState(LBLoadCurCpState next, NSString *why) {
@@ -86,13 +71,6 @@ void LBLoadCurCpBridgeMarkRendered(void) {
 static NSString *LBBodyFromPayload(NSDictionary *payload) {
     id c = payload[@"chapterContent"] ?: payload[@"content"];
     return [c isKindOfClass:[NSString class]] ? (NSString *)c : nil;
-}
-
-static BOOL LBPayloadHasRealError(NSDictionary *payload) {
-    id err = payload[@"error"];
-    if (!err || err == [NSNull null]) return NO;
-    if ([err isKindOfClass:[NSString class]]) return [(NSString *)err length] > 0;
-    return YES;
 }
 
 static NSInteger LBCpIndexFromPayload(NSDictionary *payload, id reader) {
@@ -215,11 +193,9 @@ static void LBInvokeOriginalLoadCurCp(id reader) {
     sReentryGuard = YES;
     sInvokeCount++;
     LBSetState(LBLoadCurCpStateInvokingOriginal, @"invoke_orig_begin");
-    LBTraceLoadCurCp([NSString stringWithFormat:@"sm=invokingOriginal ch=%@", sChapterUrl ?: @"-"]);
     @try {
         sOrigLoadCurCp(reader, @selector(loadCurCp));
         LBStateLog(@"invoke_orig_OK");
-        LBTraceLoadCurCp(@"ORIG loadCurCp OK");
     } @catch (NSException *ex) {
         LBSetState(LBLoadCurCpStateFailed, [NSString stringWithFormat:@"invoke_orig_EX %@", ex.reason ?: @""]);
         sReentryGuard = NO;
@@ -300,25 +276,10 @@ BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,
 
 void LBLoadCurCpBridgeOnContentPosted(NSDictionary *payload, id readerVC) {
     if (![payload isKindOfClass:[NSDictionary class]] || payload.count == 0) return;
-
-    NSString *body = LBBodyFromPayload(payload);
-    BOOL hasBody = body.length > 0;
-    BOOL hasRealError = LBPayloadHasRealError(payload);
-
-    if (!hasBody && hasRealError) {
-        LBSetState(LBLoadCurCpStateFailed,
-                   [NSString stringWithFormat:@"content_err %@", payload[@"error"]]);
+    if (payload[@"error"]) {
+        LBSetState(LBLoadCurCpStateFailed, [NSString stringWithFormat:@"content_err %@", payload[@"error"]]);
         return;
     }
-    if (!hasBody && !hasRealError && payload[@"error"]) {
-        LBStateLog(@"content_err_empty_ignored");
-        return;
-    }
-    if (!hasBody) {
-        LBStateLog(@"content_post_no_body");
-        return;
-    }
-
     sPendingPayload = [payload copy];
     NSString *ch = payload[@"chapterUrl"] ?: payload[@"cpUrl"];
     if ([ch isKindOfClass:[NSString class]] && ch.length > 0) {
