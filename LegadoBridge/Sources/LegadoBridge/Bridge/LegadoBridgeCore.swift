@@ -782,15 +782,8 @@ import LegadoBridgeHooks
                 // 阅读页可能尚未注册监听：缓存并由 ReadVC appear / delay 再投
                 LBNoteResetContentPosted(payload)
             } catch {
-                var errText = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-                if errText.isEmpty {
-                    errText = String(describing: error)
-                }
-                if errText.isEmpty {
-                    errText = "getContent failed"
-                }
                 let errPayload: [String: Any] = [
-                    "error": errText,
+                    "error": error.localizedDescription,
                     "chapterUrl": chapterUrl,
                     XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
                 ]

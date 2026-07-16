@@ -16,11 +16,8 @@ typedef NS_ENUM(NSInteger, LBLoadCurCpState) {
     LBLoadCurCpStateFailed,
 };
 
-/// 注册原版 loadCurCp IMP（由 LBReadingHooks 安装时调用；unwrap 后的真 native）
+/// 注册原版 loadCurCp IMP（由 LBReadingHooks 安装时调用）
 void LBLoadCurCpBridgeRegisterOrig(void (*orig)(id, SEL));
-
-/// Hook 内是否应直通已保存的真 native（invoke 重入 / EarlyWrap 链）
-BOOL LBLoadCurCpBridgePassThroughToNative(void);
 
 /// Legado loadCurCp hook 入口；返回 YES 表示已处理（勿再调原版）
 BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,
