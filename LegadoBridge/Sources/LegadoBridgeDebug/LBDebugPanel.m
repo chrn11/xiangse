@@ -5,6 +5,7 @@
 #import <objc/message.h>
 #import <signal.h>
 #import <execinfo.h>
+#import <string.h>
 
 static UITextView *g_panelTextView = nil;
 static UIViewController *g_panelVC = nil;
@@ -558,24 +559,50 @@ static void LBInstallDebugOpenURLHook(void) {
     if (gr.state == UIGestureRecognizerStateRecognized) LBOnThreeFingerTap();
 }
 
-+ (void)lb_debugDumpAction {
-    dispatch_async(dispatch_get_main_queue(), ^{
++ (NSString *)lb_debugDumpSyncWithPhase:(NSString *)phase {
+    __block NSString *jsonPath = nil;
+    void (^work)(void) = ^{
         @try {
             LBForensicsInstallObservers();
-            NSString *phase = LBForensicsConsumePendingDumpPhase();
-            NSDictionary *dump = LBForensicsPerformDump(phase);
+            NSString *p = phase.length ? phase : @"manual";
+            NSDictionary *dump = LBForensicsPerformDump(p);
             NSDictionary<NSString *, NSString *> *paths = LBForensicsWriteDumpFiles(dump);
-            NSString *summary = dump[@"textSummary"] ?: @"";
-            NSMutableString *panel = [NSMutableString stringWithString:summary];
-            [panel appendFormat:@"\n--- files ---\njson: %@\ntext: %@\nlegacy: %@\n",
-             paths[@"json"] ?: @"-", paths[@"text"] ?: @"-", paths[@"legacy"] ?: @"-"];
-            LBAppendPanel(panel);
+            jsonPath = paths[@"json"] ?: @"";
+            LBWriteDebugFile(@"legado_debug_dump_ready.txt", jsonPath);
         } @catch (NSException *ex) {
             NSString *err = [NSString stringWithFormat:@"forensics dump EX: %@", ex.reason ?: @""];
             LBWriteDebugFile(@"legado_debug_dump.txt", err);
-            LBAppendPanel(err);
+            LBWriteDebugFile(@"legado_debug_dump_ready.txt", @"");
         }
-    });
+    };
+    if ([NSThread isMainThread]) {
+        work();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), work);
+    }
+    return jsonPath ?: @"";
+}
+
++ (void)lb_debugDumpAction {
+    NSString *phase = LBForensicsConsumePendingDumpPhase();
+    NSString *jsonPath = [self lb_debugDumpSyncWithPhase:phase];
+    if (!jsonPath.length) return;
+    NSString *txtPath = [[jsonPath stringByDeletingPathExtension] stringByAppendingPathExtension:@"txt"];
+    NSString *summary = [NSString stringWithContentsOfFile:txtPath encoding:NSUTF8StringEncoding error:nil];
+    NSMutableString *panel = [NSMutableString stringWithString:summary ?: @""];
+    [panel appendFormat:@"\n--- files ---\njson: %@\ntext: %@\n", jsonPath, txtPath];
+    LBAppendPanel(panel);
+}
+
+const char *LBDebugForceDump(const char *phase) {
+    static char s_buf[512];
+    s_buf[0] = '\0';
+    NSString *p = phase ? [NSString stringWithUTF8String:phase] : @"manual";
+    NSString *path = [LBDebugPanel lb_debugDumpSyncWithPhase:p];
+    if (!path.length) return s_buf;
+    strncpy(s_buf, path.UTF8String, sizeof(s_buf) - 1);
+    s_buf[sizeof(s_buf) - 1] = '\0';
+    return s_buf;
 }
 
 + (void)lb_debugRefreshAction {
