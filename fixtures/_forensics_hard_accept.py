@@ -20,8 +20,8 @@ from tools.repack.manifest import validate_manifest
 MCP = "http://192.168.1.6:8090"
 BUNDLE = "com.appbox.StandarReader"
 OUT_DIR = ROOT / "fixtures" / "_devkit"
-EXPECTED_GIT = "b7ac02a528aca7f1d432d0bd2bd4c32cf68d7a0a"
-FORENSICS_RUN = "29470530280"
+EXPECTED_GIT = "0fc5bf9"  # 含同步 dump；SIGSEGV 修复后需新 run
+FORENSICS_RUN = "29470798256"
 STABILITY_N = 10
 
 
@@ -95,7 +95,7 @@ def has_reader_signal(doc: dict) -> tuple[bool, list[str]]:
 
 def ensure_ipa(c: McpClient) -> dict:
     manifest = c.read_build_manifest()
-    if manifest and manifest.get("git_commit", "").startswith("b7ac02a"):
+    if manifest and str(manifest.get("git_commit", "")).startswith(EXPECTED_GIT):
         return manifest
     subprocess.run(
         [
@@ -118,6 +118,26 @@ def ensure_ipa(c: McpClient) -> dict:
     return manifest
 
 
+def ensure_dumpagent(c: McpClient, retries: int = 3) -> str:
+    """kill→launch→refresh_dump，确保 objc_invoke 可注入。"""
+    last_err = ""
+    for _ in range(retries):
+        c.call("kill_app", {"bundle_id": BUNDLE})
+        time.sleep(2)
+        c.call("launch_app", {"bundle_id": BUNDLE})
+        time.sleep(6)
+        try:
+            rd = c.call("refresh_dump", {"bundle_id": BUNDLE, "timeout": 90}, timeout=120)
+            blob = json.dumps(rd, ensure_ascii=False) if not isinstance(rd, str) else rd
+            if "dump_ready=1" in blob or (isinstance(rd, dict) and rd.get("dump_ready")):
+                return blob[:200]
+            last_err = blob[:300]
+        except McpError as exc:
+            last_err = str(exc)
+        time.sleep(2)
+    raise RuntimeError(f"refresh_dump 失败（{retries} 次）: {last_err}")
+
+
 def invoke_dump_sync(c: McpClient, phase: str) -> str:
     """优先同步 selector；回退异步 + 等待新 json。"""
     before = set(list_forensics_files(c))
@@ -126,22 +146,38 @@ def invoke_dump_sync(c: McpClient, phase: str) -> str:
             "bundle_id": BUNDLE,
             "class_name": "LBDebugPanel",
             "selector": "lb_debugDumpSyncWithPhase:",
-            "class_method": True,
+            "is_class_method": True,
             "arguments": [phase],
         },
         {
             "bundle_id": BUNDLE,
             "class_name": "LBDebugPanel",
             "selector": "lb_debugDumpAction",
-            "class_method": True,
+            "is_class_method": True,
         },
     ]
     last_err = ""
     for args in attempts:
         try:
-            c.call("objc_invoke", args, timeout=90)
+            ret = c.call("objc_invoke", args, timeout=90)
+            if isinstance(ret, str):
+                if ret.endswith(".json") and ret.startswith("/"):
+                    return ret
+                if "not running" in ret:
+                    ensure_dumpagent(c, retries=2)
+                    ret = c.call("objc_invoke", args, timeout=90)
+                    if isinstance(ret, str) and ret.endswith(".json") and ret.startswith("/"):
+                        return ret
         except McpError as exc:
             last_err = str(exc)
+            if "not running" in last_err:
+                try:
+                    ensure_dumpagent(c, retries=2)
+                    ret = c.call("objc_invoke", args, timeout=90)
+                    if isinstance(ret, str) and ret.endswith(".json") and ret.startswith("/"):
+                        return ret
+                except Exception as exc2:
+                    last_err = str(exc2)
             continue
         for _ in range(40):
             time.sleep(0.5)
@@ -160,6 +196,8 @@ def open_native_txt_reader(c: McpClient) -> list[str]:
     steps: list[str] = []
     c.call("wake_and_home")
     time.sleep(1)
+    c.call("kill_app", {"bundle_id": BUNDLE})
+    time.sleep(2)
     c.call("launch_app", {"bundle_id": BUNDLE})
     time.sleep(6)
     steps.append("launch_app")
@@ -194,7 +232,7 @@ def main() -> int:
     manifest = ensure_ipa(c)
     report["manifest"] = manifest
     git = manifest.get("git_commit", "")
-    if not str(git).startswith("b7ac02a"):
+    if not str(git).startswith("0fc5bf9"):
         report["error"] = f"manifest git 不符: {git}"
         out = OUT_DIR / f"forensics_hard_accept_FAIL_{ts()}.json"
         out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -211,10 +249,10 @@ def main() -> int:
         return 2
 
     try:
-        c.call("refresh_dump", {"bundle_id": BUNDLE, "timeout": 90}, timeout=120)
-        report["steps"].append("refresh_dump_ok")
-    except McpError as exc:
-        report["steps"].append(f"refresh_dump_warn={exc}")
+        agent_note = ensure_dumpagent(c, retries=3)
+        report["steps"].append(f"dumpagent_ok={agent_note[:80]}")
+    except Exception as exc:
+        report["steps"].append(f"dumpagent_warn={exc}")
 
     # 首次阅读页 dump
     try:

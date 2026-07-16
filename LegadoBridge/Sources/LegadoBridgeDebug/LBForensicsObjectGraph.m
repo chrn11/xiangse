@@ -50,6 +50,30 @@ static BOOL LBFShouldSkipPanel(id obj) {
     return NO;
 }
 
+/// 避免对已释放/非对象指针做 object_getClass 导致 SIGSEGV
+static BOOL LBFSafeIsReadableObject(id val) {
+    if (!val) return NO;
+    uintptr_t p = (uintptr_t)(__bridge void *)val;
+    if (p < 0x1000) return NO;
+    @try {
+        Class c = object_getClass(val);
+        if (!c) return NO;
+        const char *name = class_getName(c);
+        return name && name[0];
+    } @catch (__unused NSException *e) {
+        return NO;
+    }
+}
+
+static NSString *LBFSafeClassNameOfObject(id val) {
+    if (!LBFSafeIsReadableObject(val)) return @"?";
+    @try {
+        return NSStringFromClass(object_getClass(val)) ?: @"?";
+    } @catch (__unused NSException *e) {
+        return @"?";
+    }
+}
+
 static void LBFCollectVCChain(UIViewController *vc, NSMutableArray<UIViewController *> *chain,
                               NSMutableSet<NSValue *> *seen) {
     if (!vc) return;
@@ -103,8 +127,14 @@ static void LBFAddUniqueObject(id obj, NSMutableArray *bucket, NSMutableSet<NSSt
 }
 
 static void LBFScanIvarsForClass(id root, NSString *targetClass, NSMutableArray *out,
-                                 NSMutableSet<NSString *> *seenPtrs, int depth) {
-    if (!root || depth > 6) return;
+                                 NSMutableSet<NSString *> *seenPtrs, NSMutableSet<NSString *> *visitedObjs,
+                                 int depth) {
+    if (!root || depth > 5) return;
+    if (!LBFSafeIsReadableObject(root)) return;
+    NSString *rootPtr = LBForensicsPointer(root);
+    if ([visitedObjs containsObject:rootPtr]) return;
+    [visitedObjs addObject:rootPtr];
+
     Class cls = object_getClass(root);
     while (cls && cls != [NSObject class]) {
         unsigned int count = 0;
@@ -114,23 +144,27 @@ static void LBFScanIvarsForClass(id root, NSString *targetClass, NSMutableArray 
                 if (!LBFIvarIsObject(ivars[i])) continue;
                 @try {
                     id val = LBFSafeObjectIvar(root, ivars[i]);
-                    if (!val) continue;
-                    NSString *cn = NSStringFromClass(object_getClass(val));
+                    if (!LBFSafeIsReadableObject(val)) continue;
+                    NSString *cn = LBFSafeClassNameOfObject(val);
                     if (LBFClassNameMatchesCandidate(cn, targetClass)) {
                         LBFAddUniqueObject(val, out, seenPtrs);
                     }
                     if ([val isKindOfClass:[NSArray class]]) {
-                        for (id el in (NSArray *)val) {
+                        NSUInteger n = [(NSArray *)val count];
+                        if (n > 48) n = 48;
+                        for (NSUInteger j = 0; j < n; j++) {
+                            id el = [(NSArray *)val objectAtIndex:j];
+                            if (!LBFSafeIsReadableObject(el)) continue;
+                            NSString *ecn = LBFSafeClassNameOfObject(el);
+                            if (LBFClassNameMatchesCandidate(ecn, targetClass)) {
+                                LBFAddUniqueObject(el, out, seenPtrs);
+                            }
                             if ([el isKindOfClass:[NSObject class]]) {
-                                NSString *ecn = NSStringFromClass(object_getClass(el));
-                                if (LBFClassNameMatchesCandidate(ecn, targetClass)) {
-                                    LBFAddUniqueObject(el, out, seenPtrs);
-                                }
-                                LBFScanIvarsForClass(el, targetClass, out, seenPtrs, depth + 1);
+                                LBFScanIvarsForClass(el, targetClass, out, seenPtrs, visitedObjs, depth + 1);
                             }
                         }
                     } else if ([val isKindOfClass:[NSObject class]]) {
-                        LBFScanIvarsForClass(val, targetClass, out, seenPtrs, depth + 1);
+                        LBFScanIvarsForClass(val, targetClass, out, seenPtrs, visitedObjs, depth + 1);
                     }
                 } @catch (__unused NSException *e) {}
             }
@@ -143,6 +177,7 @@ static void LBFScanIvarsForClass(id root, NSString *targetClass, NSMutableArray 
 static NSArray *LBFDiscoverCandidateObjects(NSString *candidate) {
     NSMutableArray *found = [NSMutableArray array];
     NSMutableSet<NSString *> *seenPtrs = [NSMutableSet set];
+    NSMutableSet<NSString *> *visitedObjs = [NSMutableSet set];
     NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
     LBFCollectAllWindows(windows);
 
@@ -152,28 +187,31 @@ static NSArray *LBFDiscoverCandidateObjects(NSString *candidate) {
             NSMutableSet<NSValue *> *vcSeen = [NSMutableSet set];
             LBFCollectVCChain(win.rootViewController, vcs, vcSeen);
             for (UIViewController *vc in vcs) {
-                NSString *cn = NSStringFromClass(object_getClass(vc));
+                if (!LBFSafeIsReadableObject(vc)) continue;
+                NSString *cn = LBFSafeClassNameOfObject(vc);
                 if (LBFClassNameMatchesCandidate(cn, candidate)) {
                     LBFAddUniqueObject(vc, found, seenPtrs);
                 }
-                LBFScanIvarsForClass(vc, candidate, found, seenPtrs, 0);
+                LBFScanIvarsForClass(vc, candidate, found, seenPtrs, visitedObjs, 0);
                 if (vc.isViewLoaded && vc.view) {
                     LBFWalkViewTree(vc.view, ^(UIView *v) {
-                        NSString *vn = NSStringFromClass(object_getClass(v));
+                        if (!LBFSafeIsReadableObject(v)) return;
+                        NSString *vn = LBFSafeClassNameOfObject(v);
                         if (LBFClassNameMatchesCandidate(vn, candidate)) {
                             LBFAddUniqueObject(v, found, seenPtrs);
                         }
-                        LBFScanIvarsForClass(v, candidate, found, seenPtrs, 0);
+                        LBFScanIvarsForClass(v, candidate, found, seenPtrs, visitedObjs, 0);
                     });
                 }
             }
         }
         LBFWalkViewTree(win, ^(UIView *v) {
-            NSString *vn = NSStringFromClass(object_getClass(v));
+            if (!LBFSafeIsReadableObject(v)) return;
+            NSString *vn = LBFSafeClassNameOfObject(v);
             if (LBFClassNameMatchesCandidate(vn, candidate)) {
                 LBFAddUniqueObject(v, found, seenPtrs);
             }
-            LBFScanIvarsForClass(v, candidate, found, seenPtrs, 0);
+            LBFScanIvarsForClass(v, candidate, found, seenPtrs, visitedObjs, 0);
         });
     }
 
@@ -208,19 +246,30 @@ static NSDictionary *LBFDumpSingleObject(id obj) {
 NSDictionary *LBForensicsBuildObjectGraph(void) {
     NSMutableDictionary *graph = [NSMutableDictionary dictionary];
     NSMutableArray *unknown = [NSMutableArray array];
-    for (NSString *candidate in LBForensicsCandidateClassNames()) {
-        NSArray *objects = LBFDiscoverCandidateObjects(candidate);
-        NSMutableArray *entries = [NSMutableArray array];
-        for (id obj in objects) {
-            [entries addObject:LBFDumpSingleObject(obj)];
+    @try {
+        for (NSString *candidate in LBForensicsCandidateClassNames()) {
+            NSArray *objects = @[];
+            @try {
+                objects = LBFDiscoverCandidateObjects(candidate);
+            } @catch (NSException *ex) {
+                [unknown addObject:[NSString stringWithFormat:@"discover_err:%@:%@", candidate, ex.reason ?: @"?"]];
+            }
+            NSMutableArray *entries = [NSMutableArray array];
+            for (id obj in objects) {
+                @try {
+                    [entries addObject:LBFDumpSingleObject(obj)];
+                } @catch (__unused NSException *e) {}
+            }
+            graph[candidate] = @{
+                @"count": @(entries.count),
+                @"instances": entries,
+            };
+            if (entries.count == 0) {
+                [unknown addObject:candidate];
+            }
         }
-        graph[candidate] = @{
-            @"count": @(entries.count),
-            @"instances": entries,
-        };
-        if (entries.count == 0) {
-            [unknown addObject:candidate];
-        }
+    } @catch (NSException *ex) {
+        graph[@"_build_error"] = ex.reason ?: @"objectGraph build failed";
     }
     graph[@"_unknown_empty_candidates"] = unknown;
     return graph;
