@@ -3282,15 +3282,6 @@ static BOOL LBPatchContainerTextViewL(id container, UIViewController *readerVC,
     if (readerVC.isViewLoaded && readerVC.view) {
         found = LBFindTextReadTVInSubviewTree(readerVC.view);
     }
-    if (!found) {
-        Class tvCls = NSClassFromString(@"TextReadTV");
-        if (tvCls && readerVC.isViewLoaded) {
-            CGRect f = readerVC.view.bounds;
-            if (f.size.width < 10) f = UIScreen.mainScreen.bounds;
-            @try { found = [[tvCls alloc] initWithFrame:f]; } @catch (__unused NSException *e) {}
-            if (found && okPaths) [okPaths addObject:@"ensureTV allocTextReadTV"];
-        }
-    }
     if (!found) return NO;
     Class ccls = object_getClass(container);
     Ivar ivL = class_getInstanceVariable(ccls, "_textViewL");
@@ -3303,10 +3294,6 @@ static BOOL LBPatchContainerTextViewL(id container, UIViewController *readerVC,
     if (!ivL) return NO;
     @try {
         object_setIvar(container, ivL, found);
-        if (!LBObjectHasTextViewL(container)) {
-            // 只读属性有时需直接写 backing ivar 后再触发 KVC 缓存刷新
-            @try { [container setValue:found forKey:@"textViewL"]; } @catch (__unused NSException *e) {}
-        }
         if (LBObjectHasTextViewL(container)) {
             if (okPaths) [okPaths addObject:@"ensureTV patchTVL"];
             LBAppendOpenReaderTrace([NSString stringWithFormat:
@@ -3353,19 +3340,12 @@ static BOOL LBEnsureContainerTextViews(UIViewController *readerVC, NSMutableArra
                     if (container && LBObjectHasTextViewL(container)) return YES;
                     if (newCtr && LBObjectHasTextViewL(newCtr)) return YES;
                 }
-            } else {
-                LBAppendOpenReaderTrace(@"contentInject ensureTV initWithReaderVC ret=nil");
             }
         } @catch (NSException *ex) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                      @"contentInject ensureTV initWithReaderVC EX %@",
                                      ex.reason ?: @""]);
         }
-    } else {
-        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"contentInject ensureTV initWithReaderVC miss cls=%d sel=%d",
-                                 rpcCls ? 1 : 0,
-                                 (rpcCls && class_getInstanceMethod(rpcCls, initSel)) ? 1 : 0]);
     }
     if (container && LBPatchContainerTextViewL(container, readerVC, okPaths)) {
         return YES;
@@ -4324,10 +4304,7 @@ static NSArray *LBCollectDivisionHosts(UIViewController *readerVC) {
     }
     if (textReadTV) {
         for (UIView *walk = textReadTV; walk; walk = walk.superview) {
-            NSString *wn = NSStringFromClass([walk class]);
-            if ([wn containsString:@"PageContainer"] || [wn containsString:@"ScrollContainer"]) {
-                if (![raw containsObject:walk]) [raw addObject:walk];
-            }
+            if (![raw containsObject:walk]) [raw addObject:walk];
         }
     }
     while (vs.count > 0 && raw.count < 16) {
@@ -4377,12 +4354,6 @@ static BOOL LBInvokeDivisionResponse(id host, id pages, NSString *title, NSInteg
                                      NSMutableArray *heights, NSMutableArray *okPaths) {
     if (!host || !pages) return NO;
     NSString *hn = NSStringFromClass([host class]);
-    if ([hn containsString:@"PageContainer"] && !LBObjectHasTextViewL(host)) {
-        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"contentInject divisionResponse skip noTextViewL host=%@",
-                                 hn]);
-        return NO;
-    }
     SEL dr2 = NSSelectorFromString(@"divisionResponse:cpTitle:cpIndex:heights:");
     SEL dr = NSSelectorFromString(@"divisionResponse:cpTitle:cpIndex:");
     Class hcls = object_getClass(host);
@@ -4750,10 +4721,6 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                      @"contentInject foundTV=%@",
                                      NSStringFromClass([textReadTV class])]);
-            id ctrAfterTV = LBResolveContainerFromReaderVC(readerVC);
-            if (ctrAfterTV && LBPatchContainerTextViewL(ctrAfterTV, readerVC, okPaths)) {
-                [okPaths addObject:@"ensureTV patchAfterFoundTV"];
-            }
             // ORIG 读缓存后可能已上屏：有萧炎则不再强行 divisionResponse（曾致 SIGABRT）
             if ([phase containsString:@"Division"] || [phase containsString:@"Appear"]) {
                 NSString *curTxt = nil;
