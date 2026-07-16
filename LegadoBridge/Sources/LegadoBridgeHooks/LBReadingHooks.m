@@ -239,17 +239,18 @@ static void LBLoadCatalog_IMP(id self, SEL _cmd, void *argRaw, BOOL ignoringCach
 }
 
 static void (*LBOrig_loadCurCp)(id, SEL) = NULL;
+static void LBLoadCurCp_IMP(id self, SEL _cmd);
+
 static IMP LBUnwrapLoadCurCpOrigIMP(Class owner, IMP imp) {
     if (!imp || !owner) return imp;
     typedef IMP (*ResolveFn)(Class, SEL);
     static ResolveFn resolve = NULL;
-    static IMP hookIMP = NULL;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         resolve = (ResolveFn)dlsym(RTLD_DEFAULT, "LBForensicsResolveOrigIMP");
-        hookIMP = (IMP)LBLoadCurCp_IMP;
     });
     SEL sel = NSSelectorFromString(@"loadCurCp");
+    IMP hookIMP = (IMP)LBLoadCurCp_IMP;
     if (resolve) {
         IMP forensics = resolve(owner, sel);
         if (forensics && forensics != hookIMP && forensics != imp) return forensics;
@@ -261,7 +262,6 @@ static IMP LBUnwrapLoadCurCpOrigIMP(Class owner, IMP imp) {
     return imp;
 }
 
-static void LBLoadCurCp_IMP(id self, SEL _cmd);
 static void LBLoadCurCp_IMP(id self, SEL _cmd) {
     NSString *bookUrl = nil;
     NSString *sourceUrl = nil;
