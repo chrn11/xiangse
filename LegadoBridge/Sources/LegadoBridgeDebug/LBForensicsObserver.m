@@ -240,8 +240,14 @@ static IMP LBFGetOrigIMP(NSString *owner, SEL sel) {
 static void LBFHook_##NAME(id self, SEL _cmd) { \
     NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd)); \
     LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner); \
-    IMP imp = LBFGetOrigIMP(owner, _cmd); \
-    if (imp) ((void (*)(id, SEL))imp)(self, _cmd); \
+    @try { \
+        IMP imp = LBFGetOrigIMP(owner, _cmd); \
+        if (imp) ((void (*)(id, SEL))imp)(self, _cmd); \
+    } @catch (NSException *ex) { \
+        LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner); \
+        LBFMaybeScheduleAutoDump(self, _cmd, owner); \
+        @throw ex; \
+    } \
     LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner); \
     LBFMaybeScheduleAutoDump(self, _cmd, owner); \
 }
@@ -385,42 +391,90 @@ static NSArray<NSString *> *LBFObserverProbeClasses(void) {
     ];
 }
 
-void LBForensicsInstallObservers(void) {
+static void LBFInitObserverGlobals(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         g_origIMPs = [NSMutableDictionary dictionary];
         g_installedKeys = [NSMutableSet set];
         g_lifecycleSnapshots = [NSMutableDictionary dictionary];
         g_observerEvents = [NSMutableArray array];
-
-        for (NSString *cn in LBFObserverProbeClasses()) {
-            Class probe = NSClassFromString(cn);
-            if (!probe) continue;
-            for (NSString *selName in LBFObserverSelectors()) {
-                SEL sel = NSSelectorFromString(selName);
-                Class owner = LBForensicsMethodOwnerClass(probe, sel);
-                if (!owner) continue;
-                NSString *ownerName = NSStringFromClass(owner);
-                NSString *key = LBFOrigKey(ownerName, selName);
-                if ([g_installedKeys containsObject:key]) continue;
-
-                Method m = class_getInstanceMethod(owner, sel);
-                if (!m) continue;
-                IMP hook = LBFHookIMPForSelector(selName);
-                if (!hook) continue;
-
-                IMP orig = method_getImplementation(m);
-                g_origIMPs[key] = [NSValue valueWithPointer:orig];
-                method_setImplementation(m, hook);
-                [g_installedKeys addObject:key];
-            }
-        }
     });
+}
+
+static BOOL LBFInstallHookOnMethod(Class owner, NSString *ownerName, NSString *selName) {
+    SEL sel = NSSelectorFromString(selName);
+    Method m = class_getInstanceMethod(owner, sel);
+    if (!m) return NO;
+    IMP hook = LBFHookIMPForSelector(selName);
+    if (!hook) return NO;
+
+    NSString *key = LBFOrigKey(ownerName, selName);
+    IMP current = method_getImplementation(m);
+    if ([g_installedKeys containsObject:key]) {
+        if (current != hook) {
+            g_origIMPs[key] = [NSValue valueWithPointer:current];
+            method_setImplementation(m, hook);
+        }
+        return YES;
+    }
+
+    g_origIMPs[key] = [NSValue valueWithPointer:current];
+    method_setImplementation(m, hook);
+    [g_installedKeys addObject:key];
+    return YES;
+}
+
+static void LBFInstallObserverHooks(void) {
+    LBFInitObserverGlobals();
+    for (NSString *cn in LBFObserverProbeClasses()) {
+        Class probe = NSClassFromString(cn);
+        if (!probe) continue;
+        for (NSString *selName in LBFObserverSelectors()) {
+            SEL sel = NSSelectorFromString(selName);
+            Class owner = LBForensicsMethodOwnerClass(probe, sel);
+            if (!owner) continue;
+            LBFInstallHookOnMethod(owner, NSStringFromClass(owner), selName);
+        }
+    }
+    // 叶子 VC 再挂一层，确保生产 Hook 替换后仍可 re-chain
+    for (NSString *cn in @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1"]) {
+        Class leaf = NSClassFromString(cn);
+        if (!leaf) continue;
+        for (NSString *selName in @[@"viewDidLoad", @"loadCurCp"]) {
+            Class owner = LBForensicsMethodOwnerClass(leaf, NSSelectorFromString(selName));
+            if (!owner) owner = leaf;
+            LBFInstallHookOnMethod(leaf, NSStringFromClass(owner), selName);
+        }
+    }
+}
+
+static void LBFScheduleObserverInstallRetry(void) {
+    static int s_retryCount = 0;
+    LBForensicsInstallObservers();
+    s_retryCount++;
+    if (s_retryCount < 60) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            LBFScheduleObserverInstallRetry();
+        });
+    }
+}
+
+void LBForensicsInstallObservers(void) {
+    if (![NSThread isMainThread]) {
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            LBFInstallObserverHooks();
+        });
+        return;
+    }
+    LBFInstallObserverHooks();
 }
 
 __attribute__((constructor))
 static void LBFInstallObserversAtLoad(void) {
-    LBForensicsInstallObservers();
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LBFScheduleObserverInstallRetry();
+    });
 }
 
 NSArray<NSDictionary *> *LBForensicsCopyObserverEvents(void) {
