@@ -702,10 +702,6 @@ static BOOL sContentInjectBusy = NO;
 static BOOL sShowPage0ThisInject = NO;
 /// 单次 contentInject 内仅调一次 onDivisionTextFinish（重复曾 SIGABRT sig=6）
 static BOOL sOnDivisionFinishDoneThisInject = NO;
-/// 假设 K：kick 链 divisionResponse 后禁显式 onDivisionTextFinish（原版应在 DR 内 finish）
-#ifndef LB_KICK_EXPLICIT_ONFINISH
-#define LB_KICK_EXPLICIT_ONFINISH 0
-#endif
 static UIViewController *sHiddenBookDetail = nil;
 
 static void LBFlushPendingResetContent(NSString *phase);
@@ -6434,17 +6430,6 @@ static int LBSyncKickNeedleFlag(UIView *textReadTV) {
     return 0;
 }
 
-/// 假设 K：divisionResponse 后记录 pageModel/TV/needle（验原版链是否自然上屏）
-static void LBSyncKickLogPostDR(NSString *phase, id container, id readerVC,
-                                UIView *textReadTV) {
-    NSUInteger pm = 0;
-    (void)LBSyncKickHasStrictRenderEvidence(container, readerVC, textReadTV, &pm);
-    int needle = LBSyncKickNeedleFlag(textReadTV);
-    LBAppendOpenReaderTrace([NSString stringWithFormat:
-                             @"division_kick_sync %@ postDR_pm=%lu postDR_tv=%d postDR_needle=%d",
-                             phase ?: @"?", (unsigned long)pm, textReadTV ? 1 : 0, needle]);
-}
-
 static BOOL LBSyncKickInvokeOnDivisionTextFinish(id container, id pageResult, NSInteger cpIndex) {
     if (!container || !pageResult) return NO;
     SEL finish = NSSelectorFromString(@"onDivisionTextFinish:cpIndex:");
@@ -6488,8 +6473,7 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
         return;
     }
     NSString *title = payload[@"cpTitle"] ?: payload[@"title"] ?: @"章节";
-    title = LBSafeCpTitleString(title);
-    if (title.length == 0) title = @"章节";
+    if (![title isKindOfClass:[NSString class]] || title.length == 0) title = @"章节";
     NSInteger cpIndex = 0;
     id cpi = payload[@"cpIndex"] ?: payload[@"index"];
     if ([cpi respondsToSelector:@selector(integerValue)]) cpIndex = [cpi integerValue];
@@ -6530,7 +6514,7 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
         if ([chUrl isKindOfClass:[NSString class]]) userInfo[@"chapterUrl"] = chUrl;
         NSDictionary *config = @{
             @"cpIndex": @(cpIndex),
-            @"cpTitle": LBSafeCpTitleString(title),
+            @"cpTitle": title,
             @"content": body,
         };
         @try {
@@ -6599,21 +6583,11 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
             NSMutableArray *heights = sLastDivisionHeights
                 ? [sLastDivisionHeights mutableCopy]
                 : [NSMutableArray array];
-            if (LBInvokeDivisionResponse(container, drPages, LBSafeCpTitleString(title),
-                                         cpIndex, heights, okPaths)) {
+            if (LBInvokeDivisionResponse(container, drPages, title, cpIndex, heights, okPaths)) {
                 LBAppendOpenReaderTrace(@"division_kick_sync divisionResponse_OK");
-                textReadTV = LBSyncKickFindTextReadTV(readerVC, container);
-                LBSyncKickLogPostDR(@"afterDR", container, readerVC, textReadTV);
-#if LB_KICK_EXPLICIT_ONFINISH
                 if (LBSyncKickInvokeOnDivisionTextFinish(container, divisionTextRaw, cpIndex)) {
                     chainOk = YES;
                 }
-#else
-                LBAppendOpenReaderTrace(@"division_kick_sync explicit_onFinish_disabled");
-                if (LBSyncKickHasStrictRenderEvidence(container, readerVC, textReadTV, NULL)) {
-                    chainOk = YES;
-                }
-#endif
             } else {
                 LBAppendOpenReaderTrace(@"division_kick_sync divisionResponse_MISS");
             }
