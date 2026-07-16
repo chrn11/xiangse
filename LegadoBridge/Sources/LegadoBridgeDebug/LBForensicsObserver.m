@@ -17,11 +17,15 @@ static NSMutableArray<NSDictionary *> *g_observerEvents = nil;
 static NSMutableDictionary<NSString *, NSDictionary *> *g_lifecycleSnapshots = nil;
 static NSMutableDictionary<NSString *, NSValue *> *g_origIMPs = nil;
 static NSMutableSet<NSString *> *g_installedKeys = nil;
+static NSMutableSet<NSString *> *g_leafOverrideKeys = nil;
 static uint64_t g_eventSeq = 0;
 static BOOL g_firstDrawSeen = NO;
 static NSString *g_pendingDumpPhase = nil;
 static pthread_mutex_t g_forensicsLock = PTHREAD_MUTEX_INITIALIZER;
 static dispatch_queue_t g_autoDumpQueue = NULL;
+
+static void LBFInitObserverGlobals(void);
+static BOOL LBFInstallHookOnMethod(Class owner, NSString *ownerName, NSString *selName);
 
 static NSString *LBFOrigKey(NSString *owner, NSString *sel) {
     return [NSString stringWithFormat:@"%@|%@", owner, sel];
@@ -166,6 +170,95 @@ static void LBFMaybeScheduleAutoDump(id selfObj, SEL sel, NSString *ownerClassNa
     if (!LBFIsReadVCClassName(objClass)) return;
     (void)ownerClassName;
     LBFScheduleAutoDump(selfObj, phase);
+}
+
+static void LBFMaybeScheduleAutoDumpAfterDelay(id selfObj, SEL sel, NSString *ownerClassName, double delaySec) {
+    NSString *selName = NSStringFromSelector(sel);
+    NSString *phase = LBFAutoDumpPhaseForSelector(selName);
+    if (!phase || delaySec <= 0) return;
+    NSString *objClass = LBFShapeOfObject(selfObj);
+    if (!LBFIsReadVCClassName(objClass)) return;
+    (void)ownerClassName;
+    __weak id weakSelf = selfObj;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delaySec * NSEC_PER_SEC)),
+                   dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        id strong = weakSelf;
+        if (strong) LBFScheduleAutoDump(strong, phase);
+    });
+}
+
+static void LBFLeafHook_viewDidLoad(id self, SEL _cmd) {
+    NSString *owner = NSStringFromClass(object_getClass(self));
+    LBFMaybeScheduleAutoDumpAfterDelay(self, _cmd, owner, 0.35);
+    LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner);
+    @try {
+        IMP imp = LBFGetOrigIMP(owner, _cmd);
+        if (imp) ((void (*)(id, SEL))imp)(self, _cmd);
+    } @catch (NSException *ex) {
+        LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
+        LBFMaybeScheduleAutoDump(self, _cmd, owner);
+        @throw ex;
+    }
+    LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
+    LBFMaybeScheduleAutoDump(self, _cmd, owner);
+}
+
+static void LBFLeafHook_loadCurCp(id self, SEL _cmd) {
+    NSString *owner = NSStringFromClass(object_getClass(self));
+    LBFMaybeScheduleAutoDumpAfterDelay(self, _cmd, owner, 0.35);
+    LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner);
+    @try {
+        IMP imp = LBFGetOrigIMP(owner, _cmd);
+        if (imp) ((void (*)(id, SEL))imp)(self, _cmd);
+    } @catch (NSException *ex) {
+        LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
+        LBFMaybeScheduleAutoDump(self, _cmd, owner);
+        @throw ex;
+    }
+    LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
+    LBFMaybeScheduleAutoDump(self, _cmd, owner);
+}
+
+static BOOL LBFEnsureLeafOverride(Class leaf, NSString *selName, IMP hook) {
+    if (!leaf || !selName.length || !hook) return NO;
+    LBFInitObserverGlobals();
+    if (!g_leafOverrideKeys) g_leafOverrideKeys = [NSMutableSet set];
+
+    SEL sel = NSSelectorFromString(selName);
+    NSString *leafName = NSStringFromClass(leaf);
+    NSString *leafKey = [NSString stringWithFormat:@"leaf|%@|%@", leafName, selName];
+    Method leafMethod = class_getInstanceMethod(leaf, sel);
+    if (!leafMethod) return NO;
+
+    if ([g_leafOverrideKeys containsObject:leafKey]) {
+        if (method_getImplementation(leafMethod) != hook) {
+            g_origIMPs[LBFOrigKey(leafName, selName)] =
+                [NSValue valueWithPointer:method_getImplementation(leafMethod)];
+            method_setImplementation(leafMethod, hook);
+        }
+        return YES;
+    }
+
+    Method superMethod = class_getInstanceMethod(class_getSuperclass(leaf), sel);
+    if (superMethod && leafMethod == superMethod) {
+        IMP superImp = method_getImplementation(superMethod);
+        g_origIMPs[LBFOrigKey(leafName, selName)] = [NSValue valueWithPointer:superImp];
+        const char *types = method_getTypeEncoding(superMethod) ?: "v@:";
+        if (!class_addMethod(leaf, sel, hook, types)) return NO;
+        [g_leafOverrideKeys addObject:leafKey];
+        return YES;
+    }
+
+    return LBFInstallHookOnMethod(leaf, leafName, selName);
+}
+
+static void LBFInstallLeafOverrides(void) {
+    for (NSString *cn in @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1"]) {
+        Class leaf = NSClassFromString(cn);
+        if (!leaf) continue;
+        LBFEnsureLeafOverride(leaf, @"viewDidLoad", (IMP)LBFLeafHook_viewDidLoad);
+        LBFEnsureLeafOverride(leaf, @"loadCurCp", (IMP)LBFLeafHook_loadCurCp);
+    }
 }
 
 static NSString *LBFPhaseHintForSelector(NSString *selName, NSString *when) {
@@ -436,16 +529,8 @@ static void LBFInstallObserverHooks(void) {
             LBFInstallHookOnMethod(owner, NSStringFromClass(owner), selName);
         }
     }
-    // 叶子 VC 再挂一层，确保生产 Hook 替换后仍可 re-chain
-    for (NSString *cn in @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1"]) {
-        Class leaf = NSClassFromString(cn);
-        if (!leaf) continue;
-        for (NSString *selName in @[@"viewDidLoad", @"loadCurCp"]) {
-            Class owner = LBForensicsMethodOwnerClass(leaf, NSSelectorFromString(selName));
-            if (!owner) owner = leaf;
-            LBFInstallHookOnMethod(leaf, NSStringFromClass(owner), selName);
-        }
-    }
+    // 叶子 VC 用 class_addMethod 独立 override，避免与生产 Hook 抢 IMP
+    LBFInstallLeafOverrides();
 }
 
 static void LBFScheduleObserverInstallRetry(void) {
