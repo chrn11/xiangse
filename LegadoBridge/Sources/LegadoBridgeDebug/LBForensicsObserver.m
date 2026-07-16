@@ -123,7 +123,7 @@ static void LBFHook_##NAME(id self, SEL _cmd, T1 a1) { \
 }
 
 #define LBF_SHAPE_OBJ(x) LBFShapeOfObject((id)(x))
-#define LBF_SHAPE_BOOL(x) ([(x) boolValue] ? @"BOOL:YES" : @"BOOL:NO")
+#define LBF_SHAPE_BOOL(x) ((x) ? @"BOOL:YES" : @"BOOL:NO")
 #define LBF_SHAPE_SIZE(x) ([NSString stringWithFormat:@"CGSize:%@", NSStringFromCGSize(x)])
 
 LBF_DEFINE_HOOK0(v_at)
