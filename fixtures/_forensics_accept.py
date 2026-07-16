@@ -54,7 +54,7 @@ def main() -> int:
             },
             timeout=60,
         )
-        time.sleep(1.5)
+        time.sleep(4)
         dump = c.read_sandbox_text("legado_debug_dump.txt", max_bytes=400000)
         results.append({
             "i": i,
