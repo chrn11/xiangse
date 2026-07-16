@@ -3266,34 +3266,39 @@ static NSString *LBDescribeOnFinishArg(id arg) {
     return NSStringFromClass([arg class]);
 }
 
-/// onDivisionTextFinish 须 divisionText 原生产页列表（@[Attr...]）；再 nest 会 -[__NSArrayM length]
+/// onDivisionTextFinish 须 divisionText 原生产物（禁 flatten 后再 nest / 禁 wrapReadPageModel）
 static id LBPrepareOnFinishArgFromDivisionText(id divisionTextRaw) {
     if (!divisionTextRaw) return nil;
-    NSArray *pages = LBFlattenDivisionPages(divisionTextRaw);
-    if (!pages || pages.count == 0) {
-        if ([divisionTextRaw isKindOfClass:[NSAttributedString class]] ||
-            [divisionTextRaw isKindOfClass:[NSString class]]) {
-            pages = @[divisionTextRaw];
-        } else {
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"onFinish_arg=REJECT root=%@",
-                                     NSStringFromClass([divisionTextRaw class])]);
-            return nil;
-        }
-    }
-    if (pages.count == 1 && [pages.firstObject isKindOfClass:[NSArray class]]) {
-        pages = pages.firstObject;
-        LBAppendOpenReaderTrace(@"onFinish_arg unwrapSingleInnerArray");
+    LBAppendOpenReaderTrace([NSString stringWithFormat:@"onFinish_raw=%@",
+                             LBDescribeOnFinishArg(divisionTextRaw)]);
+    id arg = divisionTextRaw;
+    NSArray *top = nil;
+    if ([arg isKindOfClass:[NSArray class]]) {
+        top = (NSArray *)arg;
+    } else if ([arg isKindOfClass:[NSAttributedString class]] ||
+               [arg isKindOfClass:[NSString class]]) {
+        top = @[arg];
+        arg = top;
+    } else {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"onFinish_arg=REJECT root=%@",
+                                 NSStringFromClass([divisionTextRaw class])]);
+        return nil;
     }
     Class rpmCls = NSClassFromString(@"ReadPageModel");
-    for (id p in pages) {
-        if ([p isKindOfClass:[NSArray class]]) {
-            LBAppendOpenReaderTrace(@"onFinish_arg=REJECT nestedElem");
-            return nil;
-        }
+    for (id p in top) {
         if (rpmCls && [p isKindOfClass:rpmCls]) {
             LBAppendOpenReaderTrace(@"onFinish_arg=REJECT ReadPageModel (use divisionText Attr)");
             return nil;
+        }
+        if ([p isKindOfClass:[NSArray class]]) {
+            for (id inner in (NSArray *)p) {
+                if (rpmCls && [inner isKindOfClass:rpmCls]) {
+                    LBAppendOpenReaderTrace(@"onFinish_arg=REJECT nestedRPM");
+                    return nil;
+                }
+            }
+            continue;
         }
         if (![p isKindOfClass:[NSAttributedString class]] &&
             ![p isKindOfClass:[NSString class]]) {
@@ -3304,19 +3309,8 @@ static id LBPrepareOnFinishArgFromDivisionText(id divisionTextRaw) {
         }
     }
     LBAppendOpenReaderTrace([NSString stringWithFormat:@"onFinish_arg=%@",
-                             LBDescribeOnFinishArg(pages)]);
-    // 单页：原生对首参调 length（NSString/Attr），传 @[Attr] 会 -[__NSArrayM length]
-    if (pages.count == 1) {
-        id only = pages.firstObject;
-        if ([only isKindOfClass:[NSAttributedString class]] ||
-            [only isKindOfClass:[NSString class]]) {
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"onFinish_arg unwrapSingle=%@",
-                                     LBDescribeOnFinishArg(only)]);
-            return only;
-        }
-    }
-    return pages;
+                             LBDescribeOnFinishArg(arg)]);
+    return arg;
 }
 
 static NSArray *LBCollectDivisionHosts(UIViewController *readerVC);

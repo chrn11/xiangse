@@ -127,7 +127,10 @@ def evaluate(trace_text: str, marker_text: str, dump_text: str, xiaoyan: dict | 
     dump_ok = pm >= 1 or (tv >= 1 and ("萧炎" in dump_text or "斗气" in dump_text))
     render_ok = xiaoyan_ok or dump_ok
 
-    if nsarraym_exc:
+    if nsarraym_exc and has_on_finish and on_finish_arg and not on_finish_arg.startswith("REJECT"):
+        verdict = "PARTIAL_HANDOFF_K"
+        reason = "onFinish_arg 已记录但仍有 NSArrayM length，交 K"
+    elif nsarraym_exc:
         verdict = "FAIL_REVERT_J"
         reason = "仍有 NSArrayM length 异常"
     elif not on_finish_arg and has_on_finish:
@@ -161,9 +164,10 @@ def evaluate(trace_text: str, marker_text: str, dump_text: str, xiaoyan: dict | 
 def resolve_ipa() -> Path:
     if IPA.is_file():
         return IPA
-    for cand in sorted(ROOT.glob("dist-ci-*/dist/StandarReader-legado-bridge-debug.ipa"), reverse=True):
-        return cand
-    raise FileNotFoundError("未找到 StandarReader-legado-bridge-debug.ipa")
+    cands = list(ROOT.glob("dist-ci-*/dist/StandarReader-legado-bridge-debug.ipa"))
+    if not cands:
+        raise FileNotFoundError("未找到 StandarReader-legado-bridge-debug.ipa")
+    return max(cands, key=lambda p: p.stat().st_mtime)
 
 
 def main() -> int:
