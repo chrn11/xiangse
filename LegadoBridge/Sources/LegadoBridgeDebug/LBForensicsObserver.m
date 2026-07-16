@@ -201,8 +201,24 @@ static void LBFMaybeScheduleAutoDumpAfterDelay(id selfObj, SEL sel, NSString *ow
     });
 }
 
+static void LBFWriteHookPing(NSString *line) {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString *doc = paths.firstObject ?: NSTemporaryDirectory();
+    NSString *path = [doc stringByAppendingPathComponent:@"forensics_hook_ping.txt"];
+    NSString *body = [NSString stringWithFormat:@"%@ | %@\n", LBForensicsUTCNowString(), line ?: @""];
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (fh) {
+        [fh seekToEndOfFile];
+        [fh writeData:[body dataUsingEncoding:NSUTF8StringEncoding]];
+        [fh closeFile];
+    } else {
+        [body writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    }
+}
+
 static void LBFLeafHook_viewDidLoad(id self, SEL _cmd) {
     NSString *owner = NSStringFromClass(object_getClass(self));
+    LBFWriteHookPing([NSString stringWithFormat:@"leaf viewDidLoad %@", owner]);
     LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner);
     LBFMaybeScheduleAutoDump(self, _cmd, owner);
     @try {
@@ -548,15 +564,11 @@ static void LBFInstallObserverHooks(void) {
 }
 
 static void LBFScheduleObserverInstallRetry(void) {
-    static int s_retryCount = 0;
     LBForensicsInstallObservers();
-    s_retryCount++;
-    if (s_retryCount < 60) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            LBFScheduleObserverInstallRetry();
-        });
-    }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        LBFScheduleObserverInstallRetry();
+    });
 }
 
 void LBForensicsInstallObservers(void) {
