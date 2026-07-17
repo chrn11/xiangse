@@ -5946,14 +5946,11 @@ static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
-        // 假设 R2：真机证据 unwrapWillAppear 后无 ORIG_OK、进程立刻重启（SIGABRT 无 ips）。
-        // ORIG viewWillAppear 对 Legado 书致命；只走 UIViewController super + 已 seed 字段。
+        // 假设 R2：ORIG willAppear 杀进程；连 UIViewController super 也在 skip 日志后立刻重启。
+        // 改为完全旁路 willAppear 链（seed 已在 push/postCurCp 完成），只记日志。
         LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
         LBSeedTextReadAppearFields(self, sPendingNativeFullBook);
-        LBAppendOpenReaderTrace(@"hypothesis_R2 skip_ORIG_willAppear use_UIViewController_super");
-        struct objc_super sup = { self, [UIViewController class] };
-        ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
-        LBAppendOpenReaderTrace(@"hypothesis_R2 willAppear_super_OK");
+        LBAppendOpenReaderTrace(@"hypothesis_R2 skip_willAppear_entirely seed_only");
         return;
     }
     if (LBOrig_TR_viewWillAppear) LBOrig_TR_viewWillAppear(self, _cmd, animated);
@@ -5986,17 +5983,15 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
-        // 假设 R2：与 willAppear 同策略，避开 ORIG didAppear 二次杀进程。
+        // 假设 R2：与 willAppear 同策略，完全旁路 ORIG/super didAppear。
         LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
         LBSeedTextReadAppearFields(self, sPendingNativeFullBook);
-        LBAppendOpenReaderTrace(@"hypothesis_R2 skip_ORIG_didAppear use_UIViewController_super");
-        struct objc_super sup = { self, [UIViewController class] };
-        ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
+        LBAppendOpenReaderTrace(@"hypothesis_R2 skip_didAppear_entirely");
         if (sPendingResetContent.count > 0) {
             LBLoadCurCpBridgeOnContentPosted(sPendingResetContent, self);
         }
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"hypothesis_R2 didAppear_super_OK sm=%@",
+                                 @"hypothesis_R2 didAppear_seed_OK sm=%@",
                                  LBLoadCurCpBridgeStateName()]);
         return;
     }

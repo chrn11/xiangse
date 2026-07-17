@@ -88,15 +88,15 @@ def main() -> int:
     except Exception as e:
         texts = [str(e)]
 
-    r2_skip = "hypothesis_R2 skip_ORIG_willAppear" in blob
-    r2_will_ok = "hypothesis_R2 willAppear_super_OK" in blob
-    r2_did_ok = "hypothesis_R2 didAppear_super_OK" in blob
+    r2_skip = "hypothesis_R2 skip_willAppear_entirely" in blob or "hypothesis_R2 skip_ORIG_willAppear" in blob
+    r2_will_ok = "hypothesis_R2 skip_willAppear_entirely" in blob
+    r2_did_ok = "hypothesis_R2 didAppear_seed_OK" in blob or "hypothesis_R2 skip_didAppear_entirely" in blob
     invoke = "invoke_orig_OK" in blob
     register_count = blob.count("register_orig")
     springboard = any(t in texts for t in ("日历", "钱包", "设置"))
     bookshelf = "书架" in texts
-    # 存活：有 R2 willAppear OK，且不会在 willAppear 后立刻只有 register 而无 super_OK
-    survived = r2_will_ok and invoke and not springboard
+    # 存活：willAppear 旁路日志后仍有 didAppear 或未立刻 register 重启
+    survived = r2_will_ok and invoke and not springboard and (r2_did_ok or register_count <= 1)
     qf = "QueryFinish" in blob or "lpNetWorkDelegateQueryFinish" in blob
     dr = "divisionResponse" in blob or "postDR" in blob
 
@@ -106,8 +106,8 @@ def main() -> int:
         verdict, reason = "FAIL", "未命中 R2 willAppear 旁路"
     elif not invoke:
         verdict, reason = "FAIL", "无 invoke_orig_OK"
-    elif not r2_will_ok:
-        verdict, reason = "FAIL_REVERT_R2", "willAppear_super 未完成（可能仍崩）"
+    elif r2_will_ok and not r2_did_ok and register_count >= 2:
+        verdict, reason = "FAIL_REVERT_R2", "willAppear 旁路后仍重启（未到 didAppear）"
     elif qf or dr:
         verdict, reason = "PASS", "存活且出现 QF/DR"
     elif survived:
