@@ -3244,7 +3244,8 @@ static void LBHypothesisEFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn 
     LBOnResetNoArgFn fireFn = resolved ? (LBOnResetNoArgFn)resolved : origNoArg;
     LBAppendOpenReaderTrace([NSString stringWithFormat:
                              @"hypothesis_I fire orig=%p resolved=%p dl=%@",
-                             origIMP, resolved ?: origIMP, LBLookupIMPDlName(fireFn)]);
+                             origIMP, resolved ?: origIMP,
+                             LBLookupIMPDlName((IMP)fireFn)]);
     @try {
         fireFn(selfObj, sel);
         LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_noArg_after_ORIG");
