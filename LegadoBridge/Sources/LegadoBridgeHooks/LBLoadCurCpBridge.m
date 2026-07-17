@@ -421,8 +421,10 @@ static NSInteger LBReadIntegerKey(id target, NSString *key, NSInteger fallback) 
     return fallback;
 }
 
-/// 假设 Q：loadCurCp callee 还含 arrCatalog/count；缺目录或 curCpIndex 错位会跳过 query
-/// 假设 R：curCpIndex 必须写到 container/pageModel 的标量 ivar；Q 日志曾见 curCpIndex=-1
+/// 假设 Q：loadCurCp callee 还含 arrCatalog/count；缺目录会跳过 query
+/// 假设 R/R2：分页模式 index 在 ReadPageModel._nCpIndex（method-map confirmed）；
+/// TextReadVC3/ReadPageContainer **无** _curCpIndex（gates 的 curCp@r/c=-999 是误报）。
+/// ReadScrollContainer 才有 curCpIndex，滚动模式再写。
 static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payload) {
     if (!reader || ![payload isKindOfClass:[NSDictionary class]]) return;
     NSInteger cpIndex = LBCpIndexFromPayload(payload, reader);
@@ -442,18 +444,29 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
         }
     }
 
-    for (id tgt in @[reader,
-                     container ?: [NSNull null],
-                     curPage ?: [NSNull null],
-                     pageModel ?: [NSNull null]]) {
-        if (tgt == (id)[NSNull null]) continue;
-        LBSetIntegerKey(tgt, @"curCpIndex", cpIndex);
-        LBSetIntegerKey(tgt, @"nCpIndex", cpIndex);
-    }
-    // 假设 S：pageStatus 在 ReadPageModel；未初始化可能导致 loadCurCp 早退
+    // 分页：只写 ReadPageModel 标量
     if (pageModel) {
+        LBSetIntegerKey(pageModel, @"nCpIndex", cpIndex);
+        LBSetIntegerKey(pageModel, @"nPageIndex", 0);
+        NSUInteger cpCount = 1;
+        @try {
+            id cat = [reader valueForKey:@"arrCatalog"];
+            NSUInteger n = LBCountOrZero(cat);
+            if (n > 0) cpCount = n;
+        } @catch (__unused NSException *e) {}
+        LBSetIntegerKey(pageModel, @"nCpCount", (NSInteger)cpCount);
         LBSetIntegerKey(pageModel, @"pageStatus", 0);
-        LBStateLog(@"hypothesis_S set pageStatus=0 on pageModel");
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_R2 seed pageModel nCpIndex=%ld nCpCount=%lu pageStatus=0",
+                    (long)cpIndex, (unsigned long)cpCount]);
+    }
+    // 滚动容器若在栈上，补 curCpIndex
+    for (id tgt in @[container ?: [NSNull null], curPage ?: [NSNull null]]) {
+        if (tgt == (id)[NSNull null]) continue;
+        NSString *cn = NSStringFromClass(object_getClass(tgt));
+        if ([cn containsString:@"Scroll"]) {
+            LBSetIntegerKey(tgt, @"curCpIndex", cpIndex);
+        }
     }
 
     id cat = nil;
@@ -517,12 +530,14 @@ static void LBLogLoadCurCpGates(id reader, id container, NSString *tag) {
     else if (container) pageStatus = LBReadIntegerKey(container, @"pageStatus", -999);
 
     LBStateLog([NSString stringWithFormat:
-                @"hypothesis_R gates(%@) arrCatalog=%lu dicContents=%lu dicContents@c=%lu "
-                @"bookKeyLen=%lu bookDirLen=%lu curCp@r=%ld curCp@c=%ld nCp@pm=%ld pageStatus=%ld",
+                @"hypothesis_R2 gates(%@) arrCatalog=%lu dicContents@r=%lu dicContents@c=%lu "
+                @"bookKeyLen=%lu bookDirLen=%lu nCp@pm=%ld pageStatus=%ld "
+                @"(curCp@r/c N/A paged-no-ivar got %ld/%ld)",
                 tag ?: @"-",
                 (unsigned long)nCat, (unsigned long)nDc, (unsigned long)nDcC,
                 (unsigned long)bookKey.length, (unsigned long)bookDir.length,
-                (long)curR, (long)curC, (long)nCp, (long)pageStatus]);
+                (long)nCp, (long)pageStatus,
+                (long)curR, (long)curC]);
 }
 
 /// 假设 T：loadViewIfNeeded 阶段会 contentReady，但此时 VC 尚未 push，过早 invoke 无窗口/无链并很快回到书架

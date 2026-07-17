@@ -5946,24 +5946,14 @@ static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
+        // 假设 R2：真机证据 unwrapWillAppear 后无 ORIG_OK、进程立刻重启（SIGABRT 无 ips）。
+        // ORIG viewWillAppear 对 Legado 书致命；只走 UIViewController super + 已 seed 字段。
         LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
-        Class cls = object_getClass(self);
-        IMP orig = LBUnwrapHookIMP(cls, @selector(viewWillAppear:), (IMP)LBOrig_TR_viewWillAppear);
-        LBAppendOpenReaderTrace([NSString stringWithFormat:@"unwrapWillAppear=%p", orig]);
-        @try {
-            if (orig && !LBIsKnownTextReadHookIMP(orig, _cmd)) {
-                ((void (*)(id, SEL, BOOL))orig)(self, _cmd, animated);
-                LBAppendOpenReaderTrace(@"nativeFull viewWillAppear ORIG_OK");
-            } else {
-                struct objc_super sup = { self, [UIViewController class] };
-                ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
-            }
-        } @catch (NSException *ex) {
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"nativeFull willAppear EX %@", ex.reason ?: @""]);
-            struct objc_super sup = { self, [UIViewController class] };
-            ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
-        }
+        LBSeedTextReadAppearFields(self, sPendingNativeFullBook);
+        LBAppendOpenReaderTrace(@"hypothesis_R2 skip_ORIG_willAppear use_UIViewController_super");
+        struct objc_super sup = { self, [UIViewController class] };
+        ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
+        LBAppendOpenReaderTrace(@"hypothesis_R2 willAppear_super_OK");
         return;
     }
     if (LBOrig_TR_viewWillAppear) LBOrig_TR_viewWillAppear(self, _cmd, animated);
@@ -5996,33 +5986,18 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
+        // 假设 R2：与 willAppear 同策略，避开 ORIG didAppear 二次杀进程。
         LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
         LBSeedTextReadAppearFields(self, sPendingNativeFullBook);
-        Class cls = object_getClass(self);
-        IMP orig = LBUnwrapHookIMP(cls, @selector(viewDidAppear:), (IMP)LBOrig_TR_viewDidAppear);
-        LBAppendOpenReaderTrace([NSString stringWithFormat:@"unwrapDidAppear=%p", orig]);
-        @try {
-            if (orig && !LBIsKnownTextReadHookIMP(orig, _cmd)) {
-                ((void (*)(id, SEL, BOOL))orig)(self, _cmd, animated);
-                LBAppendOpenReaderTrace(@"nativeFull viewDidAppear ORIG_OK");
-            } else {
-                struct objc_super sup = { self, [UIViewController class] };
-                ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
-            }
-        } @catch (NSException *ex) {
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"nativeFull didAppear EX %@", ex.reason ?: @""]);
-            LBSeedTextReadAppearFields(self, sPendingNativeFullBook);
-            @try {
-                struct objc_super sup = { self, [UIViewController class] };
-                ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
-            } @catch (__unused NSException *e2) {}
-        }
+        LBAppendOpenReaderTrace(@"hypothesis_R2 skip_ORIG_didAppear use_UIViewController_super");
+        struct objc_super sup = { self, [UIViewController class] };
+        ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
         if (sPendingResetContent.count > 0) {
             LBLoadCurCpBridgeOnContentPosted(sPendingResetContent, self);
         }
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"nativeAppear sm=%@", LBLoadCurCpBridgeStateName()]);
+                                 @"hypothesis_R2 didAppear_super_OK sm=%@",
+                                 LBLoadCurCpBridgeStateName()]);
         return;
     }
     if (LBOrig_TR_viewDidAppear) LBOrig_TR_viewDidAppear(self, _cmd, animated);
