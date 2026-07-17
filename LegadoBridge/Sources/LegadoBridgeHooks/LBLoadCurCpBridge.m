@@ -379,10 +379,48 @@ static void LBSetIntegerKey(id target, NSString *key, NSInteger value) {
             return;
         }
     } @catch (__unused NSException *e) {}
+    // 假设 R：标量 q/Q ivar 不能 object_setIvar(NSNumber*)，按 offset 写
+    NSString *ivarName = [@"_" stringByAppendingString:key];
+    Class cls = object_getClass(target);
+    while (cls && cls != [NSObject class]) {
+        Ivar iv = class_getInstanceVariable(cls, ivarName.UTF8String);
+        if (iv) {
+            const char *enc = ivar_getTypeEncoding(iv);
+            if (enc && (enc[0] == 'q' || enc[0] == 'Q' || enc[0] == 'i' || enc[0] == 'I'
+                        || enc[0] == 'l' || enc[0] == 'L')) {
+                ptrdiff_t off = ivar_getOffset(iv);
+                void *base = (__bridge void *)target;
+                if (enc[0] == 'q' || enc[0] == 'l') {
+                    *(NSInteger *)((uint8_t *)base + off) = value;
+                } else if (enc[0] == 'Q' || enc[0] == 'L') {
+                    *(NSUInteger *)((uint8_t *)base + off) = (NSUInteger)value;
+                } else {
+                    *(int *)((uint8_t *)base + off) = (int)value;
+                }
+                return;
+            }
+        }
+        cls = class_getSuperclass(cls);
+    }
     @try { [target setValue:@(value) forKey:key]; } @catch (__unused NSException *e) {}
 }
 
+static NSInteger LBReadIntegerKey(id target, NSString *key, NSInteger fallback) {
+    if (!target || key.length == 0) return fallback;
+    @try {
+        if ([target respondsToSelector:NSSelectorFromString(key)]) {
+            return ((NSInteger (*)(id, SEL))objc_msgSend)(target, NSSelectorFromString(key));
+        }
+    } @catch (__unused NSException *e) {}
+    @try {
+        id v = [target valueForKey:key];
+        if ([v respondsToSelector:@selector(integerValue)]) return [v integerValue];
+    } @catch (__unused NSException *e) {}
+    return fallback;
+}
+
 /// 假设 Q：loadCurCp callee 还含 arrCatalog/count；缺目录或 curCpIndex 错位会跳过 query
+/// 假设 R：curCpIndex 必须写到 container/pageModel 的标量 ivar；Q 日志曾见 curCpIndex=-1
 static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payload) {
     if (!reader || ![payload isKindOfClass:[NSDictionary class]]) return;
     NSInteger cpIndex = LBCpIndexFromPayload(payload, reader);
@@ -393,9 +431,22 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
         chUrl = [@(cpIndex) stringValue];
     }
 
-    for (id tgt in @[reader, container ?: [NSNull null]]) {
+    id curPage = LBContainerCurPageVC(container);
+    id pageModel = nil;
+    if (curPage) {
+        @try { pageModel = [curPage valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
+        if (!pageModel) {
+            @try { pageModel = [curPage valueForKey:@"readPageModel"]; } @catch (__unused NSException *e) {}
+        }
+    }
+
+    for (id tgt in @[reader,
+                     container ?: [NSNull null],
+                     curPage ?: [NSNull null],
+                     pageModel ?: [NSNull null]]) {
         if (tgt == (id)[NSNull null]) continue;
         LBSetIntegerKey(tgt, @"curCpIndex", cpIndex);
+        LBSetIntegerKey(tgt, @"nCpIndex", cpIndex);
     }
 
     id cat = nil;
@@ -422,18 +473,15 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
             LBStateLog(@"hypothesis_Q seed_arrCatalog_failed");
         }
     }
+}
 
-    // 诊断：对齐 baseline 的 count/len 形状，便于判定是否仍缺前置
+static void LBLogLoadCurCpGates(id reader, id container, NSString *tag) {
     NSUInteger nCat = 0, nDc = 0, nDcC = 0;
     NSString *bookKey = @"-";
     NSString *bookDir = @"-";
-    NSInteger curIdx = -1;
-    @try {
-        nCat = LBCountOrZero([reader valueForKey:@"arrCatalog"]);
-    } @catch (__unused NSException *e) {}
-    @try {
-        nDc = LBCountOrZero([reader valueForKey:@"dicContents"]);
-    } @catch (__unused NSException *e) {}
+    NSInteger curR = -999, curC = -999, nCp = -999;
+    @try { nCat = LBCountOrZero([reader valueForKey:@"arrCatalog"]); } @catch (__unused NSException *e) {}
+    @try { nDc = LBCountOrZero([reader valueForKey:@"dicContents"]); } @catch (__unused NSException *e) {}
     if (container) {
         @try { nDcC = LBCountOrZero([container valueForKey:@"dicContents"]); } @catch (__unused NSException *e) {}
     }
@@ -449,16 +497,22 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
         id bd = [reader valueForKey:@"bookDirPath"];
         if ([bd isKindOfClass:[NSString class]]) bookDir = bd;
     } @catch (__unused NSException *e) {}
-    @try {
-        id ci = [reader valueForKey:@"curCpIndex"];
-        if ([ci respondsToSelector:@selector(integerValue)]) curIdx = [ci integerValue];
-    } @catch (__unused NSException *e) {}
+    curR = LBReadIntegerKey(reader, @"curCpIndex", -999);
+    if (container) curC = LBReadIntegerKey(container, @"curCpIndex", -999);
+    id curPage = LBContainerCurPageVC(container);
+    id pageModel = nil;
+    if (curPage) {
+        @try { pageModel = [curPage valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
+    }
+    if (pageModel) nCp = LBReadIntegerKey(pageModel, @"nCpIndex", -999);
 
     LBStateLog([NSString stringWithFormat:
-                @"hypothesis_Q gates arrCatalog=%lu dicContents=%lu dicContents@c=%lu "
-                @"bookKeyLen=%lu bookDirLen=%lu curCpIndex=%ld",
+                @"hypothesis_R gates(%@) arrCatalog=%lu dicContents=%lu dicContents@c=%lu "
+                @"bookKeyLen=%lu bookDirLen=%lu curCp@r=%ld curCp@c=%ld nCp@pm=%ld",
+                tag ?: @"-",
                 (unsigned long)nCat, (unsigned long)nDc, (unsigned long)nDcC,
-                (unsigned long)bookKey.length, (unsigned long)bookDir.length, (long)curIdx]);
+                (unsigned long)bookKey.length, (unsigned long)bookDir.length,
+                (long)curR, (long)curC, (long)nCp]);
 }
 
 static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage);
@@ -516,6 +570,11 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
             LBStateLog([NSString stringWithFormat:@"hypothesis_P reseed %@",
                         [paths componentsJoinedByString:@","]]);
         }
+        // 假设 R：reseed 后再写一次 index，并打 post_seed gates
+        LBEnsureLoadCurCpPrereqs(reader, container, sPendingPayload);
+        LBLogLoadCurCpGates(reader, container, @"post_seed");
+    } else {
+        LBLogLoadCurCpGates(reader, container, @"no_payload");
     }
 
     sReentryGuard = YES;
