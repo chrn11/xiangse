@@ -443,12 +443,94 @@ static void LBFWriteHookPing(NSString *line) {
     }
 }
 
+/// 假设 U：只读生命周期 trace，对照 invoke 时序定位谁 pop 阅读页
+static void LBFWriteLifecyclePopTrace(NSString *msg) {
+    if (!msg.length) return;
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString *doc = paths.firstObject ?: NSTemporaryDirectory();
+    NSString *path = [doc stringByAppendingPathComponent:@"legado_lifecycle_pop_trace.txt"];
+    NSString *body = [NSString stringWithFormat:@"%@ | %@\n", LBForensicsUTCNowString(), msg];
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (fh) {
+        [fh seekToEndOfFile];
+        [fh writeData:[body dataUsingEncoding:NSUTF8StringEncoding]];
+        [fh closeFile];
+    } else {
+        [body writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    }
+}
+
+static NSString *LBFShortBacktrace(NSUInteger maxFrames) {
+    NSArray<NSString *> *syms = [NSThread callStackSymbols];
+    if (maxFrames == 0 || syms.count <= 2) return @"";
+    NSUInteger end = MIN(syms.count, 2 + maxFrames);
+    return [[syms subarrayWithRange:NSMakeRange(2, end - 2)] componentsJoinedByString:@" | "];
+}
+
+static NSString *LBFNavStackClassList(UINavigationController *nav) {
+    if (!nav) return @"nav=nil";
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    for (UIViewController *vc in nav.viewControllers) {
+        [names addObject:NSStringFromClass(object_getClass(vc)) ?: @"?"];
+    }
+    NSString *top = NSStringFromClass(object_getClass(nav.topViewController)) ?: @"?";
+    return [NSString stringWithFormat:@"count=%lu stack=%@ top=%@",
+            (unsigned long)nav.viewControllers.count,
+            [names componentsJoinedByString:@"->"],
+            top];
+}
+
+static BOOL LBFStackContainsReadVC(UINavigationController *nav) {
+    if (!nav) return NO;
+    for (UIViewController *vc in nav.viewControllers) {
+        if (LBFIsReadVCClassName(NSStringFromClass(object_getClass(vc)))) return YES;
+    }
+    return LBFIsReadVCClassName(NSStringFromClass(object_getClass(nav.topViewController)));
+}
+
+static void LBFMaybeLogLifecycleU(NSString *when, id selfObj, SEL sel, NSArray<NSString *> *argShapes) {
+    NSString *selName = NSStringFromSelector(sel);
+    NSString *cls = LBFShapeOfObject(selfObj);
+    BOOL isReadVC = LBFIsReadVCClassName(cls);
+    BOOL isNavPop = [selfObj isKindOfClass:[UINavigationController class]] &&
+        ([selName hasPrefix:@"pop"] || [selName isEqualToString:@"setViewControllers:animated:"]);
+    if (!isReadVC && !isNavPop) return;
+
+    UINavigationController *nav = nil;
+    if ([selfObj isKindOfClass:[UIViewController class]]) {
+        nav = [(UIViewController *)selfObj navigationController];
+    } else if ([selfObj isKindOfClass:[UINavigationController class]]) {
+        nav = (UINavigationController *)selfObj;
+    }
+    NSString *navInfo = LBFNavStackClassList(nav);
+    NSString *args = argShapes.count ? [argShapes componentsJoinedByString:@","] : @"";
+    NSMutableString *line = [NSMutableString stringWithFormat:
+                             @"hypothesis_U %@ %@ cls=%@ addr=%@ args=[%@] %@",
+                             when, selName, cls, LBForensicsPointer(selfObj), args, navInfo];
+    if ([when isEqualToString:@"before"]) {
+        [line appendFormat:@" bt=%@", LBFShortBacktrace(5)];
+    }
+    LBFWriteLifecyclePopTrace(line);
+}
+
 static NSString *LBFPhaseHintForSelector(NSString *selName, NSString *when) {
     if ([selName isEqualToString:@"viewDidLoad"]) {
         return [when isEqualToString:@"before"] ? @"before_viewDidLoad" : @"after_viewDidLoad";
     }
     if ([selName isEqualToString:@"viewWillAppear:"]) {
         return [when isEqualToString:@"before"] ? @"before_viewWillAppear" : @"after_viewWillAppear";
+    }
+    if ([selName isEqualToString:@"viewWillDisappear:"]) {
+        return [when isEqualToString:@"before"] ? @"before_viewWillDisappear" : @"after_viewWillDisappear";
+    }
+    if ([selName isEqualToString:@"viewDidDisappear:"]) {
+        return [when isEqualToString:@"before"] ? @"before_viewDidDisappear" : @"after_viewDidDisappear";
+    }
+    if ([selName isEqualToString:@"dealloc"]) {
+        return [when isEqualToString:@"before"] ? @"before_dealloc" : @"after_dealloc";
+    }
+    if ([selName hasPrefix:@"pop"] || [selName isEqualToString:@"setViewControllers:animated:"]) {
+        return [NSString stringWithFormat:@"%@_%@", when, selName];
     }
     if ([selName isEqualToString:@"loadCurCp"]) {
         return [when isEqualToString:@"before"] ? @"before_loadCurCp" : @"after_loadCurCp";
@@ -514,26 +596,32 @@ static IMP LBFGetOrigIMP(NSString *owner, SEL sel) {
 #define LBF_DEFINE_HOOK0(NAME) \
 static void LBFHook_##NAME(id self, SEL _cmd) { \
     NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd)); \
+    LBFMaybeLogLifecycleU(@"before", self, _cmd, @[]); \
     LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner); \
     @try { \
         IMP imp = LBFGetOrigIMP(owner, _cmd); \
         if (imp) ((void (*)(id, SEL))imp)(self, _cmd); \
     } @catch (NSException *ex) { \
         LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner); \
+        LBFMaybeLogLifecycleU(@"after", self, _cmd, @[]); \
         LBFMaybeScheduleAutoDump(self, _cmd, owner); \
         @throw ex; \
     } \
     LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner); \
+    LBFMaybeLogLifecycleU(@"after", self, _cmd, @[]); \
     LBFMaybeScheduleAutoDump(self, _cmd, owner); \
 }
 
 #define LBF_DEFINE_HOOK1(NAME, T1, A1) \
 static void LBFHook_##NAME(id self, SEL _cmd, T1 a1) { \
     NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd)); \
-    LBFRecordEvent(@"before", self, _cmd, @[A1(a1)], @"void", owner); \
+    NSArray *argShapes = @[A1(a1)]; \
+    LBFMaybeLogLifecycleU(@"before", self, _cmd, argShapes); \
+    LBFRecordEvent(@"before", self, _cmd, argShapes, @"void", owner); \
     IMP imp = LBFGetOrigIMP(owner, _cmd); \
     if (imp) ((void (*)(id, SEL, T1))imp)(self, _cmd, a1); \
-    LBFRecordEvent(@"after", self, _cmd, @[A1(a1)], @"void", owner); \
+    LBFRecordEvent(@"after", self, _cmd, argShapes, @"void", owner); \
+    LBFMaybeLogLifecycleU(@"after", self, _cmd, argShapes); \
 }
 
 #define LBF_SHAPE_OBJ(x) LBFShapeOfObject((id)(x))
@@ -643,6 +731,91 @@ static void LBFHook_drawRect(id self, SEL _cmd, CGRect rect) {
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
 }
 
+/// 假设 U：UINavigationController pop 只读 trace（含返回值与栈变化）
+static id LBFHook_popViewControllerAnimated(id self, SEL _cmd, BOOL animated) {
+    NSString *owner = NSStringFromClass(object_getClass(self));
+    NSArray *args = @[LBF_SHAPE_BOOL(animated)];
+    LBFMaybeLogLifecycleU(@"before", self, _cmd, args);
+    LBFRecordEvent(@"before", self, _cmd, args, @"UIViewController*", owner);
+    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    id popped = nil;
+    if (imp) popped = ((id (*)(id, SEL, BOOL))imp)(self, _cmd, animated);
+    if ([self isKindOfClass:[UINavigationController class]] &&
+        LBFStackContainsReadVC((UINavigationController *)self)) {
+        LBFWriteLifecyclePopTrace([NSString stringWithFormat:
+                                   @"hypothesis_U after popViewControllerAnimated: popped=%@ %@",
+                                   LBF_SHAPE_OBJ(popped),
+                                   LBFNavStackClassList((UINavigationController *)self)]);
+    }
+    LBFRecordEvent(@"after", self, _cmd, args, LBF_SHAPE_OBJ(popped), owner);
+    return popped;
+}
+
+static NSArray<UIViewController *> *LBFHook_popToViewController(id self, SEL _cmd, UIViewController *vc, BOOL animated) {
+    NSString *owner = NSStringFromClass(object_getClass(self));
+    NSArray *args = @[LBF_SHAPE_OBJ(vc), LBF_SHAPE_BOOL(animated)];
+    LBFMaybeLogLifecycleU(@"before", self, _cmd, args);
+    LBFRecordEvent(@"before", self, _cmd, args, @"NSArray*", owner);
+    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    NSArray *popped = nil;
+    if (imp) popped = ((NSArray * (*)(id, SEL, UIViewController *, BOOL))imp)(self, _cmd, vc, animated);
+    if ([self isKindOfClass:[UINavigationController class]]) {
+        LBFWriteLifecyclePopTrace([NSString stringWithFormat:
+                                   @"hypothesis_U after popToViewController:animated: target=%@ popped=%lu %@",
+                                   LBF_SHAPE_OBJ(vc),
+                                   (unsigned long)popped.count,
+                                   LBFNavStackClassList((UINavigationController *)self)]);
+    }
+    LBFRecordEvent(@"after", self, _cmd, args,
+                   [NSString stringWithFormat:@"NSArray:%lu", (unsigned long)popped.count], owner);
+    return popped;
+}
+
+static NSArray<UIViewController *> *LBFHook_popToRootViewControllerAnimated(id self, SEL _cmd, BOOL animated) {
+    NSString *owner = NSStringFromClass(object_getClass(self));
+    NSArray *args = @[LBF_SHAPE_BOOL(animated)];
+    LBFMaybeLogLifecycleU(@"before", self, _cmd, args);
+    LBFRecordEvent(@"before", self, _cmd, args, @"NSArray*", owner);
+    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    NSArray *popped = nil;
+    if (imp) popped = ((NSArray * (*)(id, SEL, BOOL))imp)(self, _cmd, animated);
+    if ([self isKindOfClass:[UINavigationController class]]) {
+        LBFWriteLifecyclePopTrace([NSString stringWithFormat:
+                                   @"hypothesis_U after popToRootViewControllerAnimated: popped=%lu %@",
+                                   (unsigned long)popped.count,
+                                   LBFNavStackClassList((UINavigationController *)self)]);
+    }
+    LBFRecordEvent(@"after", self, _cmd, args,
+                   [NSString stringWithFormat:@"NSArray:%lu", (unsigned long)popped.count], owner);
+    return popped;
+}
+
+static void LBFHook_setViewControllersAnimated(id self, SEL _cmd, NSArray *vcs, BOOL animated) {
+    NSString *owner = NSStringFromClass(object_getClass(self));
+    NSMutableArray *shapes = [NSMutableArray array];
+    [shapes addObject:[NSString stringWithFormat:@"NSArray:%lu", (unsigned long)vcs.count]];
+    [shapes addObject:LBF_SHAPE_BOOL(animated)];
+    LBFMaybeLogLifecycleU(@"before", self, _cmd, shapes);
+    LBFRecordEvent(@"before", self, _cmd, shapes, @"void", owner);
+    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    if (imp) ((void (*)(id, SEL, NSArray *, BOOL))imp)(self, _cmd, vcs, animated);
+    if ([self isKindOfClass:[UINavigationController class]]) {
+        LBFWriteLifecyclePopTrace([NSString stringWithFormat:
+                                   @"hypothesis_U after setViewControllers:animated: %@",
+                                   LBFNavStackClassList((UINavigationController *)self)]);
+    }
+    LBFRecordEvent(@"after", self, _cmd, shapes, @"void", owner);
+}
+
+/// dealloc 只记 before，调原 IMP 后对象已不存在
+static void LBFHook_dealloc(id self, SEL _cmd) {
+    NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
+    LBFMaybeLogLifecycleU(@"before", self, _cmd, @[]);
+    LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner);
+    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    if (imp) ((void (*)(id, SEL))imp)(self, _cmd);
+}
+
 /// 假设 P：只读探针 — queryCpFile 编码未在 method-map 落盘，暂不挂钩以免签名猜错崩机。
 /// 以 lpNetWorkDelegateQueryFinish（encoding 已 confirmed）作为原生链命中证据。
 
@@ -654,8 +827,25 @@ static IMP LBFHookIMPForSelector(NSString *selName) {
         return (IMP)LBFHook_v_at;
     }
     if ([selName isEqualToString:@"viewWillAppear:"] ||
+        [selName isEqualToString:@"viewWillDisappear:"] ||
+        [selName isEqualToString:@"viewDidDisappear:"] ||
         [selName isEqualToString:@"resetLoadCpTip:"]) {
         return (IMP)LBFHook_v_at_B;
+    }
+    if ([selName isEqualToString:@"dealloc"]) {
+        return (IMP)LBFHook_dealloc;
+    }
+    if ([selName isEqualToString:@"popViewControllerAnimated:"]) {
+        return (IMP)LBFHook_popViewControllerAnimated;
+    }
+    if ([selName isEqualToString:@"popToViewController:animated:"]) {
+        return (IMP)LBFHook_popToViewController;
+    }
+    if ([selName isEqualToString:@"popToRootViewControllerAnimated:"]) {
+        return (IMP)LBFHook_popToRootViewControllerAnimated;
+    }
+    if ([selName isEqualToString:@"setViewControllers:animated:"]) {
+        return (IMP)LBFHook_setViewControllersAnimated;
     }
     if ([selName isEqualToString:@"onResetContentNotify:"] || [selName isEqualToString:@"onResetContent:"] ||
         [selName isEqualToString:@"resetContentNotify:"] || [selName isEqualToString:@"handleResetContent:"] ||
@@ -682,7 +872,8 @@ static IMP LBFHookIMPForSelector(NSString *selName) {
 
 static NSArray<NSString *> *LBFObserverSelectors(void) {
     return @[
-        @"viewDidLoad", @"viewWillAppear:", @"loadCurCp",
+        @"viewDidLoad", @"viewWillAppear:", @"viewWillDisappear:", @"viewDidDisappear:", @"dealloc",
+        @"loadCurCp",
         @"onResetContentNotify", @"onResetContentNotify:", @"onResetContent:",
         @"resetContentNotify:", @"handleResetContent:",
         @"divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:",
@@ -742,6 +933,19 @@ static BOOL LBFInstallHookOnMethod(Class owner, NSString *ownerName, NSString *s
     return YES;
 }
 
+static void LBFInstallNavPopHooks(void) {
+    Class navCls = [UINavigationController class];
+    if (!navCls) return;
+    for (NSString *selName in @[
+             @"popViewControllerAnimated:",
+             @"popToViewController:animated:",
+             @"popToRootViewControllerAnimated:",
+             @"setViewControllers:animated:",
+         ]) {
+        LBFInstallHookOnMethod(navCls, @"UINavigationController", selName);
+    }
+}
+
 static void LBFInstallObserverHooks(void) {
     LBFInitObserverGlobals();
     for (NSString *cn in LBFObserverProbeClasses()) {
@@ -757,6 +961,7 @@ static void LBFInstallObserverHooks(void) {
             LBFInstallHookOnMethod(owner, NSStringFromClass(owner), selName);
         }
     }
+    LBFInstallNavPopHooks();
     // viewDidLoad/loadCurCp 由 LBFEarlyWrap 专责，observer 不再重复挂钩
 }
 
