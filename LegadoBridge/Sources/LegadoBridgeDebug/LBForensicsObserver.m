@@ -775,6 +775,20 @@ IMP LBForensicsResolveOrigIMP(Class cls, SEL sel) {
     return m ? method_getImplementation(m) : NULL;
 }
 
+IMP LBForensicsResolveObserverOrigIMP(Class cls, SEL sel) {
+    if (!cls) return NULL;
+    LBFInitObserverGlobals();
+    Class owner = LBForensicsMethodOwnerClass(cls, sel);
+    if (!owner) owner = cls;
+    NSString *key = LBFOrigKey(NSStringFromClass(owner), NSStringFromSelector(sel));
+    NSValue *v = g_origIMPs[key];
+    return v ? (IMP)v.pointerValue : NULL;
+}
+
+IMP LBForensicsHookIMPForSelectorName(NSString *selName) {
+    return LBFHookIMPForSelector(selName ?: @"");
+}
+
 IMP LBForensicsEarlyWrapIMPForSelectorName(NSString *selName) {
     return LBFEarlyWrapperForSelectorName(selName);
 }

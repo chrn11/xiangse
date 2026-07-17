@@ -24,6 +24,12 @@ FOUNDATION_EXPORT IMP LBForensicsResolveOrigIMP(Class cls, SEL sel);
 /// 返回 forensics EarlyWrap 钩子 IMP（供 Bridge 解包识别）
 FOUNDATION_EXPORT IMP LBForensicsEarlyWrapIMPForSelectorName(NSString *selName);
 
+/// 返回 observer 挂钩时保存的 orig IMP（owner 类链上 method owner）
+FOUNDATION_EXPORT IMP LBForensicsResolveObserverOrigIMP(Class cls, SEL sel);
+
+/// 返回 forensics observer 短桩 IMP（供 Bridge 解包识别）
+FOUNDATION_EXPORT IMP LBForensicsHookIMPForSelectorName(NSString *selName);
+
 /// 安装只读 lifecycle observer（+load 调用一次）
 FOUNDATION_EXPORT void LBForensicsInstallObservers(void);
 

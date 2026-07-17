@@ -714,6 +714,9 @@ static void LBAppendOpenReaderTrace(NSString *msg);
 static void LBSeedTurnPageTypeScrollBranch(void);
 static void LBLogHypothesisB2ContainerProbe(id readerVC, NSString *phase);
 typedef void (*LBOnResetNoArgFn)(id, SEL);
+static IMP sOnResetNoArgNativeIMP = NULL;
+static IMP LBResolveOnResetNoArgNativeIMP(Class cls, SEL sel, IMP hint);
+static NSString *LBLookupIMPDlName(IMP imp);
 static void LBHypothesisEFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn origNoArg,
                                           NSString *fireTag);
 static void LBHypothesisEScheduleOnResetNoArg(UIViewController *vc, SEL sel,
@@ -3235,8 +3238,15 @@ static void LBHypothesisEFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn 
     LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_noArg_before_ORIG");
     LBAppendOpenReaderTrace([NSString stringWithFormat:@"hypothesis_C fire_onReset %@",
                                                          fireTag ?: @"?"]);
+    IMP origIMP = (IMP)origNoArg;
+    IMP resolved = LBResolveOnResetNoArgNativeIMP([selfObj class], sel, origIMP);
+    if (!resolved) resolved = sOnResetNoArgNativeIMP;
+    LBOnResetNoArgFn fireFn = resolved ? (LBOnResetNoArgFn)resolved : origNoArg;
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"hypothesis_I fire orig=%p resolved=%p dl=%@",
+                             origIMP, resolved ?: origIMP, LBLookupIMPDlName(fireFn)]);
     @try {
-        origNoArg(selfObj, sel);
+        fireFn(selfObj, sel);
         LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_noArg_after_ORIG");
         id containerA = LBReadIvarObjectByName(selfObj, "_pageContainerA");
         if (!containerA) containerA = LBReadIvarObjectByName(selfObj, "pageContainerA");
@@ -5955,7 +5965,10 @@ static void LBInstallNativeResetContentHook(void) {
                 } else {
                     // 无参：本地书仍 seed→ORIG；nativeFull 下 ORIG 在 beforeOrigSeed 后杀进程（无 ORIG_OK）
                     static BOOL sOnResetNoArgBusy = NO;
-                    void (*origNoArg)(id, SEL) = (void (*)(id, SEL))method_getImplementation(m);
+                    IMP capturedIMP = method_getImplementation(m);
+                    IMP nativeResolved = LBResolveOnResetNoArgNativeIMP(owner ?: cls, sel, capturedIMP);
+                    if (nativeResolved) sOnResetNoArgNativeIMP = nativeResolved;
+                    void (*origNoArg)(id, SEL) = (void (*)(id, SEL))capturedIMP;
                     hook = imp_implementationWithBlock(^void(id selfObj) {
                         if (sOnResetNoArgBusy) return;
                         sOnResetNoArgBusy = YES;
@@ -6239,6 +6252,111 @@ static IMP LBUnwrapHookIMP(Class cls, SEL sel, IMP start) {
 
 static IMP LBUnwrapViewDidLoadIMP(Class cls) {
     return LBUnwrapHookIMP(cls, @selector(viewDidLoad), (IMP)LBOrig_TR_viewDidLoad);
+}
+
+typedef IMP (*LBForensicsResolveObserverOrigIMPFn)(Class, SEL);
+typedef IMP (*LBForensicsHookIMPForSelectorNameFn)(NSString *);
+
+static BOOL LBIsBlockInvokeIMP(IMP imp) {
+    if (!imp) return NO;
+    Dl_info info;
+    if (!dladdr((void *)imp, &info) || !info.dli_sname) return NO;
+    return strstr(info.dli_sname, "block_invoke") != NULL;
+}
+
+static BOOL LBIsMainAppImageIMP(IMP imp) {
+    if (!imp) return NO;
+    Dl_info info;
+    if (!dladdr((void *)imp, &info) || !info.dli_fname) return NO;
+    const char *path = info.dli_fname;
+    if (strstr(path, "LegadoBridge") != NULL) return NO;
+    if (strstr(path, "StandarReader") != NULL) return YES;
+    return strstr(path, ".app/") != NULL && strstr(path, ".dylib") == NULL;
+}
+
+static NSString *LBLookupIMPDlName(IMP imp) {
+    if (!imp) return @"nil";
+    Dl_info info;
+    if (!dladdr((void *)imp, &info)) return @"?";
+    NSString *fname = info.dli_fname ? [NSString stringWithUTF8String:info.dli_fname] : @"?";
+    return fname.lastPathComponent ?: @"?";
+}
+
+static BOOL LBIsOnResetNoArgHookIMP(IMP imp, SEL sel) {
+    if (!imp) return YES;
+    if (LBIsKnownTextReadHookIMP(imp, sel)) return YES;
+    static LBForensicsHookIMPForSelectorNameFn hookForSel = NULL;
+    static dispatch_once_t onceHook;
+    dispatch_once(&onceHook, ^{
+        hookForSel = (LBForensicsHookIMPForSelectorNameFn)dlsym(RTLD_DEFAULT,
+                                                                 "LBForensicsHookIMPForSelectorName");
+    });
+    if (hookForSel) {
+        NSString *selName = NSStringFromSelector(sel);
+        IMP fh = hookForSel(selName);
+        if (fh && imp == fh) return YES;
+        IMP early = NULL;
+        static LBForensicsEarlyWrapIMPFn earlyWrapFn = NULL;
+        static dispatch_once_t onceEarly;
+        dispatch_once(&onceEarly, ^{
+            earlyWrapFn = (LBForensicsEarlyWrapIMPFn)dlsym(RTLD_DEFAULT,
+                                                            "LBForensicsEarlyWrapIMPForSelectorName");
+        });
+        if (earlyWrapFn) {
+            early = earlyWrapFn(selName);
+            if (early && imp == early) return YES;
+        }
+    }
+    if (LBIsBlockInvokeIMP(imp)) return YES;
+    return NO;
+}
+
+/// 假设 I：沿 owner 类链解包 onResetContentNotify 无参 IMP，跳过 Bridge block / Forensics 短桩
+static IMP LBResolveOnResetNoArgNativeIMP(Class cls, SEL sel, IMP hint) {
+    if (!cls || !sel) return NULL;
+    static LBForensicsResolveObserverOrigIMPFn resolveObs = NULL;
+    static LBForensicsResolveOrigIMPFn resolveEarly = NULL;
+    static dispatch_once_t onceResolve;
+    dispatch_once(&onceResolve, ^{
+        resolveObs = (LBForensicsResolveObserverOrigIMPFn)dlsym(RTLD_DEFAULT,
+                                                                 "LBForensicsResolveObserverOrigIMP");
+        resolveEarly = (LBForensicsResolveOrigIMPFn)dlsym(RTLD_DEFAULT, "LBForensicsResolveOrigIMP");
+    });
+
+    Class owner = LBClassOwningInstanceMethod(cls, sel) ?: cls;
+    IMP imp = hint;
+    if (!imp) {
+        Method m = class_getInstanceMethod(owner, sel);
+        imp = m ? method_getImplementation(m) : NULL;
+    }
+
+    NSMutableSet<NSValue *> *seen = [NSMutableSet set];
+    for (int hop = 0; hop < 16 && imp; hop++) {
+        NSValue *key = [NSValue valueWithPointer:imp];
+        if ([seen containsObject:key]) break;
+        [seen addObject:key];
+
+        if (LBIsMainAppImageIMP(imp) && !LBIsOnResetNoArgHookIMP(imp, sel)) {
+            return imp;
+        }
+
+        IMP next = NULL;
+        if (LBIsOnResetNoArgHookIMP(imp, sel)) {
+            if (resolveObs) next = resolveObs(owner, sel);
+            if ((!next || next == imp) && resolveEarly) next = resolveEarly(owner, sel);
+            if ((!next || next == imp) && owner) {
+                next = LBUnwrapHookIMP(owner, sel, imp);
+            }
+        }
+        if (!next || next == imp) break;
+        imp = next;
+    }
+
+    if (resolveObs) {
+        IMP obs = resolveObs(owner, sel);
+        if (obs && LBIsMainAppImageIMP(obs) && !LBIsOnResetNoArgHookIMP(obs, sel)) return obs;
+    }
+    return NULL;
 }
 
 static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
