@@ -91,9 +91,11 @@ def main() -> int:
     defer = "hypothesis_R2 defer_postCurCp_delay_1s" in blob
     r2_will = "hypothesis_R2 willAppear noop" in blob
     onreset_skip = "hypothesis_R2 onReset noArg skip ORIG" in blob
+    vdl_skip = "hypothesis_R2 viewDidLoad skip ORIG" in blob
     delayed_begin = "hypothesis_R2 delayed_postCurCp_begin" in blob
     delayed_done = "hypothesis_R2 delayed_postCurCp_done" in blob
     invoke = "invoke_orig_OK" in blob
+    heartbeat_1s = "hypothesis_R2 heartbeat_1.00s" in blob
     register_count = blob.count("register_orig")
     springboard = any(t in texts for t in ("日历", "钱包", "设置"))
     bookshelf = "书架" in texts
@@ -111,10 +113,16 @@ def main() -> int:
         verdict, reason = "FAIL", "未命中 defer_1s"
     elif not r2_will:
         verdict, reason = "FAIL", "未命中 willAppear noop"
+    elif not vdl_skip:
+        verdict, reason = "FAIL", "未命中 viewDidLoad skip ORIG"
     elif not onreset_skip and "onReset noArg enter" in blob and "beforeOrigSeed" in blob:
         verdict, reason = "FAIL", "仍走 onReset ORIG/seed（应 skip）"
     elif not delayed_begin:
-        verdict, reason = "FAIL_REVERT_R2", "1s 延迟未到（中途重启）"
+        last_hb = ""
+        for ln in (tr or "").splitlines():
+            if "hypothesis_R2 heartbeat_" in ln:
+                last_hb = ln
+        verdict, reason = "FAIL_REVERT_R2", f"1s 延迟未到（中途重启） last_hb={last_hb[-60:]}"
     elif not invoke:
         verdict, reason = "FAIL_NEED_NEXT", "delayed_postCurCp 无 invoke"
     elif qf or dr:
@@ -131,6 +139,8 @@ def main() -> int:
         "defer": defer,
         "r2_will": r2_will,
         "onreset_skip": onreset_skip,
+        "vdl_skip": vdl_skip,
+        "heartbeat_1s": heartbeat_1s,
         "delayed_begin": delayed_begin,
         "delayed_done": delayed_done,
         "invoke": invoke,

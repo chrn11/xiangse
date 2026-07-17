@@ -1088,24 +1088,24 @@ static NSUInteger LBApplyPendingCatalogToVCs(NSArray *chapters, NSString *bookUr
 
 static void LBScheduleCatalogReapply(NSArray *chapters, NSString *bookUrl) {
     if (LBNativeOpenGateBlocked(NULL)) {
-        LBAppendOpenReaderTrace(@"catalogReapply skip openOnce/chapterDone listOnly");
-        LBApplyPendingCatalogToVCs(chapters, bookUrl, @"reapplySkipOpen");
+        // 假设 R2：开章门闩期间禁止 reapply 改 Catalog/导航栈（0.35s 日志后进程即重启）
+        LBAppendOpenReaderTrace(@"hypothesis_R2 catalogReapply noop (gate blocked)");
+        (void)chapters;
+        (void)bookUrl;
         return;
     }
     NSArray *chCopy = [chapters copy];
     NSString *buCopy = [bookUrl copy];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (LBNativeOpenGateBlocked(NULL)) {
-            LBAppendOpenReaderTrace(@"catalogReapply skip openOnce/chapterDone phase=0.35");
-            LBApplyPendingCatalogToVCs(chCopy, buCopy, @"reapply0.35SkipOpen");
+        if (LBNativeOpenGateBlocked(NULL) || sLegadoReaderMode == 1) {
+            LBAppendOpenReaderTrace(@"hypothesis_R2 catalogReapply0.35 noop");
             return;
         }
         LBApplyPendingCatalogToVCs(chCopy, buCopy, @"reapply0.35");
     });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (LBNativeOpenGateBlocked(NULL)) {
-            LBAppendOpenReaderTrace(@"catalogReapply skip openOnce/chapterDone phase=1.0");
-            LBApplyPendingCatalogToVCs(chCopy, buCopy, @"reapply1.0SkipOpen");
+        if (LBNativeOpenGateBlocked(NULL) || sLegadoReaderMode == 1) {
+            LBAppendOpenReaderTrace(@"hypothesis_R2 catalogReapply1.0 noop");
             return;
         }
         LBApplyPendingCatalogToVCs(chCopy, buCopy, @"reapply1.0");
@@ -5904,32 +5904,20 @@ static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
         LBAppendOpenReaderTrace(@"safeShell added UITextView");
         return;
     }
-    // mode 1 nativeFull：消毒后跑原生 viewDidLoad（原版 TextReadTV/工具栏）
+    // mode 1 nativeFull：假设 R2 旁路原生 viewDidLoad ORIG
+    // 真机：ORIG_OK 后约 0.35s 进程重启（pid 变），afterPush/delayed 从未执行
     if (isLegadoReader && sLegadoReaderMode == 1) {
         LBAppendOpenReaderTrace(@"nativeFull viewDidLoad begin");
         LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
-        Class cls = object_getClass(self);
-        IMP orig = LBUnwrapViewDidLoadIMP(cls);
-        LBAppendOpenReaderTrace([NSString stringWithFormat:@"unwrapImp=%p", orig]);
+        LBAppendOpenReaderTrace(@"hypothesis_R2 viewDidLoad skip ORIG (UIKit super only)");
+        struct objc_super sup = { self, [UIViewController class] };
         @try {
-            if (orig && !LBIsKnownTextReadHookIMP(orig, _cmd)) {
-                ((void (*)(id, SEL))orig)(self, _cmd);
-                LBAppendOpenReaderTrace(@"nativeFull viewDidLoad ORIG_OK");
-                LBWriteOpenReaderMarker(@"nativeOpen viewDidLoad ORIG_OK via=nativeFull");
-            } else {
-                LBAppendOpenReaderTrace(@"nativeFull viewDidLoad ORIG_SKIP unwrap-miss");
-                struct objc_super sup = { self, [UIViewController class] };
-                ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, _cmd);
-            }
+            ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, _cmd);
+            LBAppendOpenReaderTrace(@"hypothesis_R2 viewDidLoad UIKitSuper_OK");
         } @catch (NSException *ex) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"nativeFull viewDidLoad EX %@", ex.reason ?: @""]);
-            LBWriteOpenReaderMarker([NSString stringWithFormat:
-                                     @"nativeOpen viewDidLoad EX %@", ex.reason ?: @""]);
-            struct objc_super sup = { self, [UIViewController class] };
-            @try {
-                ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, _cmd);
-            } @catch (__unused NSException *e2) {}
+                                     @"hypothesis_R2 viewDidLoad UIKitSuper_EX %@",
+                                     ex.reason ?: @""]);
         }
         return;
     }
@@ -6160,6 +6148,18 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
             // 假设 R2：appear 链不调 super/ORIG；1.0s 后再 postCurCp，避开 push 动画窗口
             LBAppendOpenReaderTrace(@"hypothesis_R2 defer_postCurCp_delay_1s");
             id vcHold = vc;
+            // 心跳：定位 0.35s 重启窗口
+            for (NSNumber *sec in @[ @0.15, @0.25, @0.35, @0.45, @0.7, @1.0 ]) {
+                double d = sec.doubleValue;
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(d * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                            @"hypothesis_R2 heartbeat_%.2fs vis=%d mode=%d",
+                                            d,
+                                            LBIsTextReaderVisible() ? 1 : 0,
+                                            sLegadoReaderMode]);
+                });
+            }
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
                 if (sPendingResetContent.count == 0) {
