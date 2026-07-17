@@ -171,6 +171,103 @@ static void LBSetIvarObject(id obj, const char *name, id value) {
     }
 }
 
+/// ReadPageContainerPage 上的 pageModel：优先 ivar，再 msgSend/KVC
+static id LBPageModelFromPage(id page) {
+    if (!page) return nil;
+    id pm = LBReadIvarObject(page, "_pageModel");
+    if (!pm) pm = LBReadIvarObject(page, "pageModel");
+    if (!pm) {
+        SEL sel = NSSelectorFromString(@"pageModel");
+        if ([page respondsToSelector:sel]) {
+            @try {
+                pm = ((id (*)(id, SEL))objc_msgSend)(page, sel);
+            } @catch (__unused NSException *e) {}
+        }
+    }
+    if (!pm) {
+        @try { pm = [page valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
+    }
+    return pm;
+}
+
+static id LBEnsurePageModelOnPage(id page) {
+    if (!page) return nil;
+    id pm = LBPageModelFromPage(page);
+    if (pm) return pm;
+    Class pmCls = NSClassFromString(@"ReadPageModel");
+    if (!pmCls) return nil;
+    @try { pm = [[pmCls alloc] init]; } @catch (__unused NSException *e) { return nil; }
+    if (!pm) return nil;
+    LBSetIvarObject(page, "_pageModel", pm);
+    LBSetIvarObject(page, "pageModel", pm);
+    @try {
+        SEL sel = NSSelectorFromString(@"setPageModel:");
+        if ([page respondsToSelector:sel]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(page, sel, pm);
+        }
+    } @catch (__unused NSException *e) {}
+    // 再读一次确认 ivar/setter 是否真正挂上
+    id verify = LBPageModelFromPage(page);
+    return verify ?: pm;
+}
+
+/// 假设 R2 根因：ReadPageContainer **无** curPageVC ivar，只有 `_dicPageVC`；
+/// 假写 `_curPageVC` 是空操作，page 立刻释放。必须把 page 放进 `_dicPageVC` 才能被 curPageVC/idlePageVC 命中。
+/// 键格式静态未完全确认（onDivisionTextFinish 含 numberWithInteger:+setObject:forKeyedSubscript:），多键播种。
+static id LBEnsureDicPageVCSeeded(id container) {
+    if (!container || !LBObjectIsReadPageContainerLike(container)) return nil;
+
+    NSMutableDictionary *dpv = nil;
+    id curDic = LBReadIvarObject(container, "_dicPageVC");
+    if (!curDic) curDic = LBReadIvarObject(container, "dicPageVC");
+    if ([curDic isKindOfClass:[NSMutableDictionary class]]) {
+        dpv = (NSMutableDictionary *)curDic;
+    } else if ([curDic isKindOfClass:[NSDictionary class]]) {
+        dpv = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)curDic];
+    } else {
+        dpv = [NSMutableDictionary dictionary];
+    }
+
+    id page = nil;
+    // 已有字典里先取（@(0)/@"0"/任意值）
+    page = dpv[@(0)];
+    if (!page) page = dpv[@"0"];
+    if (!page && dpv.count > 0) page = dpv.allValues.firstObject;
+
+    if (!page) {
+        Class pageCls = NSClassFromString(@"TextRPageContainerPage");
+        if (!pageCls) pageCls = NSClassFromString(@"ReadPageContainerPage");
+        if (!pageCls) {
+            LBStateLog(@"hypothesis_R2 bootstrap_dicPageVC miss page class");
+            return nil;
+        }
+        @try { page = [[pageCls alloc] init]; } @catch (__unused NSException *e) {}
+        if (!page) {
+            LBStateLog(@"hypothesis_R2 bootstrap_dicPageVC page_init_nil");
+            return nil;
+        }
+    }
+
+    id pm = LBEnsurePageModelOnPage(page);
+
+    // 多键：页码 0（numberWithInteger 路径）、字符串 "0"、以及常见别名
+    dpv[@(0)] = page;
+    dpv[@"0"] = page;
+    dpv[@(1)] = page; // 残差：若原生用 1-based 页码
+    dpv[@"cur"] = page;
+    dpv[@"idle"] = page;
+
+    LBSetIvarObject(container, "_dicPageVC", dpv);
+    LBSetIvarObject(container, "dicPageVC", dpv);
+
+    LBStateLog([NSString stringWithFormat:
+                @"hypothesis_R2 bootstrap_dicPageVC count=%lu page=%@ pm=%@ keys=0,'0',1,cur,idle",
+                (unsigned long)dpv.count,
+                NSStringFromClass(object_getClass(page)),
+                pm ? NSStringFromClass(object_getClass(pm)) : @"nil"]);
+    return page;
+}
+
 /// 假设 R2：willAppear noop 下 pageContainerA/B 保持 nil；手工 alloc TextRPageContainer 并写入 ivar
 static id LBEnsurePageContainersForReader(id readerVC) {
     if (!readerVC) return nil;
@@ -180,6 +277,7 @@ static id LBEnsurePageContainersForReader(id readerVC) {
         LBStateLog([NSString stringWithFormat:
                     @"hypothesis_R2 container_already %@",
                     NSStringFromClass(object_getClass(existing))]);
+        LBEnsureDicPageVCSeeded(existing);
         return existing;
     }
     Class cls = NSClassFromString(@"TextRPageContainer");
@@ -213,33 +311,8 @@ static id LBEnsurePageContainersForReader(id readerVC) {
     LBStateLog([NSString stringWithFormat:
                 @"hypothesis_R2 bootstrap_container ok %@ pageContainerA",
                 NSStringFromClass(object_getClass(cA))]);
-    // 补一页 curPageVC，供 nCpIndex / pageModel
-    Class pageCls = NSClassFromString(@"TextRPageContainerPage");
-    if (!pageCls) pageCls = NSClassFromString(@"ReadPageContainerPage");
-    if (pageCls) {
-        id page = nil;
-        @try { page = [[pageCls alloc] init]; } @catch (__unused NSException *e) {}
-        if (page) {
-            LBSetIvarObject(cA, "_curPageVC", page);
-            LBSetIvarObject(cA, "curPageVC", page);
-            id pm = LBReadIvarObject(page, "_pageModel");
-            if (!pm) pm = LBReadIvarObject(page, "pageModel");
-            if (!pm) {
-                Class pmCls = NSClassFromString(@"ReadPageModel");
-                if (pmCls) {
-                    @try { pm = [[pmCls alloc] init]; } @catch (__unused NSException *e2) {}
-                    if (pm) {
-                        LBSetIvarObject(page, "_pageModel", pm);
-                        LBSetIvarObject(page, "pageModel", pm);
-                    }
-                }
-            }
-            LBStateLog([NSString stringWithFormat:
-                        @"hypothesis_R2 bootstrap_page %@ pm=%@",
-                        NSStringFromClass(object_getClass(page)),
-                        pm ? NSStringFromClass(object_getClass(pm)) : @"nil"]);
-        }
-    }
+    // 页必须进 _dicPageVC（禁假写不存在的 _curPageVC ivar）
+    LBEnsureDicPageVCSeeded(cA);
     return cA;
 }
 
@@ -281,6 +354,9 @@ static id LBFindReadPageContainerForReader(id readerVC) {
     }
     if (!best) {
         best = LBEnsurePageContainersForReader(readerVC);
+    } else {
+        // 已有 container 也必须保证 _dicPageVC 有页（假 _curPageVC 路径已废弃）
+        LBEnsureDicPageVCSeeded(best);
     }
     if (!best) {
         LBStateLog([NSString stringWithFormat:
@@ -449,15 +525,35 @@ static void LBRequestContent(NSString *chapterUrl, NSString *bookUrl, NSString *
     );
 }
 
-/// 假设 P：loadCurCp 静态 callee 含 curPageVC；过早 invoke 会跳过 queryCpFile
+/// 假设 P/R2：loadCurCp 静态 callee 含 curPageVC；过早 invoke 会跳过 queryCpFile。
+/// 优先 msgSend curPageVC（读 _dicPageVC），再 ivar 直读字典；禁 container/pageContainer* KVC。
 static id LBContainerCurPageVC(id container) {
     if (!container) return nil;
+    SEL sel = NSSelectorFromString(@"curPageVC");
+    if ([container respondsToSelector:sel]) {
+        @try {
+            id v = ((id (*)(id, SEL))objc_msgSend)(container, sel);
+            if (v) return v;
+        } @catch (__unused NSException *e) {}
+    }
+    id dpv = LBReadIvarObject(container, "_dicPageVC");
+    if (!dpv) dpv = LBReadIvarObject(container, "dicPageVC");
+    if ([dpv isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *d = (NSDictionary *)dpv;
+        id v = d[@(0)];
+        if (!v) v = d[@"0"];
+        if (!v) v = d[@(1)];
+        if (!v) v = d[@"cur"];
+        if (!v) v = d[@"idle"];
+        if (!v && d.count > 0) v = d.allValues.firstObject;
+        if (v) return v;
+    }
+    // valueForKey:@"curPageVC" 曾安全返回 nil；字典播种后应与 msgSend 同效
     @try {
         id v = [container valueForKey:@"curPageVC"];
-        return v;
-    } @catch (__unused NSException *e) {
-        return nil;
-    }
+        if (v) return v;
+    } @catch (__unused NSException *e) {}
+    return nil;
 }
 
 static void LBEnsureContainerReaderLink(id container, id reader) {
@@ -552,16 +648,18 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
         chUrl = [@(cpIndex) stringValue];
     }
 
+    if (container) LBEnsureDicPageVCSeeded(container);
     id curPage = LBContainerCurPageVC(container);
     id pageModel = nil;
     if (curPage) {
-        @try { pageModel = [curPage valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
+        pageModel = LBPageModelFromPage(curPage);
+        if (!pageModel) pageModel = LBEnsurePageModelOnPage(curPage);
         if (!pageModel) {
             @try { pageModel = [curPage valueForKey:@"readPageModel"]; } @catch (__unused NSException *e) {}
         }
     }
 
-    // 分页：只写 ReadPageModel 标量
+    // 分页：只写 ReadPageModel 标量（ivar offset / setter，禁假 curPageVC）
     if (pageModel) {
         LBSetIntegerKey(pageModel, @"nCpIndex", cpIndex);
         LBSetIntegerKey(pageModel, @"nPageIndex", 0);
@@ -573,9 +671,18 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
         } @catch (__unused NSException *e) {}
         LBSetIntegerKey(pageModel, @"nCpCount", (NSInteger)cpCount);
         LBSetIntegerKey(pageModel, @"pageStatus", 0);
+        NSInteger nCpVerify = LBReadIntegerKey(pageModel, @"nCpIndex", -999);
+        NSInteger psVerify = LBReadIntegerKey(pageModel, @"pageStatus", -999);
         LBStateLog([NSString stringWithFormat:
-                    @"hypothesis_R2 seed pageModel nCpIndex=%ld nCpCount=%lu pageStatus=0",
-                    (long)cpIndex, (unsigned long)cpCount]);
+                    @"hypothesis_R2 soft_nCp pageModel nCpIndex=%ld nCpCount=%lu pageStatus=%ld "
+                    @"verify_nCp=%ld verify_ps=%ld curPage=%@",
+                    (long)cpIndex, (unsigned long)cpCount, (long)0,
+                    (long)nCpVerify, (long)psVerify,
+                    curPage ? NSStringFromClass(object_getClass(curPage)) : @"nil"]);
+    } else {
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_R2 soft_nCp miss pageModel curPage=%@",
+                    curPage ? NSStringFromClass(object_getClass(curPage)) : @"nil"]);
     }
     // 滚动容器若在栈上，补 curCpIndex
     for (id tgt in @[container ?: [NSNull null], curPage ?: [NSNull null]]) {
@@ -637,22 +744,27 @@ static void LBLogLoadCurCpGates(id reader, id container, NSString *tag) {
     curR = LBReadIntegerKey(reader, @"curCpIndex", -999);
     if (container) curC = LBReadIntegerKey(container, @"curCpIndex", -999);
     id curPage = LBContainerCurPageVC(container);
-    id pageModel = nil;
-    if (curPage) {
-        @try { pageModel = [curPage valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
-    }
+    id pageModel = curPage ? LBPageModelFromPage(curPage) : nil;
     if (pageModel) nCp = LBReadIntegerKey(pageModel, @"nCpIndex", -999);
     NSInteger pageStatus = -999;
     if (pageModel) pageStatus = LBReadIntegerKey(pageModel, @"pageStatus", -999);
     else if (container) pageStatus = LBReadIntegerKey(container, @"pageStatus", -999);
+    NSUInteger dicPageCount = 0;
+    if (container) {
+        id dpv = LBReadIvarObject(container, "_dicPageVC");
+        if (!dpv) dpv = LBReadIvarObject(container, "dicPageVC");
+        dicPageCount = LBCountOrZero(dpv);
+    }
 
     LBStateLog([NSString stringWithFormat:
                 @"hypothesis_R2 gates(%@) arrCatalog=%lu dicContents@r=%lu dicContents@c=%lu "
-                @"bookKeyLen=%lu bookDirLen=%lu nCp@pm=%ld pageStatus=%ld "
+                @"bookKeyLen=%lu bookDirLen=%lu curPageVC=%@ dicPageVC=%lu nCp@pm=%ld pageStatus=%ld "
                 @"(curCp@r/c N/A paged-no-ivar got %ld/%ld)",
                 tag ?: @"-",
                 (unsigned long)nCat, (unsigned long)nDc, (unsigned long)nDcC,
                 (unsigned long)bookKey.length, (unsigned long)bookDir.length,
+                curPage ? NSStringFromClass(object_getClass(curPage)) : @"nil",
+                (unsigned long)dicPageCount,
                 (long)nCp, (long)pageStatus,
                 (long)curR, (long)curC]);
 }
