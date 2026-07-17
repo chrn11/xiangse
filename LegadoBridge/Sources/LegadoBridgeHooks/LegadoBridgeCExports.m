@@ -3117,6 +3117,73 @@ static void LBHypothesisFProbeAfterOrig(id readerVC, NSString *phase) {
     }
 }
 
+/// 假设 G：pageContainer getter 只观察 swizzle（禁 Bridge 主动调 getter）
+typedef id (*LBPageContainerFn)(id, SEL);
+static LBPageContainerFn LBOrig_pageContainer = NULL;
+static int sHypothesisGPageContainerDepth = 0;
+
+static id LBHypothesisG_pageContainer_IMP(id self, SEL _cmd) {
+    if (sHypothesisGPageContainerDepth > 0) {
+        if (LBOrig_pageContainer) return LBOrig_pageContainer(self, _cmd);
+        return nil;
+    }
+    sHypothesisGPageContainerDepth++;
+    @try {
+        id containerA = LBReadIvarObjectByName(self, "_pageContainerA");
+        if (!containerA) containerA = LBReadIvarObjectByName(self, "pageContainerA");
+        NSUInteger cat = LBReadArrayCount(self, @"arrCatalog");
+        NSInteger turnType = [[NSUserDefaults standardUserDefaults] integerForKey:@"tr_turnPageType"];
+        uint8_t bbd8 = LBReadByteAtInstanceOffset(self, (ptrdiff_t)0xbd8);
+        NSString *clsA = containerA ? NSStringFromClass(object_getClass(containerA)) : @"nil";
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"hypothesis_G enter cat=%lu type=%ld bd8=0x%02x a=%@",
+                                 (unsigned long)cat, (long)turnType, bbd8, clsA]);
+        id ret = nil;
+        if (LBOrig_pageContainer) {
+            ret = LBOrig_pageContainer(self, _cmd);
+        }
+        NSString *retCls = ret ? NSStringFromClass(object_getClass(ret)) : @"nil";
+        NSUInteger childCount = 0;
+        if ([self isKindOfClass:[UIViewController class]]) {
+            childCount = ((UIViewController *)self).childViewControllers.count;
+        }
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"hypothesis_G leave ret=%@ children=%lu",
+                                 retCls, (unsigned long)childCount]);
+        return ret;
+    } @catch (NSException *ex) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"hypothesis_G leave EX %@",
+                                 ex.reason ?: @""]);
+        if (LBOrig_pageContainer) return LBOrig_pageContainer(self, _cmd);
+        return nil;
+    } @finally {
+        sHypothesisGPageContainerDepth--;
+    }
+}
+
+static void LBInstallHypothesisGPageContainerHook(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        SEL sel = @selector(pageContainer);
+        for (NSString *cn in @[@"TextReadVC1", @"TextReadVC2", @"TextReadVC3"]) {
+            Class cls = NSClassFromString(cn);
+            if (!cls) continue;
+            Method m = class_getInstanceMethod(cls, sel);
+            if (!m) continue;
+            IMP cur = method_getImplementation(m);
+            if (cur == (IMP)LBHypothesisG_pageContainer_IMP) continue;
+            IMP orig = LBResolveHookOrigIMP(cls, sel);
+            if (!orig || orig == (IMP)LBHypothesisG_pageContainer_IMP) continue;
+            LBOrig_pageContainer = (LBPageContainerFn)orig;
+            method_setImplementation(m, (IMP)LBHypothesisG_pageContainer_IMP);
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"hypothesis_G hooked pageContainer on %@", cn]);
+            break;
+        }
+    });
+}
+
 /// 假设 E：window+catalog+didAppearUIKit 就绪后再调无参 onReset ORIG
 static void LBHypothesisEFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn origNoArg,
                                           NSString *fireTag) {
@@ -6314,6 +6381,7 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
 static void LBInstallSafeTextReadShellHooks(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+        LBInstallHypothesisGPageContainerHook();
         for (NSString *cn in @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1"]) {
             Class cls = NSClassFromString(cn);
             if (!cls) continue;
