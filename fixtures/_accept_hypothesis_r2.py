@@ -88,30 +88,32 @@ def main() -> int:
     except Exception as e:
         texts = [str(e)]
 
-    r2_skip = "hypothesis_R2 skip_willAppear_entirely" in blob or "hypothesis_R2 skip_ORIG_willAppear" in blob
-    r2_will_ok = "hypothesis_R2 skip_willAppear_entirely" in blob
-    r2_did_ok = "hypothesis_R2 didAppear_seed_OK" in blob or "hypothesis_R2 skip_didAppear_entirely" in blob
+    defer = "hypothesis_R2 defer_postCurCp_until_didAppear" in blob
+    r2_skip = "hypothesis_R2 willAppear UIViewController_super_only" in blob or "hypothesis_R2 skip_willAppear_entirely" in blob
+    r2_will_ok = "hypothesis_R2 willAppear_super_OK" in blob
+    r2_did_ok = "hypothesis_R2 didAppear_seed_OK" in blob
     invoke = "invoke_orig_OK" in blob
     register_count = blob.count("register_orig")
     springboard = any(t in texts for t in ("日历", "钱包", "设置"))
     bookshelf = "书架" in texts
-    # 存活：willAppear 旁路日志后仍有 didAppear 或未立刻 register 重启
-    survived = r2_will_ok and invoke and not springboard and (r2_did_ok or register_count <= 1)
+    survived = r2_did_ok and not springboard
     qf = "QueryFinish" in blob or "lpNetWorkDelegateQueryFinish" in blob
     dr = "divisionResponse" in blob or "postDR" in blob
 
     if springboard:
         verdict, reason = "FAIL_REVERT_R2", "仍回 SpringBoard"
-    elif not r2_skip:
-        verdict, reason = "FAIL", "未命中 R2 willAppear 旁路"
+    elif not defer:
+        verdict, reason = "FAIL", "未命中 defer_postCurCp"
+    elif not r2_will_ok:
+        verdict, reason = "FAIL_REVERT_R2", "willAppear_super 未完成"
+    elif not r2_did_ok:
+        verdict, reason = "FAIL_REVERT_R2", "未到 didAppear"
     elif not invoke:
-        verdict, reason = "FAIL", "无 invoke_orig_OK"
-    elif r2_will_ok and not r2_did_ok and register_count >= 2:
-        verdict, reason = "FAIL_REVERT_R2", "willAppear 旁路后仍重启（未到 didAppear）"
+        verdict, reason = "FAIL_NEED_NEXT", "didAppear 存活但无 invoke"
     elif qf or dr:
-        verdict, reason = "PASS", "存活且出现 QF/DR"
-    elif survived:
-        verdict, reason = "PASS_PARTIAL", "存活+invoke；尚无 QF/DR（下一假设）"
+        verdict, reason = "PASS", "存活+invoke+QF/DR"
+    elif survived and invoke:
+        verdict, reason = "PASS_PARTIAL", "存活到 didAppear+invoke；尚无 QF/DR"
     else:
         verdict, reason = "FAIL", "未达标"
 
@@ -119,6 +121,7 @@ def main() -> int:
         "timestamp": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
         "verdict": verdict,
         "reason": reason,
+        "defer": defer,
         "r2_skip": r2_skip,
         "r2_will_ok": r2_will_ok,
         "r2_did_ok": r2_did_ok,
@@ -129,10 +132,10 @@ def main() -> int:
         "springboard": springboard,
         "bookshelf": bookshelf,
         "ui": texts[:15],
-        "nav_tail": [ln for ln in (tr or "").splitlines() if any(k in ln for k in ("R2", "invoke", "ORIG", "register", "gates", "QF", "division", "appear"))][-40:],
+        "nav_tail": [ln for ln in (tr or "").splitlines() if any(k in ln for k in ("R2", "invoke", "ORIG", "register", "gates", "QF", "division", "appear", "defer", "settle"))][-50:],
     }
     OUT.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps({k: report[k] for k in ("verdict", "reason", "r2_will_ok", "r2_did_ok", "invoke", "qf", "dr", "springboard", "ui")}, ensure_ascii=False, indent=2))
+    print(json.dumps({k: report[k] for k in ("verdict", "reason", "defer", "r2_did_ok", "invoke", "qf", "dr", "springboard", "ui")}, ensure_ascii=False, indent=2))
     return 0 if verdict.startswith("PASS") else 1
 
 
