@@ -525,15 +525,23 @@ static void LBLogLoadCurCpGates(id reader, id container, NSString *tag) {
                 (long)curR, (long)curC, (long)nCp, (long)pageStatus]);
 }
 
-/// 假设 T4：仅 view.window 非空才算 attached；nav/parent 在 push 动画中会误判 attached=1
+/// 假设 T：loadViewIfNeeded 阶段会 contentReady，但此时 VC 尚未 push，过早 invoke 无窗口/无链并很快回到书架
 static BOOL LBReaderIsAttachedToUI(id reader) {
     if (![reader isKindOfClass:[UIViewController class]]) return NO;
     UIViewController *vc = (UIViewController *)reader;
     @try {
-        return vc.viewIfLoaded.window != nil;
-    } @catch (__unused NSException *e) {
-        return NO;
-    }
+        if (vc.viewIfLoaded.window != nil) return YES;
+    } @catch (__unused NSException *e) {}
+    @try {
+        if (vc.navigationController != nil) return YES;
+    } @catch (__unused NSException *e) {}
+    @try {
+        if (vc.parentViewController != nil) return YES;
+    } @catch (__unused NSException *e) {}
+    @try {
+        if (vc.presentingViewController != nil) return YES;
+    } @catch (__unused NSException *e) {}
+    return NO;
 }
 
 static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage);
@@ -570,7 +578,7 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     @try { pageStatus = [container valueForKey:@"pageStatus"]; } @catch (__unused NSException *e) {}
     NSString *containerName = NSStringFromClass(object_getClass(container));
     LBStateLog([NSString stringWithFormat:
-                @"hypothesis_T4 pre_invoke target=%@ curPageVC=%@ attached=%d pageStatus=%@ force=%d",
+                @"hypothesis_T pre_invoke target=%@ curPageVC=%@ attached=%d pageStatus=%@ force=%d",
                 containerName,
                 curPage ? NSStringFromClass(object_getClass(curPage)) : @"nil",
                 attached ? 1 : 0,
@@ -578,7 +586,7 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
                 forceWithoutCurPage ? 1 : 0]);
     if ((!curPage || !attached) && !forceWithoutCurPage) {
         LBStateLog([NSString stringWithFormat:
-                    @"hypothesis_T4 defer_invoke curPage=%d attached=%d",
+                    @"hypothesis_T defer_invoke curPage=%d attached=%d",
                     curPage ? 1 : 0, attached ? 1 : 0]);
         LBScheduleInvokeWhenPageReady(reader, 0);
         return;
@@ -630,7 +638,7 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
 
 static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt) {
     if (attempt >= 20) {
-        LBStateLog(@"hypothesis_T4 defer_giveup force_invoke attached/curPage timeout");
+        LBStateLog(@"hypothesis_T defer_giveup force_invoke attached/curPage timeout");
         LBInvokeOriginalLoadCurCp(reader, YES);
         return;
     }
@@ -643,7 +651,7 @@ static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt) {
         id curPage = LBContainerCurPageVC(container);
         BOOL attached = LBReaderIsAttachedToUI(strong);
         LBStateLog([NSString stringWithFormat:
-                    @"hypothesis_T4 defer_tick attempt=%ld curPageVC=%@ attached=%d",
+                    @"hypothesis_T defer_tick attempt=%ld curPageVC=%@ attached=%d",
                     (long)attempt,
                     curPage ? NSStringFromClass(object_getClass(curPage)) : @"nil",
                     attached ? 1 : 0]);
