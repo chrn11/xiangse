@@ -330,7 +330,38 @@ static void LBRequestContent(NSString *chapterUrl, NSString *bookUrl, NSString *
     );
 }
 
-static void LBInvokeOriginalLoadCurCp(id reader) {
+/// 假设 P：loadCurCp 静态 callee 含 curPageVC；过早 invoke 会跳过 queryCpFile
+static id LBContainerCurPageVC(id container) {
+    if (!container) return nil;
+    @try {
+        id v = [container valueForKey:@"curPageVC"];
+        return v;
+    } @catch (__unused NSException *e) {
+        return nil;
+    }
+}
+
+static void LBEnsureContainerReaderLink(id container, id reader) {
+    if (!container || !reader) return;
+    @try {
+        id cur = nil;
+        @try { cur = [container valueForKey:@"reader"]; } @catch (__unused NSException *e) {}
+        if (cur == reader) return;
+        if ([container respondsToSelector:NSSelectorFromString(@"setReader:")]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(
+                container, NSSelectorFromString(@"setReader:"), reader);
+        } else {
+            @try { [container setValue:reader forKey:@"reader"]; } @catch (__unused NSException *e) {}
+        }
+        LBStateLog([NSString stringWithFormat:@"hypothesis_P link_reader %@",
+                    NSStringFromClass(object_getClass(reader))]);
+    } @catch (__unused NSException *e) {}
+}
+
+static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage);
+static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt);
+
+static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     if (!reader) {
         LBStateLog(@"invoke_skip reason=null_reader");
         return;
@@ -354,7 +385,31 @@ static void LBInvokeOriginalLoadCurCp(id reader) {
         LBStateLog(@"invoke_skip reason=no_container");
         return;
     }
+    LBEnsureContainerReaderLink(container, reader);
+    id curPage = LBContainerCurPageVC(container);
+    id pageStatus = nil;
+    @try { pageStatus = [container valueForKey:@"pageStatus"]; } @catch (__unused NSException *e) {}
     NSString *containerName = NSStringFromClass(object_getClass(container));
+    LBStateLog([NSString stringWithFormat:
+                @"hypothesis_P pre_invoke target=%@ curPageVC=%@ pageStatus=%@ force=%d",
+                containerName,
+                curPage ? NSStringFromClass(object_getClass(curPage)) : @"nil",
+                pageStatus ?: @"nil",
+                forceWithoutCurPage ? 1 : 0]);
+    if (!curPage && !forceWithoutCurPage) {
+        LBStateLog(@"hypothesis_P defer_invoke reason=no_curPageVC");
+        LBScheduleInvokeWhenPageReady(reader, 0);
+        return;
+    }
+
+    // 就绪后再 seed 一次，确保 dicContents/bookDir 落在最终 container
+    if (sPendingPayload) {
+        NSMutableArray *paths = [NSMutableArray array];
+        if (LBSeedConfirmedCache(reader, sPendingPayload, paths)) {
+            LBStateLog([NSString stringWithFormat:@"hypothesis_P reseed %@",
+                        [paths componentsJoinedByString:@","]]);
+        }
+    }
 
     sReentryGuard = YES;
     sInvokeCount++;
@@ -366,7 +421,7 @@ static void LBInvokeOriginalLoadCurCp(id reader) {
         sOrigLoadCurCp(container, @selector(loadCurCp));
         LBStateLog([NSString stringWithFormat:@"invoke_orig_OK target=%@", containerName]);
         LBTraceLoadCurCp(@"ORIG loadCurCp OK");
-        // 假设 O：invoke_orig_OK 后禁止人工 kick（QF/DR/onFinish），等原生 queryCpFileByBook→QF→DR→finish
+        // 假设 O：invoke_orig_OK 后禁止人工 kick；等原生 queryCpFileByBook→QF→DR→finish
         if (sPendingPayload && LBBodyFromPayload(sPendingPayload).length > 0) {
             LBTraceLoadCurCp(@"hypothesis_O kick_disabled await_native_chain");
             LBStateLog(@"hypothesis_O kick_disabled await_native_QF_DR_finish");
@@ -380,6 +435,31 @@ static void LBInvokeOriginalLoadCurCp(id reader) {
     if (sState == LBLoadCurCpStateInvokingOriginal) {
         LBSetState(LBLoadCurCpStateIdle, @"invoke_orig_done_pending_render");
     }
+}
+
+static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt) {
+    if (attempt >= 12) {
+        LBStateLog(@"hypothesis_P defer_giveup force_invoke no_curPageVC");
+        LBInvokeOriginalLoadCurCp(reader, YES);
+        return;
+    }
+    __weak id weakReader = reader;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        id strong = weakReader;
+        if (!strong) return;
+        id container = LBFindReadPageContainerForReader(strong);
+        id curPage = LBContainerCurPageVC(container);
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_P defer_tick attempt=%ld curPageVC=%@",
+                    (long)attempt,
+                    curPage ? NSStringFromClass(object_getClass(curPage)) : @"nil"]);
+        if (curPage) {
+            LBInvokeOriginalLoadCurCp(strong, NO);
+        } else {
+            LBScheduleInvokeWhenPageReady(strong, attempt + 1);
+        }
+    });
 }
 
 static void LBTryContentReadyAndInvoke(id reader, NSDictionary *payload) {
@@ -399,12 +479,13 @@ static void LBTryContentReadyAndInvoke(id reader, NSDictionary *payload) {
     }
     LBStateLog([NSString stringWithFormat:@"cache_seeded %@", [paths componentsJoinedByString:@","]]);
 
+    void (^go)(void) = ^{
+        LBInvokeOriginalLoadCurCp(reader, NO);
+    };
     if (![NSThread isMainThread]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            LBInvokeOriginalLoadCurCp(reader);
-        });
+        dispatch_async(dispatch_get_main_queue(), go);
     } else {
-        LBInvokeOriginalLoadCurCp(reader);
+        go();
     }
 }
 

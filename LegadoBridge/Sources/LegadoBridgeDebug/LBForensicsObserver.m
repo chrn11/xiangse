@@ -643,6 +643,9 @@ static void LBFHook_drawRect(id self, SEL _cmd, CGRect rect) {
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
 }
 
+/// 假设 P：只读探针 — queryCpFile 编码未在 method-map 落盘，暂不挂钩以免签名猜错崩机。
+/// 以 lpNetWorkDelegateQueryFinish（encoding 已 confirmed）作为原生链命中证据。
+
 static IMP LBFHookIMPForSelector(NSString *selName) {
     if ([selName isEqualToString:@"viewDidLoad"] || [selName isEqualToString:@"loadCurCp"] ||
         [selName isEqualToString:@"onResetContentNotify"] ||
@@ -661,6 +664,9 @@ static IMP LBFHookIMPForSelector(NSString *selName) {
     if ([selName isEqualToString:@"onDivisionTextFinish:cpIndex:"]) return (IMP)LBFHook_v_at_id_q;
     if ([selName isEqualToString:@"divisionResponse:cpTitle:cpIndex:"]) return (IMP)LBFHook_v_at_id_id_q;
     if ([selName isEqualToString:@"divisionResponse:cpTitle:cpIndex:heights:"]) return (IMP)LBFHook_v_at_id_id_q_id;
+    if ([selName isEqualToString:@"lpNetWorkDelegateQueryFinish:config:userInfo:"]) {
+        return (IMP)LBFHook_v_at_id_id_id;
+    }
     if ([selName isEqualToString:@"divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:"]) {
         return (IMP)LBFHook_v_at_id_id_id_id_id;
     }
@@ -680,6 +686,7 @@ static NSArray<NSString *> *LBFObserverSelectors(void) {
         @"divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:paibanInfo:",
         @"divisionResponse:cpTitle:cpIndex:", @"divisionResponse:cpTitle:cpIndex:heights:",
         @"onDivisionTextFinish:cpIndex:",
+        @"lpNetWorkDelegateQueryFinish:config:userInfo:",
         @"drawRect:", @"resetContentPosByScreenSize:",
         @"showContent:", @"showContent:title:", @"setPageModel:",
         @"reloadContent", @"reloadView", @"refreshView",
@@ -691,8 +698,10 @@ static NSArray<NSString *> *LBFObserverProbeClasses(void) {
         @"TextReadVC3", @"TextReadVC2", @"TextReadVC1",
         @"ReadVCBase2", @"ReadVCBase1",
         @"TextRPageContainer", @"TextRPageContainerPage", @"TextRScrollContainer",
+        @"ReadPageContainer", @"ReadScrollContainer",
         @"TextReadTV", @"TextReadTVBase",
         @"ReadPageModel",
+        @"BookDbManager", @"BookQueryManager", @"CacherManager",
     ];
 }
 
