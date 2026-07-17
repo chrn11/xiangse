@@ -1833,14 +1833,14 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
             } else if (opened && sLegadoReaderMode == 1) {
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.8 * NSEC_PER_SEC)),
                                dispatch_get_main_queue(), ^{
+                    // 假设 R2：禁止 settle DeliverContent（contentInject 会回书架/桌面）
                     if (LBIsTextReaderVisible() && sLegadoReaderMode == 1) {
-                        LBAppendOpenReaderTrace(@"nativeFull settle keep mode=1");
-                        LBDeliverContentToVisibleReaders(@"settle2.8");
+                        LBAppendOpenReaderTrace(
+                            @"hypothesis_R2 settle2.8_skip_deliver vis=1");
                         return;
                     }
-                    // 超时仍 invisible：再投正文，保持 nativeFull，禁止降级 safeShell
-                    LBAppendOpenReaderTrace(@"nativeFull timeout keep mode=1 (no safeShell)");
-                    LBDeliverContentToVisibleReaders(@"timeoutKeep");
+                    LBAppendOpenReaderTrace(
+                        @"hypothesis_R2 timeoutKeep_skip_deliver (no safeShell)");
                 });
             }
             LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen origReturned opened=%d mode=%d vis=%d | %@",
@@ -1858,11 +1858,20 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             if (!LBIsTextReaderVisible()) return;
+            // 假设 R2：nativeFull 禁 go0.6 Deliver（与 afterPush_skip 同因）
+            if (sLegadoReaderMode == 1) {
+                LBAppendOpenReaderTrace(@"hypothesis_R2 go0.6_skip_deliver");
+                return;
+            }
             LBDeliverContentToVisibleReaders(@"go0.6");
         });
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.4 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             if (!LBIsTextReaderVisible()) return;
+            if (sLegadoReaderMode == 1) {
+                LBAppendOpenReaderTrace(@"hypothesis_R2 go1.4_skip_deliver");
+                return;
+            }
             LBDeliverContentToVisibleReaders(@"go1.4");
         });
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.4 * NSEC_PER_SEC)),
@@ -5577,7 +5586,7 @@ static void LBInstallNativeResetContentHook(void) {
                         LBInjectPendingContentIntoReader((UIViewController *)selfObj, @"onResetFallback");
                     });
                 } else {
-                    // 无参：先 seed 缓存再 ORIG（让原生读缓存而非空读 abort），再补 division
+                    // 无参：本地书仍 seed→ORIG；nativeFull 下 ORIG 在 beforeOrigSeed 后杀进程（无 ORIG_OK）
                     static BOOL sOnResetNoArgBusy = NO;
                     void (*origNoArg)(id, SEL) = (void (*)(id, SEL))method_getImplementation(m);
                     hook = imp_implementationWithBlock(^void(id selfObj) {
@@ -5591,6 +5600,13 @@ static void LBInstallNativeResetContentHook(void) {
                                                  @"onReset noArg enter cls=%@ mode=%d pending=%d",
                                                  NSStringFromClass([selfObj class]),
                                                  sLegadoReaderMode, hasPending ? 1 : 0]);
+                        // 假设 R2：nativeFull 旁路无参 ORIG + afterOrigDivision，交给 delayed_postCurCp
+                        if (sLegadoReaderMode == 1) {
+                            LBAppendOpenReaderTrace(
+                                @"hypothesis_R2 onReset noArg skip ORIG (fatal after seed)");
+                            sOnResetNoArgBusy = NO;
+                            return;
+                        }
                         if (hasPending) {
                             @try {
                                 LBInjectNativeChapterContent((UIViewController *)selfObj,
@@ -6146,9 +6162,15 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
             id vcHold = vc;
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
-                if (sPendingResetContent.count == 0) return;
+                if (sPendingResetContent.count == 0) {
+                    LBAppendOpenReaderTrace(@"hypothesis_R2 delayed_postCurCp_skip emptyPending");
+                    return;
+                }
                 id body = sPendingResetContent[@"chapterContent"] ?: sPendingResetContent[@"content"];
-                if (![body isKindOfClass:[NSString class]] || [(NSString *)body length] == 0) return;
+                if (![body isKindOfClass:[NSString class]] || [(NSString *)body length] == 0) {
+                    LBAppendOpenReaderTrace(@"hypothesis_R2 delayed_postCurCp_skip emptyBody");
+                    return;
+                }
                 LBAppendOpenReaderTrace(@"hypothesis_R2 delayed_postCurCp_begin");
                 LBLoadCurCpBridgeOnContentPosted(sPendingResetContent, vcHold);
                 LBAppendOpenReaderTrace([NSString stringWithFormat:

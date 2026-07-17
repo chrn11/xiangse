@@ -90,6 +90,7 @@ def main() -> int:
 
     defer = "hypothesis_R2 defer_postCurCp_delay_1s" in blob
     r2_will = "hypothesis_R2 willAppear noop" in blob
+    onreset_skip = "hypothesis_R2 onReset noArg skip ORIG" in blob
     delayed_begin = "hypothesis_R2 delayed_postCurCp_begin" in blob
     delayed_done = "hypothesis_R2 delayed_postCurCp_done" in blob
     invoke = "invoke_orig_OK" in blob
@@ -110,6 +111,8 @@ def main() -> int:
         verdict, reason = "FAIL", "未命中 defer_1s"
     elif not r2_will:
         verdict, reason = "FAIL", "未命中 willAppear noop"
+    elif not onreset_skip and "onReset noArg enter" in blob and "beforeOrigSeed" in blob:
+        verdict, reason = "FAIL", "仍走 onReset ORIG/seed（应 skip）"
     elif not delayed_begin:
         verdict, reason = "FAIL_REVERT_R2", "1s 延迟未到（中途重启）"
     elif not invoke:
@@ -127,6 +130,7 @@ def main() -> int:
         "reason": reason,
         "defer": defer,
         "r2_will": r2_will,
+        "onreset_skip": onreset_skip,
         "delayed_begin": delayed_begin,
         "delayed_done": delayed_done,
         "invoke": invoke,
@@ -136,7 +140,7 @@ def main() -> int:
         "springboard": springboard,
         "bookshelf": bookshelf,
         "ui": texts[:15],
-        "nav_tail": [ln for ln in (tr or "").splitlines() if any(k in ln for k in ("R2", "invoke", "ORIG", "register", "gates", "QF", "division", "appear", "defer", "settle", "delayed"))][-50:],
+        "nav_tail": [ln for ln in (tr or "").splitlines() if any(k in ln for k in ("R2", "invoke", "ORIG", "register", "gates", "QF", "division", "appear", "defer", "settle", "delayed", "onReset", "go0.6", "go1.4"))][-50:],
     }
     OUT.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({k: report[k] for k in ("verdict", "reason", "defer", "delayed_begin", "delayed_done", "invoke", "qf", "dr", "springboard", "ui")}, ensure_ascii=False, indent=2))
