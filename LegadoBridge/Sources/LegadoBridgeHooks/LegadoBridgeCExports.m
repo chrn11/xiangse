@@ -6227,6 +6227,9 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
         wrap.modalPresentationStyle = UIModalPresentationFullScreen;
         LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen presentingNative %@ on %@",
                                  NSStringFromClass(cls), NSStringFromClass([host class])]);
+        // wrap root 已挂 nav：可同步 postCurCp
+        postCurCpNow();
+        sLastPushNativeFullTs = CFAbsoluteTimeGetCurrent();
         [host presentViewController:wrap animated:YES completion:^{
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), afterPush);
@@ -7496,44 +7499,21 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
     if (!sameBook && LBNativeOpenMarkerMatchesBook(bu)) {
         sameBook = YES;
     }
+    // 假设 T：禁止「未可见就清 openOnce 重开」——动画中/崩溃重启会双 push → SIGABRT 回桌面。
+    // 深链复测由验收脚本显式 rm legado_native_open_once.txt；此处仅在已可见时 skip。
     if (sNativeOpenChapterDone && sameBook) {
-        if (LBIsTextReaderVisible() || LBNavStackHasTextReader() || sNativeOpenGoInFlight) {
-            LBAppendOpenReaderTrace(@"nativeRead skip chapterDone sameBook");
-            return;
-        }
-        // 距上次 push 过近：动画中不可见，禁止清锁重开（曾双 push → SIGABRT 回桌面）
-        if (sLastPushNativeFullTs > 0 &&
-            (CFAbsoluteTimeGetCurrent() - sLastPushNativeFullTs) < 4.0) {
-            LBAppendOpenReaderTrace(@"nativeRead skip chapterDone recentPush");
-            return;
-        }
-        LBClearNativeOpenOnceState(@"hypothesis_T reopen chapterDone notVisible");
+        LBAppendOpenReaderTrace(@"nativeRead skip chapterDone sameBook");
+        return;
     }
     if (sNativeOpenOnceKey.length > 0 && sameBook) {
-        if (LBIsTextReaderVisible() || LBNavStackHasTextReader() || sNativeOpenGoInFlight) {
-            LBAppendOpenReaderTrace(@"nativeRead skip openOnce sameBook");
-            return;
-        }
-        if (sLastPushNativeFullTs > 0 &&
-            (CFAbsoluteTimeGetCurrent() - sLastPushNativeFullTs) < 4.0) {
-            LBAppendOpenReaderTrace(@"nativeRead skip openOnce recentPush");
-            return;
-        }
-        LBClearNativeOpenOnceState(@"hypothesis_T reopen openOnce notVisible");
+        LBAppendOpenReaderTrace(@"nativeRead skip openOnce sameBook");
+        return;
     }
     NSString *diskKey = LBReadNativeOpenOnceMarker();
     if (diskKey.length > 0 && sameBook) {
         if (sNativeOpenOnceKey.length == 0) sNativeOpenOnceKey = [diskKey copy];
-        if (LBIsTextReaderVisible() || LBNavStackHasTextReader() || sNativeOpenGoInFlight) {
-            LBAppendOpenReaderTrace(@"nativeRead skip openOnce disk sameBook");
-            return;
-        }
-        if (sLastPushNativeFullTs > 0 &&
-            (CFAbsoluteTimeGetCurrent() - sLastPushNativeFullTs) < 4.0) {
-            LBAppendOpenReaderTrace(@"nativeRead skip openOnce disk recentPush");
-            return;
-        }
-        LBClearNativeOpenOnceState(@"hypothesis_T reopen disk notVisible");
+        LBAppendOpenReaderTrace(@"nativeRead skip openOnce disk sameBook");
+        return;
     }
     if (sNativeOpenGoInFlight && sameBook) {
         LBAppendOpenReaderTrace(@"nativeRead skip inflight sameBook");
