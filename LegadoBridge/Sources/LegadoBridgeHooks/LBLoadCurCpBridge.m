@@ -705,6 +705,27 @@ static void LBAttachPageViaNativePVC(id container, id seededPage) {
     LBLogPVCViewControllersState(container, @"after_attach");
 }
 
+/// 假设 R2f：idlePageVC/showPage attach 会把 pageStatus 冲成 1；invoke_orig 前必须重种 3
+static void LBReseedPageStatusAfterAttach(id container) {
+    if (!container) return;
+    id nativeCur = LBNativeCurPageVC(container);
+    if (!nativeCur) {
+        LBStateLog(@"hypothesis_R2f reseed_skip reason=no_native_curPageVC");
+        return;
+    }
+    id pageModel = LBPageModelFromPage(nativeCur);
+    if (!pageModel) pageModel = LBEnsurePageModelOnPage(nativeCur);
+    if (!pageModel) {
+        LBStateLog(@"hypothesis_R2f reseed_skip reason=no_pageModel");
+        return;
+    }
+    LBSetIntegerKey(pageModel, @"pageStatus", 3);
+    NSInteger psVerify = LBReadIntegerKey(pageModel, @"pageStatus", -999);
+    LBStateLog([NSString stringWithFormat:
+                @"hypothesis_R2f reseed_pageStatus=3 after_attach verify_ps=%ld",
+                (long)psVerify]);
+}
+
 static void LBEnsureContainerReaderLink(id container, id reader) {
     if (!container || !reader) return;
     @try {
@@ -1035,6 +1056,7 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
                         (long)cpIndex, (unsigned long)body.length]);
         }
         LBEnsureLoadCurCpPrereqs(reader, container, sPendingPayload);
+        LBReseedPageStatusAfterAttach(container);
         LBLogLoadCurCpGates(reader, container, @"pre_invoke_soft_seed");
     } else {
         LBLogLoadCurCpGates(reader, container, @"no_payload");
