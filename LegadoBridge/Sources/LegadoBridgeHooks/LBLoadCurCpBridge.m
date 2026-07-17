@@ -716,8 +716,8 @@ BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,
 
     if (sPendingPayload && LBBodyFromPayload(sPendingPayload).length > 0 &&
         sState != LBLoadCurCpStateFetching) {
-        id readerVC = LBReaderVCFromContext(self) ?: self;
-        LBTryContentReadyAndInvoke(readerVC, sPendingPayload);
+        // 假设 T5：loadViewIfNeeded 内 hook 只拦截原生 loadCurCp，不在 push 前 invoke
+        LBStateLog(@"hypothesis_T5 hook_block_early_invoke await_postCurCp");
         return YES;
     }
 
