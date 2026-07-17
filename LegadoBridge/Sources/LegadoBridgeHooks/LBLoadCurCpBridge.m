@@ -366,10 +366,10 @@ static void LBInvokeOriginalLoadCurCp(id reader) {
         sOrigLoadCurCp(container, @selector(loadCurCp));
         LBStateLog([NSString stringWithFormat:@"invoke_orig_OK target=%@", containerName]);
         LBTraceLoadCurCp(@"ORIG loadCurCp OK");
+        // 假设 O：invoke_orig_OK 后禁止人工 kick（QF/DR/onFinish），等原生 queryCpFileByBook→QF→DR→finish
         if (sPendingPayload && LBBodyFromPayload(sPendingPayload).length > 0) {
-            LBTraceLoadCurCp(@"division_kick_sync_begin");
-            LBStateLog(@"division_kick_sync_begin");
-            LBLoadCurCpBridgeKickDivisionSync(container, reader, sPendingPayload);
+            LBTraceLoadCurCp(@"hypothesis_O kick_disabled await_native_chain");
+            LBStateLog(@"hypothesis_O kick_disabled await_native_QF_DR_finish");
         }
     } @catch (NSException *ex) {
         LBSetState(LBLoadCurCpStateFailed, [NSString stringWithFormat:@"invoke_orig_EX %@", ex.reason ?: @""]);
