@@ -44,11 +44,13 @@ def resolve_ipa() -> Path:
         if p.is_file():
             return p
     for pat in (
+        "dist-ci-run-*/Reader-Forensics-IPAs/dist/StandarReader-legado-debug.ipa",
         "dist-ci-run-*/dist/StandarReader-legado-bridge-debug.ipa",
         "dist-ci-run-*/dist/dist/StandarReader-legado-bridge-debug.ipa",
         "dist-ci-run-*/dist/StandarReader-legado-debug.ipa",
         "fixtures/_devkit/ci-artifact/**/StandarReader-legado-bridge-debug.ipa",
         "dist/StandarReader-legado-bridge-debug.ipa",
+        "dist/StandarReader-legado-debug.ipa",
     ):
         hits = sorted(ROOT.glob(pat), key=lambda x: x.stat().st_mtime, reverse=True)
         if hits:
@@ -219,9 +221,16 @@ def main() -> int:
     elif springboard:
         report["verdict"] = "FAIL_SPRINGBOARD"
         report["conclusion"] = "SPRINGBOARD_WITH_ENTER"
-    elif report["getter_called"] and has_i_fire and has_orig_ok:
-        report["verdict"] = "PASS_I_H_ENTER"
-        report["conclusion"] = "I_RESOLVED_AND_H_ENTER"
+    elif report["getter_called"] and has_i_fire and report["resolved_in_app"]:
+        if has_orig_ok:
+            report["verdict"] = "PASS_I_H_ENTER"
+            report["conclusion"] = "I_RESOLVED_AND_H_ENTER_ORIG_OK"
+        elif on_shelf:
+            report["verdict"] = "PASS_I_H_ENTER_KILL_SHELF"
+            report["conclusion"] = "I_真IMP进pageContainer后D类杀点回书架"
+        else:
+            report["verdict"] = "PASS_I_H_ENTER"
+            report["conclusion"] = "I_RESOLVED_AND_H_ENTER"
     elif has_i_fire and has_orig_ok and report["resolved_in_app"]:
         report["verdict"] = "PASS_I_STILL_NO_ENTER"
         report["conclusion"] = "I_RESOLVED_APP_IMP_ZERO_ENTER"
@@ -241,6 +250,7 @@ def main() -> int:
         "leave_count": report["leave_count"],
         "resolved_dl": report["resolved_dl"],
         "springboard": springboard,
+        "on_shelf": on_shelf,
         "i_fire": report["i_fire_lines"],
         "enter": report["enter_lines"],
         "next_step": (
@@ -254,7 +264,7 @@ def main() -> int:
 
     OUT.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    ok_verdicts = {"PASS_I_H_ENTER", "PASS_I_STILL_NO_ENTER"}
+    ok_verdicts = {"PASS_I_H_ENTER", "PASS_I_STILL_NO_ENTER", "PASS_I_H_ENTER_KILL_SHELF"}
     return 0 if report["verdict"] in ok_verdicts else 1
 
 

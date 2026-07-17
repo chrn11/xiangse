@@ -1,0 +1,71 @@
+{
+  "sha": "5ef26a5",
+  "ipa": "D:\\soft\\xiangse\\dist-ci-run-29593387026\\Reader-Forensics-IPAs\\dist\\StandarReader-legado-debug.ipa",
+  "ci_run": "29593387026",
+  "steps": [
+    "install",
+    "nativeRead"
+  ],
+  "timestamp": "2026-07-17T15:50:47.731998+00:00",
+  "install": "Installed app package from /var/mobile/Library/Caches/ios-mcp-uploads/6F466715-53B7-44BB-A418-B786AA13AADA-StandarReader-legado-debug.ipa",
+  "h_lines": [
+    "2026-07-17 15:51:10 +0000 | hypothesis_H hooked pageContainer on TextReadVC3",
+    "2026-07-17 15:51:10 +0000 | hypothesis_H hooked pageContainer on TextReadVC2",
+    "2026-07-17 15:51:10 +0000 | hypothesis_H hooked pageContainer on TextReadVC1",
+    "2026-07-17 15:51:11 +0000 | hypothesis_H enter cls=TextReadVC3 hookOwner=TextReadVC1 cat=2 type=0 bd8=0x00 a=nil"
+  ],
+  "i_lines": [
+    "2026-07-17 15:51:11 +0000 | hypothesis_I fire orig=0x104bbdaf0 resolved=0x104647578 dl=StandarReader"
+  ],
+  "enter_lines": [
+    "2026-07-17 15:51:11 +0000 | hypothesis_H enter cls=TextReadVC3 hookOwner=TextReadVC1 cat=2 type=0 bd8=0x00 a=nil"
+  ],
+  "leave_lines": [],
+  "hook_lines": [
+    "2026-07-17 15:51:10 +0000 | hypothesis_H hooked pageContainer on TextReadVC3",
+    "2026-07-17 15:51:10 +0000 | hypothesis_H hooked pageContainer on TextReadVC2",
+    "2026-07-17 15:51:10 +0000 | hypothesis_H hooked pageContainer on TextReadVC1"
+  ],
+  "i_fire_lines": [
+    "2026-07-17 15:51:11 +0000 | hypothesis_I fire orig=0x104bbdaf0 resolved=0x104647578 dl=StandarReader"
+  ],
+  "onreset_ok": [],
+  "enter_parsed": [
+    {
+      "cls": "TextReadVC3",
+      "hookOwner": "TextReadVC1",
+      "cat": 2,
+      "type": 0,
+      "bd8": "0x00",
+      "a": "nil"
+    }
+  ],
+  "i_fire_parsed": [
+    {
+      "orig": "0x104bbdaf0",
+      "resolved": "0x104647578",
+      "dl": "StandarReader"
+    }
+  ],
+  "enter_count": 1,
+  "leave_count": 0,
+  "getter_called": true,
+  "resolved_dl": "StandarReader",
+  "resolved_in_app": true,
+  "springboard_or_shelf": true,
+  "verdict": "PASS_I_H_ENTER_KILL_SHELF",
+  "conclusion": "I_真IMP进pageContainer后D类杀点回书架",
+  "handoff": {
+    "commit": "5ef26a5",
+    "enter_count": 1,
+    "leave_count": 0,
+    "resolved_dl": "StandarReader",
+    "resolved_imp": "0x104647578",
+    "orig_imp": "0x104bbdaf0",
+    "springboard": false,
+    "on_shelf": true,
+    "container_a": "nil",
+    "explains_H_gap": "H 零 enter 因 orig 直调 Forensics 短桩→Bridge block 早退；I 解包 StandarReader 后 msgSend 进 pageContainer",
+    "next_step": "D 类杀点复现(cat=2,a=nil,无leave)；下回合在 factory 前 gate 或 defer，勿 revert I 解包逻辑"
+  }
+}
