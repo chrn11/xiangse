@@ -2935,9 +2935,22 @@ static void LBSeedTextReadAppearFields(id readerVC, NSDictionary *book) {
     }
 }
 
+/// 假设 B：预置 tr_turnPageType≠3，强制 pageContainer 工厂走 TextRScrollContainer 支路
+static void LBSeedTurnPageTypeScrollBranch(void) {
+    NSInteger v = 0; // 0=滚动翻页；禁止默认 3 走 UIPageVC 支路
+    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+    NSInteger was = [ud integerForKey:@"tr_turnPageType"];
+    [ud setInteger:v forKey:@"tr_turnPageType"];
+    [ud synchronize];
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"hypothesis_B seed tr_turnPageType=%ld (was=%ld)",
+                             (long)v, (long)was]);
+}
+
 /// nativeFull：进入原生 viewDidLoad 前消毒/灌 dicBook + 关键数组
 static void LBPrepareTextReadNativeFull(id readerVC, NSDictionary *book) {
     if (!readerVC) return;
+    LBSeedTurnPageTypeScrollBranch();
     NSMutableDictionary *dic = nil;
     if ([book isKindOfClass:[NSMutableDictionary class]]) {
         dic = (NSMutableDictionary *)book;
@@ -5466,6 +5479,7 @@ static void LBDeliverContentToVisibleReaders(NSString *phase) {
                         SEL sel = NSSelectorFromString(sn);
                         if (![vc respondsToSelector:sel]) continue;
                         @try {
+                            LBSeedTurnPageTypeScrollBranch();
                             NSNotification *note =
                                 [NSNotification notificationWithName:@"dNotifyName_ReadView_ResetContent"
                                                               object:nil
@@ -5493,6 +5507,7 @@ static void LBDeliverContentToVisibleReaders(NSString *phase) {
                     if (!delivered && !hasBody &&
                         [vc respondsToSelector:NSSelectorFromString(@"onResetContentNotify")]) {
                         @try {
+                            LBSeedTurnPageTypeScrollBranch();
                             ((void (*)(id, SEL))objc_msgSend)(
                                 vc, NSSelectorFromString(@"onResetContentNotify"));
                             LBAppendOpenReaderTrace([NSString stringWithFormat:
@@ -5568,6 +5583,7 @@ static void LBInstallNativeResetContentHook(void) {
                                                           object:note.object
                                                         userInfo:safe];
                         if (sLegadoReaderMode == 1 && LBOrig_onResetContentNotify) {
+                            LBSeedTurnPageTypeScrollBranch();
                             @try {
                                 LBOrig_onResetContentNotify(selfObj, sel, safeNote);
                                 LBAppendOpenReaderTrace([NSString stringWithFormat:
@@ -5600,10 +5616,17 @@ static void LBInstallNativeResetContentHook(void) {
                                                  @"onReset noArg enter cls=%@ mode=%d pending=%d",
                                                  NSStringFromClass([selfObj class]),
                                                  sLegadoReaderMode, hasPending ? 1 : 0]);
-                        // 假设 R2：nativeFull 旁路无参 ORIG + afterOrigDivision，交给 delayed_postCurCp
+                        // 假设 B：预置滚动支路 + 恢复无参 ORIG（由 onReset 内部 0x10000b590 触发 pageContainer）
                         if (sLegadoReaderMode == 1) {
-                            LBAppendOpenReaderTrace(
-                                @"hypothesis_R2 onReset noArg skip ORIG (fatal after seed)");
+                            LBSeedTurnPageTypeScrollBranch();
+                            @try {
+                                if (origNoArg) origNoArg(selfObj, sel);
+                                LBAppendOpenReaderTrace(@"hypothesis_B onReset noArg ORIG_OK");
+                            } @catch (NSException *ex) {
+                                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                         @"hypothesis_B onReset noArg ORIG_EX %@",
+                                                         ex.reason ?: @""]);
+                            }
                             sOnResetNoArgBusy = NO;
                             return;
                         }
