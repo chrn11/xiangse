@@ -3212,6 +3212,173 @@ static void LBInstallHypothesisHPageContainerHook(void) {
     });
 }
 
+/// 假设 J：onReset/pageContainer 工厂同步窗口内 defer addChild/insertSubview，ORIG_OK 后 flush
+static BOOL sHypothesisJDeferActive = NO;
+static NSMutableArray *sHypothesisJPendingAddChild = nil;
+static NSMutableArray *sHypothesisJPendingInsertSubview = nil;
+static void (*LBOrig_addChildViewController)(id, SEL, UIViewController *) = NULL;
+static void (*LBOrig_insertSubview_atIndex)(id, SEL, UIView *, NSInteger) = NULL;
+
+static void LBHypothesisJResetPending(void) {
+    sHypothesisJPendingAddChild = [NSMutableArray array];
+    sHypothesisJPendingInsertSubview = [NSMutableArray array];
+    sHypothesisJDeferActive = NO;
+}
+
+static BOOL LBHypothesisJIsTextReadVCClass(Class cls) {
+    NSString *cn = cls ? NSStringFromClass(cls) : @"";
+    return [cn containsString:@"TextReadVC"];
+}
+
+static BOOL LBHypothesisJViewOwnedByTextReadVC(UIView *view) {
+    if (!view) return NO;
+    UIResponder *r = view;
+    while (r) {
+        if ([r isKindOfClass:[UIViewController class]]) {
+            return LBHypothesisJIsTextReadVCClass(object_getClass(r));
+        }
+        r = r.nextResponder;
+    }
+    return NO;
+}
+
+static BOOL LBHypothesisJSubviewIsReadingContainer(UIView *subview) {
+    if (!subview) return NO;
+    UIResponder *r = subview.nextResponder;
+    while (r) {
+        if ([r isKindOfClass:[UIViewController class]]) {
+            return LBHypothesisFContainerClassName(NSStringFromClass(object_getClass(r)));
+        }
+        r = r.nextResponder;
+    }
+    return NO;
+}
+
+static void LBHypothesisJ_addChildViewController(id self, SEL _cmd, UIViewController *child) {
+    if (sHypothesisJDeferActive && child &&
+        LBHypothesisFContainerClassName(NSStringFromClass(object_getClass(child)))) {
+        if (!sHypothesisJPendingAddChild) LBHypothesisJResetPending();
+        [sHypothesisJPendingAddChild addObject:@{@"parent": self, @"child": child}];
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"hypothesis_J defer_addChild parent=%@ child=%@",
+                                 NSStringFromClass(object_getClass(self)),
+                                 NSStringFromClass(object_getClass(child))]);
+        return;
+    }
+    if (LBOrig_addChildViewController) {
+        LBOrig_addChildViewController(self, _cmd, child);
+    }
+}
+
+static void LBHypothesisJ_insertSubview_atIndex(id self, SEL _cmd, UIView *subview, NSInteger index) {
+    if (sHypothesisJDeferActive && [self isKindOfClass:[UIView class]] &&
+        LBHypothesisJViewOwnedByTextReadVC((UIView *)self) &&
+        LBHypothesisJSubviewIsReadingContainer(subview)) {
+        if (!sHypothesisJPendingInsertSubview) LBHypothesisJResetPending();
+        [sHypothesisJPendingInsertSubview addObject:@{
+            @"parentView": self,
+            @"subview": subview,
+            @"index": @(index),
+        }];
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"hypothesis_J defer_insertSubview idx=%ld parent=%@ sub=%@",
+                                 (long)index,
+                                 NSStringFromClass(object_getClass(self)),
+                                 NSStringFromClass(object_getClass(subview))]);
+        return;
+    }
+    if (LBOrig_insertSubview_atIndex) {
+        LBOrig_insertSubview_atIndex(self, _cmd, subview, index);
+    }
+}
+
+static void LBHypothesisJFlushDeferred(id readerVC) {
+    if (!sHypothesisJPendingAddChild) return;
+    NSUInteger addN = 0;
+    NSUInteger insN = 0;
+    NSMutableArray *remainAdd = [NSMutableArray array];
+    for (NSDictionary *item in sHypothesisJPendingAddChild) {
+        id parent = item[@"parent"];
+        id child = item[@"child"];
+        if (readerVC && parent != readerVC) {
+            [remainAdd addObject:item];
+            continue;
+        }
+        if (LBOrig_addChildViewController && parent && child) {
+            LBOrig_addChildViewController(parent, @selector(addChildViewController:), child);
+            addN++;
+        }
+    }
+    sHypothesisJPendingAddChild = remainAdd;
+
+    NSMutableArray *remainIns = [NSMutableArray array];
+    for (NSDictionary *item in sHypothesisJPendingInsertSubview) {
+        UIView *parentView = item[@"parentView"];
+        UIView *subview = item[@"subview"];
+        NSNumber *idxNum = item[@"index"];
+        if (readerVC && parentView && !LBHypothesisJViewOwnedByTextReadVC(parentView)) {
+            [remainIns addObject:item];
+            continue;
+        }
+        if (LBOrig_insertSubview_atIndex && parentView && subview) {
+            LBOrig_insertSubview_atIndex(parentView, @selector(insertSubview:atIndex:),
+                                        subview, idxNum ? idxNum.integerValue : 0);
+            insN++;
+        }
+    }
+    sHypothesisJPendingInsertSubview = remainIns;
+
+    if (addN > 0 || insN > 0) {
+        id containerA = readerVC ? LBReadIvarObjectByName(readerVC, "_pageContainerA") : nil;
+        if (!containerA && readerVC) {
+            containerA = LBReadIvarObjectByName(readerVC, "pageContainerA");
+        }
+        NSString *clsA = containerA ? NSStringFromClass(object_getClass(containerA)) : @"nil";
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"hypothesis_J deferred_attach_OK add=%lu insert=%lu pageContainerA=%@",
+                                 (unsigned long)addN, (unsigned long)insN, clsA]);
+    }
+}
+
+static void LBInstallHypothesisJHooks(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        if (!sHypothesisJPendingAddChild) LBHypothesisJResetPending();
+        SEL addSel = @selector(addChildViewController:);
+        for (NSString *cn in @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1"]) {
+            Class cls = NSClassFromString(cn);
+            if (!cls) continue;
+            Method m = class_getInstanceMethod(cls, addSel);
+            if (!m) continue;
+            IMP cur = method_getImplementation(m);
+            if (cur == (IMP)LBHypothesisJ_addChildViewController) continue;
+            if (!LBOrig_addChildViewController) {
+                IMP orig = LBResolveHookOrigIMP(cls, addSel);
+                if (!orig || orig == (IMP)LBHypothesisJ_addChildViewController) continue;
+                LBOrig_addChildViewController = (void (*)(id, SEL, UIViewController *))orig;
+            }
+            method_setImplementation(m, (IMP)LBHypothesisJ_addChildViewController);
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"hypothesis_J hooked addChildViewController on %@", cn]);
+        }
+        SEL insSel = @selector(insertSubview:atIndex:);
+        Class viewCls = [UIView class];
+        Method vm = class_getInstanceMethod(viewCls, insSel);
+        if (vm) {
+            IMP cur = method_getImplementation(vm);
+            if (cur != (IMP)LBHypothesisJ_insertSubview_atIndex) {
+                IMP orig = LBResolveHookOrigIMP(viewCls, insSel);
+                if (orig && orig != (IMP)LBHypothesisJ_insertSubview_atIndex) {
+                    LBOrig_insertSubview_atIndex =
+                        (void (*)(id, SEL, UIView *, NSInteger))orig;
+                    method_setImplementation(vm, (IMP)LBHypothesisJ_insertSubview_atIndex);
+                    LBAppendOpenReaderTrace(@"hypothesis_J hooked insertSubview:atIndex: on UIView");
+                }
+            }
+        }
+    });
+}
+
 /// 假设 E：window+catalog+didAppearUIKit 就绪后再调无参 onReset ORIG
 static void LBHypothesisEFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn origNoArg,
                                           NSString *fireTag) {
@@ -3246,7 +3413,9 @@ static void LBHypothesisEFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn 
                              @"hypothesis_I fire orig=%p resolved=%p dl=%@",
                              origIMP, resolved ?: origIMP,
                              LBLookupIMPDlName((IMP)fireFn)]);
+    BOOL origOk = NO;
     @try {
+        sHypothesisJDeferActive = YES;
         fireFn(selfObj, sel);
         LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_noArg_after_ORIG");
         id containerA = LBReadIvarObjectByName(selfObj, "_pageContainerA");
@@ -3256,10 +3425,19 @@ static void LBHypothesisEFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn 
                                  @"hypothesis_E after_ORIG pageContainerA=%@", clsA]);
         LBAppendOpenReaderTrace(@"hypothesis_C onReset noArg ORIG_OK");
         LBHypothesisFProbeAfterOrig(selfObj, @"onReset_noArg_after_ORIG");
+        origOk = YES;
     } @catch (NSException *ex) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"hypothesis_C onReset noArg ORIG_EX %@",
                                  ex.reason ?: @""]);
+    } @finally {
+        sHypothesisJDeferActive = NO;
+        if (origOk) {
+            LBHypothesisJFlushDeferred(selfObj);
+        } else {
+            [sHypothesisJPendingAddChild removeAllObjects];
+            [sHypothesisJPendingInsertSubview removeAllObjects];
+        }
     }
 }
 
@@ -6514,6 +6692,10 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
         } else {
             LBAppendOpenReaderTrace(@"hypothesis_E didAppear skip (already UIKitSuper)");
         }
+        // 假设 J：UIKitSuper 门控后若仍有 pending（onReset 已跑完），补 flush
+        if (sDidAppearUIKit && sHypothesisJPendingAddChild.count + sHypothesisJPendingInsertSubview.count > 0) {
+            LBHypothesisJFlushDeferred(self);
+        }
         return;
     }
     if (LBOrig_TR_viewDidAppear) LBOrig_TR_viewDidAppear(self, _cmd, animated);
@@ -6526,6 +6708,7 @@ static void LBInstallSafeTextReadShellHooks(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         LBInstallHypothesisHPageContainerHook();
+        LBInstallHypothesisJHooks();
         for (NSString *cn in @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1"]) {
             Class cls = NSClassFromString(cn);
             if (!cls) continue;
@@ -6593,6 +6776,7 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
     // 假设 B2：push 入口最早 seed，先于 hooks/alloc/loadViewIfNeeded
     sHypothesisB2LoggedFirstContainer = NO;
     sDidAppearUIKit = NO;
+    LBHypothesisJResetPending();
     LBSeedTurnPageTypeScrollBranch();
     NSTimeInterval nowPush = CFAbsoluteTimeGetCurrent();
     if (LBNavStackHasTextReader()) {

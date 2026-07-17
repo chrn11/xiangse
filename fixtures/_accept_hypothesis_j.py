@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""假设 J 验收：onFinish 入参修正 + legado-debug dump。"""
+"""假设 J 验收：defer addChild/insertSubview + ORIG_OK + H leave + pageContainerA。"""
 from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -13,233 +14,241 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from tools.ios_mcp_client import McpClient, McpError
+from tools.ios_mcp_client import McpClient
 
 MCP = "http://192.168.1.6:8090"
 MOCK = "http://192.168.1.4:8765"
 BUNDLE = "com.appbox.StandarReader"
-SRC = f"{MOCK}/legado-local-mock.runtime.json"
-BOOK = f"{MOCK}/book/doupo.html"
 OUT = ROOT / "fixtures" / "_accept_hypothesis_j.json"
 
-# 由 integrator 在 CI 完成后填入；占位供本地覆盖
-EXPECTED_SHA = ""
-EXPECTED_RUN = ""
-IPA = ROOT / "dist-ci-j" / "dist" / "StandarReader-legado-bridge-debug.ipa"
 
-
-def ts() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
-
-def read_bridge_manifest_plist(c: McpClient) -> dict:
-    paths = c.app_paths()
-    bundle = paths.get("bundle_path") or paths.get("bundle", "")
-    if not bundle:
-        return {}
-    path = f"{bundle.rstrip('/')}/legado-bridge-manifest.plist"
-    text = c.read_file_at(path, max_bytes=4096)
-    if not text.strip():
-        return {}
-    m = re.search(r"<key>BuiltAt</key>\s*<string>([^<]+)</string>", text)
-    if m:
-        return {"BuiltAt": m.group(1), "raw": text[:200]}
-    return {"raw": text[:200]}
-
-
-def clear_markers(c: McpClient) -> list[str]:
-    paths = c.app_paths()
-    doc = paths.get("documents", "")
-    deleted = []
-    for p in c.open_once_candidates(paths):
-        try:
-            c.call("run_command", {"command": f"rm -f '{p}'", "timeout_sec": 10})
-            deleted.append(p)
-        except Exception:
-            pass
-    if doc:
-        for name in (
-            "legado_openreader_trace.txt",
-            "legado_catalog_openreader.txt",
-            "legado_debug_dump.txt",
-            "legado_debug_dump_ready.txt",
-            "reader-build-manifest.json",
-        ):
-            try:
-                c.call("run_command", {"command": f"rm -f '{doc}/{name}'", "timeout_sec": 10})
-            except Exception:
-                pass
-    return deleted
-
-
-def parse_dump_counts(dump_text: str) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for key in ("TextReadTV", "ReadPageModel", "TextRPageContainer", "TextReadVC3"):
-        m = re.search(rf'"{key}"\s*:\s*\{{[^}}]*"count"\s*:\s*(\d+)', dump_text)
-        if m:
-            counts[key] = int(m.group(1))
-        else:
-            m2 = re.search(rf"{key} count=(\d+)", dump_text)
-            if m2:
-                counts[key] = int(m2.group(1))
-    return counts
-
-
-def extract_on_finish_arg(trace_text: str) -> str:
-    for ln in reversed(trace_text.splitlines()):
-        if "onFinish_arg=" in ln:
-            idx = ln.find("onFinish_arg=")
-            return ln[idx + len("onFinish_arg=") :].strip()
-    return ""
-
-
-def extract_kick_traces(trace_text: str) -> dict:
-    lines = trace_text.splitlines()
-    keys = (
-        "division_kick_sync_begin",
-        "queryFinish_OK",
-        "division_force_continue",
-        "divisionText_OK",
-        "divisionResponse_OK",
-        "onFinish_OK",
-        "onFinish_MISS",
-        "onFinish_arg",
-        "division_kick_sync_end",
+def git_sha() -> str:
+    r = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
     )
-    out: dict[str, list[str]] = {k: [] for k in keys}
-    for ln in lines:
-        for k in keys:
-            if k in ln:
-                out[k].append(ln.strip())
-    return out
-
-
-def evaluate(trace_text: str, marker_text: str, dump_text: str, xiaoyan: dict | None) -> dict:
-    traces = extract_kick_traces(trace_text)
-    counts = parse_dump_counts(dump_text)
-    pm = counts.get("ReadPageModel", 0)
-    tv = counts.get("TextReadTV", 0)
-    on_finish_arg = extract_on_finish_arg(trace_text)
-    nsarraym_exc = "NSArrayM length" in marker_text or "NSArrayM length" in trace_text
-    has_on_finish = bool(traces["onFinish_OK"])
-    has_force = bool(traces["division_force_continue"])
-    xiaoyan_ok = bool(xiaoyan and xiaoyan.get("passed"))
-    dump_ok = pm >= 1 or (tv >= 1 and ("萧炎" in dump_text or "斗气" in dump_text))
-    render_ok = xiaoyan_ok or dump_ok
-
-    if nsarraym_exc and has_on_finish and on_finish_arg and not on_finish_arg.startswith("REJECT"):
-        verdict = "PARTIAL_HANDOFF_K"
-        reason = "onFinish_arg 已记录但仍有 NSArrayM length，交 K"
-    elif nsarraym_exc:
-        verdict = "FAIL_REVERT_J"
-        reason = "仍有 NSArrayM length 异常"
-    elif not on_finish_arg and has_on_finish:
-        verdict = "FAIL"
-        reason = "onFinish_OK 但缺 onFinish_arg 日志"
-    elif render_ok and has_on_finish and on_finish_arg and not on_finish_arg.startswith("REJECT"):
-        verdict = "PASS"
-        reason = "onFinish_arg 正确且有 pageModel/萧炎"
-    elif has_on_finish and on_finish_arg and not render_ok:
-        verdict = "PARTIAL_HANDOFF_K"
-        reason = "onFinish_arg 已修正仍无对象，交 K"
-    elif has_force and not render_ok:
-        verdict = "FAIL_REVERT_J"
-        reason = "force_continue 后仍无渲染"
-    else:
-        verdict = "FAIL"
-        reason = "未命中 kick 链或无渲染证据"
-
-    return {
-        "verdict": verdict,
-        "reason": reason,
-        "onFinish_arg": on_finish_arg,
-        "nsarraym_exc": nsarraym_exc,
-        "dump_counts": counts,
-        "xiaoyan_passed": xiaoyan_ok,
-        "render_ok": render_ok,
-        "kick_traces": {k: v[-3:] for k, v in traces.items() if v},
-    }
+    return (r.stdout or "").strip() or "unknown"
 
 
 def resolve_ipa() -> Path:
-    if IPA.is_file():
-        return IPA
-    cands = list(ROOT.glob("dist-ci-*/dist/StandarReader-legado-bridge-debug.ipa"))
-    if not cands:
-        raise FileNotFoundError("未找到 StandarReader-legado-bridge-debug.ipa")
-    return max(cands, key=lambda p: p.stat().st_mtime)
+    if len(sys.argv) > 1:
+        p = Path(sys.argv[1])
+        if p.is_file():
+            return p
+    env = __import__("os").environ.get("HYPOTHESIS_J_IPA")
+    if env:
+        p = Path(env)
+        if p.is_file():
+            return p
+    for pat in (
+        "dist-ci-run-*/Reader-Forensics-IPAs/dist/StandarReader-legado-debug.ipa",
+        "dist-ci-run-*/dist/StandarReader-legado-bridge-debug.ipa",
+        "dist-ci-run-*/dist/dist/StandarReader-legado-bridge-debug.ipa",
+        "dist-ci-run-*/dist/StandarReader-legado-debug.ipa",
+        "fixtures/_devkit/ci-artifact/**/StandarReader-legado-bridge-debug.ipa",
+        "dist/StandarReader-legado-bridge-debug.ipa",
+        "dist/StandarReader-legado-debug.ipa",
+    ):
+        hits = sorted(ROOT.glob(pat), key=lambda x: x.stat().st_mtime, reverse=True)
+        if hits:
+            return hits[0]
+    raise FileNotFoundError(
+        "未找到 legado-bridge-debug IPA，请设置 HYPOTHESIS_J_IPA 或先下载 CI artifact"
+    )
+
+
+def clear_all(c: McpClient) -> None:
+    paths = c.app_paths()
+    doc = paths.get("documents", "")
+    for p in c.open_once_candidates(paths):
+        try:
+            c.call("run_command", {"command": f"rm -f '{p}'", "timeout_sec": 10})
+        except Exception:
+            pass
+    if doc:
+        for n in (
+            "legado_openreader_trace.txt",
+            "legado_loadcurcp_state.txt",
+            "legado_catalog_openreader.txt",
+            "legado_debug_dump.txt",
+            "legado_native_open_once.txt",
+        ):
+            try:
+                c.call("run_command", {"command": f"rm -f '{doc}/{n}'", "timeout_sec": 10})
+            except Exception:
+                pass
+
+
+def parse_container_a(line: str) -> str | None:
+    for pat in (
+        r"hypothesis_J deferred_attach_OK .* pageContainerA=(\S+)",
+        r"hypothesis_E after_ORIG pageContainerA=(\S+)",
+        r"hypothesis_B2 probe phase=onReset_noArg_after_ORIG pageContainerA=(\S+)",
+    ):
+        m = re.search(pat, line)
+        if m:
+            return m.group(1)
+    return None
 
 
 def main() -> int:
     ipa = resolve_ipa()
+    sha = git_sha()
+
     c = McpClient(base_url=MCP, bundle_id=BUNDLE)
-    report: dict = {"timestamp": ts(), "ipa": str(ipa), "steps": []}
+    report: dict = {
+        "sha": sha,
+        "ipa": str(ipa),
+        "steps": [],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "role": "integrator",
+        "hypothesis": "J",
+        "model": "composer-2.5",
+    }
 
     up = c.upload_file(ipa, filename=ipa.name)
     dp = up.get("path") if isinstance(up, dict) else str(up)
-    ins = c.call("install_app", {"path": dp}, timeout=600)
-    report["install_result"] = ins
+    report["install"] = c.call("install_app", {"path": dp}, timeout=600)
     report["steps"].append("install")
     time.sleep(3)
-    manifest = read_bridge_manifest_plist(c)
-    report["bridge_manifest"] = manifest
-    report["built_at"] = manifest.get("BuiltAt", "")
 
-    deleted = clear_markers(c)
-    report["steps"].append(f"reset_deleted={len(deleted)}")
+    clear_all(c)
     c.call("wake_and_home")
     c.call("kill_app", {"bundle_id": BUNDLE})
     time.sleep(1)
     c.call("launch_app", {"bundle_id": BUNDLE})
-    report["steps"].append("launch")
     time.sleep(2)
-    c.call("open_url", {"url": f"legado://import/bookSource?src={SRC}"})
-    report["steps"].append("import_source")
+    clear_all(c)
+    c.call(
+        "open_url",
+        {"url": f"legado://import/bookSource?src={MOCK}/legado-local-mock.runtime.json"},
+    )
     time.sleep(2)
-
-    t0 = time.time()
-    c.call("open_url", {"url": f"legado://nativeRead?bookUrl={BOOK}&sourceUrl={MOCK}&idx=0"})
-    report["steps"].append("nativeRead")
-    time.sleep(2.5)
-    try:
-        c.call("open_url", {"url": "legado://debugDump?phase=hypothesis_j"})
-        report["steps"].append("debugDump")
-    except McpError as exc:
-        report["debug_dump_error"] = str(exc)
-    report["dump_elapsed_sec"] = round(time.time() - t0, 2)
-
-    time.sleep(1)
-    trace_text = c.read_sandbox_text("legado_openreader_trace.txt")
-    marker_text = c.read_sandbox_text("legado_catalog_openreader.txt")
-    dump_text = c.read_sandbox_text("legado_debug_dump.txt", max_bytes=131072)
-    try:
-        xiaoyan = c.call("assert_text_present", {"text": "萧炎", "timeout_ms": 8000})
-    except McpError as exc:
-        xiaoyan = {"passed": False, "error": str(exc)}
-
-    report.update(evaluate(trace_text, marker_text, dump_text, xiaoyan))
-    report["trace_kick_section"] = [
-        ln
-        for ln in trace_text.splitlines()
-        if any(
-            k in ln
-            for k in (
-                "division_kick",
-                "division_force_continue",
-                "onFinish_arg",
-                "onFinish_OK",
-                "queryFinish",
+    c.call(
+        "open_url",
+        {
+            "url": (
+                f"legado://nativeRead?bookUrl={MOCK}/book/doupo.html"
+                f"&sourceUrl={MOCK}&idx=0"
             )
-        )
-    ][-40:]
-    report["marker_tail"] = marker_text[-1500:]
-    report["dump_tail"] = dump_text[-4000:]
+        },
+    )
+    report["steps"].append("nativeRead")
+    time.sleep(12)
+
+    trace = c.read_sandbox_text("legado_openreader_trace.txt", max_bytes=400000)
+    state = c.read_sandbox_text("legado_loadcurcp_state.txt", max_bytes=150000)
+    blob = (trace or "") + "\n" + (state or "")
+
+    j_lines = [ln for ln in blob.splitlines() if "hypothesis_J" in ln]
+    h_lines = [ln for ln in blob.splitlines() if "hypothesis_H" in ln]
+    c_lines = [ln for ln in blob.splitlines() if "hypothesis_C" in ln]
+
+    report["j_lines"] = j_lines
+    report["defer_addChild"] = [ln for ln in j_lines if "defer_addChild" in ln]
+    report["deferred_attach_OK"] = [ln for ln in j_lines if "deferred_attach_OK" in ln]
+    report["j_hook_lines"] = [
+        ln for ln in j_lines if "hooked addChildViewController" in ln or "hooked insertSubview" in ln
+    ]
+    report["enter_lines"] = [ln for ln in h_lines if "hypothesis_H enter" in ln]
+    report["leave_lines"] = [ln for ln in h_lines if "hypothesis_H leave" in ln and "leave EX" not in ln]
+    report["onreset_ok"] = [ln for ln in c_lines if "ORIG_OK" in ln]
+
+    container_vals = [v for v in (parse_container_a(ln) for ln in blob.splitlines()) if v]
+    report["pageContainerA_cls"] = container_vals[-1] if container_vals else None
+    report["pageContainerA_non_nil"] = bool(
+        report["pageContainerA_cls"] and report["pageContainerA_cls"] != "nil"
+    )
+
+    try:
+        cr = c.call("get_crash_logs", timeout=30)
+        report["crash"] = str(cr)[:500]
+    except Exception as exc:
+        report["crash"] = str(exc)
+
+    snaps = []
+    for cp in (1.0, 3.0, 5.0, 8.0):
+        time.sleep(1.5)
+        try:
+            ui = c.call("get_ui_elements", {"limit": 30}, timeout=30)
+            texts = [
+                e.get("text", "")
+                for e in (ui.get("elements") or [])
+                if e.get("text")
+            ][:10]
+        except Exception as exc:
+            texts = [str(exc)]
+        snaps.append({"t": cp, "texts": texts})
+    report["snaps"] = snaps
+
+    on_shelf = any("书架" in t or "空列表" in t for s in snaps for t in s["texts"])
+    springboard = any(
+        t in ("日历", "计算器", "时钟", "指南针", "地图", "钱包", "设置")
+        for s in snaps
+        for t in s["texts"]
+    )
+    report["springboard_or_shelf"] = on_shelf or springboard
+    report["on_shelf"] = on_shelf
+    report["springboard"] = springboard
+
+    has_defer = bool(report["defer_addChild"])
+    has_attach = bool(report["deferred_attach_OK"])
+    has_orig_ok = bool(report["onreset_ok"])
+    has_leave = bool(report["leave_lines"])
+    has_enter = bool(report["enter_lines"])
+
+    if springboard or on_shelf:
+        report["verdict"] = "FAIL_REVERT_J"
+        report["conclusion"] = "回书架或 springboard，应 revert J"
+    elif has_orig_ok and has_leave and has_defer and has_attach and report["pageContainerA_non_nil"]:
+        report["verdict"] = "PASS_J"
+        report["conclusion"] = "defer+flush+ORIG_OK+H leave+pageContainerA"
+    elif has_orig_ok and has_defer and has_attach:
+        report["verdict"] = "PARTIAL_J_NO_CONTAINER"
+        report["conclusion"] = "ORIG_OK+defer flush 但 pageContainerA 仍 nil"
+    elif has_orig_ok and has_defer and not has_attach:
+        report["verdict"] = "PARTIAL_J_NO_FLUSH"
+        report["conclusion"] = "defer 已记录但未 flush"
+    elif has_enter and not has_orig_ok:
+        report["verdict"] = "FAIL_J_KILL"
+        report["conclusion"] = "H enter 但无 ORIG_OK（D 类杀点）"
+    elif not has_defer:
+        report["verdict"] = "FAIL_J_NO_DEFER"
+        report["conclusion"] = "未命中 defer_addChild"
+    else:
+        report["verdict"] = "FAIL"
+        report["conclusion"] = "未满足 J 信号组合"
+
+    report["handoff"] = {
+        "role": "integrator",
+        "hypothesis": "J",
+        "model": "composer-2.5",
+        "input_sha": "143d919",
+        "output_sha": sha,
+        "verdict": report["verdict"],
+        "orig_ok": has_orig_ok,
+        "enter_count": len(report["enter_lines"]),
+        "leave_count": len(report["leave_lines"]),
+        "pageContainerA": report["pageContainerA_cls"],
+        "on_shelf": on_shelf,
+        "springboard": springboard,
+        "next_step": (
+            "PASS_J → 继续渲染链（loadCurCp/division）"
+            if report["verdict"] == "PASS_J"
+            else "FAIL_REVERT_J → git revert J commit"
+            if report["verdict"] == "FAIL_REVERT_J"
+            else "PARTIAL → 分析 trace 再叠下一假设"
+        ),
+    }
 
     OUT.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    if report["verdict"] == "PASS":
+    if report["verdict"] == "PASS_J":
         return 0
-    if report["verdict"] == "PARTIAL_HANDOFF_K":
+    if report["verdict"] in ("PARTIAL_J_NO_CONTAINER", "PARTIAL_J_NO_FLUSH"):
         return 5
     if report["verdict"] == "FAIL_REVERT_J":
         return 1

@@ -1,0 +1,20 @@
+{
+  "role": "integrator",
+  "hypothesis": "J",
+  "model": "composer-2.5",
+  "input_sha": "143d919",
+  "output_sha": "pending",
+  "verdict": "PENDING",
+  "conclusion": "待 CI + MCP 验收",
+  "orig_ok": false,
+  "enter_count": 0,
+  "leave_count": 0,
+  "pageContainerA": null,
+  "on_shelf": false,
+  "springboard": false,
+  "defer_addChild": [],
+  "deferred_attach_OK": [],
+  "handoff": {
+    "next_step": "push → Reader Forensics → python fixtures/_accept_hypothesis_j.py"
+  }
+}
