@@ -140,42 +140,23 @@ static NSInteger LBReadPageContainerPriority(id obj) {
 /// 从 TextReadVC3 解析 loadCurCp IMP owner（ReadPageContainer，非 VC3 自身）
 static id LBFindReadPageContainerForReader(id readerVC) {
     if (!readerVC) return nil;
-    if ([readerVC isKindOfClass:[UIViewController class]]) {
-        UIViewController *vc = (UIViewController *)readerVC;
-        @try {
-            if (!vc.isViewLoaded) [vc loadViewIfNeeded];
-        } @catch (__unused NSException *e) {}
-    }
-    NSMutableArray *raw = [NSMutableArray array];
-    void (^add)(id) = ^(id v) {
-        if (v && ![raw containsObject:v]) [raw addObject:v];
-    };
-    for (NSString *k in @[@"container", @"pageContainer", @"pageContainerA",
-                          @"pageContainerB", @"rPageContainer", @"readPageContainer",
-                          @"curPageContainer"]) {
-        @try { add([readerVC valueForKey:k]); } @catch (__unused NSException *e) {}
-    }
-    @try {
-        id dpv = [readerVC valueForKey:@"dicPageVC"];
-        if ([dpv isKindOfClass:[NSDictionary class]]) {
-            for (id v in [(NSDictionary *)dpv allValues]) add(v);
-        }
-    } @catch (__unused NSException *e) {}
-    if ([readerVC isKindOfClass:[UIViewController class]]) {
-        for (UIViewController *ch in ((UIViewController *)readerVC).childViewControllers) {
-            add(ch);
-        }
-    }
+    // 假设 R2：禁止对 container/pageContainer* 做 KVC——真机 getter 在
+    // ScheduleInvoke 首 tick 前杀进程（hold 不找 container 可活 2s+）。
+    // 仅遍历 childViewControllers。
+    if (![readerVC isKindOfClass:[UIViewController class]]) return nil;
+    UIViewController *vc = (UIViewController *)readerVC;
     id best = nil;
     NSInteger bestPrio = 99;
-    for (id c in raw) {
-        if (!LBObjectIsReadPageContainerLike(c)) continue;
-        NSInteger p = LBReadPageContainerPriority(c);
-        if (p < bestPrio) {
-            bestPrio = p;
-            best = c;
+    @try {
+        for (UIViewController *ch in vc.childViewControllers) {
+            if (!LBObjectIsReadPageContainerLike(ch)) continue;
+            NSInteger p = LBReadPageContainerPriority(ch);
+            if (p < bestPrio) {
+                bestPrio = p;
+                best = ch;
+            }
         }
-    }
+    } @catch (__unused NSException *e) {}
     return best;
 }
 
@@ -608,9 +589,8 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     }
 
     if (sPendingPayload) {
-        // 假设 R2：invoke 前禁用重 seed 的 setDicContents/setCpCached（同步 seed 已证实回桌面）
-        LBEnsureLoadCurCpPrereqs(reader, container, sPendingPayload);
-        LBLogLoadCurCpGates(reader, container, @"pre_invoke_no_reseed");
+        // 假设 R2：先只打 gates，跳过 EnsurePrereqs（pageModel 写入可能杀进程）
+        LBLogLoadCurCpGates(reader, container, @"pre_invoke_no_prereq");
     } else {
         LBLogLoadCurCpGates(reader, container, @"no_payload");
     }
@@ -651,17 +631,37 @@ static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         id strong = weakReader;
-        if (!strong) return;
-        id container = LBFindReadPageContainerForReader(strong);
-        id curPage = LBContainerCurPageVC(container);
-        BOOL attached = LBReaderIsAttachedToUI(strong);
+        if (!strong) {
+            LBStateLog(@"hypothesis_R2 defer_tick reader_gone");
+            return;
+        }
         LBStateLog([NSString stringWithFormat:
-                    @"hypothesis_T defer_tick attempt=%ld curPageVC=%@ attached=%d",
+                    @"hypothesis_R2 defer_tick_enter attempt=%ld", (long)attempt]);
+        id container = nil;
+        id curPage = nil;
+        BOOL attached = NO;
+        @try {
+            container = LBFindReadPageContainerForReader(strong);
+            curPage = LBContainerCurPageVC(container);
+            attached = LBReaderIsAttachedToUI(strong);
+        } @catch (NSException *ex) {
+            LBStateLog([NSString stringWithFormat:@"hypothesis_R2 defer_tick EX %@",
+                        ex.reason ?: @""]);
+            LBScheduleInvokeWhenPageReady(strong, attempt + 1);
+            return;
+        }
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_T defer_tick attempt=%ld curPageVC=%@ attached=%d children=%lu",
                     (long)attempt,
                     curPage ? NSStringFromClass(object_getClass(curPage)) : @"nil",
-                    attached ? 1 : 0]);
+                    attached ? 1 : 0,
+                    (unsigned long)([strong isKindOfClass:[UIViewController class]]
+                        ? ((UIViewController *)strong).childViewControllers.count : 0)]);
         if (curPage && attached) {
             LBInvokeOriginalLoadCurCp(strong, NO);
+        } else if (attached && container && attempt >= 8) {
+            // 有 container 无 curPage：强制试一次
+            LBInvokeOriginalLoadCurCp(strong, YES);
         } else {
             LBScheduleInvokeWhenPageReady(strong, attempt + 1);
         }
@@ -706,19 +706,9 @@ static void LBTryContentReadyAndInvoke(id reader, NSDictionary *payload) {
         LBStateLog([NSString stringWithFormat:@"hypothesis_R2 xsfolder_only EX %@",
                     ex.reason ?: @""]);
     }
-    // 假设 R2 隔离：b072191 在 delayed_done 后、defer_tick 前仍回桌面。
-    // 先不 schedule invoke，确认是否为 ScheduleInvoke/后续 tick 杀进程。
-    LBStateLog(@"hypothesis_R2 hold_no_schedule_invoke (isolate)");
-    __weak id weakReader = reader;
-    for (NSNumber *sec in @[ @0.05, @0.2, @0.5, @1.0, @2.0 ]) {
-        double d = sec.doubleValue;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(d * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            LBStateLog([NSString stringWithFormat:
-                        @"hypothesis_R2 hold_alive_%.2fs reader=%@",
-                        d, weakReader ? NSStringFromClass(object_getClass(weakReader)) : @"nil"]);
-        });
-    }
+    // hold 已证实存活；恢复 schedule。FindContainer 改为仅 childVC（禁 KVC）。
+    LBStateLog(@"hypothesis_R2 resume_schedule_invoke");
+    LBScheduleInvokeWhenPageReady(reader, 0);
 }
 
 BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,

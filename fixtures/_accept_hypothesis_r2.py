@@ -138,6 +138,19 @@ def main() -> int:
             verdict, reason = "FAIL_REVERT_R2", "hold_alive 后仍回桌面"
         else:
             verdict, reason = "FAIL_NEED_NEXT", "hold 中未见 alive 心跳"
+    elif "resume_schedule_invoke" in blob:
+        if springboard and not invoke:
+            verdict, reason = "FAIL_REVERT_R2", "resume schedule 后仍回桌面"
+        elif not invoke:
+            verdict, reason = "FAIL_NEED_NEXT", "resume 后无 invoke（可能无 container/orig）"
+        elif springboard:
+            verdict, reason = "FAIL_REVERT_R2", "invoke 后仍回 SpringBoard"
+        elif qf or dr:
+            verdict, reason = "PASS", "延迟 invoke 后出现 QF/DR"
+        elif invoke and not springboard:
+            verdict, reason = "PASS_PARTIAL", "invoke 存活；尚无 QF/DR"
+        else:
+            verdict, reason = "FAIL", "resume 未达标"
     elif springboard and not invoke and not skip_seed:
         verdict, reason = "FAIL_REVERT_R2", "delayed_begin 后 seed/invoke 前回桌面"
     elif springboard and skip_seed and not invoke:
