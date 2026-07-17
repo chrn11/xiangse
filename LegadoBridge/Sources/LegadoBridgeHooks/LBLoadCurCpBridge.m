@@ -745,23 +745,8 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     }
 
     if (sPendingPayload) {
-        // 假设 R2：用 object_setIvar 软写 dicContents（禁 setDicContents: setter）
-        NSString *body = LBBodyFromPayload(sPendingPayload);
-        if (body.length > 0) {
-            NSInteger cpIndex = LBCpIndexFromPayload(sPendingPayload, reader);
-            NSMutableDictionary *dc = [NSMutableDictionary dictionary];
-            dc[@(cpIndex)] = body;
-            dc[[@(cpIndex) stringValue]] = body;
-            LBSetIvarObject(container, "_dicContents", dc);
-            LBSetIvarObject(container, "dicContents", dc);
-            LBSetIvarObject(reader, "_dicContents", dc);
-            LBSetIvarObject(reader, "dicContents", dc);
-            LBStateLog([NSString stringWithFormat:
-                        @"hypothesis_R2 soft_dicContents idx=%ld len=%lu",
-                        (long)cpIndex, (unsigned long)body.length]);
-        }
-        LBEnsureLoadCurCpPrereqs(reader, container, sPendingPayload);
-        LBLogLoadCurCpGates(reader, container, @"pre_invoke_soft_seed");
+        // 假设 R2：先只打 gates，跳过 EnsurePrereqs（pageModel 写入可能杀进程）
+        LBLogLoadCurCpGates(reader, container, @"pre_invoke_no_prereq");
     } else {
         LBLogLoadCurCpGates(reader, container, @"no_payload");
     }
