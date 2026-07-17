@@ -5964,9 +5964,18 @@ static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
-        // 假设 R2：UIViewController super 也会在日志后重启（无 invoke 时仍复现）。
-        // willAppear 空返回；postCurCp 由 push 后 delay 触发（不依赖 didAppear）。
-        LBAppendOpenReaderTrace(@"hypothesis_R2 willAppear noop (no super/ORIG)");
+        // 假设 R2：noop 导致 children=0 / container ivar 全空，无法 invoke。
+        // 在 onReset/Deliver 已旁路前提下，恢复 UIKit super 以完成容器挂载。
+        LBAppendOpenReaderTrace(@"hypothesis_R2 willAppear UIKitSuperOnly");
+        struct objc_super sup = { self, [UIViewController class] };
+        @try {
+            ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
+            LBAppendOpenReaderTrace(@"hypothesis_R2 willAppear UIKitSuper_OK");
+        } @catch (NSException *ex) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"hypothesis_R2 willAppear UIKitSuper_EX %@",
+                                     ex.reason ?: @""]);
+        }
         return;
     }
     if (LBOrig_TR_viewWillAppear) LBOrig_TR_viewWillAppear(self, _cmd, animated);
