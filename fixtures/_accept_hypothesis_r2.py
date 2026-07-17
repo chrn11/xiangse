@@ -73,7 +73,7 @@ def main() -> int:
         },
         timeout=20,
     )
-    time.sleep(10)
+    time.sleep(12)
 
     tr = c.read_sandbox_text("legado_openreader_trace.txt", max_bytes=300000)
     st = c.read_sandbox_text("legado_loadcurcp_state.txt", max_bytes=120000)
@@ -101,6 +101,7 @@ def main() -> int:
     invoke = "invoke_orig_OK" in blob
     heartbeat_1s = "hypothesis_R2 heartbeat_1.00s" in blob
     skip_seed = "hypothesis_R2 skip_sync_seed" in blob
+    hold_alive = "hypothesis_R2 hold_alive_2.00s" in blob or "hypothesis_R2 hold_alive_1.00s" in blob
     register_count = blob.count("register_orig")
     springboard = any(t in texts for t in ("日历", "钱包", "设置"))
     bookshelf = "书架" in texts
@@ -128,6 +129,15 @@ def main() -> int:
             if "hypothesis_R2 heartbeat_" in ln:
                 last_hb = ln
         verdict, reason = "FAIL_REVERT_R2", f"1s 延迟未到（中途重启） last_hb={last_hb[-60:]}"
+    elif "hold_no_schedule_invoke" in blob:
+        if springboard and not hold_alive:
+            verdict, reason = "FAIL_REVERT_R2", "hold 隔离仍回桌面（非 ScheduleInvoke）"
+        elif hold_alive and not springboard:
+            verdict, reason = "PASS_PARTIAL", "hold 存活；下一步恢复 schedule invoke"
+        elif hold_alive and springboard:
+            verdict, reason = "FAIL_REVERT_R2", "hold_alive 后仍回桌面"
+        else:
+            verdict, reason = "FAIL_NEED_NEXT", "hold 中未见 alive 心跳"
     elif springboard and not invoke and not skip_seed:
         verdict, reason = "FAIL_REVERT_R2", "delayed_begin 后 seed/invoke 前回桌面"
     elif springboard and skip_seed and not invoke:
@@ -153,6 +163,7 @@ def main() -> int:
         "vdl_skip": vdl_skip,
         "heartbeat_1s": heartbeat_1s,
         "skip_seed": skip_seed,
+        "hold_alive": hold_alive,
         "delayed_begin": delayed_begin,
         "delayed_done": delayed_done,
         "invoke": invoke,

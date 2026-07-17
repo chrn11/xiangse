@@ -706,7 +706,19 @@ static void LBTryContentReadyAndInvoke(id reader, NSDictionary *payload) {
         LBStateLog([NSString stringWithFormat:@"hypothesis_R2 xsfolder_only EX %@",
                     ex.reason ?: @""]);
     }
-    LBScheduleInvokeWhenPageReady(reader, 0);
+    // 假设 R2 隔离：b072191 在 delayed_done 后、defer_tick 前仍回桌面。
+    // 先不 schedule invoke，确认是否为 ScheduleInvoke/后续 tick 杀进程。
+    LBStateLog(@"hypothesis_R2 hold_no_schedule_invoke (isolate)");
+    __weak id weakReader = reader;
+    for (NSNumber *sec in @[ @0.05, @0.2, @0.5, @1.0, @2.0 ]) {
+        double d = sec.doubleValue;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(d * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            LBStateLog([NSString stringWithFormat:
+                        @"hypothesis_R2 hold_alive_%.2fs reader=%@",
+                        d, weakReader ? NSStringFromClass(object_getClass(weakReader)) : @"nil"]);
+        });
+    }
 }
 
 BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,
