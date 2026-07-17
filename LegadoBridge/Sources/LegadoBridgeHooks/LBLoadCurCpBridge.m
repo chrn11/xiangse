@@ -358,6 +358,109 @@ static void LBEnsureContainerReaderLink(id container, id reader) {
     } @catch (__unused NSException *e) {}
 }
 
+static NSUInteger LBCountOrZero(id obj) {
+    if ([obj isKindOfClass:[NSArray class]]) return [(NSArray *)obj count];
+    if ([obj isKindOfClass:[NSDictionary class]]) return [(NSDictionary *)obj count];
+    if ([obj respondsToSelector:@selector(count)]) {
+        @try { return [[obj valueForKey:@"count"] unsignedIntegerValue]; } @catch (__unused NSException *e) {}
+    }
+    return 0;
+}
+
+static void LBSetIntegerKey(id target, NSString *key, NSInteger value) {
+    if (!target || key.length == 0) return;
+    NSString *setter = [NSString stringWithFormat:@"set%@%@:",
+                        [[key substringToIndex:1] uppercaseString],
+                        [key substringFromIndex:1]];
+    SEL sel = NSSelectorFromString(setter);
+    @try {
+        if ([target respondsToSelector:sel]) {
+            ((void (*)(id, SEL, NSInteger))objc_msgSend)(target, sel, value);
+            return;
+        }
+    } @catch (__unused NSException *e) {}
+    @try { [target setValue:@(value) forKey:key]; } @catch (__unused NSException *e) {}
+}
+
+/// 假设 Q：loadCurCp callee 还含 arrCatalog/count；缺目录或 curCpIndex 错位会跳过 query
+static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payload) {
+    if (!reader || ![payload isKindOfClass:[NSDictionary class]]) return;
+    NSInteger cpIndex = LBCpIndexFromPayload(payload, reader);
+    NSString *title = payload[@"cpTitle"] ?: payload[@"title"] ?: @"章节";
+    if (![title isKindOfClass:[NSString class]] || title.length == 0) title = @"章节";
+    NSString *chUrl = payload[@"chapterUrl"] ?: payload[@"cpUrl"];
+    if (![chUrl isKindOfClass:[NSString class]] || chUrl.length == 0) {
+        chUrl = [@(cpIndex) stringValue];
+    }
+
+    for (id tgt in @[reader, container ?: [NSNull null]]) {
+        if (tgt == (id)[NSNull null]) continue;
+        LBSetIntegerKey(tgt, @"curCpIndex", cpIndex);
+    }
+
+    id cat = nil;
+    @try { cat = [reader valueForKey:@"arrCatalog"]; } @catch (__unused NSException *e) {}
+    if (LBCountOrZero(cat) == 0) {
+        NSDictionary *chapter = @{
+            @"title": title,
+            @"name": title,
+            @"url": chUrl,
+            @"cpUrl": chUrl,
+            @"index": @(cpIndex),
+            @"cpIndex": @(cpIndex),
+        };
+        NSArray *arr = @[chapter];
+        @try {
+            if ([reader respondsToSelector:NSSelectorFromString(@"setArrCatalog:")]) {
+                ((void (*)(id, SEL, id))objc_msgSend)(
+                    reader, NSSelectorFromString(@"setArrCatalog:"), arr);
+            } else {
+                [reader setValue:arr forKey:@"arrCatalog"];
+            }
+            LBStateLog(@"hypothesis_Q seed_arrCatalog count=1");
+        } @catch (__unused NSException *e) {
+            LBStateLog(@"hypothesis_Q seed_arrCatalog_failed");
+        }
+    }
+
+    // 诊断：对齐 baseline 的 count/len 形状，便于判定是否仍缺前置
+    NSUInteger nCat = 0, nDc = 0, nDcC = 0;
+    NSString *bookKey = @"-";
+    NSString *bookDir = @"-";
+    NSInteger curIdx = -1;
+    @try {
+        nCat = LBCountOrZero([reader valueForKey:@"arrCatalog"]);
+    } @catch (__unused NSException *e) {}
+    @try {
+        nDc = LBCountOrZero([reader valueForKey:@"dicContents"]);
+    } @catch (__unused NSException *e) {}
+    if (container) {
+        @try { nDcC = LBCountOrZero([container valueForKey:@"dicContents"]); } @catch (__unused NSException *e) {}
+    }
+    @try {
+        id bk = [reader valueForKey:@"bookKey"];
+        if (![bk isKindOfClass:[NSString class]]) {
+            id db = [reader valueForKey:@"dicBook"];
+            if ([db isKindOfClass:[NSDictionary class]]) bk = db[@"bookKey"];
+        }
+        if ([bk isKindOfClass:[NSString class]]) bookKey = bk;
+    } @catch (__unused NSException *e) {}
+    @try {
+        id bd = [reader valueForKey:@"bookDirPath"];
+        if ([bd isKindOfClass:[NSString class]]) bookDir = bd;
+    } @catch (__unused NSException *e) {}
+    @try {
+        id ci = [reader valueForKey:@"curCpIndex"];
+        if ([ci respondsToSelector:@selector(integerValue)]) curIdx = [ci integerValue];
+    } @catch (__unused NSException *e) {}
+
+    LBStateLog([NSString stringWithFormat:
+                @"hypothesis_Q gates arrCatalog=%lu dicContents=%lu dicContents@c=%lu "
+                @"bookKeyLen=%lu bookDirLen=%lu curCpIndex=%ld",
+                (unsigned long)nCat, (unsigned long)nDc, (unsigned long)nDcC,
+                (unsigned long)bookKey.length, (unsigned long)bookDir.length, (long)curIdx]);
+}
+
 static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage);
 static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt);
 
@@ -400,6 +503,10 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
         LBStateLog(@"hypothesis_P defer_invoke reason=no_curPageVC");
         LBScheduleInvokeWhenPageReady(reader, 0);
         return;
+    }
+
+    if (sPendingPayload) {
+        LBEnsureLoadCurCpPrereqs(reader, container, sPendingPayload);
     }
 
     // 就绪后再 seed 一次，确保 dicContents/bookDir 落在最终 container
