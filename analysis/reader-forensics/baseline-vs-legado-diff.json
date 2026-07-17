@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "head_sha": "57d80b8",
+  "base_ipa_sha256": "ed35e2734ef9d75ab8700921ec2819bb329c679ea508ba88e6d9576ae7be1631",
+  "app_binary_sha256": "04f780eb59f86c9104f8c8c3c04fb24278f521d0a43e401b3773d2a47890dea7",
+  "form": "static_plus_acceptance",
+  "runtime_dump_complete": false,
+  "references": [
+    "analysis/reader-forensics/onreset-catalog-kill-analysis.md",
+    "analysis/reader-forensics/pagecontainer-kill-analysis.md",
+    "analysis/reader-forensics/reader-call-chain.md",
+    "fixtures/_accept_hypothesis_i.json",
+    "fixtures/_accept_hypothesis_j.json",
+    "fixtures/_accept_hypothesis_r2.json"
+  ],
+  "five_questions": {
+    "textViewL_owner": {
+      "answer": "TextRPageContainerPage#textViewL getter lazy alloc TextReadTV",
+      "confidence": "confirmed",
+      "legado_gap": "container not attached; getter not reached"
+    },
+    "loadCurCp_inputs": {
+      "answer": "ReadPageContainer receiver; arrCatalog count>=1; bookKey/dicFatBook; cache via queryCpFile or xsfolder/dicContents",
+      "confidence": "probable",
+      "legado_gap": "no_container at invoke time"
+    },
+    "narrow_data_seam": {
+      "answer": "dicContents + xsfolder + BookDbManager setCpCached; then native loadCurCp once",
+      "confidence": "confirmed",
+      "forbidden": ["setPageModel", "object_setIvar reader ivars", "manual alloc container/TV"]
+    },
+    "pageModel_ctframe_creator": {
+      "answer": "ReadPageModel in division chain; CTFrame on TextReadTVBase.frameRef",
+      "confidence": "probable",
+      "legado_gap": "division chain not entered"
+    },
+    "first_deviation": {
+      "answer": "Bridge-fired onReset -> pageContainer factory addChild @0x10006697c under Legado parent VC; then loadCurCp no_container",
+      "confidence": "confirmed",
+      "kill_address": "0x10006697c"
+    }
+  },
+  "hypothesis_verdicts": {
+    "I": "PASS_I_H_ENTER_KILL_SHELF",
+    "C": "ORIG_OK cat0 no container",
+    "D": "reverted kill cat2",
+    "J": "FAIL_REVERT_J pageContainerA=TextRPageContainer deferred_attach failed",
+    "R2": "FAIL_NEED_NEXT invoke_skip no_container"
+  },
+  "integration": {
+    "allow": [
+      "loadCurCp data seam in LBLoadCurCpBridge",
+      "handleContentRequest",
+      "I IMP unwrap",
+      "J defer swizzle temporary"
+    ],
+    "forbid": [
+      "Bridge pageContainer getter",
+      "hypothesis K/L/M",
+      "setPageModel production",
+      "route A onReset flush"
+    ]
+  },
+  "gate_3_recommendation": "conditional_approve_static_route_B"
+}

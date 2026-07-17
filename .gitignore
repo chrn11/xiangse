@@ -8,6 +8,21 @@ DerivedData/
 LegadoBridge/.build/
 fixtures/*.runtime.json
 fixtures/_devkit/
+fixtures/_accept_*/
+!fixtures/_accept_*.py
+fixtures/_diag_*/
+fixtures/_probe_*/
+fixtures/_tmp_*/
+fixtures/_accept_result_*/
+fixtures/_accept_screenshot*/
+fixtures/_fresh_trace_*/
+fixtures/_install_*/
+fixtures/_peek_*/
+fixtures/_shot_*/
+analysis/reader-forensics/_tmp_*/
+analysis/_hook103_tmp/
+dist-ci-*/
+artifacts/
 # 默认排除 IPA，但放行 ipa/ 目录下的源 IPA（用于 CI 重打包）
 *.ipa
 !ipa/*.ipa
