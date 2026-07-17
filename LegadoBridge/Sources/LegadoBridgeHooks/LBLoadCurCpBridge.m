@@ -163,14 +163,14 @@ static id LBFindReadPageContainerForReader(id readerVC) {
     void (^add)(id) = ^(id v) {
         if (v && ![raw containsObject:v]) [raw addObject:v];
     };
-    for (const char *name in (const char *[]){
+    static const char *kNames[] = {
         "_container", "_pageContainer", "_pageContainerA", "_pageContainerB",
         "_rPageContainer", "_readPageContainer", "_curPageContainer",
         "container", "pageContainer", "pageContainerA", "pageContainerB",
-        "rPageContainer", "readPageContainer", "curPageContainer", NULL
-    }) {
-        if (!name) break;
-        add(LBReadIvarObject(readerVC, name));
+        "rPageContainer", "readPageContainer", "curPageContainer",
+    };
+    for (size_t i = 0; i < sizeof(kNames) / sizeof(kNames[0]); i++) {
+        add(LBReadIvarObject(readerVC, kNames[i]));
     }
     id dpv = LBReadIvarObject(readerVC, "_dicPageVC");
     if (!dpv) dpv = LBReadIvarObject(readerVC, "dicPageVC");
@@ -611,6 +611,26 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     id container = LBFindReadPageContainerForReader(reader);
     if (!container) {
         LBStateLog(@"invoke_skip reason=no_container");
+        return;
+    }
+    // 假设 R2：+load 时 ReadPageContainer 可能未链入，此处补注册 native IMP
+    if (!sOrigLoadCurCp) {
+        for (NSString *cn in @[@"ReadPageContainer", @"TextRPageContainer",
+                               NSStringFromClass(object_getClass(container))]) {
+            Class cls = NSClassFromString(cn);
+            if (!cls) continue;
+            Method m = class_getInstanceMethod(cls, @selector(loadCurCp));
+            if (!m) continue;
+            IMP imp = method_getImplementation(m);
+            if (!imp) continue;
+            LBLoadCurCpBridgeRegisterOrig((void (*)(id, SEL))imp);
+            LBStateLog([NSString stringWithFormat:
+                        @"hypothesis_R2 late_register_orig %@ imp=%p", cn, imp]);
+            break;
+        }
+    }
+    if (!sOrigLoadCurCp) {
+        LBStateLog(@"invoke_skip reason=null_orig_after_late_register");
         return;
     }
     LBEnsureContainerReaderLink(container, reader);
