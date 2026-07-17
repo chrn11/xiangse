@@ -3117,17 +3117,20 @@ static void LBHypothesisFProbeAfterOrig(id readerVC, NSString *phase) {
     }
 }
 
-/// 假设 G：pageContainer getter 只观察 swizzle（禁 Bridge 主动调 getter）
+/// 假设 H：pageContainer getter 只观察 swizzle（VC3/VC2/VC1 全挂，不 break）
 typedef id (*LBPageContainerFn)(id, SEL);
-static LBPageContainerFn LBOrig_pageContainer = NULL;
-static int sHypothesisGPageContainerDepth = 0;
+static LBPageContainerFn LBOrig_pageContainer_VC3 = NULL;
+static LBPageContainerFn LBOrig_pageContainer_VC2 = NULL;
+static LBPageContainerFn LBOrig_pageContainer_VC1 = NULL;
+static int sHypothesisHPageContainerDepth = 0;
 
-static id LBHypothesisG_pageContainer_IMP(id self, SEL _cmd) {
-    if (sHypothesisGPageContainerDepth > 0) {
-        if (LBOrig_pageContainer) return LBOrig_pageContainer(self, _cmd);
+static id LBHypothesisH_pageContainer_core(id self, SEL _cmd, const char *hookOwner,
+                                           LBPageContainerFn orig) {
+    if (sHypothesisHPageContainerDepth > 0) {
+        if (orig) return orig(self, _cmd);
         return nil;
     }
-    sHypothesisGPageContainerDepth++;
+    sHypothesisHPageContainerDepth++;
     @try {
         id containerA = LBReadIvarObjectByName(self, "_pageContainerA");
         if (!containerA) containerA = LBReadIvarObjectByName(self, "pageContainerA");
@@ -3135,12 +3138,13 @@ static id LBHypothesisG_pageContainer_IMP(id self, SEL _cmd) {
         NSInteger turnType = [[NSUserDefaults standardUserDefaults] integerForKey:@"tr_turnPageType"];
         uint8_t bbd8 = LBReadByteAtInstanceOffset(self, (ptrdiff_t)0xbd8);
         NSString *clsA = containerA ? NSStringFromClass(object_getClass(containerA)) : @"nil";
+        NSString *clsSelf = NSStringFromClass(object_getClass(self));
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"hypothesis_G enter cat=%lu type=%ld bd8=0x%02x a=%@",
-                                 (unsigned long)cat, (long)turnType, bbd8, clsA]);
+                                 @"hypothesis_H enter cls=%@ hookOwner=%s cat=%lu type=%ld bd8=0x%02x a=%@",
+                                 clsSelf, hookOwner, (unsigned long)cat, (long)turnType, bbd8, clsA]);
         id ret = nil;
-        if (LBOrig_pageContainer) {
-            ret = LBOrig_pageContainer(self, _cmd);
+        if (orig) {
+            ret = orig(self, _cmd);
         }
         NSString *retCls = ret ? NSStringFromClass(object_getClass(ret)) : @"nil";
         NSUInteger childCount = 0;
@@ -3148,38 +3152,59 @@ static id LBHypothesisG_pageContainer_IMP(id self, SEL _cmd) {
             childCount = ((UIViewController *)self).childViewControllers.count;
         }
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"hypothesis_G leave ret=%@ children=%lu",
-                                 retCls, (unsigned long)childCount]);
+                                 @"hypothesis_H leave cls=%@ hookOwner=%s ret=%@ children=%lu",
+                                 clsSelf, hookOwner, retCls, (unsigned long)childCount]);
         return ret;
     } @catch (NSException *ex) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"hypothesis_G leave EX %@",
+                                 @"hypothesis_H leave EX cls=%@ hookOwner=%s %@",
+                                 NSStringFromClass(object_getClass(self)), hookOwner,
                                  ex.reason ?: @""]);
-        if (LBOrig_pageContainer) return LBOrig_pageContainer(self, _cmd);
+        if (orig) return orig(self, _cmd);
         return nil;
     } @finally {
-        sHypothesisGPageContainerDepth--;
+        sHypothesisHPageContainerDepth--;
     }
 }
 
-static void LBInstallHypothesisGPageContainerHook(void) {
+static id LBHypothesisH_pageContainer_VC3(id self, SEL _cmd) {
+    return LBHypothesisH_pageContainer_core(self, _cmd, "TextReadVC3", LBOrig_pageContainer_VC3);
+}
+
+static id LBHypothesisH_pageContainer_VC2(id self, SEL _cmd) {
+    return LBHypothesisH_pageContainer_core(self, _cmd, "TextReadVC2", LBOrig_pageContainer_VC2);
+}
+
+static id LBHypothesisH_pageContainer_VC1(id self, SEL _cmd) {
+    return LBHypothesisH_pageContainer_core(self, _cmd, "TextReadVC1", LBOrig_pageContainer_VC1);
+}
+
+static void LBInstallHypothesisHPageContainerHook(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         SEL sel = @selector(pageContainer);
-        for (NSString *cn in @[@"TextReadVC1", @"TextReadVC2", @"TextReadVC3"]) {
-            Class cls = NSClassFromString(cn);
+        struct {
+            const char *cn;
+            IMP imp;
+            LBPageContainerFn *origSlot;
+        } specs[] = {
+            {"TextReadVC3", (IMP)LBHypothesisH_pageContainer_VC3, &LBOrig_pageContainer_VC3},
+            {"TextReadVC2", (IMP)LBHypothesisH_pageContainer_VC2, &LBOrig_pageContainer_VC2},
+            {"TextReadVC1", (IMP)LBHypothesisH_pageContainer_VC1, &LBOrig_pageContainer_VC1},
+        };
+        for (size_t i = 0; i < sizeof(specs) / sizeof(specs[0]); i++) {
+            Class cls = NSClassFromString([NSString stringWithUTF8String:specs[i].cn]);
             if (!cls) continue;
             Method m = class_getInstanceMethod(cls, sel);
             if (!m) continue;
             IMP cur = method_getImplementation(m);
-            if (cur == (IMP)LBHypothesisG_pageContainer_IMP) continue;
+            if (cur == specs[i].imp) continue;
             IMP orig = LBResolveHookOrigIMP(cls, sel);
-            if (!orig || orig == (IMP)LBHypothesisG_pageContainer_IMP) continue;
-            LBOrig_pageContainer = (LBPageContainerFn)orig;
-            method_setImplementation(m, (IMP)LBHypothesisG_pageContainer_IMP);
+            if (!orig || orig == specs[i].imp) continue;
+            *specs[i].origSlot = (LBPageContainerFn)orig;
+            method_setImplementation(m, specs[i].imp);
             LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"hypothesis_G hooked pageContainer on %@", cn]);
-            break;
+                                     @"hypothesis_H hooked pageContainer on %s", specs[i].cn]);
         }
     });
 }
@@ -6381,7 +6406,7 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
 static void LBInstallSafeTextReadShellHooks(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        LBInstallHypothesisGPageContainerHook();
+        LBInstallHypothesisHPageContainerHook();
         for (NSString *cn in @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1"]) {
             Class cls = NSClassFromString(cn);
             if (!cls) continue;
