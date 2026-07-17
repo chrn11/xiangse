@@ -612,6 +612,52 @@ static BOOL LBReaderIsAttachedToUI(id reader) {
 static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage);
 static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt);
 
+/// 假设 A2：仅 arrCatalog>0 且 reader 已 attached 时调 TextReadVC1#pageContainer getter
+static id LBTriggerNativePageContainerLazyA2(id readerVC) {
+    if (!readerVC) return nil;
+    SEL pcSel = @selector(pageContainer);
+    if (![readerVC respondsToSelector:pcSel]) {
+        LBStateLog(@"hypothesis_A2 pageContainer_unavailable");
+        return nil;
+    }
+    id existing = LBFindReadPageContainerForReader(readerVC);
+    if (existing) {
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_A2 pageContainer_already %@",
+                    NSStringFromClass(object_getClass(existing))]);
+        return existing;
+    }
+    NSUInteger nCat = 0;
+    @try {
+        nCat = LBCountOrZero([readerVC valueForKey:@"arrCatalog"]);
+    } @catch (__unused NSException *e) {}
+    BOOL attached = LBReaderIsAttachedToUI(readerVC);
+    BOOL hasWindow = NO;
+    if ([readerVC isKindOfClass:[UIViewController class]]) {
+        @try {
+            hasWindow = (((UIViewController *)readerVC).viewIfLoaded.window != nil);
+        } @catch (__unused NSException *e) {}
+    }
+    LBStateLog([NSString stringWithFormat:
+                @"hypothesis_A2 pre_lazy cat=%lu attached=%d window=%d",
+                (unsigned long)nCat, attached ? 1 : 0, hasWindow ? 1 : 0]);
+    if (nCat == 0 || !attached) {
+        LBStateLog(@"hypothesis_A2 skip_lazy gates_not_met");
+        return nil;
+    }
+    id created = nil;
+    @try {
+        created = ((id (*)(id, SEL))objc_msgSend)(readerVC, pcSel);
+    } @catch (NSException *ex) {
+        LBStateLog([NSString stringWithFormat:@"hypothesis_A2 pageContainer_EX %@", ex.reason ?: @""]);
+        return nil;
+    }
+    NSString *retCls = created ? NSStringFromClass(object_getClass(created)) : @"nil";
+    LBStateLog([NSString stringWithFormat:@"hypothesis_A2 pageContainer_lazy class=%@", retCls]);
+    if (created && LBObjectIsReadPageContainerLike(created)) return created;
+    return LBFindReadPageContainerForReader(readerVC);
+}
+
 static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     if (!reader) {
         LBStateLog(@"invoke_skip reason=null_reader");
@@ -632,6 +678,9 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     }
 
     id container = LBFindReadPageContainerForReader(reader);
+    if (!container) {
+        container = LBTriggerNativePageContainerLazyA2(reader);
+    }
     if (!container) {
         LBStateLog(@"invoke_skip reason=no_container");
         return;
@@ -731,6 +780,9 @@ static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt) {
         BOOL attached = NO;
         @try {
             container = LBFindReadPageContainerForReader(strong);
+            if (!container) {
+                container = LBTriggerNativePageContainerLazyA2(strong);
+            }
             curPage = LBContainerCurPageVC(container);
             attached = LBReaderIsAttachedToUI(strong);
         } @catch (NSException *ex) {
