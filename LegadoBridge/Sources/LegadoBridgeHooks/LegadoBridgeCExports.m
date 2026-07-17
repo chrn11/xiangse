@@ -6163,17 +6163,17 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
         LBAppendOpenReaderTrace(@"pushNativeFull mode downgraded during loadView");
     }
     id vcRef = vc;
+    void (^postCurCpNow)(void) = ^{
+        if (sPendingResetContent.count == 0) return;
+        id body = sPendingResetContent[@"chapterContent"] ?: sPendingResetContent[@"content"];
+        if (![body isKindOfClass:[NSString class]] || [(NSString *)body length] == 0) return;
+        LBLoadCurCpBridgeOnContentPosted(sPendingResetContent, vcRef);
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"pushNativeFull postCurCp_afterPush sm=%@",
+                                 LBLoadCurCpBridgeStateName()]);
+    };
     void (^afterPush)(void) = ^{
-        // 假设 T：入栈后再投正文 → loadCurCp bridge 才能在 attached 状态下 invoke
-        if (sPendingResetContent.count > 0) {
-            id body = sPendingResetContent[@"chapterContent"] ?: sPendingResetContent[@"content"];
-            if ([body isKindOfClass:[NSString class]] && [(NSString *)body length] > 0) {
-                LBLoadCurCpBridgeOnContentPosted(sPendingResetContent, vcRef);
-                LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                         @"pushNativeFull postCurCp_afterPush sm=%@",
-                                         LBLoadCurCpBridgeStateName()]);
-            }
-        }
+        // postCurCp 已在 push 返回时同步执行；此处只做可见性投递与 settle
         LBDeliverContentToVisibleReaders(@"nativePush0.4");
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
@@ -6195,6 +6195,8 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
                                      NSStringFromClass(cls), NSStringFromClass([nav class])]);
             [nav pushViewController:(UIViewController *)vc animated:YES];
             sLastPushNativeFullTs = CFAbsoluteTimeGetCurrent();
+            // 假设 T：push 返回后立刻投正文（navController 已挂上），勿等 0.4s
+            postCurCpNow();
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), afterPush);
             if (outMsg) {
@@ -7495,15 +7497,26 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
         sameBook = YES;
     }
     if (sNativeOpenChapterDone && sameBook) {
-        if (LBIsTextReaderVisible() || LBNavStackHasTextReader()) {
+        if (LBIsTextReaderVisible() || LBNavStackHasTextReader() || sNativeOpenGoInFlight) {
             LBAppendOpenReaderTrace(@"nativeRead skip chapterDone sameBook");
+            return;
+        }
+        // 距上次 push 过近：动画中不可见，禁止清锁重开（曾双 push → SIGABRT 回桌面）
+        if (sLastPushNativeFullTs > 0 &&
+            (CFAbsoluteTimeGetCurrent() - sLastPushNativeFullTs) < 4.0) {
+            LBAppendOpenReaderTrace(@"nativeRead skip chapterDone recentPush");
             return;
         }
         LBClearNativeOpenOnceState(@"hypothesis_T reopen chapterDone notVisible");
     }
     if (sNativeOpenOnceKey.length > 0 && sameBook) {
-        if (LBIsTextReaderVisible() || LBNavStackHasTextReader()) {
+        if (LBIsTextReaderVisible() || LBNavStackHasTextReader() || sNativeOpenGoInFlight) {
             LBAppendOpenReaderTrace(@"nativeRead skip openOnce sameBook");
+            return;
+        }
+        if (sLastPushNativeFullTs > 0 &&
+            (CFAbsoluteTimeGetCurrent() - sLastPushNativeFullTs) < 4.0) {
+            LBAppendOpenReaderTrace(@"nativeRead skip openOnce recentPush");
             return;
         }
         LBClearNativeOpenOnceState(@"hypothesis_T reopen openOnce notVisible");
@@ -7511,8 +7524,13 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
     NSString *diskKey = LBReadNativeOpenOnceMarker();
     if (diskKey.length > 0 && sameBook) {
         if (sNativeOpenOnceKey.length == 0) sNativeOpenOnceKey = [diskKey copy];
-        if (LBIsTextReaderVisible() || LBNavStackHasTextReader()) {
+        if (LBIsTextReaderVisible() || LBNavStackHasTextReader() || sNativeOpenGoInFlight) {
             LBAppendOpenReaderTrace(@"nativeRead skip openOnce disk sameBook");
+            return;
+        }
+        if (sLastPushNativeFullTs > 0 &&
+            (CFAbsoluteTimeGetCurrent() - sLastPushNativeFullTs) < 4.0) {
+            LBAppendOpenReaderTrace(@"nativeRead skip openOnce disk recentPush");
             return;
         }
         LBClearNativeOpenOnceState(@"hypothesis_T reopen disk notVisible");
