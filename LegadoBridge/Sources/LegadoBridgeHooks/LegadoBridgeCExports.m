@@ -6592,7 +6592,7 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
         LBAppendOpenReaderTrace(@"division_kick_sync queryFinish_skip emptyShell");
     }
 
-    // 1) divisionText → divisionResponse（raw Attr 页，禁 wrapRPM / 禁显式 onFinish）
+    // 1) divisionText → divisionResponse（假设 N：wrapRPM 后 pages，禁 raw Attr / 禁显式 onFinish）
     if (!chainOk) {
         id paiban = nil;
         @try { paiban = [readerVC valueForKey:@"tr_paibanInfo"]; } @catch (__unused NSException *e) {}
@@ -6627,9 +6627,15 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
             LBAppendOpenReaderTrace(@"division_kick_sync divisionText_MISS");
         }
         if (pageResult) {
-            id divisionTextRaw = pageResult;
-            NSArray *flatAttrPages = LBFlattenDivisionPages(pageResult);
-            id drPages = flatAttrPages.count > 0 ? flatAttrPages : divisionTextRaw;
+            id drPages = LBNormalizePageResultForDivision(pageResult, okPaths, tvSize);
+            if (!drPages) drPages = pageResult;
+            NSString *drArg0Cls = drPages ? NSStringFromClass([drPages class]) : @"-";
+            if ([drPages isKindOfClass:[NSArray class]] && [(NSArray *)drPages count] > 0) {
+                drArg0Cls = NSStringFromClass([[drPages firstObject] class]);
+            }
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"division_kick_sync DR_arg0 class=%@ enc=v40@0:8@16@24q32",
+                                     drArg0Cls]);
             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                      @"division_kick_sync DR_arg=%@",
                                      LBDescribeOnFinishArg(drPages)]);
