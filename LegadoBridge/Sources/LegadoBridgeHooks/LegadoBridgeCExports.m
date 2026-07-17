@@ -3056,7 +3056,9 @@ static void LBHypothesisFProbeAfterOrig(id readerVC, NSString *phase) {
 
     id found = nil;
     NSString *foundVia = nil;
-    NSInteger bestPrio = 99;
+    __block NSInteger bestPrio = 99;
+    __block id blockFound = nil;
+    __block NSString *blockFoundVia = nil;
     void (^consider)(id, NSString *) = ^(id obj, NSString *via) {
         if (!obj) return;
         NSString *cls = NSStringFromClass(object_getClass(obj));
@@ -3064,8 +3066,8 @@ static void LBHypothesisFProbeAfterOrig(id readerVC, NSString *phase) {
         NSInteger p = LBHypothesisFContainerPriority(cls);
         if (p < bestPrio) {
             bestPrio = p;
-            found = obj;
-            foundVia = via;
+            blockFound = obj;
+            blockFoundVia = via;
         }
     };
     for (size_t i = 0; i < sizeof(kIvarNames) / sizeof(kIvarNames[0]); i++) {
@@ -3100,6 +3102,9 @@ static void LBHypothesisFProbeAfterOrig(id readerVC, NSString *phase) {
             idx++;
         }
     }
+
+    found = blockFound;
+    foundVia = blockFoundVia;
 
     if (found) {
         NSString *foundCls = NSStringFromClass(object_getClass(found));
