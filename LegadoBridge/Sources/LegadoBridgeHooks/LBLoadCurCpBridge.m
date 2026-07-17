@@ -608,19 +608,9 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     }
 
     if (sPendingPayload) {
+        // 假设 R2：invoke 前禁用重 seed 的 setDicContents/setCpCached（同步 seed 已证实回桌面）
         LBEnsureLoadCurCpPrereqs(reader, container, sPendingPayload);
-    }
-
-    // 就绪后再 seed 一次，确保 dicContents/bookDir 落在最终 container
-    if (sPendingPayload) {
-        NSMutableArray *paths = [NSMutableArray array];
-        if (LBSeedConfirmedCache(reader, sPendingPayload, paths)) {
-            LBStateLog([NSString stringWithFormat:@"hypothesis_P reseed %@",
-                        [paths componentsJoinedByString:@","]]);
-        }
-        // 假设 R：reseed 后再写一次 index，并打 post_seed gates
-        LBEnsureLoadCurCpPrereqs(reader, container, sPendingPayload);
-        LBLogLoadCurCpGates(reader, container, @"post_seed");
+        LBLogLoadCurCpGates(reader, container, @"pre_invoke_no_reseed");
     } else {
         LBLogLoadCurCpGates(reader, container, @"no_payload");
     }
@@ -688,29 +678,35 @@ static void LBTryContentReadyAndInvoke(id reader, NSDictionary *payload) {
     sWeakReader = reader;
     LBSetState(LBLoadCurCpStateContentReady, @"contentReady");
 
-    NSMutableArray *paths = [NSMutableArray array];
-    if (!LBSeedConfirmedCache(reader, payload, paths)) {
-        LBSetState(LBLoadCurCpStateFailed, @"cache_seed_failed");
-        return;
+    // 假设 R2：同步 seed（setDicContents/setCpCached）在 contentReady 后立刻回桌面。
+    // 先只写 xsfolder 文件，再延后 invoke；完整 seed 放到 invoke 前轻量路径。
+    LBStateLog(@"hypothesis_R2 skip_sync_seed schedule_invoke");
+    @try {
+        NSString *body = LBBodyFromPayload(payload);
+        NSDictionary *dicBook = nil;
+        @try {
+            id d = [reader valueForKey:@"dicBook"];
+            if ([d isKindOfClass:[NSDictionary class]]) dicBook = d;
+        } @catch (__unused NSException *e) {}
+        NSString *bookKey = [dicBook[@"bookKey"] isKindOfClass:[NSString class]]
+            ? dicBook[@"bookKey"] : @"legado|bridge";
+        NSInteger cpIndex = LBCpIndexFromPayload(payload, reader);
+        NSString *bookDir = [NSHomeDirectory() stringByAppendingPathComponent:
+                             [NSString stringWithFormat:@"Documents/xsfolder/book/%@", bookKey]];
+        [[NSFileManager defaultManager] createDirectoryAtPath:bookDir
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil
+                                                        error:NULL];
+        NSString *cpPath = [bookDir stringByAppendingPathComponent:
+                            [NSString stringWithFormat:@"%ld", (long)cpIndex]];
+        [body writeToFile:cpPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        LBStateLog([NSString stringWithFormat:@"hypothesis_R2 xsfolder_only ok idx=%ld",
+                    (long)cpIndex]);
+    } @catch (NSException *ex) {
+        LBStateLog([NSString stringWithFormat:@"hypothesis_R2 xsfolder_only EX %@",
+                    ex.reason ?: @""]);
     }
-    LBStateLog([NSString stringWithFormat:@"cache_seeded %@", [paths componentsJoinedByString:@","]]);
-
-    // 假设 R2：seed 后若无 container（viewDidLoad 未建页），禁止同步 invoke，避免回桌面
-    id containerProbe = LBFindReadPageContainerForReader(reader);
-    if (!containerProbe) {
-        LBStateLog(@"hypothesis_R2 contentReady_no_container defer_invoke");
-        LBScheduleInvokeWhenPageReady(reader, 0);
-        return;
-    }
-
-    void (^go)(void) = ^{
-        LBInvokeOriginalLoadCurCp(reader, NO);
-    };
-    if (![NSThread isMainThread]) {
-        dispatch_async(dispatch_get_main_queue(), go);
-    } else {
-        go();
-    }
+    LBScheduleInvokeWhenPageReady(reader, 0);
 }
 
 BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,

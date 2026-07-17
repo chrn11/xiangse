@@ -100,6 +100,7 @@ def main() -> int:
     delayed_done = "hypothesis_R2 delayed_postCurCp_done" in blob
     invoke = "invoke_orig_OK" in blob
     heartbeat_1s = "hypothesis_R2 heartbeat_1.00s" in blob
+    skip_seed = "hypothesis_R2 skip_sync_seed" in blob
     register_count = blob.count("register_orig")
     springboard = any(t in texts for t in ("日历", "钱包", "设置"))
     bookshelf = "书架" in texts
@@ -127,8 +128,10 @@ def main() -> int:
             if "hypothesis_R2 heartbeat_" in ln:
                 last_hb = ln
         verdict, reason = "FAIL_REVERT_R2", f"1s 延迟未到（中途重启） last_hb={last_hb[-60:]}"
-    elif springboard and not invoke:
-        verdict, reason = "FAIL_REVERT_R2", "delayed_begin 后 invoke 前回桌面"
+    elif springboard and not invoke and not skip_seed:
+        verdict, reason = "FAIL_REVERT_R2", "delayed_begin 后 seed/invoke 前回桌面"
+    elif springboard and skip_seed and not invoke:
+        verdict, reason = "FAIL_REVERT_R2", "skip_seed 后仍回桌面（或 defer_invoke 杀进程）"
     elif not invoke:
         verdict, reason = "FAIL_NEED_NEXT", "delayed_postCurCp 无 invoke"
     elif springboard:
@@ -149,6 +152,7 @@ def main() -> int:
         "onreset_skip": onreset_skip,
         "vdl_skip": vdl_skip,
         "heartbeat_1s": heartbeat_1s,
+        "skip_seed": skip_seed,
         "delayed_begin": delayed_begin,
         "delayed_done": delayed_done,
         "invoke": invoke,
