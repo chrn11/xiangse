@@ -5946,14 +5946,9 @@ static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
-        // 假设 R2：必须调 UIViewController super，否则 UIKit 不发 didAppear。
-        // 禁止 TextRead ORIG；postCurCp 已推迟到 didAppear（勿在 push 后同步 invoke）。
-        LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
-        LBSeedTextReadAppearFields(self, sPendingNativeFullBook);
-        LBAppendOpenReaderTrace(@"hypothesis_R2 willAppear UIViewController_super_only");
-        struct objc_super sup = { self, [UIViewController class] };
-        ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
-        LBAppendOpenReaderTrace(@"hypothesis_R2 willAppear_super_OK");
+        // 假设 R2：UIViewController super 也会在日志后重启（无 invoke 时仍复现）。
+        // willAppear 空返回；postCurCp 由 push 后 delay 触发（不依赖 didAppear）。
+        LBAppendOpenReaderTrace(@"hypothesis_R2 willAppear noop (no super/ORIG)");
         return;
     }
     if (LBOrig_TR_viewWillAppear) LBOrig_TR_viewWillAppear(self, _cmd, animated);
@@ -5986,21 +5981,7 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
-        // 假设 R2：UIViewController super + 在此投 postCurCp（push 后已 defer）
-        LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
-        LBSeedTextReadAppearFields(self, sPendingNativeFullBook);
-        LBAppendOpenReaderTrace(@"hypothesis_R2 didAppear UIViewController_super_then_postCurCp");
-        struct objc_super sup = { self, [UIViewController class] };
-        ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
-        if (sPendingResetContent.count > 0) {
-            LBLoadCurCpBridgeOnContentPosted(sPendingResetContent, self);
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"hypothesis_R2 didAppear_postCurCp sm=%@",
-                                     LBLoadCurCpBridgeStateName()]);
-        }
-        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"hypothesis_R2 didAppear_seed_OK sm=%@",
-                                 LBLoadCurCpBridgeStateName()]);
+        LBAppendOpenReaderTrace(@"hypothesis_R2 didAppear noop (postCurCp via delay)");
         return;
     }
     if (LBOrig_TR_viewDidAppear) LBOrig_TR_viewDidAppear(self, _cmd, animated);
@@ -6164,9 +6145,20 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
                                      NSStringFromClass(cls), NSStringFromClass([nav class])]);
             [nav pushViewController:(UIViewController *)vc animated:YES];
             sLastPushNativeFullTs = CFAbsoluteTimeGetCurrent();
-            // 假设 R2：禁止 push 后同步 postCurCp。
-            // 真机：invoke 后 willAppear 旁路仍 ~2s 重启；改为 didAppear 再投正文。
-            LBAppendOpenReaderTrace(@"hypothesis_R2 defer_postCurCp_until_didAppear");
+            // 假设 R2：appear 链不调 super/ORIG；1.0s 后再 postCurCp，避开 push 动画窗口
+            LBAppendOpenReaderTrace(@"hypothesis_R2 defer_postCurCp_delay_1s");
+            id vcHold = vc;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                if (sPendingResetContent.count == 0) return;
+                id body = sPendingResetContent[@"chapterContent"] ?: sPendingResetContent[@"content"];
+                if (![body isKindOfClass:[NSString class]] || [(NSString *)body length] == 0) return;
+                LBAppendOpenReaderTrace(@"hypothesis_R2 delayed_postCurCp_begin");
+                LBLoadCurCpBridgeOnContentPosted(sPendingResetContent, vcHold);
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"hypothesis_R2 delayed_postCurCp_done sm=%@",
+                                         LBLoadCurCpBridgeStateName()]);
+            });
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), afterPush);
             if (outMsg) {
@@ -6197,10 +6189,21 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
         wrap.modalPresentationStyle = UIModalPresentationFullScreen;
         LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen presentingNative %@ on %@",
                                  NSStringFromClass(cls), NSStringFromClass([host class])]);
-        // 假设 R2：present 路径同样推迟 postCurCp 到 didAppear
-        LBAppendOpenReaderTrace(@"hypothesis_R2 defer_postCurCp_until_didAppear present");
+        LBAppendOpenReaderTrace(@"hypothesis_R2 defer_postCurCp_delay_1s present");
         sLastPushNativeFullTs = CFAbsoluteTimeGetCurrent();
+        id vcHold = vc;
         [host presentViewController:wrap animated:YES completion:^{
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                if (sPendingResetContent.count == 0) return;
+                id body = sPendingResetContent[@"chapterContent"] ?: sPendingResetContent[@"content"];
+                if (![body isKindOfClass:[NSString class]] || [(NSString *)body length] == 0) return;
+                LBAppendOpenReaderTrace(@"hypothesis_R2 delayed_postCurCp_begin");
+                LBLoadCurCpBridgeOnContentPosted(sPendingResetContent, vcHold);
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"hypothesis_R2 delayed_postCurCp_done sm=%@",
+                                         LBLoadCurCpBridgeStateName()]);
+            });
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), afterPush);
         }];
