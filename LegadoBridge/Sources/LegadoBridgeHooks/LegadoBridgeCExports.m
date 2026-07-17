@@ -712,10 +712,9 @@ static void LBAppendOpenReaderTrace(NSString *msg);
 static void LBSeedTurnPageTypeScrollBranch(void);
 static void LBLogHypothesisB2ContainerProbe(id readerVC, NSString *phase);
 typedef void (*LBOnResetNoArgFn)(id, SEL);
-static BOOL LBHypothesisDReaderAppeared(UIViewController *vc);
-static void LBHypothesisDFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn origNoArg,
+static void LBHypothesisCFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn origNoArg,
                                           NSString *fireTag);
-static void LBHypothesisDScheduleOnResetNoArg(UIViewController *vc, SEL sel,
+static void LBHypothesisCScheduleOnResetNoArg(UIViewController *vc, SEL sel,
                                               LBOnResetNoArgFn origNoArg, int attempt,
                                               void (^onDone)(void));
 static BOOL LBNativeOpenGateBlocked(NSString **outReason);
@@ -3005,39 +3004,10 @@ static void LBSeedTurnPageTypeScrollBranch(void) {
                              (long)v, (long)was, CFAbsoluteTimeGetCurrent()]);
 }
 
-/// 假设 D：父 VC / 自身 view 已 appear（不调 pageContainer getter）
-static BOOL LBHypothesisDReaderAppeared(UIViewController *vc) {
-    if (!vc || !vc.isViewLoaded) return NO;
-    if (vc.viewIfLoaded.window) return YES;
-    for (UIViewController *p = vc.parentViewController; p; p = p.parentViewController) {
-        if (p.isViewLoaded && p.viewIfLoaded.window) return YES;
-    }
-    return NO;
-}
-
-/// 假设 D：catalog+window 就绪后再调无参 onReset ORIG（arrCatalog==0 时 pageContainer 早退 nil）
-static void LBHypothesisDFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn origNoArg,
+/// 假设 C：window 就绪后再调无参 onReset ORIG（避免 addChildViewController: 父层级未就绪杀进程）
+static void LBHypothesisCFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn origNoArg,
                                           NSString *fireTag) {
     if (!selfObj || !origNoArg) return;
-    UIViewController *vc = (UIViewController *)selfObj;
-    NSUInteger cat = LBReadArrayCount(selfObj, @"arrCatalog");
-    BOOL hasWindow = (vc.viewIfLoaded.window != nil);
-    BOOL appeared = LBHypothesisDReaderAppeared(vc);
-    LBAppendOpenReaderTrace([NSString stringWithFormat:
-                             @"hypothesis_D pre_fire cat=%lu window=%d appeared=%d",
-                             (unsigned long)cat, hasWindow ? 1 : 0, appeared ? 1 : 0]);
-    if (cat == 0) {
-        LBAppendOpenReaderTrace(@"hypothesis_D defer_onReset reason=no_catalog");
-        return;
-    }
-    if (!hasWindow) {
-        LBAppendOpenReaderTrace(@"hypothesis_C defer_onReset reason=no_window");
-        return;
-    }
-    if (!vc.isViewLoaded) {
-        LBAppendOpenReaderTrace(@"hypothesis_D defer_onReset reason=view_not_loaded");
-        return;
-    }
     LBSeedTurnPageTypeScrollBranch();
     LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_noArg_before_ORIG");
     LBAppendOpenReaderTrace([NSString stringWithFormat:@"hypothesis_C fire_onReset %@",
@@ -3045,10 +3015,6 @@ static void LBHypothesisDFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn 
     @try {
         origNoArg(selfObj, sel);
         LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_noArg_after_ORIG");
-        id containerA = LBReadIvarObjectByName(selfObj, "_pageContainerA");
-        NSString *clsA = containerA ? NSStringFromClass(object_getClass(containerA)) : @"nil";
-        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"hypothesis_D after_ORIG pageContainerA=%@", clsA]);
         LBAppendOpenReaderTrace(@"hypothesis_C onReset noArg ORIG_OK");
     } @catch (NSException *ex) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
@@ -3057,7 +3023,7 @@ static void LBHypothesisDFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn 
     }
 }
 
-static void LBHypothesisDScheduleOnResetNoArg(UIViewController *vc, SEL sel,
+static void LBHypothesisCScheduleOnResetNoArg(UIViewController *vc, SEL sel,
                                               LBOnResetNoArgFn origNoArg, int attempt,
                                               void (^onDone)(void)) {
     static const int kMaxAttempts = 25;
@@ -3071,29 +3037,15 @@ static void LBHypothesisDScheduleOnResetNoArg(UIViewController *vc, SEL sel,
             if (onDone) onDone();
             return;
         }
-        NSUInteger cat = LBReadArrayCount(strongVC, @"arrCatalog");
-        BOOL hasWindow = (strongVC.viewIfLoaded.window != nil);
-        BOOL appeared = LBHypothesisDReaderAppeared(strongVC);
-        if (cat >= 1 && hasWindow && strongVC.isViewLoaded) {
-            LBHypothesisDFireOnResetNoArg(strongVC, sel, origNoArg, @"ready");
+        if (strongVC.viewIfLoaded.window) {
+            LBHypothesisCFireOnResetNoArg(strongVC, sel, origNoArg, @"window=1");
             if (onDone) onDone();
             return;
         }
         if (attempt + 1 < kMaxAttempts) {
-            if (cat == 0) {
-                LBAppendOpenReaderTrace(@"hypothesis_D defer_onReset reason=no_catalog");
-            } else if (!hasWindow) {
-                LBAppendOpenReaderTrace(@"hypothesis_C defer_onReset reason=no_window");
-            } else if (!strongVC.isViewLoaded) {
-                LBAppendOpenReaderTrace(@"hypothesis_D defer_onReset reason=view_not_loaded");
-            }
-            LBHypothesisDScheduleOnResetNoArg(strongVC, sel, origNoArg, attempt + 1, onDone);
+            LBHypothesisCScheduleOnResetNoArg(strongVC, sel, origNoArg, attempt + 1, onDone);
         } else {
-            if (cat == 0) {
-                LBAppendOpenReaderTrace(@"hypothesis_D defer_onReset exhausted reason=no_catalog");
-            } else {
-                LBAppendOpenReaderTrace(@"hypothesis_C defer_onReset exhausted reason=no_window");
-            }
+            LBAppendOpenReaderTrace(@"hypothesis_C defer_onReset exhausted reason=no_window");
             if (onDone) onDone();
         }
     });
@@ -5770,24 +5722,16 @@ static void LBInstallNativeResetContentHook(void) {
                                                  @"onReset noArg enter cls=%@ mode=%d pending=%d",
                                                  NSStringFromClass([selfObj class]),
                                                  sLegadoReaderMode, hasPending ? 1 : 0]);
-                        // 假设 D：B2 seed + catalog/window 就绪后再调无参 ORIG
+                        // 假设 C：预置滚动支路 + window 就绪后再调无参 ORIG
                         if (sLegadoReaderMode == 1) {
                             UIViewController *vc = (UIViewController *)selfObj;
-                            NSUInteger cat = LBReadArrayCount(selfObj, @"arrCatalog");
-                            BOOL hasWindow = (vc.viewIfLoaded.window != nil);
-                            if (cat >= 1 && hasWindow && vc.isViewLoaded) {
-                                LBHypothesisDFireOnResetNoArg(selfObj, sel, origNoArg, @"immediate");
+                            if (vc.viewIfLoaded.window) {
+                                LBHypothesisCFireOnResetNoArg(selfObj, sel, origNoArg, @"immediate");
                                 sOnResetNoArgBusy = NO;
                                 return;
                             }
-                            if (cat == 0) {
-                                LBAppendOpenReaderTrace(@"hypothesis_D defer_onReset reason=no_catalog");
-                            } else if (!hasWindow) {
-                                LBAppendOpenReaderTrace(@"hypothesis_C defer_onReset reason=no_window");
-                            } else {
-                                LBAppendOpenReaderTrace(@"hypothesis_D defer_onReset reason=view_not_loaded");
-                            }
-                            LBHypothesisDScheduleOnResetNoArg(vc, sel, origNoArg, 0, ^{
+                            LBAppendOpenReaderTrace(@"hypothesis_C defer_onReset reason=no_window");
+                            LBHypothesisCScheduleOnResetNoArg(vc, sel, origNoArg, 0, ^{
                                 sOnResetNoArgBusy = NO;
                             });
                             return;
