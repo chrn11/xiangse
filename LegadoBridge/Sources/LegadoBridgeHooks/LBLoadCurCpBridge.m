@@ -14,6 +14,7 @@ static NSInteger sCpIndex = 0;
 static NSUInteger sInvokeCount = 0;
 static NSDictionary *sPendingPayload = nil;
 static __weak id sWeakReader = nil;
+static __weak id sWeakHookReceiver = nil;
 static BOOL sReentryGuard = NO;
 static const void *kLBAssocFoundContainerKey = &kLBAssocFoundContainerKey;
 
@@ -252,6 +253,41 @@ static id LBFindReadPageContainerForReader(id readerVC) {
                     NSStringFromClass(object_getClass(best))]);
     }
     return best;
+}
+
+/// 路 B：解析 loadCurCp 的 receiver（优先 hook 捕获的 container，再 ivar pageContainerA）
+static id LBRouteBResolveContainer(id reader) {
+    id container = nil;
+    if (sWeakHookReceiver && LBObjectIsHypothesisFContainerLike(sWeakHookReceiver)) {
+        container = sWeakHookReceiver;
+        LBStateLog([NSString stringWithFormat:@"routeB_resolve hit hookReceiver %@",
+                    NSStringFromClass(object_getClass(container))]);
+        return container;
+    }
+    container = LBFindReadPageContainerForReader(reader);
+    if (container) {
+        LBStateLog([NSString stringWithFormat:@"routeB_resolve hit find %@",
+                    NSStringFromClass(object_getClass(container))]);
+        return container;
+    }
+    if (reader) {
+        static const char *kPageContainerIvars[] = {
+            "_pageContainerA", "pageContainerA", "_pageContainer", "pageContainer",
+            "_pageContainerB", "pageContainerB",
+        };
+        for (size_t i = 0; i < sizeof(kPageContainerIvars) / sizeof(kPageContainerIvars[0]); i++) {
+            id v = LBReadIvarObject(reader, kPageContainerIvars[i]);
+            if (v && LBObjectIsHypothesisFContainerLike(v)) {
+                LBStateLog([NSString stringWithFormat:
+                            @"routeB_resolve hit ivar %s -> %@",
+                            kPageContainerIvars[i],
+                            NSStringFromClass(object_getClass(v))]);
+                return v;
+            }
+        }
+    }
+    LBStateLog(@"routeB_resolve miss");
+    return nil;
 }
 
 static id LBReaderVCFromContext(id obj) {
@@ -656,7 +692,7 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
         return;
     }
 
-    id container = LBFindReadPageContainerForReader(reader);
+    id container = LBRouteBResolveContainer(reader);
     if (!container) {
         LBStateLog(@"invoke_skip reason=no_container");
         return;
@@ -694,24 +730,26 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
                 attached ? 1 : 0,
                 pageStatus ?: @"nil",
                 forceWithoutCurPage ? 1 : 0]);
-    if ((!curPage || !attached) && !forceWithoutCurPage) {
+    if (!attached && !forceWithoutCurPage) {
         LBStateLog([NSString stringWithFormat:
-                    @"hypothesis_T defer_invoke curPage=%d attached=%d",
-                    curPage ? 1 : 0, attached ? 1 : 0]);
+                    @"routeB defer_invoke attached=0 container=%@",
+                    containerName]);
         LBScheduleInvokeWhenPageReady(reader, 0);
         return;
     }
 
     if (sPendingPayload) {
-        // 假设 R2：先只打 gates，跳过 EnsurePrereqs（pageModel 写入可能杀进程）
-        LBLogLoadCurCpGates(reader, container, @"pre_invoke_no_prereq");
+        NSMutableArray *paths = [NSMutableArray array];
+        LBSeedConfirmedCache(reader, sPendingPayload, paths);
+        LBEnsureLoadCurCpPrereqs(reader, container, sPendingPayload);
+        LBLogLoadCurCpGates(reader, container, @"pre_invoke_routeB");
     } else {
         LBLogLoadCurCpGates(reader, container, @"no_payload");
     }
 
     sReentryGuard = YES;
     sInvokeCount++;
-    LBSetState(LBLoadCurCpStateInvokingOriginal, @"invoke_orig_begin");
+    LBSetState(LBLoadCurCpStateInvokingOriginal, @"routeB_invoke_begin");
     LBTraceLoadCurCp([NSString stringWithFormat:
                       @"sm=invokingOriginal ch=%@ target=%@ orig=%p",
                       sChapterUrl ?: @"-", containerName, sOrigLoadCurCp]);
@@ -736,9 +774,9 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
 }
 
 static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt) {
-    if (attempt >= 20) {
-        LBStateLog(@"hypothesis_T defer_giveup force_invoke attached/curPage timeout");
-        LBInvokeOriginalLoadCurCp(reader, YES);
+    if (attempt >= 30) {
+        LBStateLog(@"routeB wait_container_timeout");
+        LBSetState(LBLoadCurCpStateFailed, @"routeB_wait_container_timeout");
         return;
     }
     __weak id weakReader = reader;
@@ -755,7 +793,7 @@ static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt) {
         id curPage = nil;
         BOOL attached = NO;
         @try {
-            container = LBFindReadPageContainerForReader(strong);
+            container = LBRouteBResolveContainer(strong);
             curPage = LBContainerCurPageVC(container);
             attached = LBReaderIsAttachedToUI(strong);
         } @catch (NSException *ex) {
@@ -765,17 +803,16 @@ static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt) {
             return;
         }
         LBStateLog([NSString stringWithFormat:
-                    @"hypothesis_T defer_tick attempt=%ld curPageVC=%@ attached=%d children=%lu",
+                    @"routeB defer_tick attempt=%ld container=%@ curPageVC=%@ attached=%d",
                     (long)attempt,
+                    container ? NSStringFromClass(object_getClass(container)) : @"nil",
                     curPage ? NSStringFromClass(object_getClass(curPage)) : @"nil",
-                    attached ? 1 : 0,
-                    (unsigned long)([strong isKindOfClass:[UIViewController class]]
-                        ? ((UIViewController *)strong).childViewControllers.count : 0)]);
-        if (curPage && attached) {
+                    attached ? 1 : 0]);
+        if (container && attached) {
             LBInvokeOriginalLoadCurCp(strong, NO);
-        } else if (attached && container && attempt >= 8) {
-            // 有 container 无 curPage：强制试一次
-            LBInvokeOriginalLoadCurCp(strong, YES);
+        } else if (attached && attempt >= 12) {
+            LBStateLog(@"routeB defer_giveup attached_no_container");
+            LBSetState(LBLoadCurCpStateFailed, @"routeB_no_container");
         } else {
             LBScheduleInvokeWhenPageReady(strong, attempt + 1);
         }
@@ -792,36 +829,21 @@ static void LBTryContentReadyAndInvoke(id reader, NSDictionary *payload) {
     sWeakReader = reader;
     LBSetState(LBLoadCurCpStateContentReady, @"contentReady");
 
-    // 假设 R2：同步 seed（setDicContents/setCpCached）在 contentReady 后立刻回桌面。
-    // 先只写 xsfolder 文件，再延后 invoke；完整 seed 放到 invoke 前轻量路径。
-    LBStateLog(@"hypothesis_R2 skip_sync_seed schedule_invoke");
-    @try {
-        NSString *body = LBBodyFromPayload(payload);
-        NSDictionary *dicBook = nil;
-        @try {
-            id d = [reader valueForKey:@"dicBook"];
-            if ([d isKindOfClass:[NSDictionary class]]) dicBook = d;
-        } @catch (__unused NSException *e) {}
-        NSString *bookKey = [dicBook[@"bookKey"] isKindOfClass:[NSString class]]
-            ? dicBook[@"bookKey"] : @"legado|bridge";
-        NSInteger cpIndex = LBCpIndexFromPayload(payload, reader);
-        NSString *bookDir = [NSHomeDirectory() stringByAppendingPathComponent:
-                             [NSString stringWithFormat:@"Documents/xsfolder/book/%@", bookKey]];
-        [[NSFileManager defaultManager] createDirectoryAtPath:bookDir
-                                  withIntermediateDirectories:YES
-                                                   attributes:nil
-                                                        error:NULL];
-        NSString *cpPath = [bookDir stringByAppendingPathComponent:
-                            [NSString stringWithFormat:@"%ld", (long)cpIndex]];
-        [body writeToFile:cpPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        LBStateLog([NSString stringWithFormat:@"hypothesis_R2 xsfolder_only ok idx=%ld",
-                    (long)cpIndex]);
-    } @catch (NSException *ex) {
-        LBStateLog([NSString stringWithFormat:@"hypothesis_R2 xsfolder_only EX %@",
-                    ex.reason ?: @""]);
+    NSMutableArray *paths = [NSMutableArray array];
+    LBSeedConfirmedCache(reader, payload, paths);
+    LBStateLog([NSString stringWithFormat:@"routeB seed_cache paths=%@",
+                [paths componentsJoinedByString:@","] ?: @"-"]);
+
+    id container = LBRouteBResolveContainer(reader);
+    if (container) {
+        LBEnsureLoadCurCpPrereqs(reader, container, payload);
+        LBStateLog(@"routeB_container_hit immediate");
+        if (LBReaderIsAttachedToUI(reader)) {
+            LBInvokeOriginalLoadCurCp(reader, NO);
+            return;
+        }
     }
-    // hold 已证实存活；恢复 schedule。FindContainer 改为仅 childVC（禁 KVC）。
-    LBStateLog(@"hypothesis_R2 resume_schedule_invoke");
+    LBStateLog(@"routeB schedule_wait_container");
     LBScheduleInvokeWhenPageReady(reader, 0);
 }
 
@@ -831,6 +853,10 @@ BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,
                                  NSString *sourceUrl,
                                  NSString *chapterUrl) {
     if (!isLegado) return NO;
+
+    if (self) {
+        sWeakHookReceiver = self;
+    }
 
     if (LBLoadCurCpBridgePassThroughToNative()) {
         LBStateLog(@"hook_passthrough_native");
@@ -851,7 +877,12 @@ BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,
 
     if (sPendingPayload && LBBodyFromPayload(sPendingPayload).length > 0 &&
         sState != LBLoadCurCpStateFetching) {
-        // 假设 T5：loadViewIfNeeded 内 hook 只拦截原生 loadCurCp，不在 push 前 invoke
+        // 路 B：contentReady 后放行原生 loadCurCp，由原版走完 queryCpFile→division
+        if (sState == LBLoadCurCpStateContentReady ||
+            sState == LBLoadCurCpStateInvokingOriginal) {
+            LBStateLog(@"routeB hook_passthrough_native_loadCurCp");
+            return NO;
+        }
         LBStateLog(@"hypothesis_T5 hook_block_early_invoke await_postCurCp");
         return YES;
     }
