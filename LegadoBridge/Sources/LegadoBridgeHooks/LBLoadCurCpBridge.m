@@ -1,6 +1,7 @@
 #import "LBLoadCurCpBridge.h"
 #import "LBInternal.h"
 #import <objc/message.h>
+#import <objc/runtime.h>
 #import <dlfcn.h>
 
 static void (*sOrigLoadCurCp)(id, SEL) = NULL;
@@ -448,6 +449,11 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
         LBSetIntegerKey(tgt, @"curCpIndex", cpIndex);
         LBSetIntegerKey(tgt, @"nCpIndex", cpIndex);
     }
+    // 假设 S：pageStatus 在 ReadPageModel；未初始化可能导致 loadCurCp 早退
+    if (pageModel) {
+        LBSetIntegerKey(pageModel, @"pageStatus", 0);
+        LBStateLog(@"hypothesis_S set pageStatus=0 on pageModel");
+    }
 
     id cat = nil;
     @try { cat = [reader valueForKey:@"arrCatalog"]; } @catch (__unused NSException *e) {}
@@ -505,14 +511,17 @@ static void LBLogLoadCurCpGates(id reader, id container, NSString *tag) {
         @try { pageModel = [curPage valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
     }
     if (pageModel) nCp = LBReadIntegerKey(pageModel, @"nCpIndex", -999);
+    NSInteger pageStatus = -999;
+    if (pageModel) pageStatus = LBReadIntegerKey(pageModel, @"pageStatus", -999);
+    else if (container) pageStatus = LBReadIntegerKey(container, @"pageStatus", -999);
 
     LBStateLog([NSString stringWithFormat:
                 @"hypothesis_R gates(%@) arrCatalog=%lu dicContents=%lu dicContents@c=%lu "
-                @"bookKeyLen=%lu bookDirLen=%lu curCp@r=%ld curCp@c=%ld nCp@pm=%ld",
+                @"bookKeyLen=%lu bookDirLen=%lu curCp@r=%ld curCp@c=%ld nCp@pm=%ld pageStatus=%ld",
                 tag ?: @"-",
                 (unsigned long)nCat, (unsigned long)nDc, (unsigned long)nDcC,
                 (unsigned long)bookKey.length, (unsigned long)bookDir.length,
-                (long)curR, (long)curC, (long)nCp]);
+                (long)curR, (long)curC, (long)nCp, (long)pageStatus]);
 }
 
 static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage);

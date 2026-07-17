@@ -653,7 +653,10 @@ static IMP LBFHookIMPForSelector(NSString *selName) {
         [selName isEqualToString:@"refreshView"]) {
         return (IMP)LBFHook_v_at;
     }
-    if ([selName isEqualToString:@"viewWillAppear:"]) return (IMP)LBFHook_v_at_B;
+    if ([selName isEqualToString:@"viewWillAppear:"] ||
+        [selName isEqualToString:@"resetLoadCpTip:"]) {
+        return (IMP)LBFHook_v_at_B;
+    }
     if ([selName isEqualToString:@"onResetContentNotify:"] || [selName isEqualToString:@"onResetContent:"] ||
         [selName isEqualToString:@"resetContentNotify:"] || [selName isEqualToString:@"handleResetContent:"] ||
         [selName isEqualToString:@"showContent:"] || [selName isEqualToString:@"setPageModel:"]) {
@@ -687,6 +690,7 @@ static NSArray<NSString *> *LBFObserverSelectors(void) {
         @"divisionResponse:cpTitle:cpIndex:", @"divisionResponse:cpTitle:cpIndex:heights:",
         @"onDivisionTextFinish:cpIndex:",
         @"lpNetWorkDelegateQueryFinish:config:userInfo:",
+        @"resetLoadCpTip:",
         @"drawRect:", @"resetContentPosByScreenSize:",
         @"showContent:", @"showContent:title:", @"setPageModel:",
         @"reloadContent", @"reloadView", @"refreshView",
