@@ -6148,15 +6148,8 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
                                  @"pushNativeFull loadViewIfNeeded done mode=%d loaded=%d",
                                  sLegadoReaderMode,
                                  ((UIViewController *)vc).isViewLoaded ? 1 : 0]);
-        if (sPendingResetContent.count > 0) {
-            id body = sPendingResetContent[@"chapterContent"] ?: sPendingResetContent[@"content"];
-            if ([body isKindOfClass:[NSString class]] && [(NSString *)body length] > 0) {
-                LBLoadCurCpBridgeOnContentPosted(sPendingResetContent, vc);
-                LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                         @"pushNativeFull postCurCp sm=%@",
-                                         LBLoadCurCpBridgeStateName()]);
-            }
-        }
+        // 假设 T：禁止在 push 前 postCurCp/invoke；正文投递挪到 push 之后
+        LBAppendOpenReaderTrace(@"hypothesis_T defer_postCurCp_until_pushed");
     } @catch (NSException *ex) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"pushNativeFull loadView EX %@", ex.reason ?: @""]);
@@ -6171,6 +6164,16 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
     }
     id vcRef = vc;
     void (^afterPush)(void) = ^{
+        // 假设 T：入栈后再投正文 → loadCurCp bridge 才能在 attached 状态下 invoke
+        if (sPendingResetContent.count > 0) {
+            id body = sPendingResetContent[@"chapterContent"] ?: sPendingResetContent[@"content"];
+            if ([body isKindOfClass:[NSString class]] && [(NSString *)body length] > 0) {
+                LBLoadCurCpBridgeOnContentPosted(sPendingResetContent, vcRef);
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"pushNativeFull postCurCp_afterPush sm=%@",
+                                         LBLoadCurCpBridgeStateName()]);
+            }
+        }
         LBDeliverContentToVisibleReaders(@"nativePush0.4");
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
@@ -7492,18 +7495,27 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
         sameBook = YES;
     }
     if (sNativeOpenChapterDone && sameBook) {
-        LBAppendOpenReaderTrace(@"nativeRead skip chapterDone sameBook");
-        return;
+        if (LBIsTextReaderVisible() || LBNavStackHasTextReader()) {
+            LBAppendOpenReaderTrace(@"nativeRead skip chapterDone sameBook");
+            return;
+        }
+        LBClearNativeOpenOnceState(@"hypothesis_T reopen chapterDone notVisible");
     }
     if (sNativeOpenOnceKey.length > 0 && sameBook) {
-        LBAppendOpenReaderTrace(@"nativeRead skip openOnce sameBook");
-        return;
+        if (LBIsTextReaderVisible() || LBNavStackHasTextReader()) {
+            LBAppendOpenReaderTrace(@"nativeRead skip openOnce sameBook");
+            return;
+        }
+        LBClearNativeOpenOnceState(@"hypothesis_T reopen openOnce notVisible");
     }
     NSString *diskKey = LBReadNativeOpenOnceMarker();
     if (diskKey.length > 0 && sameBook) {
         if (sNativeOpenOnceKey.length == 0) sNativeOpenOnceKey = [diskKey copy];
-        LBAppendOpenReaderTrace(@"nativeRead skip openOnce disk sameBook");
-        return;
+        if (LBIsTextReaderVisible() || LBNavStackHasTextReader()) {
+            LBAppendOpenReaderTrace(@"nativeRead skip openOnce disk sameBook");
+            return;
+        }
+        LBClearNativeOpenOnceState(@"hypothesis_T reopen disk notVisible");
     }
     if (sNativeOpenGoInFlight && sameBook) {
         LBAppendOpenReaderTrace(@"nativeRead skip inflight sameBook");

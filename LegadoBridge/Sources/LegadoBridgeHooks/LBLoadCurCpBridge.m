@@ -2,6 +2,7 @@
 #import "LBInternal.h"
 #import <objc/message.h>
 #import <objc/runtime.h>
+#import <UIKit/UIKit.h>
 #import <dlfcn.h>
 
 static void (*sOrigLoadCurCp)(id, SEL) = NULL;
@@ -524,6 +525,25 @@ static void LBLogLoadCurCpGates(id reader, id container, NSString *tag) {
                 (long)curR, (long)curC, (long)nCp, (long)pageStatus]);
 }
 
+/// 假设 T：loadViewIfNeeded 阶段会 contentReady，但此时 VC 尚未 push，过早 invoke 无窗口/无链并很快回到书架
+static BOOL LBReaderIsAttachedToUI(id reader) {
+    if (![reader isKindOfClass:[UIViewController class]]) return NO;
+    UIViewController *vc = (UIViewController *)reader;
+    @try {
+        if (vc.viewIfLoaded.window != nil) return YES;
+    } @catch (__unused NSException *e) {}
+    @try {
+        if (vc.navigationController != nil) return YES;
+    } @catch (__unused NSException *e) {}
+    @try {
+        if (vc.parentViewController != nil) return YES;
+    } @catch (__unused NSException *e) {}
+    @try {
+        if (vc.presentingViewController != nil) return YES;
+    } @catch (__unused NSException *e) {}
+    return NO;
+}
+
 static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage);
 static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt);
 
@@ -553,17 +573,21 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     }
     LBEnsureContainerReaderLink(container, reader);
     id curPage = LBContainerCurPageVC(container);
+    BOOL attached = LBReaderIsAttachedToUI(reader);
     id pageStatus = nil;
     @try { pageStatus = [container valueForKey:@"pageStatus"]; } @catch (__unused NSException *e) {}
     NSString *containerName = NSStringFromClass(object_getClass(container));
     LBStateLog([NSString stringWithFormat:
-                @"hypothesis_P pre_invoke target=%@ curPageVC=%@ pageStatus=%@ force=%d",
+                @"hypothesis_T pre_invoke target=%@ curPageVC=%@ attached=%d pageStatus=%@ force=%d",
                 containerName,
                 curPage ? NSStringFromClass(object_getClass(curPage)) : @"nil",
+                attached ? 1 : 0,
                 pageStatus ?: @"nil",
                 forceWithoutCurPage ? 1 : 0]);
-    if (!curPage && !forceWithoutCurPage) {
-        LBStateLog(@"hypothesis_P defer_invoke reason=no_curPageVC");
+    if ((!curPage || !attached) && !forceWithoutCurPage) {
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_T defer_invoke curPage=%d attached=%d",
+                    curPage ? 1 : 0, attached ? 1 : 0]);
         LBScheduleInvokeWhenPageReady(reader, 0);
         return;
     }
@@ -613,23 +637,25 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
 }
 
 static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt) {
-    if (attempt >= 12) {
-        LBStateLog(@"hypothesis_P defer_giveup force_invoke no_curPageVC");
+    if (attempt >= 20) {
+        LBStateLog(@"hypothesis_T defer_giveup force_invoke attached/curPage timeout");
         LBInvokeOriginalLoadCurCp(reader, YES);
         return;
     }
     __weak id weakReader = reader;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)),
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.12 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         id strong = weakReader;
         if (!strong) return;
         id container = LBFindReadPageContainerForReader(strong);
         id curPage = LBContainerCurPageVC(container);
+        BOOL attached = LBReaderIsAttachedToUI(strong);
         LBStateLog([NSString stringWithFormat:
-                    @"hypothesis_P defer_tick attempt=%ld curPageVC=%@",
+                    @"hypothesis_T defer_tick attempt=%ld curPageVC=%@ attached=%d",
                     (long)attempt,
-                    curPage ? NSStringFromClass(object_getClass(curPage)) : @"nil"]);
-        if (curPage) {
+                    curPage ? NSStringFromClass(object_getClass(curPage)) : @"nil",
+                    attached ? 1 : 0]);
+        if (curPage && attached) {
             LBInvokeOriginalLoadCurCp(strong, NO);
         } else {
             LBScheduleInvokeWhenPageReady(strong, attempt + 1);
