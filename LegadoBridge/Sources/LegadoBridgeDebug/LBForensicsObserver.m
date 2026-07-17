@@ -577,7 +577,7 @@ static void LBFHook_v_at_id_id_q(id self, SEL _cmd, id a1, id a2, NSInteger a3) 
 static void LBFHook_v_at_id_id_q_id(id self, SEL _cmd, id a1, id a2, NSInteger a3, id a4) {
     NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
     NSArray *args = @[LBF_SHAPE_OBJ(a1), LBF_SHAPE_OBJ(a2),
-                      [NSString stringWithFormat:@"NSInteger:%ld", (long)a3),
+                      [NSString stringWithFormat:@"NSInteger:%ld", (long)a3],
                       LBF_SHAPE_OBJ(a4)];
     LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
     IMP imp = LBFGetOrigIMP(owner, _cmd);
