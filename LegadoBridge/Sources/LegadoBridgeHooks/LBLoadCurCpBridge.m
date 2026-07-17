@@ -137,7 +137,6 @@ static NSInteger LBReadPageContainerPriority(id obj) {
     return 99;
 }
 
-/// 从 TextReadVC3 解析 loadCurCp IMP owner（ReadPageContainer，非 VC3 自身）
 static id LBReadIvarObject(id obj, const char *name) {
     if (!obj || !name) return nil;
     Class cls = object_getClass(obj);
@@ -153,6 +152,54 @@ static id LBReadIvarObject(id obj, const char *name) {
         cls = class_getSuperclass(cls);
     }
     return nil;
+}
+
+static id LBFindReadPageContainerForReader(id readerVC);
+
+/// 假设 A（静态 confirmed）：TextReadVC1#pageContainer IMP 0x10006684c 懒创建 TextRPageContainer
+/// msgSend 链：arrCatalog → init → setReader: → addChildViewController: → insertSubview:atIndex:
+/// ReadVCBase2#viewWillAppear 不创建 container；onResetContentNotify 会调 pageContainer 但 no-arg ORIG 已旁路。
+static id LBTriggerNativePageContainerLazy(id readerVC) {
+    if (!readerVC) return nil;
+    SEL pcSel = @selector(pageContainer);
+    if (![readerVC respondsToSelector:pcSel]) {
+        LBStateLog(@"hypothesis_A pageContainer_unavailable");
+        return nil;
+    }
+    id existing = LBFindReadPageContainerForReader(readerVC);
+    if (existing) {
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_A pageContainer_already %@",
+                    NSStringFromClass(object_getClass(existing))]);
+        return existing;
+    }
+    NSUInteger nChildBefore = 0;
+    if ([readerVC isKindOfClass:[UIViewController class]]) {
+        nChildBefore = ((UIViewController *)readerVC).childViewControllers.count;
+    }
+    id created = nil;
+    @try {
+        created = ((id (*)(id, SEL))objc_msgSend)(readerVC, pcSel);
+    } @catch (NSException *ex) {
+        LBStateLog([NSString stringWithFormat:@"hypothesis_A pageContainer_EX %@", ex.reason ?: @""]);
+        return nil;
+    }
+    id ivarA = LBReadIvarObject(readerVC, "pageContainerA");
+    NSUInteger nChildAfter = 0;
+    if ([readerVC isKindOfClass:[UIViewController class]]) {
+        nChildAfter = ((UIViewController *)readerVC).childViewControllers.count;
+    }
+    NSString *retCls = created ? NSStringFromClass(object_getClass(created)) : @"nil";
+    NSString *ivarCls = ivarA ? NSStringFromClass(object_getClass(ivarA)) : @"nil";
+    LBStateLog([NSString stringWithFormat:
+                @"hypothesis_A pageContainer_lazy ret=%@ ptr=%p pageContainerA=%@ a_ptr=%p childVC %lu→%lu",
+                retCls, created, ivarCls, ivarA,
+                (unsigned long)nChildBefore, (unsigned long)nChildAfter]);
+    LBTraceLoadCurCp([NSString stringWithFormat:
+                      @"hypothesis_A native_pageContainer class=%@ ivarA=%@",
+                      retCls, ivarCls]);
+    if (created && LBObjectIsReadPageContainerLike(created)) return created;
+    return LBFindReadPageContainerForReader(readerVC);
 }
 
 static id LBFindReadPageContainerForReader(id readerVC) {
@@ -633,6 +680,9 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
 
     id container = LBFindReadPageContainerForReader(reader);
     if (!container) {
+        container = LBTriggerNativePageContainerLazy(reader);
+    }
+    if (!container) {
         LBStateLog(@"invoke_skip reason=no_container");
         return;
     }
@@ -731,6 +781,9 @@ static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt) {
         BOOL attached = NO;
         @try {
             container = LBFindReadPageContainerForReader(strong);
+            if (!container) {
+                container = LBTriggerNativePageContainerLazy(strong);
+            }
             curPage = LBContainerCurPageVC(container);
             attached = LBReaderIsAttachedToUI(strong);
         } @catch (NSException *ex) {
