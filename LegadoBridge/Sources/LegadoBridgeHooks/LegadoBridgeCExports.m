@@ -709,6 +709,8 @@ static UIViewController *sHiddenBookDetail = nil;
 
 static void LBFlushPendingResetContent(NSString *phase);
 static void LBAppendOpenReaderTrace(NSString *msg);
+static void LBSeedTurnPageTypeScrollBranch(void);
+static void LBLogHypothesisB2ContainerProbe(id readerVC, NSString *phase);
 static BOOL LBNativeOpenGateBlocked(NSString **outReason);
 static void LBClearNativeOpenOnceState(NSString *reason);
 static BOOL LBBridgeDebugLoaded(void);
@@ -1791,6 +1793,8 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
         LBSanitizeBookDictForReaderEx(book, YES, YES);
         sPendingNativeFullBook = [book mutableCopy];
         sLegadoReaderMode = 1; // nativeFull
+        // 假设 B2：goStart 路径在 content/push 前最早 seed
+        LBSeedTurnPageTypeScrollBranch();
         LBInstallSafeTextReadShellHooks(); // 同时装 nativeFull/safeShell 共用钩子
         LBInstallNativeResetContentHook();
         LBInstallReaderContentAppearFlush();
@@ -2935,7 +2939,54 @@ static void LBSeedTextReadAppearFields(id readerVC, NSDictionary *book) {
     }
 }
 
-/// 假设 B：预置 tr_turnPageType≠3，强制 pageContainer 工厂走 TextRScrollContainer 支路
+/// 假设 B2：ivar 直读对象指针（禁止 pageContainer getter）
+static id LBReadIvarObjectByName(id obj, const char *name) {
+    if (!obj || !name) return nil;
+    Class cls = object_getClass(obj);
+    while (cls && cls != [NSObject class]) {
+        Ivar iv = class_getInstanceVariable(cls, name);
+        if (iv) {
+            const char *enc = ivar_getTypeEncoding(iv);
+            if (enc && enc[0] == '@') return object_getIvar(obj, iv);
+            return nil;
+        }
+        cls = class_getSuperclass(cls);
+    }
+    return nil;
+}
+
+/// 假设 B2：安全读取实例偏移字节（静态取证 byte@0xbd8）
+static uint8_t LBReadByteAtInstanceOffset(id obj, ptrdiff_t offset) {
+    if (!obj) return 0xFF;
+    @try {
+        const volatile uint8_t *base = (const volatile uint8_t *)(__bridge void *)obj;
+        return base[offset];
+    } @catch (__unused NSException *e) {
+        return 0xFE;
+    }
+}
+
+static BOOL sHypothesisB2LoggedFirstContainer = NO;
+
+/// 假设 B2：记录 pageContainerA ivar 首次非 nil 及 byte@0xbd8（不调 getter）
+static void LBLogHypothesisB2ContainerProbe(id readerVC, NSString *phase) {
+    if (!readerVC) return;
+    id containerA = LBReadIvarObjectByName(readerVC, "_pageContainerA");
+    if (!containerA) containerA = LBReadIvarObjectByName(readerVC, "pageContainerA");
+    uint8_t bbd8 = LBReadByteAtInstanceOffset(readerVC, (ptrdiff_t)0xbd8);
+    NSString *clsA = containerA ? NSStringFromClass(object_getClass(containerA)) : @"nil";
+    if (containerA && !sHypothesisB2LoggedFirstContainer) {
+        sHypothesisB2LoggedFirstContainer = YES;
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"hypothesis_B2 container_first_seen phase=%@ class=%@ byte@bd8=0x%02x",
+                                 phase ?: @"?", clsA, bbd8]);
+    }
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"hypothesis_B2 probe phase=%@ pageContainerA=%@ byte@bd8=0x%02x",
+                             phase ?: @"?", clsA, bbd8]);
+}
+
+/// 假设 B2：预置 tr_turnPageType≠3，强制 pageContainer 工厂走 TextRScrollContainer 支路
 static void LBSeedTurnPageTypeScrollBranch(void) {
     NSInteger v = 0; // 0=滚动翻页；禁止默认 3 走 UIPageVC 支路
     NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
@@ -2943,8 +2994,8 @@ static void LBSeedTurnPageTypeScrollBranch(void) {
     [ud setInteger:v forKey:@"tr_turnPageType"];
     [ud synchronize];
     LBAppendOpenReaderTrace([NSString stringWithFormat:
-                             @"hypothesis_B seed tr_turnPageType=%ld (was=%ld)",
-                             (long)v, (long)was]);
+                             @"hypothesis_B2 seed tr_turnPageType=%ld (was=%ld) ts=%.3f",
+                             (long)v, (long)was, CFAbsoluteTimeGetCurrent()]);
 }
 
 /// nativeFull：进入原生 viewDidLoad 前消毒/灌 dicBook + 关键数组
@@ -5584,8 +5635,10 @@ static void LBInstallNativeResetContentHook(void) {
                                                         userInfo:safe];
                         if (sLegadoReaderMode == 1 && LBOrig_onResetContentNotify) {
                             LBSeedTurnPageTypeScrollBranch();
+                            LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_hook_before_ORIG");
                             @try {
                                 LBOrig_onResetContentNotify(selfObj, sel, safeNote);
+                                LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_hook_after_ORIG");
                                 LBAppendOpenReaderTrace([NSString stringWithFormat:
                                                          @"onReset hook ORIG_OK cls=%@ sel=%@",
                                                          NSStringFromClass([selfObj class]), sn]);
@@ -5619,9 +5672,11 @@ static void LBInstallNativeResetContentHook(void) {
                         // 假设 B：预置滚动支路 + 恢复无参 ORIG（由 onReset 内部 0x10000b590 触发 pageContainer）
                         if (sLegadoReaderMode == 1) {
                             LBSeedTurnPageTypeScrollBranch();
+                            LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_noArg_before_ORIG");
                             @try {
                                 if (origNoArg) origNoArg(selfObj, sel);
-                                LBAppendOpenReaderTrace(@"hypothesis_B onReset noArg ORIG_OK");
+                                LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_noArg_after_ORIG");
+                                LBAppendOpenReaderTrace(@"hypothesis_B2 onReset noArg ORIG_OK");
                             } @catch (NSException *ex) {
                                 LBAppendOpenReaderTrace([NSString stringWithFormat:
                                                          @"hypothesis_B onReset noArg ORIG_EX %@",
@@ -5932,14 +5987,19 @@ static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
     // 与 onReset/Deliver/catalog 旁路叠用，验证 ORIG 本身是否仍是 0.35s 杀手。
     if (isLegadoReader && sLegadoReaderMode == 1) {
         LBAppendOpenReaderTrace(@"nativeFull viewDidLoad begin");
+        LBSeedTurnPageTypeScrollBranch();
+        LBLogHypothesisB2ContainerProbe(self, @"viewDidLoad_enter");
         LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
+        LBLogHypothesisB2ContainerProbe(self, @"viewDidLoad_after_prep");
         Class cls = object_getClass(self);
         IMP orig = LBUnwrapViewDidLoadIMP(cls);
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"hypothesis_R2 viewDidLoad ORIG_restore unwrap=%p", orig]);
         @try {
             if (orig && !LBIsKnownTextReadHookIMP(orig, _cmd)) {
+                LBLogHypothesisB2ContainerProbe(self, @"viewDidLoad_before_ORIG");
                 ((void (*)(id, SEL))orig)(self, _cmd);
+                LBLogHypothesisB2ContainerProbe(self, @"viewDidLoad_after_ORIG");
                 LBAppendOpenReaderTrace(@"hypothesis_R2 viewDidLoad ORIG_OK");
                 LBWriteOpenReaderMarker(@"nativeOpen viewDidLoad ORIG_OK via=nativeFull");
             } else {
@@ -6098,6 +6158,9 @@ static UINavigationController *LBFindReaderHostNav(void) {
 }
 
 static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName, NSString **outMsg) {
+    // 假设 B2：push 入口最早 seed，先于 hooks/alloc/loadViewIfNeeded
+    sHypothesisB2LoggedFirstContainer = NO;
+    LBSeedTurnPageTypeScrollBranch();
     NSTimeInterval nowPush = CFAbsoluteTimeGetCurrent();
     if (LBNavStackHasTextReader()) {
         LBAppendOpenReaderTrace(@"pushNativeFull skip duplicate onStack");
@@ -6128,6 +6191,7 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
         if (outMsg) *outMsg = @"pushNativeFull miss: alloc init failed";
         return NO;
     }
+    LBLogHypothesisB2ContainerProbe(vc, @"after_alloc");
     NSMutableDictionary *dic = [NSMutableDictionary dictionaryWithDictionary:book ?: @{}];
     if (sourceName.length > 0) {
         dic[@"sourceName"] = sourceName;
@@ -6139,11 +6203,14 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
     LBReadingRememberBook(dic);
     // push 前先 prep + 强制 loadView，确保 viewDidLoad 在 mode=1 下执行
     LBPrepareTextReadNativeFull(vc, dic);
+    LBLogHypothesisB2ContainerProbe(vc, @"after_prep");
     LBAppendOpenReaderTrace([NSString stringWithFormat:@"pushNativeFull %@ keys=%lu",
                              NSStringFromClass(cls), (unsigned long)dic.count]);
     @try {
+        LBLogHypothesisB2ContainerProbe(vc, @"before_loadView");
         // 同步触发 viewDidLoad（animated push 前），避免 go() 过早改 mode
         [(UIViewController *)vc loadViewIfNeeded];
+        LBLogHypothesisB2ContainerProbe(vc, @"after_loadView");
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"pushNativeFull loadViewIfNeeded done mode=%d loaded=%d",
                                  sLegadoReaderMode,
