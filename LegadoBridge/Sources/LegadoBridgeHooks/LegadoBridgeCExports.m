@@ -5904,20 +5904,34 @@ static void LBTextRead_viewDidLoad_Safe(id self, SEL _cmd) {
         LBAppendOpenReaderTrace(@"safeShell added UITextView");
         return;
     }
-    // mode 1 nativeFull：假设 R2 旁路原生 viewDidLoad ORIG
-    // 真机：ORIG_OK 后约 0.35s 进程重启（pid 变），afterPush/delayed 从未执行
+    // mode 1 nativeFull：恢复原生 viewDidLoad（需 ReadPageContainer）
+    // 420392d 旁路 ORIG 可活到 delayed_begin，但无 container → seed/invoke 回桌面。
+    // 与 onReset/Deliver/catalog 旁路叠用，验证 ORIG 本身是否仍是 0.35s 杀手。
     if (isLegadoReader && sLegadoReaderMode == 1) {
         LBAppendOpenReaderTrace(@"nativeFull viewDidLoad begin");
         LBPrepareTextReadNativeFull(self, sPendingNativeFullBook);
-        LBAppendOpenReaderTrace(@"hypothesis_R2 viewDidLoad skip ORIG (UIKit super only)");
-        struct objc_super sup = { self, [UIViewController class] };
+        Class cls = object_getClass(self);
+        IMP orig = LBUnwrapViewDidLoadIMP(cls);
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"hypothesis_R2 viewDidLoad ORIG_restore unwrap=%p", orig]);
         @try {
-            ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, _cmd);
-            LBAppendOpenReaderTrace(@"hypothesis_R2 viewDidLoad UIKitSuper_OK");
+            if (orig && !LBIsKnownTextReadHookIMP(orig, _cmd)) {
+                ((void (*)(id, SEL))orig)(self, _cmd);
+                LBAppendOpenReaderTrace(@"hypothesis_R2 viewDidLoad ORIG_OK");
+                LBWriteOpenReaderMarker(@"nativeOpen viewDidLoad ORIG_OK via=nativeFull");
+            } else {
+                LBAppendOpenReaderTrace(@"hypothesis_R2 viewDidLoad ORIG_SKIP unwrap-miss");
+                struct objc_super sup = { self, [UIViewController class] };
+                ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, _cmd);
+            }
         } @catch (NSException *ex) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"hypothesis_R2 viewDidLoad UIKitSuper_EX %@",
+                                     @"hypothesis_R2 viewDidLoad ORIG_EX %@",
                                      ex.reason ?: @""]);
+            struct objc_super sup = { self, [UIViewController class] };
+            @try {
+                ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, _cmd);
+            } @catch (__unused NSException *e2) {}
         }
         return;
     }

@@ -695,6 +695,14 @@ static void LBTryContentReadyAndInvoke(id reader, NSDictionary *payload) {
     }
     LBStateLog([NSString stringWithFormat:@"cache_seeded %@", [paths componentsJoinedByString:@","]]);
 
+    // 假设 R2：seed 后若无 container（viewDidLoad 未建页），禁止同步 invoke，避免回桌面
+    id containerProbe = LBFindReadPageContainerForReader(reader);
+    if (!containerProbe) {
+        LBStateLog(@"hypothesis_R2 contentReady_no_container defer_invoke");
+        LBScheduleInvokeWhenPageReady(reader, 0);
+        return;
+    }
+
     void (^go)(void) = ^{
         LBInvokeOriginalLoadCurCp(reader, NO);
     };

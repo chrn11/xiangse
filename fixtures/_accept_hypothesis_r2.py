@@ -91,7 +91,11 @@ def main() -> int:
     defer = "hypothesis_R2 defer_postCurCp_delay_1s" in blob
     r2_will = "hypothesis_R2 willAppear noop" in blob
     onreset_skip = "hypothesis_R2 onReset noArg skip ORIG" in blob
-    vdl_skip = "hypothesis_R2 viewDidLoad skip ORIG" in blob
+    vdl_skip = (
+        "hypothesis_R2 viewDidLoad ORIG_OK" in blob
+        or "hypothesis_R2 viewDidLoad ORIG_restore" in blob
+        or "hypothesis_R2 viewDidLoad skip ORIG" in blob
+    )
     delayed_begin = "hypothesis_R2 delayed_postCurCp_begin" in blob
     delayed_done = "hypothesis_R2 delayed_postCurCp_done" in blob
     invoke = "invoke_orig_OK" in blob
@@ -107,14 +111,14 @@ def main() -> int:
     )
     survived = delayed_done and not springboard
 
-    if springboard:
-        verdict, reason = "FAIL_REVERT_R2", "仍回 SpringBoard"
+    if springboard and not delayed_begin:
+        verdict, reason = "FAIL_REVERT_R2", "仍回 SpringBoard（未到 delayed）"
     elif not defer:
         verdict, reason = "FAIL", "未命中 defer_1s"
     elif not r2_will:
         verdict, reason = "FAIL", "未命中 willAppear noop"
     elif not vdl_skip:
-        verdict, reason = "FAIL", "未命中 viewDidLoad skip ORIG"
+        verdict, reason = "FAIL", "未命中 viewDidLoad R2 标记"
     elif not onreset_skip and "onReset noArg enter" in blob and "beforeOrigSeed" in blob:
         verdict, reason = "FAIL", "仍走 onReset ORIG/seed（应 skip）"
     elif not delayed_begin:
@@ -123,8 +127,12 @@ def main() -> int:
             if "hypothesis_R2 heartbeat_" in ln:
                 last_hb = ln
         verdict, reason = "FAIL_REVERT_R2", f"1s 延迟未到（中途重启） last_hb={last_hb[-60:]}"
+    elif springboard and not invoke:
+        verdict, reason = "FAIL_REVERT_R2", "delayed_begin 后 invoke 前回桌面"
     elif not invoke:
         verdict, reason = "FAIL_NEED_NEXT", "delayed_postCurCp 无 invoke"
+    elif springboard:
+        verdict, reason = "FAIL_REVERT_R2", "invoke 后仍回 SpringBoard"
     elif qf or dr:
         verdict, reason = "PASS", "延迟 invoke 后出现 QF/DR"
     elif survived and invoke:
