@@ -3292,6 +3292,25 @@ static void LBHypothesisJ_insertSubview_atIndex(id self, SEL _cmd, UIView *subvi
     }
 }
 
+static BOOL LBHypothesisJPendingOwnedByReader(id readerVC, id parent, UIView *parentView) {
+    if (!readerVC) return YES;
+    if (parent == readerVC) return YES;
+    if (parentView && LBHypothesisJViewOwnedByTextReadVC(parentView)) return YES;
+    if (parent && [parent isKindOfClass:[UIViewController class]]) {
+        UIViewController *pvc = (UIViewController *)parent;
+        UIResponder *r = pvc;
+        while (r) {
+            if (r == readerVC) return YES;
+            if ([r isKindOfClass:[UIViewController class]]) {
+                UIViewController *vc = (UIViewController *)r;
+                if (vc.parentViewController == readerVC) return YES;
+            }
+            r = r.nextResponder;
+        }
+    }
+    return NO;
+}
+
 static void LBHypothesisJFlushDeferred(id readerVC) {
     if (!sHypothesisJPendingAddChild) return;
     NSUInteger addN = 0;
@@ -3300,7 +3319,7 @@ static void LBHypothesisJFlushDeferred(id readerVC) {
     for (NSDictionary *item in sHypothesisJPendingAddChild) {
         id parent = item[@"parent"];
         id child = item[@"child"];
-        if (readerVC && parent != readerVC) {
+        if (!LBHypothesisJPendingOwnedByReader(readerVC, parent, nil)) {
             [remainAdd addObject:item];
             continue;
         }
@@ -3316,7 +3335,7 @@ static void LBHypothesisJFlushDeferred(id readerVC) {
         UIView *parentView = item[@"parentView"];
         UIView *subview = item[@"subview"];
         NSNumber *idxNum = item[@"index"];
-        if (readerVC && parentView && !LBHypothesisJViewOwnedByTextReadVC(parentView)) {
+        if (!LBHypothesisJPendingOwnedByReader(readerVC, nil, parentView)) {
             [remainIns addObject:item];
             continue;
         }
@@ -3337,6 +3356,12 @@ static void LBHypothesisJFlushDeferred(id readerVC) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"hypothesis_J deferred_attach_OK add=%lu insert=%lu pageContainerA=%@",
                                  (unsigned long)addN, (unsigned long)insN, clsA]);
+    } else if (sHypothesisJPendingAddChild.count + sHypothesisJPendingInsertSubview.count > 0) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"hypothesis_J deferred_attach_SKIP remain_add=%lu remain_ins=%lu orig_add=%p",
+                                 (unsigned long)sHypothesisJPendingAddChild.count,
+                                 (unsigned long)sHypothesisJPendingInsertSubview.count,
+                                 LBOrig_addChildViewController]);
     }
 }
 
