@@ -5964,18 +5964,9 @@ static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
-        // 假设 R2：noop 导致 children=0 / container ivar 全空，无法 invoke。
-        // 在 onReset/Deliver 已旁路前提下，恢复 UIKit super 以完成容器挂载。
-        LBAppendOpenReaderTrace(@"hypothesis_R2 willAppear UIKitSuperOnly");
-        struct objc_super sup = { self, [UIViewController class] };
-        @try {
-            ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
-            LBAppendOpenReaderTrace(@"hypothesis_R2 willAppear UIKitSuper_OK");
-        } @catch (NSException *ex) {
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"hypothesis_R2 willAppear UIKitSuper_EX %@",
-                                     ex.reason ?: @""]);
-        }
+        // 0a7f4fa：UIKitSuperOnly 日志后无 UIKitSuper_OK 即重启回书架。
+        // 回到 noop；container 改由 ivar dump / 手工挂载解决。
+        LBAppendOpenReaderTrace(@"hypothesis_R2 willAppear noop (no super/ORIG)");
         return;
     }
     if (LBOrig_TR_viewWillAppear) LBOrig_TR_viewWillAppear(self, _cmd, animated);
@@ -6008,16 +5999,7 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
-        LBAppendOpenReaderTrace(@"hypothesis_R2 didAppear UIKitSuperOnly");
-        struct objc_super sup = { self, [UIViewController class] };
-        @try {
-            ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
-            LBAppendOpenReaderTrace(@"hypothesis_R2 didAppear UIKitSuper_OK");
-        } @catch (NSException *ex) {
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"hypothesis_R2 didAppear UIKitSuper_EX %@",
-                                     ex.reason ?: @""]);
-        }
+        LBAppendOpenReaderTrace(@"hypothesis_R2 didAppear noop (postCurCp via delay)");
         return;
     }
     if (LBOrig_TR_viewDidAppear) LBOrig_TR_viewDidAppear(self, _cmd, animated);

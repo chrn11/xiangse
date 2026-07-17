@@ -158,7 +158,7 @@ static id LBReadIvarObject(id obj, const char *name) {
 static id LBFindReadPageContainerForReader(id readerVC) {
     if (!readerVC) return nil;
     // 假设 R2：禁止 valueForKey(@"container"…)（getter 杀进程）；
-    // childVC 常为 0；改用 object_getIvar 直读。
+    // childVC 常为 0；改用 object_getIvar 直读 + 全量 ivar 扫描。
     NSMutableArray *raw = [NSMutableArray array];
     void (^add)(id) = ^(id v) {
         if (v && ![raw containsObject:v]) [raw addObject:v];
@@ -177,6 +177,29 @@ static id LBFindReadPageContainerForReader(id readerVC) {
     if ([dpv isKindOfClass:[NSDictionary class]]) {
         for (id v in [(NSDictionary *)dpv allValues]) add(v);
     }
+    // 扫描 VC 继承链全部对象 ivar，捕获未知命名的 container
+    static BOOL sDumped = NO;
+    Class cls = object_getClass(readerVC);
+    while (cls && cls != [NSObject class]) {
+        unsigned int n = 0;
+        Ivar *ivs = class_copyIvarList(cls, &n);
+        for (unsigned int i = 0; i < n; i++) {
+            const char *enc = ivar_getTypeEncoding(ivs[i]);
+            const char *nm = ivar_getName(ivs[i]);
+            if (!enc || enc[0] != '@') continue;
+            id val = object_getIvar(readerVC, ivs[i]);
+            if (!sDumped) {
+                LBStateLog([NSString stringWithFormat:
+                            @"hypothesis_R2 ivar_dump %@::%s -> %@",
+                            NSStringFromClass(cls), nm ?: "?",
+                            val ? NSStringFromClass(object_getClass(val)) : @"nil"]);
+            }
+            if (val) add(val);
+        }
+        if (ivs) free(ivs);
+        cls = class_getSuperclass(cls);
+    }
+    sDumped = YES;
     if ([readerVC isKindOfClass:[UIViewController class]]) {
         for (UIViewController *ch in ((UIViewController *)readerVC).childViewControllers) {
             add(ch);
