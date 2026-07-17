@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -64,6 +65,28 @@ def write_runtime(host: str, port: int) -> dict:
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(FIXTURE_DIR), **kwargs)
+
+    def end_headers(self) -> None:
+        # 禁止 304：LBLegadoFetchAndImport 只接受 HTTP 200，条件请求会导致书源导入失败
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        super().end_headers()
+
+    def send_head(self):
+        path = self.translate_path(self.path.split("?", 1)[0])
+        if os.path.isfile(path):
+            ctype = self.guess_type(path)
+            try:
+                f = open(path, "rb")
+            except OSError:
+                return None
+            fs = os.fstat(f.fileno())
+            self.send_response(200)
+            self.send_header("Content-type", ctype)
+            self.send_header("Content-Length", str(fs[6]))
+            self.end_headers()
+            return f
+        return super().send_head()
 
     def log_message(self, fmt, *args):
         sys.stderr.write("[mock-http] " + (fmt % args) + "\n")

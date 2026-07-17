@@ -68,6 +68,88 @@ def parse_ts(ln: str) -> str | None:
     return m.group(1) if m else None
 
 
+def seed_registry(c: McpClient) -> None:
+    """落盘书源 registry（绕过 HTTP 导入 304/后台失败）。"""
+    paths = c.app_paths()
+    doc = paths.get("documents", "")
+    if not doc:
+        return
+    runtime = json.loads((ROOT / "fixtures" / "legado-local-mock.runtime.json").read_text(encoding="utf-8"))
+    runtime["bookSourceUrl"] = MOCK
+    dest = f"{doc}/legado_bridge_sources.json"
+    c.call(
+        "write_file",
+        {"path": dest, "content": json.dumps([runtime], ensure_ascii=False)},
+    )
+
+
+def wait_source_import(c: McpClient, timeout: float = 25.0) -> dict:
+    """轮询书源就绪：优先 HTTP 导入，失败则 seed registry。"""
+    paths = c.app_paths()
+    doc = paths.get("documents", "")
+    src_json = f"{doc}/legado_bridge_sources.json" if doc else ""
+    t0 = time.time()
+    last: dict = {"ok": False, "waited_sec": 0.0, "via": ""}
+    while time.time() - t0 < timeout:
+        imp = c.read_sandbox_text("legado_import_result.txt", max_bytes=4096)
+        reg = c.read_file_at(src_json, max_bytes=65536) if src_json else ""
+        last = {
+            "ok": False,
+            "import_result": imp.strip()[:200] if imp and "No such file" not in imp else "",
+            "registry_bytes": len(reg) if reg and "No such file" not in reg else 0,
+            "waited_sec": round(time.time() - t0, 1),
+            "via": "",
+        }
+        if "imported OK" in imp or (reg and MOCK.rstrip("/") in reg and "bookSourceUrl" in reg):
+            last["ok"] = True
+            last["via"] = "import" if "imported OK" in imp else "registry"
+            return last
+        time.sleep(0.8)
+        try:
+            c.call("launch_app", {"bundle_id": BUNDLE})
+        except Exception:
+            pass
+    seed_registry(c)
+    time.sleep(1)
+    c.call("launch_app", {"bundle_id": BUNDLE})
+    time.sleep(2)
+    reg = c.read_file_at(src_json, max_bytes=65536) if src_json else ""
+    persist = c.read_sandbox_text("legado_registry_persist.txt", max_bytes=512)
+    last.update(
+        {
+            "ok": bool(reg and "bookSourceUrl" in reg),
+            "registry_bytes": len(reg) if reg else 0,
+            "via": "seed_registry",
+            "registry_persist": persist.strip()[:120] if persist else "",
+            "waited_sec": round(time.time() - t0, 1),
+        }
+    )
+    return last
+
+
+def wait_invoke(c: McpClient, timeout: float = 55.0) -> dict:
+    """open_url 后须保活前台；轮询 invoke_orig_OK（禁止 get_ui_elements 抢焦点）。"""
+    t0 = time.time()
+    out: dict = {"invoke_ok": [], "waited_sec": 0.0}
+    while time.time() - t0 < timeout:
+        time.sleep(2)
+        elapsed = time.time() - t0
+        if int(elapsed) % 8 == 0:
+            try:
+                c.call("launch_app", {"bundle_id": BUNDLE})
+            except Exception:
+                pass
+        trace = c.read_sandbox_text("legado_openreader_trace.txt", max_bytes=200000)
+        state = c.read_sandbox_text("legado_loadcurcp_state.txt", max_bytes=200000)
+        hits = [ln for ln in (trace + state).splitlines() if "invoke_orig_OK" in ln]
+        if hits:
+            out["invoke_ok"] = hits[-3:]
+            out["waited_sec"] = round(elapsed, 1)
+            return out
+    out["waited_sec"] = round(time.time() - t0, 1)
+    return out
+
+
 def main() -> int:
     import argparse
 
@@ -94,16 +176,28 @@ def main() -> int:
     time.sleep(3)
 
     clear_all(c)
+    c.call("wake_and_home")
+    c.call("kill_app", {"bundle_id": BUNDLE})
+    time.sleep(1)
     c.call("launch_app", {"bundle_id": BUNDLE})
     time.sleep(2)
     clear_all(c)
+    import_src = f"{MOCK}/legado-local-mock.runtime.json?t={int(time.time())}"
     c.call(
         "open_url",
-        {"url": f"legado://import/bookSource?src={MOCK}/legado-local-mock.runtime.json"},
+        {"url": f"legado://import/bookSource?src={import_src}"},
     )
-    time.sleep(3)
+    report["steps"].append("importBookSource")
+    report["import_wait"] = wait_source_import(c, timeout=20.0)
+    if not report["import_wait"].get("ok"):
+        report["verdict"] = "FAIL"
+        report["reason"] = "书源未就绪（mock/import/registry）"
+        OUT.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        print("verdict=", report["verdict"], report["reason"])
+        return 1
     c.call("launch_app", {"bundle_id": BUNDLE})
-    time.sleep(1)
+    time.sleep(2)
 
     t0 = time.time()
     c.call(
@@ -113,15 +207,14 @@ def main() -> int:
         },
     )
     report["steps"].append("nativeRead")
+    time.sleep(0.3)
+    c.call("launch_app", {"bundle_id": BUNDLE})
+    report["invoke_wait"] = wait_invoke(c, timeout=55.0)
 
     snaps = []
     for cp in (1.0, 2.0, 3.5, 5.0, 8.0, 12.0):
         while time.time() - t0 < cp:
-            time.sleep(0.2)
-            try:
-                c.call("get_ui_elements", {"limit": 8}, timeout=20)
-            except Exception:
-                pass
+            time.sleep(0.25)
         try:
             ui = c.call("get_ui_elements", {"limit": 40}, timeout=40)
         except Exception as e:
