@@ -670,15 +670,18 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
             if (n > 0) cpCount = n;
         } @catch (__unused NSException *e) {}
         LBSetIntegerKey(pageModel, @"nCpCount", (NSInteger)cpCount);
-        LBSetIntegerKey(pageModel, @"pageStatus", 0);
+        // 假设 R2c：loadCurCp 进 queryCpFileByBook 要求 pageStatus==3（旧值 0 会提前返回）
+        LBSetIntegerKey(pageModel, @"pageStatus", 3);
         NSInteger nCpVerify = LBReadIntegerKey(pageModel, @"nCpIndex", -999);
         NSInteger psVerify = LBReadIntegerKey(pageModel, @"pageStatus", -999);
         LBStateLog([NSString stringWithFormat:
                     @"hypothesis_R2 soft_nCp pageModel nCpIndex=%ld nCpCount=%lu pageStatus=%ld "
                     @"verify_nCp=%ld verify_ps=%ld curPage=%@",
-                    (long)cpIndex, (unsigned long)cpCount, (long)0,
+                    (long)cpIndex, (unsigned long)cpCount, (long)3,
                     (long)nCpVerify, (long)psVerify,
                     curPage ? NSStringFromClass(object_getClass(curPage)) : @"nil"]);
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_R2c soft_pageStatus=3 verify_ps=%ld", (long)psVerify]);
     } else {
         LBStateLog([NSString stringWithFormat:
                     @"hypothesis_R2 soft_nCp miss pageModel curPage=%@",
