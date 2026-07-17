@@ -44,6 +44,9 @@ NSString *LBLoadCurCpBridgeStateName(void);
 /// invoke_orig_OK 同栈同步补 division 链（divisionText → divisionResponse → onDivisionTextFinish）
 void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *payload);
 
+/// 假设 F：缓存已发现的原生 container（禁 getter/alloc；供 FindContainer / schedule invoke）
+void LBLoadCurCpBridgeCacheContainer(id readerVC, id container);
+
 NS_ASSUME_NONNULL_END
 
 #endif /* LBLoadCurCpBridge_h */

@@ -15,6 +15,7 @@ static NSUInteger sInvokeCount = 0;
 static NSDictionary *sPendingPayload = nil;
 static __weak id sWeakReader = nil;
 static BOOL sReentryGuard = NO;
+static const void *kLBAssocFoundContainerKey = &kLBAssocFoundContainerKey;
 
 static void LBTraceLoadCurCp(NSString *msg) {
     if (msg.length == 0) return;
@@ -68,6 +69,14 @@ void LBLoadCurCpBridgeRegisterOrig(void (*orig)(id, SEL)) {
     if (!orig) return;
     sOrigLoadCurCp = orig;
     LBStateLog([NSString stringWithFormat:@"register_orig imp=%p", orig]);
+}
+
+void LBLoadCurCpBridgeCacheContainer(id readerVC, id container) {
+    if (!readerVC || !container) return;
+    objc_setAssociatedObject(readerVC, kLBAssocFoundContainerKey, container,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    LBStateLog([NSString stringWithFormat:@"hypothesis_F cache_container %@",
+                NSStringFromClass(object_getClass(container))]);
 }
 
 BOOL LBLoadCurCpBridgePassThroughToNative(void) {
@@ -127,13 +136,22 @@ static BOOL LBObjectIsReadPageContainerLike(id obj) {
     return [obj respondsToSelector:NSSelectorFromString(@"curPageVC")];
 }
 
+/// 假设 F：含 TextRScrollContainer（loadCurCp/division 可能挂在此类）
+static BOOL LBObjectIsHypothesisFContainerLike(id obj) {
+    if (!obj) return NO;
+    NSString *n = NSStringFromClass(object_getClass(obj));
+    if ([n isEqualToString:@"TextRScrollContainer"]) return YES;
+    return LBObjectIsReadPageContainerLike(obj);
+}
+
 static NSInteger LBReadPageContainerPriority(id obj) {
     NSString *n = NSStringFromClass(object_getClass(obj));
     if ([n isEqualToString:@"TextRPageContainer"]) return 0;
     if ([n isEqualToString:@"ReadPageContainer"]) return 1;
     if ([n containsString:@"TextRPageContainer"]) return 2;
     if ([n containsString:@"ReadPageContainer"]) return 3;
-    if ([obj respondsToSelector:NSSelectorFromString(@"curPageVC")]) return 4;
+    if ([n isEqualToString:@"TextRScrollContainer"]) return 4;
+    if ([obj respondsToSelector:NSSelectorFromString(@"curPageVC")]) return 5;
     return 99;
 }
 
@@ -157,6 +175,13 @@ static id LBReadIvarObject(id obj, const char *name) {
 
 static id LBFindReadPageContainerForReader(id readerVC) {
     if (!readerVC) return nil;
+    id cached = objc_getAssociatedObject(readerVC, kLBAssocFoundContainerKey);
+    if (cached && LBObjectIsHypothesisFContainerLike(cached)) {
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_F findContainer hit %@ via=assoc",
+                    NSStringFromClass(object_getClass(cached))]);
+        return cached;
+    }
     // 假设 R2：禁止 valueForKey(@"container"…)（getter 杀进程）；
     // childVC 常为 0；改用 object_getIvar 直读 + 全量 ivar 扫描。
     NSMutableArray *raw = [NSMutableArray array];
@@ -208,7 +233,7 @@ static id LBFindReadPageContainerForReader(id readerVC) {
     id best = nil;
     NSInteger bestPrio = 99;
     for (id c in raw) {
-        if (!LBObjectIsReadPageContainerLike(c)) continue;
+        if (!LBObjectIsHypothesisFContainerLike(c)) continue;
         NSInteger p = LBReadPageContainerPriority(c);
         if (p < bestPrio) {
             bestPrio = p;

@@ -3006,6 +3006,112 @@ static void LBSeedTurnPageTypeScrollBranch(void) {
                              (long)v, (long)was, CFAbsoluteTimeGetCurrent()]);
 }
 
+static BOOL LBHypothesisFContainerClassName(NSString *clsName) {
+    if (clsName.length == 0 || [clsName isEqualToString:@"nil"]) return NO;
+    if ([clsName isEqualToString:@"TextRScrollContainer"] ||
+        [clsName isEqualToString:@"TextRPageContainer"] ||
+        [clsName containsString:@"ReadPageContainer"] ||
+        [clsName containsString:@"TextRPageContainer"]) {
+        return YES;
+    }
+    return NO;
+}
+
+static NSInteger LBHypothesisFContainerPriority(NSString *clsName) {
+    if ([clsName isEqualToString:@"TextRPageContainer"]) return 0;
+    if ([clsName isEqualToString:@"ReadPageContainer"]) return 1;
+    if ([clsName containsString:@"TextRPageContainer"]) return 2;
+    if ([clsName containsString:@"ReadPageContainer"]) return 3;
+    if ([clsName isEqualToString:@"TextRScrollContainer"]) return 4;
+    return 99;
+}
+
+/// 假设 F：ORIG_OK 后枚举 ivar/child（禁 pageContainer getter / 手工 alloc）
+static void LBHypothesisFProbeAfterOrig(id readerVC, NSString *phase) {
+    if (!readerVC) return;
+    static const char *kIvarNames[] = {
+        "_pageContainerA", "pageContainerA", "_pageContainerB", "pageContainerB",
+        "_container", "container", "_pageContainer", "pageContainer",
+        "_rPageContainer", "rPageContainer", "_readPageContainer", "readPageContainer",
+        "_curPageContainer", "curPageContainer",
+    };
+    NSMutableArray *ivarParts = [NSMutableArray array];
+    for (size_t i = 0; i < sizeof(kIvarNames) / sizeof(kIvarNames[0]); i++) {
+        id val = LBReadIvarObjectByName(readerVC, kIvarNames[i]);
+        NSString *cls = val ? NSStringFromClass(object_getClass(val)) : @"nil";
+        [ivarParts addObject:[NSString stringWithFormat:@"%s=%@", kIvarNames[i], cls]];
+    }
+    NSMutableArray *childClasses = [NSMutableArray array];
+    if ([readerVC isKindOfClass:[UIViewController class]]) {
+        for (UIViewController *ch in ((UIViewController *)readerVC).childViewControllers) {
+            [childClasses addObject:NSStringFromClass(object_getClass(ch))];
+        }
+    }
+    NSUInteger cat = LBReadArrayCount(readerVC, @"arrCatalog");
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"hypothesis_F probe phase=%@ arrCatalog=%lu ivars={%@} children={%@}",
+                             phase ?: @"?", (unsigned long)cat,
+                             [ivarParts componentsJoinedByString:@","],
+                             [childClasses componentsJoinedByString:@","]]);
+
+    id found = nil;
+    NSString *foundVia = nil;
+    NSInteger bestPrio = 99;
+    void (^consider)(id, NSString *) = ^(id obj, NSString *via) {
+        if (!obj) return;
+        NSString *cls = NSStringFromClass(object_getClass(obj));
+        if (!LBHypothesisFContainerClassName(cls)) return;
+        NSInteger p = LBHypothesisFContainerPriority(cls);
+        if (p < bestPrio) {
+            bestPrio = p;
+            found = obj;
+            foundVia = via;
+        }
+    };
+    for (size_t i = 0; i < sizeof(kIvarNames) / sizeof(kIvarNames[0]); i++) {
+        consider(LBReadIvarObjectByName(readerVC, kIvarNames[i]),
+                 [NSString stringWithFormat:@"ivar:%s", kIvarNames[i]]);
+    }
+    Class scanCls = object_getClass(readerVC);
+    while (scanCls && scanCls != [NSObject class]) {
+        unsigned int n = 0;
+        Ivar *ivs = class_copyIvarList(scanCls, &n);
+        for (unsigned int i = 0; i < n; i++) {
+            const char *enc = ivar_getTypeEncoding(ivs[i]);
+            if (!enc || enc[0] != '@') continue;
+            id val = object_getIvar(readerVC, ivs[i]);
+            const char *nm = ivar_getName(ivs[i]);
+            consider(val, [NSString stringWithFormat:@"scan:%s", nm ?: "?"]);
+        }
+        if (ivs) free(ivs);
+        scanCls = class_getSuperclass(scanCls);
+    }
+    id dpv = LBReadIvarObjectByName(readerVC, "_dicPageVC");
+    if (!dpv) dpv = LBReadIvarObjectByName(readerVC, "dicPageVC");
+    if ([dpv isKindOfClass:[NSDictionary class]]) {
+        for (id v in [(NSDictionary *)dpv allValues]) {
+            consider(v, @"dicPageVC");
+        }
+    }
+    if ([readerVC isKindOfClass:[UIViewController class]]) {
+        NSUInteger idx = 0;
+        for (UIViewController *ch in ((UIViewController *)readerVC).childViewControllers) {
+            consider(ch, [NSString stringWithFormat:@"child:%lu", (unsigned long)idx]);
+            idx++;
+        }
+    }
+
+    if (found) {
+        NSString *foundCls = NSStringFromClass(object_getClass(found));
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"hypothesis_F found class=%@ via=%@",
+                                 foundCls, foundVia ?: @"?"]);
+        LBLoadCurCpBridgeCacheContainer(readerVC, found);
+    } else {
+        LBAppendOpenReaderTrace(@"hypothesis_F miss factory未挂child");
+    }
+}
+
 /// 假设 E：window+catalog+didAppearUIKit 就绪后再调无参 onReset ORIG
 static void LBHypothesisEFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn origNoArg,
                                           NSString *fireTag) {
@@ -3036,10 +3142,12 @@ static void LBHypothesisEFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn 
         origNoArg(selfObj, sel);
         LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_noArg_after_ORIG");
         id containerA = LBReadIvarObjectByName(selfObj, "_pageContainerA");
+        if (!containerA) containerA = LBReadIvarObjectByName(selfObj, "pageContainerA");
         NSString *clsA = containerA ? NSStringFromClass(object_getClass(containerA)) : @"nil";
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"hypothesis_E after_ORIG pageContainerA=%@", clsA]);
         LBAppendOpenReaderTrace(@"hypothesis_C onReset noArg ORIG_OK");
+        LBHypothesisFProbeAfterOrig(selfObj, @"onReset_noArg_after_ORIG");
     } @catch (NSException *ex) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"hypothesis_C onReset noArg ORIG_EX %@",
@@ -5734,6 +5842,7 @@ static void LBInstallNativeResetContentHook(void) {
                                 LBAppendOpenReaderTrace([NSString stringWithFormat:
                                                          @"onReset hook ORIG_OK cls=%@ sel=%@",
                                                          NSStringFromClass([selfObj class]), sn]);
+                                LBHypothesisFProbeAfterOrig(selfObj, @"onReset_hook_after_ORIG");
                                 return;
                             } @catch (NSException *ex) {
                                 LBAppendOpenReaderTrace([NSString stringWithFormat:
