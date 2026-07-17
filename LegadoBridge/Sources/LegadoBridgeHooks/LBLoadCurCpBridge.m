@@ -213,6 +213,33 @@ static id LBEnsurePageContainersForReader(id readerVC) {
     LBStateLog([NSString stringWithFormat:
                 @"hypothesis_R2 bootstrap_container ok %@ pageContainerA",
                 NSStringFromClass(object_getClass(cA))]);
+    // 补一页 curPageVC，供 nCpIndex / pageModel
+    Class pageCls = NSClassFromString(@"TextRPageContainerPage");
+    if (!pageCls) pageCls = NSClassFromString(@"ReadPageContainerPage");
+    if (pageCls) {
+        id page = nil;
+        @try { page = [[pageCls alloc] init]; } @catch (__unused NSException *e) {}
+        if (page) {
+            LBSetIvarObject(cA, "_curPageVC", page);
+            LBSetIvarObject(cA, "curPageVC", page);
+            id pm = LBReadIvarObject(page, "_pageModel");
+            if (!pm) pm = LBReadIvarObject(page, "pageModel");
+            if (!pm) {
+                Class pmCls = NSClassFromString(@"ReadPageModel");
+                if (pmCls) {
+                    @try { pm = [[pmCls alloc] init]; } @catch (__unused NSException *e2) {}
+                    if (pm) {
+                        LBSetIvarObject(page, "_pageModel", pm);
+                        LBSetIvarObject(page, "pageModel", pm);
+                    }
+                }
+            }
+            LBStateLog([NSString stringWithFormat:
+                        @"hypothesis_R2 bootstrap_page %@ pm=%@",
+                        NSStringFromClass(object_getClass(page)),
+                        pm ? NSStringFromClass(object_getClass(pm)) : @"nil"]);
+        }
+    }
     return cA;
 }
 
