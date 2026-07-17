@@ -155,19 +155,79 @@ static id LBReadIvarObject(id obj, const char *name) {
     return nil;
 }
 
+static void LBSetIvarObject(id obj, const char *name, id value) {
+    if (!obj || !name) return;
+    Class cls = object_getClass(obj);
+    while (cls && cls != [NSObject class]) {
+        Ivar iv = class_getInstanceVariable(cls, name);
+        if (iv) {
+            const char *enc = ivar_getTypeEncoding(iv);
+            if (enc && enc[0] == '@') {
+                object_setIvar(obj, iv, value);
+            }
+            return;
+        }
+        cls = class_getSuperclass(cls);
+    }
+}
+
+/// 假设 R2：willAppear noop 下 pageContainerA/B 保持 nil；手工 alloc TextRPageContainer 并写入 ivar
+static id LBEnsurePageContainersForReader(id readerVC) {
+    if (!readerVC) return nil;
+    id existing = LBReadIvarObject(readerVC, "pageContainerA");
+    if (!existing) existing = LBReadIvarObject(readerVC, "_pageContainerA");
+    if (existing && LBObjectIsReadPageContainerLike(existing)) {
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_R2 container_already %@",
+                    NSStringFromClass(object_getClass(existing))]);
+        return existing;
+    }
+    Class cls = NSClassFromString(@"TextRPageContainer");
+    if (!cls) cls = NSClassFromString(@"ReadPageContainer");
+    if (!cls) {
+        LBStateLog(@"hypothesis_R2 bootstrap_container miss class");
+        return nil;
+    }
+    id cA = nil;
+    @try {
+        cA = [[cls alloc] init];
+    } @catch (NSException *ex) {
+        LBStateLog([NSString stringWithFormat:@"hypothesis_R2 bootstrap_container init_EX %@",
+                    ex.reason ?: @""]);
+        return nil;
+    }
+    if (!cA) {
+        LBStateLog(@"hypothesis_R2 bootstrap_container init_nil");
+        return nil;
+    }
+    LBSetIvarObject(readerVC, "pageContainerA", cA);
+    LBSetIvarObject(readerVC, "_pageContainerA", cA);
+    // 双向链接
+    LBSetIvarObject(cA, "_reader", readerVC);
+    LBSetIvarObject(cA, "reader", readerVC);
+    @try {
+        if ([cA respondsToSelector:NSSelectorFromString(@"setReader:")]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(cA, NSSelectorFromString(@"setReader:"), readerVC);
+        }
+    } @catch (__unused NSException *e) {}
+    LBStateLog([NSString stringWithFormat:
+                @"hypothesis_R2 bootstrap_container ok %@ pageContainerA",
+                NSStringFromClass(object_getClass(cA))]);
+    return cA;
+}
+
 static id LBFindReadPageContainerForReader(id readerVC) {
     if (!readerVC) return nil;
     // 假设 R2：禁止 valueForKey(@"container"…)（getter 杀进程）；
-    // childVC 常为 0；改用 object_getIvar 直读 + 全量 ivar 扫描。
+    // childVC 常为 0；ivar 直读；缺失则 bootstrap。
     NSMutableArray *raw = [NSMutableArray array];
     void (^add)(id) = ^(id v) {
         if (v && ![raw containsObject:v]) [raw addObject:v];
     };
     static const char *kNames[] = {
-        "_container", "_pageContainer", "_pageContainerA", "_pageContainerB",
-        "_rPageContainer", "_readPageContainer", "_curPageContainer",
-        "container", "pageContainer", "pageContainerA", "pageContainerB",
-        "rPageContainer", "readPageContainer", "curPageContainer",
+        "pageContainerA", "pageContainerB", "_pageContainerA", "_pageContainerB",
+        "_container", "_pageContainer", "_rPageContainer", "_readPageContainer",
+        "container", "pageContainer", "rPageContainer", "readPageContainer",
     };
     for (size_t i = 0; i < sizeof(kNames) / sizeof(kNames[0]); i++) {
         add(LBReadIvarObject(readerVC, kNames[i]));
@@ -177,29 +237,6 @@ static id LBFindReadPageContainerForReader(id readerVC) {
     if ([dpv isKindOfClass:[NSDictionary class]]) {
         for (id v in [(NSDictionary *)dpv allValues]) add(v);
     }
-    // 扫描 VC 继承链全部对象 ivar，捕获未知命名的 container
-    static BOOL sDumped = NO;
-    Class cls = object_getClass(readerVC);
-    while (cls && cls != [NSObject class]) {
-        unsigned int n = 0;
-        Ivar *ivs = class_copyIvarList(cls, &n);
-        for (unsigned int i = 0; i < n; i++) {
-            const char *enc = ivar_getTypeEncoding(ivs[i]);
-            const char *nm = ivar_getName(ivs[i]);
-            if (!enc || enc[0] != '@') continue;
-            id val = object_getIvar(readerVC, ivs[i]);
-            if (!sDumped) {
-                LBStateLog([NSString stringWithFormat:
-                            @"hypothesis_R2 ivar_dump %@::%s -> %@",
-                            NSStringFromClass(cls), nm ?: "?",
-                            val ? NSStringFromClass(object_getClass(val)) : @"nil"]);
-            }
-            if (val) add(val);
-        }
-        if (ivs) free(ivs);
-        cls = class_getSuperclass(cls);
-    }
-    sDumped = YES;
     if ([readerVC isKindOfClass:[UIViewController class]]) {
         for (UIViewController *ch in ((UIViewController *)readerVC).childViewControllers) {
             add(ch);
@@ -216,6 +253,9 @@ static id LBFindReadPageContainerForReader(id readerVC) {
         }
     }
     if (!best) {
+        best = LBEnsurePageContainersForReader(readerVC);
+    }
+    if (!best) {
         LBStateLog([NSString stringWithFormat:
                     @"hypothesis_R2 findContainer miss raw=%lu children=%lu",
                     (unsigned long)raw.count,
@@ -223,7 +263,7 @@ static id LBFindReadPageContainerForReader(id readerVC) {
                         ? ((UIViewController *)readerVC).childViewControllers.count : 0)]);
     } else {
         LBStateLog([NSString stringWithFormat:
-                    @"hypothesis_R2 findContainer hit %@ via=ivar",
+                    @"hypothesis_R2 findContainer hit %@",
                     NSStringFromClass(object_getClass(best))]);
     }
     return best;
