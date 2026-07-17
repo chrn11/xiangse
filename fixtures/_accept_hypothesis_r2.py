@@ -73,7 +73,7 @@ def main() -> int:
         },
         timeout=20,
     )
-    time.sleep(8)
+    time.sleep(10)
 
     tr = c.read_sandbox_text("legado_openreader_trace.txt", max_bytes=300000)
     st = c.read_sandbox_text("legado_loadcurcp_state.txt", max_bytes=120000)
@@ -96,8 +96,12 @@ def main() -> int:
     register_count = blob.count("register_orig")
     springboard = any(t in texts for t in ("日历", "钱包", "设置"))
     bookshelf = "书架" in texts
-    qf = "QueryFinish" in blob or "lpNetWorkDelegateQueryFinish" in blob
-    dr = "divisionResponse" in blob or "postDR" in blob
+    qf = any("lpNetWorkDelegateQueryFinish" in ln for ln in (tr or "").splitlines())
+    dr = any(
+        ("divisionResponse@" in ln or "contentInject postDR" in ln or "onDivisionTextFinish" in ln)
+        and "enc=" not in ln and "divisionProbe" not in ln
+        for ln in (tr or "").splitlines()
+    )
     survived = delayed_done and not springboard
 
     if springboard:

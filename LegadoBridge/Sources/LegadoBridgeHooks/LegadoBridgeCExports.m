@@ -6123,15 +6123,11 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
     }
     id vcRef = vc;
     void (^afterPush)(void) = ^{
-        // 假设 R2：postCurCp 改由 didAppear 触发；此处只做可见性投递
-        LBDeliverContentToVisibleReaders(@"nativePush0.4");
+        // 假设 R2：禁用 DeliverContent —— 真机 0.4s 投递会走 contentInject fallback 并回桌面
+        LBAppendOpenReaderTrace(@"hypothesis_R2 afterPush_skip_deliver");
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
-            LBDeliverContentToVisibleReaders(@"nativePush1.0");
             BOOL vis = LBIsTextReaderVisible();
-            if (vis && sLegadoReaderMode == 1) {
-                LBWriteOpenReaderMarker(@"nativeOpen keepTextRead readerVis=1 via=nativeFull");
-            }
             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                     @"pushNativeFull settle vis=%d mode=%d",
                                     vis ? 1 : 0, sLegadoReaderMode]);
