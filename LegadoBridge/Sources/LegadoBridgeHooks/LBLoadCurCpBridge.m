@@ -138,25 +138,71 @@ static NSInteger LBReadPageContainerPriority(id obj) {
 }
 
 /// 从 TextReadVC3 解析 loadCurCp IMP owner（ReadPageContainer，非 VC3 自身）
+static id LBReadIvarObject(id obj, const char *name) {
+    if (!obj || !name) return nil;
+    Class cls = object_getClass(obj);
+    while (cls && cls != [NSObject class]) {
+        Ivar iv = class_getInstanceVariable(cls, name);
+        if (iv) {
+            const char *enc = ivar_getTypeEncoding(iv);
+            if (enc && enc[0] == '@') {
+                return object_getIvar(obj, iv);
+            }
+            return nil;
+        }
+        cls = class_getSuperclass(cls);
+    }
+    return nil;
+}
+
 static id LBFindReadPageContainerForReader(id readerVC) {
     if (!readerVC) return nil;
-    // 假设 R2：禁止对 container/pageContainer* 做 KVC——真机 getter 在
-    // ScheduleInvoke 首 tick 前杀进程（hold 不找 container 可活 2s+）。
-    // 仅遍历 childViewControllers。
-    if (![readerVC isKindOfClass:[UIViewController class]]) return nil;
-    UIViewController *vc = (UIViewController *)readerVC;
+    // 假设 R2：禁止 valueForKey(@"container"…)（getter 杀进程）；
+    // childVC 常为 0；改用 object_getIvar 直读。
+    NSMutableArray *raw = [NSMutableArray array];
+    void (^add)(id) = ^(id v) {
+        if (v && ![raw containsObject:v]) [raw addObject:v];
+    };
+    for (const char *name in (const char *[]){
+        "_container", "_pageContainer", "_pageContainerA", "_pageContainerB",
+        "_rPageContainer", "_readPageContainer", "_curPageContainer",
+        "container", "pageContainer", "pageContainerA", "pageContainerB",
+        "rPageContainer", "readPageContainer", "curPageContainer", NULL
+    }) {
+        if (!name) break;
+        add(LBReadIvarObject(readerVC, name));
+    }
+    id dpv = LBReadIvarObject(readerVC, "_dicPageVC");
+    if (!dpv) dpv = LBReadIvarObject(readerVC, "dicPageVC");
+    if ([dpv isKindOfClass:[NSDictionary class]]) {
+        for (id v in [(NSDictionary *)dpv allValues]) add(v);
+    }
+    if ([readerVC isKindOfClass:[UIViewController class]]) {
+        for (UIViewController *ch in ((UIViewController *)readerVC).childViewControllers) {
+            add(ch);
+        }
+    }
     id best = nil;
     NSInteger bestPrio = 99;
-    @try {
-        for (UIViewController *ch in vc.childViewControllers) {
-            if (!LBObjectIsReadPageContainerLike(ch)) continue;
-            NSInteger p = LBReadPageContainerPriority(ch);
-            if (p < bestPrio) {
-                bestPrio = p;
-                best = ch;
-            }
+    for (id c in raw) {
+        if (!LBObjectIsReadPageContainerLike(c)) continue;
+        NSInteger p = LBReadPageContainerPriority(c);
+        if (p < bestPrio) {
+            bestPrio = p;
+            best = c;
         }
-    } @catch (__unused NSException *e) {}
+    }
+    if (!best) {
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_R2 findContainer miss raw=%lu children=%lu",
+                    (unsigned long)raw.count,
+                    (unsigned long)([readerVC isKindOfClass:[UIViewController class]]
+                        ? ((UIViewController *)readerVC).childViewControllers.count : 0)]);
+    } else {
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_R2 findContainer hit %@ via=ivar",
+                    NSStringFromClass(object_getClass(best))]);
+    }
     return best;
 }
 
