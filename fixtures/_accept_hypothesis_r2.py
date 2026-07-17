@@ -89,7 +89,10 @@ def main() -> int:
         texts = [str(e)]
 
     defer = "hypothesis_R2 defer_postCurCp_delay_1s" in blob
-    r2_will = "hypothesis_R2 willAppear noop" in blob
+    r2_will = (
+        "hypothesis_R2 willAppear UIKitSuper" in blob
+        or "hypothesis_R2 willAppear noop" in blob
+    )
     onreset_skip = "hypothesis_R2 onReset noArg skip ORIG" in blob
     vdl_skip = (
         "hypothesis_R2 viewDidLoad ORIG_OK" in blob

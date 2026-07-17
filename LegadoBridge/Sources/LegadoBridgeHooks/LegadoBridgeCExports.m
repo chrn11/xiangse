@@ -6008,7 +6008,16 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
         return;
     }
     if (isLegadoReader && sLegadoReaderMode == 1) {
-        LBAppendOpenReaderTrace(@"hypothesis_R2 didAppear noop (postCurCp via delay)");
+        LBAppendOpenReaderTrace(@"hypothesis_R2 didAppear UIKitSuperOnly");
+        struct objc_super sup = { self, [UIViewController class] };
+        @try {
+            ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
+            LBAppendOpenReaderTrace(@"hypothesis_R2 didAppear UIKitSuper_OK");
+        } @catch (NSException *ex) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"hypothesis_R2 didAppear UIKitSuper_EX %@",
+                                     ex.reason ?: @""]);
+        }
         return;
     }
     if (LBOrig_TR_viewDidAppear) LBOrig_TR_viewDidAppear(self, _cmd, animated);
