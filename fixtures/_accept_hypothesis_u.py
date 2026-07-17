@@ -94,9 +94,6 @@ def main() -> int:
     time.sleep(3)
 
     clear_all(c)
-    c.call("wake_and_home")
-    c.call("kill_app", {"bundle_id": BUNDLE})
-    time.sleep(1)
     c.call("launch_app", {"bundle_id": BUNDLE})
     time.sleep(2)
     clear_all(c)
@@ -104,7 +101,9 @@ def main() -> int:
         "open_url",
         {"url": f"legado://import/bookSource?src={MOCK}/legado-local-mock.runtime.json"},
     )
-    time.sleep(2)
+    time.sleep(3)
+    c.call("launch_app", {"bundle_id": BUNDLE})
+    time.sleep(1)
 
     t0 = time.time()
     c.call(
@@ -116,9 +115,13 @@ def main() -> int:
     report["steps"].append("nativeRead")
 
     snaps = []
-    for cp in (1.0, 2.0, 3.5, 5.0):
+    for cp in (1.0, 2.0, 3.5, 5.0, 8.0, 12.0):
         while time.time() - t0 < cp:
-            time.sleep(0.05)
+            time.sleep(0.2)
+            try:
+                c.call("get_ui_elements", {"limit": 8}, timeout=20)
+            except Exception:
+                pass
         try:
             ui = c.call("get_ui_elements", {"limit": 40}, timeout=40)
         except Exception as e:
