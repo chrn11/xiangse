@@ -564,6 +564,27 @@ static void LBFHook_v_at_id_q(id self, SEL _cmd, id a1, NSInteger a2) {
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
 }
 
+static void LBFHook_v_at_id_id_q(id self, SEL _cmd, id a1, id a2, NSInteger a3) {
+    NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
+    NSArray *args = @[LBF_SHAPE_OBJ(a1), LBF_SHAPE_OBJ(a2),
+                      [NSString stringWithFormat:@"NSInteger:%ld", (long)a3]];
+    LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
+    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    if (imp) ((void (*)(id, SEL, id, id, NSInteger))imp)(self, _cmd, a1, a2, a3);
+    LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
+}
+
+static void LBFHook_v_at_id_id_q_id(id self, SEL _cmd, id a1, id a2, NSInteger a3, id a4) {
+    NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
+    NSArray *args = @[LBF_SHAPE_OBJ(a1), LBF_SHAPE_OBJ(a2),
+                      [NSString stringWithFormat:@"NSInteger:%ld", (long)a3),
+                      LBF_SHAPE_OBJ(a4)];
+    LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
+    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    if (imp) ((void (*)(id, SEL, id, id, NSInteger, id))imp)(self, _cmd, a1, a2, a3, a4);
+    LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
+}
+
 static void LBFHook_v_at_id_id_id(id self, SEL _cmd, id a1, id a2, id a3) {
     NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
     NSArray *args = @[LBF_SHAPE_OBJ(a1), LBF_SHAPE_OBJ(a2), LBF_SHAPE_OBJ(a3)];
@@ -638,8 +659,8 @@ static IMP LBFHookIMPForSelector(NSString *selName) {
     if ([selName isEqualToString:@"resetContentPosByScreenSize:"]) return (IMP)LBFHook_v_at_CGSize;
     if ([selName isEqualToString:@"showContent:title:"]) return (IMP)LBFHook_v_at_id_id;
     if ([selName isEqualToString:@"onDivisionTextFinish:cpIndex:"]) return (IMP)LBFHook_v_at_id_q;
-    if ([selName isEqualToString:@"divisionResponse:cpTitle:cpIndex:"]) return (IMP)LBFHook_v_at_id_id_id;
-    if ([selName isEqualToString:@"divisionResponse:cpTitle:cpIndex:heights:"]) return (IMP)LBFHook_v_at_id_id_id_id;
+    if ([selName isEqualToString:@"divisionResponse:cpTitle:cpIndex:"]) return (IMP)LBFHook_v_at_id_id_q;
+    if ([selName isEqualToString:@"divisionResponse:cpTitle:cpIndex:heights:"]) return (IMP)LBFHook_v_at_id_id_q_id;
     if ([selName isEqualToString:@"divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:"]) {
         return (IMP)LBFHook_v_at_id_id_id_id_id;
     }
