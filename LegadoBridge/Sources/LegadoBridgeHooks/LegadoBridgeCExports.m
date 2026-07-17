@@ -711,6 +711,12 @@ static void LBFlushPendingResetContent(NSString *phase);
 static void LBAppendOpenReaderTrace(NSString *msg);
 static void LBSeedTurnPageTypeScrollBranch(void);
 static void LBLogHypothesisB2ContainerProbe(id readerVC, NSString *phase);
+typedef void (*LBOnResetNoArgFn)(id, SEL);
+static void LBHypothesisCFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn origNoArg,
+                                          NSString *fireTag);
+static void LBHypothesisCScheduleOnResetNoArg(UIViewController *vc, SEL sel,
+                                              LBOnResetNoArgFn origNoArg, int attempt,
+                                              void (^onDone)(void));
 static BOOL LBNativeOpenGateBlocked(NSString **outReason);
 static void LBClearNativeOpenOnceState(NSString *reason);
 static BOOL LBBridgeDebugLoaded(void);
@@ -2996,6 +3002,53 @@ static void LBSeedTurnPageTypeScrollBranch(void) {
     LBAppendOpenReaderTrace([NSString stringWithFormat:
                              @"hypothesis_B2 seed tr_turnPageType=%ld (was=%ld) ts=%.3f",
                              (long)v, (long)was, CFAbsoluteTimeGetCurrent()]);
+}
+
+/// 假设 C：window 就绪后再调无参 onReset ORIG（避免 addChildViewController: 父层级未就绪杀进程）
+static void LBHypothesisCFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn origNoArg,
+                                          NSString *fireTag) {
+    if (!selfObj || !origNoArg) return;
+    LBSeedTurnPageTypeScrollBranch();
+    LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_noArg_before_ORIG");
+    LBAppendOpenReaderTrace([NSString stringWithFormat:@"hypothesis_C fire_onReset %@",
+                                                         fireTag ?: @"?"]);
+    @try {
+        origNoArg(selfObj, sel);
+        LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_noArg_after_ORIG");
+        LBAppendOpenReaderTrace(@"hypothesis_C onReset noArg ORIG_OK");
+    } @catch (NSException *ex) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"hypothesis_C onReset noArg ORIG_EX %@",
+                                 ex.reason ?: @""]);
+    }
+}
+
+static void LBHypothesisCScheduleOnResetNoArg(UIViewController *vc, SEL sel,
+                                              LBOnResetNoArgFn origNoArg, int attempt,
+                                              void (^onDone)(void)) {
+    static const int kMaxAttempts = 25;
+    static const NSTimeInterval kRetrySec = 0.08;
+
+    __weak UIViewController *weakVC = vc;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kRetrySec * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        UIViewController *strongVC = weakVC;
+        if (!strongVC) {
+            if (onDone) onDone();
+            return;
+        }
+        if (strongVC.viewIfLoaded.window) {
+            LBHypothesisCFireOnResetNoArg(strongVC, sel, origNoArg, @"window=1");
+            if (onDone) onDone();
+            return;
+        }
+        if (attempt + 1 < kMaxAttempts) {
+            LBHypothesisCScheduleOnResetNoArg(strongVC, sel, origNoArg, attempt + 1, onDone);
+        } else {
+            LBAppendOpenReaderTrace(@"hypothesis_C defer_onReset exhausted reason=no_window");
+            if (onDone) onDone();
+        }
+    });
 }
 
 /// nativeFull：进入原生 viewDidLoad 前消毒/灌 dicBook + 关键数组
@@ -5669,20 +5722,18 @@ static void LBInstallNativeResetContentHook(void) {
                                                  @"onReset noArg enter cls=%@ mode=%d pending=%d",
                                                  NSStringFromClass([selfObj class]),
                                                  sLegadoReaderMode, hasPending ? 1 : 0]);
-                        // 假设 B：预置滚动支路 + 恢复无参 ORIG（由 onReset 内部 0x10000b590 触发 pageContainer）
+                        // 假设 C：预置滚动支路 + window 就绪后再调无参 ORIG
                         if (sLegadoReaderMode == 1) {
-                            LBSeedTurnPageTypeScrollBranch();
-                            LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_noArg_before_ORIG");
-                            @try {
-                                if (origNoArg) origNoArg(selfObj, sel);
-                                LBLogHypothesisB2ContainerProbe(selfObj, @"onReset_noArg_after_ORIG");
-                                LBAppendOpenReaderTrace(@"hypothesis_B2 onReset noArg ORIG_OK");
-                            } @catch (NSException *ex) {
-                                LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                         @"hypothesis_B onReset noArg ORIG_EX %@",
-                                                         ex.reason ?: @""]);
+                            UIViewController *vc = (UIViewController *)selfObj;
+                            if (vc.viewIfLoaded.window) {
+                                LBHypothesisCFireOnResetNoArg(selfObj, sel, origNoArg, @"immediate");
+                                sOnResetNoArgBusy = NO;
+                                return;
                             }
-                            sOnResetNoArgBusy = NO;
+                            LBAppendOpenReaderTrace(@"hypothesis_C defer_onReset reason=no_window");
+                            LBHypothesisCScheduleOnResetNoArg(vc, sel, origNoArg, 0, ^{
+                                sOnResetNoArgBusy = NO;
+                            });
                             return;
                         }
                         if (hasPending) {
