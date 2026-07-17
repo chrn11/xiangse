@@ -1,0 +1,2495 @@
+{
+  "imp": "0x10000b578",
+  "ret": "0x10000b9ac",
+  "insn_count": 270,
+  "steps": [
+    {
+      "addr": "0x10000b578",
+      "mnemonic": "stp",
+      "op": "x20, x19, [sp, #-0x20]!"
+    },
+    {
+      "addr": "0x10000b57c",
+      "mnemonic": "stp",
+      "op": "x29, x30, [sp, #0x10]"
+    },
+    {
+      "addr": "0x10000b580",
+      "mnemonic": "add",
+      "op": "x29, sp, #0x10"
+    },
+    {
+      "addr": "0x10000b584",
+      "mnemonic": "mov",
+      "op": "x19, x0"
+    },
+    {
+      "addr": "0x10000b588",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b58c",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x700]",
+      "load_addr": "0x1002da700",
+      "selref": "pageContainer",
+      "loaded": "0x10020a596",
+      "selector": "pageContainer",
+      "cstring": "pageContainer"
+    },
+    {
+      "addr": "0x10000b590",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": null,
+        "receiver_va": null,
+        "selector": "pageContainer",
+        "selector_va": "0x10020a596",
+        "arg_regs": {}
+      }
+    },
+    {
+      "addr": "0x10000b594",
+      "mnemonic": "mov",
+      "op": "x29, x29"
+    },
+    {
+      "addr": "0x10000b598",
+      "mnemonic": "bl",
+      "op": "#0x1002013e4",
+      "bl_target": "0x1002013e4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": null,
+        "receiver_va": null,
+        "selector": "pageContainer",
+        "selector_va": "0x10020a596",
+        "arg_regs": {}
+      }
+    },
+    {
+      "addr": "0x10000b59c",
+      "mnemonic": "mov",
+      "op": "x20, x0"
+    },
+    {
+      "addr": "0x10000b5a0",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b5a4",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x808]",
+      "load_addr": "0x1002da808",
+      "selref": "clearPageData",
+      "loaded": "0x10020a88a",
+      "selector": "clearPageData",
+      "cstring": "clearPageData"
+    },
+    {
+      "addr": "0x10000b5a8",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": null,
+        "receiver_va": null,
+        "selector": "clearPageData",
+        "selector_va": "0x10020a88a",
+        "arg_regs": {}
+      }
+    },
+    {
+      "addr": "0x10000b5ac",
+      "mnemonic": "mov",
+      "op": "x0, x20"
+    },
+    {
+      "addr": "0x10000b5b0",
+      "mnemonic": "bl",
+      "op": "#0x1002013b4",
+      "bl_target": "0x1002013b4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": null,
+        "receiver_va": null,
+        "selector": "clearPageData",
+        "selector_va": "0x10020a88a",
+        "arg_regs": {}
+      }
+    },
+    {
+      "addr": "0x10000b5b4",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b5b8",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x710]",
+      "load_addr": "0x1002da710",
+      "selref": "dicGoAfterLoadCatalog",
+      "loaded": "0x10020a5b4",
+      "selector": "dicGoAfterLoadCatalog",
+      "cstring": "dicGoAfterLoadCatalog"
+    },
+    {
+      "addr": "0x10000b5bc",
+      "mnemonic": "mov",
+      "op": "x0, x19"
+    },
+    {
+      "addr": "0x10000b5c0",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": null,
+        "receiver_va": null,
+        "selector": "dicGoAfterLoadCatalog",
+        "selector_va": "0x10020a5b4",
+        "arg_regs": {}
+      }
+    },
+    {
+      "addr": "0x10000b5c4",
+      "mnemonic": "mov",
+      "op": "x29, x29"
+    },
+    {
+      "addr": "0x10000b5c8",
+      "mnemonic": "bl",
+      "op": "#0x1002013e4",
+      "bl_target": "0x1002013e4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": null,
+        "receiver_va": null,
+        "selector": "dicGoAfterLoadCatalog",
+        "selector_va": "0x10020a5b4",
+        "arg_regs": {}
+      }
+    },
+    {
+      "addr": "0x10000b5cc",
+      "mnemonic": "mov",
+      "op": "x20, x0"
+    },
+    {
+      "addr": "0x10000b5d0",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b5d4",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x810]",
+      "load_addr": "0x1002da810",
+      "selref": "tryOpenRecord:sourceName:",
+      "loaded": "0x10020a898",
+      "selector": "tryOpenRecord:sourceName:",
+      "cstring": "tryOpenRecord:sourceName:"
+    },
+    {
+      "addr": "0x10000b5d8",
+      "mnemonic": "mov",
+      "op": "x0, x19"
+    },
+    {
+      "addr": "0x10000b5dc",
+      "mnemonic": "mov",
+      "op": "x2, x20"
+    },
+    {
+      "addr": "0x10000b5e0",
+      "mnemonic": "mov",
+      "op": "x3, #0"
+    },
+    {
+      "addr": "0x10000b5e4",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": null,
+        "receiver_va": null,
+        "selector": "tryOpenRecord:sourceName:",
+        "selector_va": "0x10020a898",
+        "arg_regs": {}
+      }
+    },
+    {
+      "addr": "0x10000b5e8",
+      "mnemonic": "mov",
+      "op": "x0, x20"
+    },
+    {
+      "addr": "0x10000b5ec",
+      "mnemonic": "ldp",
+      "op": "x29, x30, [sp, #0x10]"
+    },
+    {
+      "addr": "0x10000b5f0",
+      "mnemonic": "ldp",
+      "op": "x20, x19, [sp], #0x20"
+    },
+    {
+      "addr": "0x10000b5f4",
+      "mnemonic": "b",
+      "op": "#0x1002013b4"
+    },
+    {
+      "addr": "0x10000b5f8",
+      "mnemonic": "stp",
+      "op": "x22, x21, [sp, #-0x30]!"
+    },
+    {
+      "addr": "0x10000b5fc",
+      "mnemonic": "stp",
+      "op": "x20, x19, [sp, #0x10]"
+    },
+    {
+      "addr": "0x10000b600",
+      "mnemonic": "stp",
+      "op": "x29, x30, [sp, #0x20]"
+    },
+    {
+      "addr": "0x10000b604",
+      "mnemonic": "add",
+      "op": "x29, sp, #0x20"
+    },
+    {
+      "addr": "0x10000b608",
+      "mnemonic": "mov",
+      "op": "x20, x0"
+    },
+    {
+      "addr": "0x10000b60c",
+      "mnemonic": "mov",
+      "op": "x0, x2"
+    },
+    {
+      "addr": "0x10000b610",
+      "mnemonic": "bl",
+      "op": "#0x1002013c0",
+      "bl_target": "0x1002013c0",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": null,
+        "receiver_va": null,
+        "selector": "tryOpenRecord:sourceName:",
+        "selector_va": "0x10020a898",
+        "arg_regs": {}
+      }
+    },
+    {
+      "addr": "0x10000b614",
+      "mnemonic": "mov",
+      "op": "x19, x0"
+    },
+    {
+      "addr": "0x10000b618",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b61c",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x818]",
+      "load_addr": "0x1002da818",
+      "selref": "viewVisible",
+      "loaded": "0x10020a8b2",
+      "selector": "viewVisible",
+      "cstring": "viewVisible"
+    },
+    {
+      "addr": "0x10000b620",
+      "mnemonic": "mov",
+      "op": "x0, x20"
+    },
+    {
+      "addr": "0x10000b624",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": null,
+        "receiver_va": null,
+        "selector": "viewVisible",
+        "selector_va": "0x10020a8b2",
+        "arg_regs": {}
+      }
+    },
+    {
+      "addr": "0x10000b628",
+      "mnemonic": "cbz",
+      "op": "w0, #0x10000b700"
+    },
+    {
+      "addr": "0x10000b62c",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002e3000",
+      "reg": {
+        "x8": "0x1002e3000"
+      }
+    },
+    {
+      "addr": "0x10000b630",
+      "mnemonic": "ldr",
+      "op": "x0, [x8, #0x698]",
+      "load_addr": "0x1002e3698",
+      "classref": "TextReadFilterVC",
+      "loaded": "0x1002eb0b0",
+      "class": "TextReadFilterVC"
+    },
+    {
+      "addr": "0x10000b634",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b638",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x688]",
+      "load_addr": "0x1002da688",
+      "selref": "create",
+      "loaded": "0x10020a42f",
+      "selector": "create",
+      "cstring": "create"
+    },
+    {
+      "addr": "0x10000b63c",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "create",
+        "selector_va": "0x10020a42f",
+        "arg_regs": {}
+      }
+    },
+    {
+      "addr": "0x10000b640",
+      "mnemonic": "mov",
+      "op": "x29, x29"
+    },
+    {
+      "addr": "0x10000b644",
+      "mnemonic": "bl",
+      "op": "#0x1002013e4",
+      "bl_target": "0x1002013e4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "create",
+        "selector_va": "0x10020a42f",
+        "arg_regs": {}
+      }
+    },
+    {
+      "addr": "0x10000b648",
+      "mnemonic": "mov",
+      "op": "x21, x0"
+    },
+    {
+      "addr": "0x10000b64c",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b650",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x5b0]",
+      "load_addr": "0x1002da5b0",
+      "selref": "bookKey",
+      "loaded": "0x10020a226",
+      "selector": "bookKey",
+      "cstring": "bookKey"
+    },
+    {
+      "addr": "0x10000b654",
+      "mnemonic": "mov",
+      "op": "x0, x20"
+    },
+    {
+      "addr": "0x10000b658",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "bookKey",
+        "selector_va": "0x10020a226",
+        "arg_regs": {}
+      }
+    },
+    {
+      "addr": "0x10000b65c",
+      "mnemonic": "mov",
+      "op": "x29, x29"
+    },
+    {
+      "addr": "0x10000b660",
+      "mnemonic": "bl",
+      "op": "#0x1002013e4",
+      "bl_target": "0x1002013e4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "bookKey",
+        "selector_va": "0x10020a226",
+        "arg_regs": {}
+      }
+    },
+    {
+      "addr": "0x10000b664",
+      "mnemonic": "mov",
+      "op": "x22, x0"
+    },
+    {
+      "addr": "0x10000b668",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b66c",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x820]",
+      "load_addr": "0x1002da820",
+      "selref": "setBookKey:",
+      "loaded": "0x10020a8be",
+      "selector": "setBookKey:",
+      "cstring": "setBookKey:"
+    },
+    {
+      "addr": "0x10000b670",
+      "mnemonic": "mov",
+      "op": "x0, x21"
+    },
+    {
+      "addr": "0x10000b674",
+      "mnemonic": "mov",
+      "op": "x2, x22"
+    },
+    {
+      "addr": "0x10000b678",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "setBookKey:",
+        "selector_va": "0x10020a8be",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b67c",
+      "mnemonic": "mov",
+      "op": "x0, x22"
+    },
+    {
+      "addr": "0x10000b680",
+      "mnemonic": "bl",
+      "op": "#0x1002013b4",
+      "bl_target": "0x1002013b4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "setBookKey:",
+        "selector_va": "0x10020a8be",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b684",
+      "mnemonic": "cbz",
+      "op": "x19, #0x10000b6c0"
+    },
+    {
+      "addr": "0x10000b688",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b68c",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x828]",
+      "load_addr": "0x1002da828",
+      "selref": "object",
+      "loaded": "0x10020a8ca",
+      "selector": "object",
+      "cstring": "object"
+    },
+    {
+      "addr": "0x10000b690",
+      "mnemonic": "mov",
+      "op": "x0, x19"
+    },
+    {
+      "addr": "0x10000b694",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "object",
+        "selector_va": "0x10020a8ca",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b698",
+      "mnemonic": "mov",
+      "op": "x29, x29"
+    },
+    {
+      "addr": "0x10000b69c",
+      "mnemonic": "bl",
+      "op": "#0x1002013e4",
+      "bl_target": "0x1002013e4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "object",
+        "selector_va": "0x10020a8ca",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b6a0",
+      "mnemonic": "mov",
+      "op": "x22, x0"
+    },
+    {
+      "addr": "0x10000b6a4",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b6a8",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x830]",
+      "load_addr": "0x1002da830",
+      "selref": "setKeyWord:",
+      "loaded": "0x10020a8d1",
+      "selector": "setKeyWord:",
+      "cstring": "setKeyWord:"
+    },
+    {
+      "addr": "0x10000b6ac",
+      "mnemonic": "mov",
+      "op": "x0, x21"
+    },
+    {
+      "addr": "0x10000b6b0",
+      "mnemonic": "mov",
+      "op": "x2, x22"
+    },
+    {
+      "addr": "0x10000b6b4",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "setKeyWord:",
+        "selector_va": "0x10020a8d1",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b6b8",
+      "mnemonic": "mov",
+      "op": "x0, x22"
+    },
+    {
+      "addr": "0x10000b6bc",
+      "mnemonic": "bl",
+      "op": "#0x1002013b4",
+      "bl_target": "0x1002013b4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "setKeyWord:",
+        "selector_va": "0x10020a8d1",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b6c0",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b6c4",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x680]",
+      "load_addr": "0x1002da680",
+      "selref": "navigationController",
+      "loaded": "0x10020a41a",
+      "selector": "navigationController",
+      "cstring": "navigationController"
+    },
+    {
+      "addr": "0x10000b6c8",
+      "mnemonic": "mov",
+      "op": "x0, x20"
+    },
+    {
+      "addr": "0x10000b6cc",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "navigationController",
+        "selector_va": "0x10020a41a",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b6d0",
+      "mnemonic": "mov",
+      "op": "x29, x29"
+    },
+    {
+      "addr": "0x10000b6d4",
+      "mnemonic": "bl",
+      "op": "#0x1002013e4",
+      "bl_target": "0x1002013e4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "navigationController",
+        "selector_va": "0x10020a41a",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b6d8",
+      "mnemonic": "mov",
+      "op": "x20, x0"
+    },
+    {
+      "addr": "0x10000b6dc",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b6e0",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x690]",
+      "load_addr": "0x1002da690",
+      "selref": "pushViewController:animated:",
+      "loaded": "0x10020a436",
+      "selector": "pushViewController:animated:",
+      "cstring": "pushViewController:animated:"
+    },
+    {
+      "addr": "0x10000b6e4",
+      "mnemonic": "mov",
+      "op": "x2, x21"
+    },
+    {
+      "addr": "0x10000b6e8",
+      "mnemonic": "mov",
+      "op": "w3, #1"
+    },
+    {
+      "addr": "0x10000b6ec",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "pushViewController:animated:",
+        "selector_va": "0x10020a436",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b6f0",
+      "mnemonic": "mov",
+      "op": "x0, x20"
+    },
+    {
+      "addr": "0x10000b6f4",
+      "mnemonic": "bl",
+      "op": "#0x1002013b4",
+      "bl_target": "0x1002013b4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "pushViewController:animated:",
+        "selector_va": "0x10020a436",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b6f8",
+      "mnemonic": "mov",
+      "op": "x0, x21"
+    },
+    {
+      "addr": "0x10000b6fc",
+      "mnemonic": "bl",
+      "op": "#0x1002013b4",
+      "bl_target": "0x1002013b4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "pushViewController:animated:",
+        "selector_va": "0x10020a436",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b700",
+      "mnemonic": "mov",
+      "op": "x0, x19"
+    },
+    {
+      "addr": "0x10000b704",
+      "mnemonic": "ldp",
+      "op": "x29, x30, [sp, #0x20]"
+    },
+    {
+      "addr": "0x10000b708",
+      "mnemonic": "ldp",
+      "op": "x20, x19, [sp, #0x10]"
+    },
+    {
+      "addr": "0x10000b70c",
+      "mnemonic": "ldp",
+      "op": "x22, x21, [sp], #0x30"
+    },
+    {
+      "addr": "0x10000b710",
+      "mnemonic": "b",
+      "op": "#0x1002013b4"
+    },
+    {
+      "addr": "0x10000b714",
+      "mnemonic": "stp",
+      "op": "x22, x21, [sp, #-0x30]!"
+    },
+    {
+      "addr": "0x10000b718",
+      "mnemonic": "stp",
+      "op": "x20, x19, [sp, #0x10]"
+    },
+    {
+      "addr": "0x10000b71c",
+      "mnemonic": "stp",
+      "op": "x29, x30, [sp, #0x20]"
+    },
+    {
+      "addr": "0x10000b720",
+      "mnemonic": "add",
+      "op": "x29, sp, #0x20"
+    },
+    {
+      "addr": "0x10000b724",
+      "mnemonic": "mov",
+      "op": "x20, x0"
+    },
+    {
+      "addr": "0x10000b728",
+      "mnemonic": "mov",
+      "op": "x0, x2"
+    },
+    {
+      "addr": "0x10000b72c",
+      "mnemonic": "bl",
+      "op": "#0x1002013c0",
+      "bl_target": "0x1002013c0",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "pushViewController:animated:",
+        "selector_va": "0x10020a436",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b730",
+      "mnemonic": "mov",
+      "op": "x19, x0"
+    },
+    {
+      "addr": "0x10000b734",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b738",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x818]",
+      "load_addr": "0x1002da818",
+      "selref": "viewVisible",
+      "loaded": "0x10020a8b2",
+      "selector": "viewVisible",
+      "cstring": "viewVisible"
+    },
+    {
+      "addr": "0x10000b73c",
+      "mnemonic": "mov",
+      "op": "x0, x20"
+    },
+    {
+      "addr": "0x10000b740",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "viewVisible",
+        "selector_va": "0x10020a8b2",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b744",
+      "mnemonic": "cbz",
+      "op": "w0, #0x10000b854"
+    },
+    {
+      "addr": "0x10000b748",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002e3000",
+      "reg": {
+        "x8": "0x1002e3000"
+      }
+    },
+    {
+      "addr": "0x10000b74c",
+      "mnemonic": "ldr",
+      "op": "x0, [x8, #0x6a0]",
+      "load_addr": "0x1002e36a0",
+      "classref": "TextReadSearchVC",
+      "loaded": "0x1002e72c0",
+      "class": "TextReadSearchVC"
+    },
+    {
+      "addr": "0x10000b750",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b754",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x688]",
+      "load_addr": "0x1002da688",
+      "selref": "create",
+      "loaded": "0x10020a42f",
+      "selector": "create",
+      "cstring": "create"
+    },
+    {
+      "addr": "0x10000b758",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadSearchVC",
+        "receiver_va": "0x1002e36a0",
+        "selector": "create",
+        "selector_va": "0x10020a42f",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b75c",
+      "mnemonic": "mov",
+      "op": "x29, x29"
+    },
+    {
+      "addr": "0x10000b760",
+      "mnemonic": "bl",
+      "op": "#0x1002013e4",
+      "bl_target": "0x1002013e4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadSearchVC",
+        "receiver_va": "0x1002e36a0",
+        "selector": "create",
+        "selector_va": "0x10020a42f",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b764",
+      "mnemonic": "mov",
+      "op": "x21, x0"
+    },
+    {
+      "addr": "0x10000b768",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b76c",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x410]",
+      "load_addr": "0x1002da410",
+      "selref": "dicFatBook",
+      "loaded": "0x100209d5c",
+      "selector": "dicFatBook",
+      "cstring": "dicFatBook"
+    },
+    {
+      "addr": "0x10000b770",
+      "mnemonic": "mov",
+      "op": "x0, x20"
+    },
+    {
+      "addr": "0x10000b774",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "dicFatBook",
+        "selector_va": "0x100209d5c",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b778",
+      "mnemonic": "mov",
+      "op": "x29, x29"
+    },
+    {
+      "addr": "0x10000b77c",
+      "mnemonic": "bl",
+      "op": "#0x1002013e4",
+      "bl_target": "0x1002013e4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "dicFatBook",
+        "selector_va": "0x100209d5c",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b780",
+      "mnemonic": "mov",
+      "op": "x22, x0"
+    },
+    {
+      "addr": "0x10000b784",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b788",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x838]",
+      "load_addr": "0x1002da838",
+      "selref": "setDicFatBook:",
+      "loaded": "0x10020a8dd",
+      "selector": "setDicFatBook:",
+      "cstring": "setDicFatBook:"
+    },
+    {
+      "addr": "0x10000b78c",
+      "mnemonic": "mov",
+      "op": "x0, x21"
+    },
+    {
+      "addr": "0x10000b790",
+      "mnemonic": "mov",
+      "op": "x2, x22"
+    },
+    {
+      "addr": "0x10000b794",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadSearchVC",
+        "receiver_va": "0x1002e36a0",
+        "selector": "setDicFatBook:",
+        "selector_va": "0x10020a8dd",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b798",
+      "mnemonic": "mov",
+      "op": "x0, x22"
+    },
+    {
+      "addr": "0x10000b79c",
+      "mnemonic": "bl",
+      "op": "#0x1002013b4",
+      "bl_target": "0x1002013b4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "setDicFatBook:",
+        "selector_va": "0x10020a8dd",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b7a0",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b7a4",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x4a0]",
+      "load_addr": "0x1002da4a0",
+      "selref": "arrCatalog",
+      "loaded": "0x100209e58",
+      "selector": "arrCatalog",
+      "cstring": "arrCatalog"
+    },
+    {
+      "addr": "0x10000b7a8",
+      "mnemonic": "mov",
+      "op": "x0, x20"
+    },
+    {
+      "addr": "0x10000b7ac",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "arrCatalog",
+        "selector_va": "0x100209e58",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b7b0",
+      "mnemonic": "mov",
+      "op": "x29, x29"
+    },
+    {
+      "addr": "0x10000b7b4",
+      "mnemonic": "bl",
+      "op": "#0x1002013e4",
+      "bl_target": "0x1002013e4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "arrCatalog",
+        "selector_va": "0x100209e58",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b7b8",
+      "mnemonic": "mov",
+      "op": "x22, x0"
+    },
+    {
+      "addr": "0x10000b7bc",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b7c0",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x840]",
+      "load_addr": "0x1002da840",
+      "selref": "setArrCatalog:",
+      "loaded": "0x10020a8ec",
+      "selector": "setArrCatalog:",
+      "cstring": "setArrCatalog:"
+    },
+    {
+      "addr": "0x10000b7c4",
+      "mnemonic": "mov",
+      "op": "x0, x21"
+    },
+    {
+      "addr": "0x10000b7c8",
+      "mnemonic": "mov",
+      "op": "x2, x22"
+    },
+    {
+      "addr": "0x10000b7cc",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadSearchVC",
+        "receiver_va": "0x1002e36a0",
+        "selector": "setArrCatalog:",
+        "selector_va": "0x10020a8ec",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b7d0",
+      "mnemonic": "mov",
+      "op": "x0, x22"
+    },
+    {
+      "addr": "0x10000b7d4",
+      "mnemonic": "bl",
+      "op": "#0x1002013b4",
+      "bl_target": "0x1002013b4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "setArrCatalog:",
+        "selector_va": "0x10020a8ec",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b7d8",
+      "mnemonic": "cbz",
+      "op": "x19, #0x10000b814"
+    },
+    {
+      "addr": "0x10000b7dc",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b7e0",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x828]",
+      "load_addr": "0x1002da828",
+      "selref": "object",
+      "loaded": "0x10020a8ca",
+      "selector": "object",
+      "cstring": "object"
+    },
+    {
+      "addr": "0x10000b7e4",
+      "mnemonic": "mov",
+      "op": "x0, x19"
+    },
+    {
+      "addr": "0x10000b7e8",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "object",
+        "selector_va": "0x10020a8ca",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b7ec",
+      "mnemonic": "mov",
+      "op": "x29, x29"
+    },
+    {
+      "addr": "0x10000b7f0",
+      "mnemonic": "bl",
+      "op": "#0x1002013e4",
+      "bl_target": "0x1002013e4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "object",
+        "selector_va": "0x10020a8ca",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b7f4",
+      "mnemonic": "mov",
+      "op": "x22, x0"
+    },
+    {
+      "addr": "0x10000b7f8",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b7fc",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x848]",
+      "load_addr": "0x1002da848",
+      "selref": "setSearchText:",
+      "loaded": "0x10020a8fb",
+      "selector": "setSearchText:",
+      "cstring": "setSearchText:"
+    },
+    {
+      "addr": "0x10000b800",
+      "mnemonic": "mov",
+      "op": "x0, x21"
+    },
+    {
+      "addr": "0x10000b804",
+      "mnemonic": "mov",
+      "op": "x2, x22"
+    },
+    {
+      "addr": "0x10000b808",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadSearchVC",
+        "receiver_va": "0x1002e36a0",
+        "selector": "setSearchText:",
+        "selector_va": "0x10020a8fb",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b80c",
+      "mnemonic": "mov",
+      "op": "x0, x22"
+    },
+    {
+      "addr": "0x10000b810",
+      "mnemonic": "bl",
+      "op": "#0x1002013b4",
+      "bl_target": "0x1002013b4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "setSearchText:",
+        "selector_va": "0x10020a8fb",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b814",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b818",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x680]",
+      "load_addr": "0x1002da680",
+      "selref": "navigationController",
+      "loaded": "0x10020a41a",
+      "selector": "navigationController",
+      "cstring": "navigationController"
+    },
+    {
+      "addr": "0x10000b81c",
+      "mnemonic": "mov",
+      "op": "x0, x20"
+    },
+    {
+      "addr": "0x10000b820",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "navigationController",
+        "selector_va": "0x10020a41a",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b824",
+      "mnemonic": "mov",
+      "op": "x29, x29"
+    },
+    {
+      "addr": "0x10000b828",
+      "mnemonic": "bl",
+      "op": "#0x1002013e4",
+      "bl_target": "0x1002013e4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "navigationController",
+        "selector_va": "0x10020a41a",
+        "arg_regs": {
+          "x2": "0x1002e3698"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b82c",
+      "mnemonic": "mov",
+      "op": "x20, x0"
+    },
+    {
+      "addr": "0x10000b830",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b834",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x690]",
+      "load_addr": "0x1002da690",
+      "selref": "pushViewController:animated:",
+      "loaded": "0x10020a436",
+      "selector": "pushViewController:animated:",
+      "cstring": "pushViewController:animated:"
+    },
+    {
+      "addr": "0x10000b838",
+      "mnemonic": "mov",
+      "op": "x2, x21"
+    },
+    {
+      "addr": "0x10000b83c",
+      "mnemonic": "mov",
+      "op": "w3, #1"
+    },
+    {
+      "addr": "0x10000b840",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "pushViewController:animated:",
+        "selector_va": "0x10020a436",
+        "arg_regs": {
+          "x2": "0x1002e36a0"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b844",
+      "mnemonic": "mov",
+      "op": "x0, x20"
+    },
+    {
+      "addr": "0x10000b848",
+      "mnemonic": "bl",
+      "op": "#0x1002013b4",
+      "bl_target": "0x1002013b4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "pushViewController:animated:",
+        "selector_va": "0x10020a436",
+        "arg_regs": {
+          "x2": "0x1002e36a0"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b84c",
+      "mnemonic": "mov",
+      "op": "x0, x21"
+    },
+    {
+      "addr": "0x10000b850",
+      "mnemonic": "bl",
+      "op": "#0x1002013b4",
+      "bl_target": "0x1002013b4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadSearchVC",
+        "receiver_va": "0x1002e36a0",
+        "selector": "pushViewController:animated:",
+        "selector_va": "0x10020a436",
+        "arg_regs": {
+          "x2": "0x1002e36a0"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b854",
+      "mnemonic": "mov",
+      "op": "x0, x19"
+    },
+    {
+      "addr": "0x10000b858",
+      "mnemonic": "ldp",
+      "op": "x29, x30, [sp, #0x20]"
+    },
+    {
+      "addr": "0x10000b85c",
+      "mnemonic": "ldp",
+      "op": "x20, x19, [sp, #0x10]"
+    },
+    {
+      "addr": "0x10000b860",
+      "mnemonic": "ldp",
+      "op": "x22, x21, [sp], #0x30"
+    },
+    {
+      "addr": "0x10000b864",
+      "mnemonic": "b",
+      "op": "#0x1002013b4"
+    },
+    {
+      "addr": "0x10000b868",
+      "mnemonic": "stp",
+      "op": "x20, x19, [sp, #-0x20]!"
+    },
+    {
+      "addr": "0x10000b86c",
+      "mnemonic": "stp",
+      "op": "x29, x30, [sp, #0x10]"
+    },
+    {
+      "addr": "0x10000b870",
+      "mnemonic": "add",
+      "op": "x29, sp, #0x10"
+    },
+    {
+      "addr": "0x10000b874",
+      "mnemonic": "mov",
+      "op": "x19, x0"
+    },
+    {
+      "addr": "0x10000b878",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002e4000",
+      "reg": {
+        "x8": "0x1002e4000"
+      }
+    },
+    {
+      "addr": "0x10000b87c",
+      "mnemonic": "ldrsw",
+      "op": "x8, [x8, #0xf90]"
+    },
+    {
+      "addr": "0x10000b880",
+      "mnemonic": "ldr",
+      "op": "x0, [x0, x8]"
+    },
+    {
+      "addr": "0x10000b884",
+      "mnemonic": "cbz",
+      "op": "x0, #0x10000b898"
+    },
+    {
+      "addr": "0x10000b888",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b88c",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x5a8]",
+      "load_addr": "0x1002da5a8",
+      "selref": "stop:",
+      "loaded": "0x10020a220",
+      "selector": "stop:",
+      "cstring": "stop:"
+    },
+    {
+      "addr": "0x10000b890",
+      "mnemonic": "mov",
+      "op": "w2, #0"
+    },
+    {
+      "addr": "0x10000b894",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "stop:",
+        "selector_va": "0x10020a220",
+        "arg_regs": {
+          "x2": "0x1002e36a0"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b898",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b89c",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x700]",
+      "load_addr": "0x1002da700",
+      "selref": "pageContainer",
+      "loaded": "0x10020a596",
+      "selector": "pageContainer",
+      "cstring": "pageContainer"
+    },
+    {
+      "addr": "0x10000b8a0",
+      "mnemonic": "mov",
+      "op": "x0, x19"
+    },
+    {
+      "addr": "0x10000b8a4",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "pageContainer",
+        "selector_va": "0x10020a596",
+        "arg_regs": {
+          "x2": "0x1002e36a0"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b8a8",
+      "mnemonic": "mov",
+      "op": "x29, x29"
+    },
+    {
+      "addr": "0x10000b8ac",
+      "mnemonic": "bl",
+      "op": "#0x1002013e4",
+      "bl_target": "0x1002013e4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "pageContainer",
+        "selector_va": "0x10020a596",
+        "arg_regs": {
+          "x2": "0x1002e36a0"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b8b0",
+      "mnemonic": "mov",
+      "op": "x19, x0"
+    },
+    {
+      "addr": "0x10000b8b4",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b8b8",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x808]",
+      "load_addr": "0x1002da808",
+      "selref": "clearPageData",
+      "loaded": "0x10020a88a",
+      "selector": "clearPageData",
+      "cstring": "clearPageData"
+    },
+    {
+      "addr": "0x10000b8bc",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "clearPageData",
+        "selector_va": "0x10020a88a",
+        "arg_regs": {
+          "x2": "0x1002e36a0"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b8c0",
+      "mnemonic": "mov",
+      "op": "x0, x19"
+    },
+    {
+      "addr": "0x10000b8c4",
+      "mnemonic": "ldp",
+      "op": "x29, x30, [sp, #0x10]"
+    },
+    {
+      "addr": "0x10000b8c8",
+      "mnemonic": "ldp",
+      "op": "x20, x19, [sp], #0x20"
+    },
+    {
+      "addr": "0x10000b8cc",
+      "mnemonic": "b",
+      "op": "#0x1002013b4"
+    },
+    {
+      "addr": "0x10000b8d0",
+      "mnemonic": "sub",
+      "op": "sp, sp, #0x40"
+    },
+    {
+      "addr": "0x10000b8d4",
+      "mnemonic": "stp",
+      "op": "x22, x21, [sp, #0x10]"
+    },
+    {
+      "addr": "0x10000b8d8",
+      "mnemonic": "stp",
+      "op": "x20, x19, [sp, #0x20]"
+    },
+    {
+      "addr": "0x10000b8dc",
+      "mnemonic": "stp",
+      "op": "x29, x30, [sp, #0x30]"
+    },
+    {
+      "addr": "0x10000b8e0",
+      "mnemonic": "add",
+      "op": "x29, sp, #0x30"
+    },
+    {
+      "addr": "0x10000b8e4",
+      "mnemonic": "mov",
+      "op": "x20, x0"
+    },
+    {
+      "addr": "0x10000b8e8",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002e4000",
+      "reg": {
+        "x8": "0x1002e4000"
+      }
+    },
+    {
+      "addr": "0x10000b8ec",
+      "mnemonic": "ldr",
+      "op": "x8, [x8, #0x518]",
+      "load_addr": "0x1002e4518",
+      "loaded": "0x1002e6cd0",
+      "class": "TextReadVC3"
+    },
+    {
+      "addr": "0x10000b8f0",
+      "mnemonic": "stp",
+      "op": "x0, x8, [sp]"
+    },
+    {
+      "addr": "0x10000b8f4",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b8f8",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x850]",
+      "load_addr": "0x1002da850",
+      "selref": "showTutorialView:",
+      "loaded": "0x10020a90a",
+      "selector": "showTutorialView:",
+      "cstring": "showTutorialView:"
+    },
+    {
+      "addr": "0x10000b8fc",
+      "mnemonic": "mov",
+      "op": "x0, sp"
+    },
+    {
+      "addr": "0x10000b900",
+      "mnemonic": "bl",
+      "op": "#0x1002013a8",
+      "bl_target": "0x1002013a8",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "showTutorialView:",
+        "selector_va": "0x10020a90a",
+        "arg_regs": {
+          "x2": "0x1002e36a0"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b904",
+      "mnemonic": "mov",
+      "op": "x19, x0"
+    },
+    {
+      "addr": "0x10000b908",
+      "mnemonic": "cbz",
+      "op": "w0, #0x10000b998"
+    },
+    {
+      "addr": "0x10000b90c",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b910",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x308]",
+      "load_addr": "0x1002da308",
+      "selref": "view",
+      "loaded": "0x100209b0e",
+      "selector": "view",
+      "cstring": "view"
+    },
+    {
+      "addr": "0x10000b914",
+      "mnemonic": "mov",
+      "op": "x0, x20"
+    },
+    {
+      "addr": "0x10000b918",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "view",
+        "selector_va": "0x100209b0e",
+        "arg_regs": {
+          "x2": "0x1002e36a0"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b91c",
+      "mnemonic": "mov",
+      "op": "x29, x29"
+    },
+    {
+      "addr": "0x10000b920",
+      "mnemonic": "bl",
+      "op": "#0x1002013e4",
+      "bl_target": "0x1002013e4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "view",
+        "selector_va": "0x100209b0e",
+        "arg_regs": {
+          "x2": "0x1002e36a0"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b924",
+      "mnemonic": "mov",
+      "op": "x21, x0"
+    },
+    {
+      "addr": "0x10000b928",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002e3000",
+      "reg": {
+        "x8": "0x1002e3000"
+      }
+    },
+    {
+      "addr": "0x10000b92c",
+      "mnemonic": "ldr",
+      "op": "x0, [x8, #0x6a8]",
+      "load_addr": "0x1002e36a8",
+      "classref": "BookTutorialView",
+      "loaded": "0x1002e97b8",
+      "class": "BookTutorialView"
+    },
+    {
+      "addr": "0x10000b930",
+      "mnemonic": "bl",
+      "op": "#0x1002012e8",
+      "bl_target": "0x1002012e8",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "BookTutorialView",
+        "receiver_va": "0x1002e36a8",
+        "selector": "view",
+        "selector_va": "0x100209b0e",
+        "arg_regs": {
+          "x2": "0x1002e36a0"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b934",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002e5000",
+      "reg": {
+        "x8": "0x1002e5000"
+      }
+    },
+    {
+      "addr": "0x10000b938",
+      "mnemonic": "nop",
+      "op": ""
+    },
+    {
+      "addr": "0x10000b93c",
+      "mnemonic": "ldrsw",
+      "op": "x8, [x8, #0xdd4]"
+    },
+    {
+      "addr": "0x10000b940",
+      "mnemonic": "ldr",
+      "op": "x2, [x20, x8]"
+    },
+    {
+      "addr": "0x10000b944",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002e5000",
+      "reg": {
+        "x8": "0x1002e5000"
+      }
+    },
+    {
+      "addr": "0x10000b948",
+      "mnemonic": "nop",
+      "op": ""
+    },
+    {
+      "addr": "0x10000b94c",
+      "mnemonic": "ldrsw",
+      "op": "x8, [x8, #0xdd0]"
+    },
+    {
+      "addr": "0x10000b950",
+      "mnemonic": "adrp",
+      "op": "x9, #0x1002e5000",
+      "reg": {
+        "x9": "0x1002e5000"
+      }
+    },
+    {
+      "addr": "0x10000b954",
+      "mnemonic": "nop",
+      "op": ""
+    },
+    {
+      "addr": "0x10000b958",
+      "mnemonic": "add",
+      "op": "x3, x20, x8"
+    },
+    {
+      "addr": "0x10000b95c",
+      "mnemonic": "ldrsw",
+      "op": "x8, [x9, #0xdcc]"
+    },
+    {
+      "addr": "0x10000b960",
+      "mnemonic": "ldrsw",
+      "op": "x4, [x20, x8]"
+    },
+    {
+      "addr": "0x10000b964",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b968",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x858]",
+      "load_addr": "0x1002da858",
+      "selref": "initWithZoomTypes:zoomRects:zoomCount:",
+      "loaded": "0x10020a91c",
+      "selector": "initWithZoomTypes:zoomRects:zoomCount:",
+      "cstring": "initWithZoomTypes:zoomRects:zoomCount:"
+    },
+    {
+      "addr": "0x10000b96c",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "BookTutorialView",
+        "receiver_va": "0x1002e36a8",
+        "selector": "initWithZoomTypes:zoomRects:zoomCount:",
+        "selector_va": "0x10020a91c",
+        "arg_regs": {
+          "x2": "0x1002e36a0"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b970",
+      "mnemonic": "mov",
+      "op": "x20, x0"
+    },
+    {
+      "addr": "0x10000b974",
+      "mnemonic": "adrp",
+      "op": "x8, #0x1002da000",
+      "reg": {
+        "x8": "0x1002da000"
+      }
+    },
+    {
+      "addr": "0x10000b978",
+      "mnemonic": "ldr",
+      "op": "x1, [x8, #0x3a0]",
+      "load_addr": "0x1002da3a0",
+      "selref": "addSubview:",
+      "loaded": "0x100209c64",
+      "selector": "addSubview:",
+      "cstring": "addSubview:"
+    },
+    {
+      "addr": "0x10000b97c",
+      "mnemonic": "mov",
+      "op": "x0, x21"
+    },
+    {
+      "addr": "0x10000b980",
+      "mnemonic": "mov",
+      "op": "x2, x20"
+    },
+    {
+      "addr": "0x10000b984",
+      "mnemonic": "bl",
+      "op": "#0x10020139c",
+      "bl_target": "0x10020139c",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "addSubview:",
+        "selector_va": "0x100209c64",
+        "arg_regs": {
+          "x2": "0x1002e36a8"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b988",
+      "mnemonic": "mov",
+      "op": "x0, x20"
+    },
+    {
+      "addr": "0x10000b98c",
+      "mnemonic": "bl",
+      "op": "#0x1002013b4",
+      "bl_target": "0x1002013b4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "BookTutorialView",
+        "receiver_va": "0x1002e36a8",
+        "selector": "addSubview:",
+        "selector_va": "0x100209c64",
+        "arg_regs": {
+          "x2": "0x1002e36a8"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b990",
+      "mnemonic": "mov",
+      "op": "x0, x21"
+    },
+    {
+      "addr": "0x10000b994",
+      "mnemonic": "bl",
+      "op": "#0x1002013b4",
+      "bl_target": "0x1002013b4",
+      "bl_kind": "objc_msgSend",
+      "msgSend": {
+        "receiver_reg": "x0",
+        "receiver": "TextReadFilterVC",
+        "receiver_va": "0x1002e3698",
+        "selector": "addSubview:",
+        "selector_va": "0x100209c64",
+        "arg_regs": {
+          "x2": "0x1002e36a8"
+        }
+      }
+    },
+    {
+      "addr": "0x10000b998",
+      "mnemonic": "mov",
+      "op": "x0, x19"
+    },
+    {
+      "addr": "0x10000b99c",
+      "mnemonic": "ldp",
+      "op": "x29, x30, [sp, #0x30]"
+    },
+    {
+      "addr": "0x10000b9a0",
+      "mnemonic": "ldp",
+      "op": "x20, x19, [sp, #0x20]"
+    },
+    {
+      "addr": "0x10000b9a4",
+      "mnemonic": "ldp",
+      "op": "x22, x21, [sp, #0x10]"
+    },
+    {
+      "addr": "0x10000b9a8",
+      "mnemonic": "add",
+      "op": "sp, sp, #0x40"
+    },
+    {
+      "addr": "0x10000b9ac",
+      "mnemonic": "ret",
+      "op": ""
+    }
+  ],
+  "branches": [
+    {
+      "at": "0x10000b5f4",
+      "kind": "b",
+      "op": "#0x1002013b4",
+      "target": "0x1002013b4"
+    },
+    {
+      "at": "0x10000b628",
+      "kind": "cbz",
+      "op": "w0, #0x10000b700",
+      "target": "0x10000b700"
+    },
+    {
+      "at": "0x10000b684",
+      "kind": "cbz",
+      "op": "x19, #0x10000b6c0",
+      "target": "0x10000b6c0"
+    },
+    {
+      "at": "0x10000b710",
+      "kind": "b",
+      "op": "#0x1002013b4",
+      "target": "0x1002013b4"
+    },
+    {
+      "at": "0x10000b744",
+      "kind": "cbz",
+      "op": "w0, #0x10000b854",
+      "target": "0x10000b854"
+    },
+    {
+      "at": "0x10000b7d8",
+      "kind": "cbz",
+      "op": "x19, #0x10000b814",
+      "target": "0x10000b814"
+    },
+    {
+      "at": "0x10000b864",
+      "kind": "b",
+      "op": "#0x1002013b4",
+      "target": "0x1002013b4"
+    },
+    {
+      "at": "0x10000b884",
+      "kind": "cbz",
+      "op": "x0, #0x10000b898",
+      "target": "0x10000b898"
+    },
+    {
+      "at": "0x10000b8cc",
+      "kind": "b",
+      "op": "#0x1002013b4",
+      "target": "0x1002013b4"
+    },
+    {
+      "at": "0x10000b908",
+      "kind": "cbz",
+      "op": "w0, #0x10000b998",
+      "target": "0x10000b998"
+    }
+  ],
+  "cstrings": [
+    {
+      "at": "0x10000b58c",
+      "addr": "0x1002da700",
+      "s": "pageContainer"
+    },
+    {
+      "at": "0x10000b5a4",
+      "addr": "0x1002da808",
+      "s": "clearPageData"
+    },
+    {
+      "at": "0x10000b5b8",
+      "addr": "0x1002da710",
+      "s": "dicGoAfterLoadCatalog"
+    },
+    {
+      "at": "0x10000b5d4",
+      "addr": "0x1002da810",
+      "s": "tryOpenRecord:sourceName:"
+    },
+    {
+      "at": "0x10000b61c",
+      "addr": "0x1002da818",
+      "s": "viewVisible"
+    },
+    {
+      "at": "0x10000b638",
+      "addr": "0x1002da688",
+      "s": "create"
+    },
+    {
+      "at": "0x10000b650",
+      "addr": "0x1002da5b0",
+      "s": "bookKey"
+    },
+    {
+      "at": "0x10000b66c",
+      "addr": "0x1002da820",
+      "s": "setBookKey:"
+    },
+    {
+      "at": "0x10000b68c",
+      "addr": "0x1002da828",
+      "s": "object"
+    },
+    {
+      "at": "0x10000b6a8",
+      "addr": "0x1002da830",
+      "s": "setKeyWord:"
+    },
+    {
+      "at": "0x10000b6c4",
+      "addr": "0x1002da680",
+      "s": "navigationController"
+    },
+    {
+      "at": "0x10000b6e0",
+      "addr": "0x1002da690",
+      "s": "pushViewController:animated:"
+    },
+    {
+      "at": "0x10000b738",
+      "addr": "0x1002da818",
+      "s": "viewVisible"
+    },
+    {
+      "at": "0x10000b754",
+      "addr": "0x1002da688",
+      "s": "create"
+    },
+    {
+      "at": "0x10000b76c",
+      "addr": "0x1002da410",
+      "s": "dicFatBook"
+    },
+    {
+      "at": "0x10000b788",
+      "addr": "0x1002da838",
+      "s": "setDicFatBook:"
+    },
+    {
+      "at": "0x10000b7a4",
+      "addr": "0x1002da4a0",
+      "s": "arrCatalog"
+    },
+    {
+      "at": "0x10000b7c0",
+      "addr": "0x1002da840",
+      "s": "setArrCatalog:"
+    },
+    {
+      "at": "0x10000b7e0",
+      "addr": "0x1002da828",
+      "s": "object"
+    },
+    {
+      "at": "0x10000b7fc",
+      "addr": "0x1002da848",
+      "s": "setSearchText:"
+    },
+    {
+      "at": "0x10000b818",
+      "addr": "0x1002da680",
+      "s": "navigationController"
+    },
+    {
+      "at": "0x10000b834",
+      "addr": "0x1002da690",
+      "s": "pushViewController:animated:"
+    },
+    {
+      "at": "0x10000b88c",
+      "addr": "0x1002da5a8",
+      "s": "stop:"
+    },
+    {
+      "at": "0x10000b89c",
+      "addr": "0x1002da700",
+      "s": "pageContainer"
+    },
+    {
+      "at": "0x10000b8b8",
+      "addr": "0x1002da808",
+      "s": "clearPageData"
+    },
+    {
+      "at": "0x10000b8f8",
+      "addr": "0x1002da850",
+      "s": "showTutorialView:"
+    },
+    {
+      "at": "0x10000b910",
+      "addr": "0x1002da308",
+      "s": "view"
+    },
+    {
+      "at": "0x10000b968",
+      "addr": "0x1002da858",
+      "s": "initWithZoomTypes:zoomRects:zoomCount:"
+    },
+    {
+      "at": "0x10000b978",
+      "addr": "0x1002da3a0",
+      "s": "addSubview:"
+    }
+  ]
+}
