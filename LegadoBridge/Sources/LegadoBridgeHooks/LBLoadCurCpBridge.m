@@ -24,11 +24,14 @@ static __weak id sWeakHookReceiver = nil;
 static BOOL sReentryGuard = NO;
 static const void *kLBAssocFoundContainerKey = &kLBAssocFoundContainerKey;
 
-/// 假设 AB：只读同步探针（禁 bounce / 禁改 CB 语义）
+/// 假设 AB：同步探针 + 最小防护（禁 bounce）
+/// 真机：cb_enter×N（bg, respLen=111, dontFormat=0）无 cb_exit/format → 互套/重入风暴后重启
 static void (*sABNextCallBackResponse)(id, SEL, id, id, id) = NULL;
 static void (*sABNextFormatCallBack)(id, SEL, id, id, id) = NULL;
 static BOOL (*sABNextCheckCallBack)(id, SEL, id, id, id) = NULL;
 static BOOL sABSignalInstalled = NO;
+static BOOL sABHooksInstalled = NO;
+static _Thread_local int sABInCallBack = 0;
 
 static void LBABSyncProbe(NSString *tag);
 static void LBABInstallProbes(void);
@@ -141,22 +144,57 @@ static void LBABInstallSignalProbes(void) {
 }
 
 static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id userInfo) {
+    // 防 AB↔forensics 互套：重入只放行 next，不再打探针/改 userInfo
+    if (sABInCallBack > 0) {
+        if (sABInCallBack >= 3) {
+            LBABSyncProbe(@"cb_reentry_depth_abort");
+            return;
+        }
+        sABInCallBack++;
+        if (sABNextCallBackResponse) {
+            sABNextCallBackResponse(self, _cmd, response, config, userInfo);
+        }
+        sABInCallBack--;
+        return;
+    }
+
+    NSMutableDictionary *ui = nil;
+    if ([userInfo isKindOfClass:[NSMutableDictionary class]]) {
+        ui = (NSMutableDictionary *)userInfo;
+    } else if ([userInfo isKindOfClass:[NSDictionary class]]) {
+        ui = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)userInfo];
+    } else {
+        ui = [NSMutableDictionary dictionary];
+    }
+
     NSUInteger respLen = [response isKindOfClass:[NSString class]] ? [(NSString *)response length] : 0;
     id action = ([config isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)config)[@"actionID"] : nil);
-    id target = ([userInfo isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)userInfo)[@"callback_target"] : nil);
-    id dont = ([userInfo isKindOfClass:[NSDictionary class]]
-               ? ((NSDictionary *)userInfo)[@"callback_dontFormatResponse"] : nil);
+    BOOL chapterContent = [action isKindOfClass:[NSString class]] &&
+                          [(NSString *)action isEqualToString:@"chapterContent"];
+    BOOL stringBody = respLen > 0;
+    // 最小修复：章文跳过后台 format（禁 bounce；target 已由 query 写入）
+    if ((chapterContent || stringBody) && ui[@"callback_dontFormatResponse"] == nil) {
+        ui[@"callback_dontFormatResponse"] = @YES;
+        LBABSyncProbe(@"inject_dontFormat");
+    }
+
+    id target = ui[@"callback_target"];
     LBABSyncProbe([NSString stringWithFormat:
                    @"cb_enter respLen=%lu action=%@ target=%@ dontFormat=%d",
                    (unsigned long)respLen,
                    [action isKindOfClass:[NSString class]] ? action : @"-",
                    target ? NSStringFromClass(object_getClass(target)) : @"nil",
-                   dont ? 1 : 0]);
+                   ui[@"callback_dontFormatResponse"] ? 1 : 0]);
     if (!sABNextCallBackResponse) {
         LBABSyncProbe(@"cb_skip_null_next");
         return;
     }
-    sABNextCallBackResponse(self, _cmd, response, config, userInfo);
+    sABInCallBack = 1;
+    @try {
+        sABNextCallBackResponse(self, _cmd, response, config, ui);
+    } @finally {
+        sABInCallBack = 0;
+    }
     LBABSyncProbe(@"cb_exit");
 }
 
@@ -177,6 +215,8 @@ static BOOL LBAB_CheckCallBack(id self, SEL _cmd, id response, id config, id use
 
 static void LBABInstallProbes(void) {
     LBABInstallSignalProbes();
+    // 只装一次：反复 method_setImplementation 易与 forensics early-wrap 互套
+    if (sABHooksInstalled) return;
 
     Class net = NSClassFromString(@"LPNetWork2");
     if (net) {
@@ -218,8 +258,7 @@ static void LBABInstallProbes(void) {
         LBABSyncProbe(@"install_skip no_LPNetWork2");
     }
 
-    // 不钩 NSString#stringWithContentsOfFile：全局 class method 易打断 import/书源读取。
-    // 异步块读文件存活点改由 cb_enter 前是否出现 + Z fileExists 间接判定。
+    sABHooksInstalled = YES;
     LBABSyncProbe(@"install_done");
 }
 
