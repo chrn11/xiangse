@@ -6,6 +6,7 @@
 #import <dlfcn.h>
 
 static void (*sOrigLoadCurCp)(id, SEL) = NULL;
+static void (*sOrigCallBackResponse)(id, SEL, id, id, id) = NULL;
 static LBLoadCurCpState sState = LBLoadCurCpStateIdle;
 static NSString *sToken = nil;
 static NSString *sChapterUrl = nil;
@@ -16,6 +17,7 @@ static NSDictionary *sPendingPayload = nil;
 static __weak id sWeakReader = nil;
 static __weak id sWeakHookReceiver = nil;
 static BOOL sReentryGuard = NO;
+static BOOL sAAInstalled = NO;
 static const void *kLBAssocFoundContainerKey = &kLBAssocFoundContainerKey;
 
 static void LBTraceLoadCurCp(NSString *msg) {
@@ -66,10 +68,13 @@ NSString *LBLoadCurCpBridgeStateName(void) {
     return @"?";
 }
 
+static void LBAAInstallCallBackResponseBridge(void);
+
 void LBLoadCurCpBridgeRegisterOrig(void (*orig)(id, SEL)) {
     if (!orig) return;
     sOrigLoadCurCp = orig;
     LBStateLog([NSString stringWithFormat:@"register_orig imp=%p", orig]);
+    LBAAInstallCallBackResponseBridge();
 }
 
 static NSString *LBBodyFromPayload(NSDictionary *payload);
@@ -300,6 +305,106 @@ static id LBRouteBResolveContainer(id reader) {
     }
     LBStateLog(@"routeB_resolve miss");
     return nil;
+}
+
+/// 假设 AA：本地块 @0x10006171c 在 global queue 上直接
+/// `[BookQueryManager callBackResponse:config:userInfo:]`（继承自 LPNetWork2）。
+/// LPNetWork2 在 check 通过后同线程跑 formatCallBackResponse，再按
+/// userInfo.callback_target → lpNetWorkDelegateQueryFinish。
+/// 真机 Z：fileExists=1 但 CB=0/QF=0 且无 async_plus0.6s → notify 窗口内崩进程。
+/// 最小钉：补 callback_dontFormatResponse + 缺省 callback_target，并弹回主线程再调原 IMP。
+static id LBFindTextReaderVCInHierarchy(void);
+
+static void LBAA_CallBackResponse(id self, SEL _cmd, id response, id config, id userInfo) {
+    NSMutableDictionary *ui = nil;
+    if ([userInfo isKindOfClass:[NSMutableDictionary class]]) {
+        ui = (NSMutableDictionary *)userInfo;
+    } else if ([userInfo isKindOfClass:[NSDictionary class]]) {
+        ui = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)userInfo];
+    } else {
+        ui = [NSMutableDictionary dictionary];
+    }
+
+    id action = nil;
+    if ([config isKindOfClass:[NSDictionary class]]) {
+        action = ((NSDictionary *)config)[@"actionID"];
+    }
+    BOOL chapterContent = [action isKindOfClass:[NSString class]] &&
+                          [(NSString *)action isEqualToString:@"chapterContent"];
+    BOOL stringBody = [response isKindOfClass:[NSString class]] &&
+                      [(NSString *)response length] > 0;
+
+    if (ui[@"callback_target"] == nil) {
+        id target = sWeakHookReceiver;
+        if (!target || !LBObjectIsHypothesisFContainerLike(target)) {
+            id reader = sWeakReader ?: LBFindTextReaderVCInHierarchy();
+            target = LBRouteBResolveContainer(reader);
+        }
+        if (target) {
+            ui[@"callback_target"] = target;
+            LBStateLog([NSString stringWithFormat:
+                        @"hypothesis_AA inject_callback_target %@",
+                        NSStringFromClass(object_getClass(target))]);
+        } else {
+            LBStateLog(@"hypothesis_AA callback_target_still_nil");
+        }
+    }
+
+    if ((chapterContent || stringBody) && ui[@"callback_dontFormatResponse"] == nil) {
+        ui[@"callback_dontFormatResponse"] = @YES;
+        LBStateLog(@"hypothesis_AA inject_dontFormatResponse");
+    }
+
+    if (![NSThread isMainThread]) {
+        LBStateLog(@"hypothesis_AA bounce_to_main");
+        id strongSelf = self;
+        id resp = response;
+        id cfg = config;
+        NSDictionary *uiCopy = [ui copy];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBAA_CallBackResponse(strongSelf, _cmd, resp, cfg, uiCopy);
+        });
+        return;
+    }
+
+    if (!sOrigCallBackResponse) {
+        LBStateLog(@"hypothesis_AA skip_null_orig");
+        return;
+    }
+    LBStateLog([NSString stringWithFormat:
+                @"hypothesis_AA call_orig respLen=%lu action=%@ target=%@",
+                (unsigned long)([response isKindOfClass:[NSString class]]
+                                ? [(NSString *)response length] : 0),
+                [action isKindOfClass:[NSString class]] ? action : @"-",
+                ui[@"callback_target"]
+                    ? NSStringFromClass(object_getClass(ui[@"callback_target"]))
+                    : @"nil"]);
+    sOrigCallBackResponse(self, _cmd, response, config, ui);
+}
+
+static void LBAAInstallCallBackResponseBridge(void) {
+    Class cls = NSClassFromString(@"LPNetWork2");
+    if (!cls) {
+        LBStateLog(@"hypothesis_AA install_skip no_LPNetWork2");
+        return;
+    }
+    SEL sel = NSSelectorFromString(@"callBackResponse:config:userInfo:");
+    Method m = class_getInstanceMethod(cls, sel);
+    if (!m) {
+        LBStateLog(@"hypothesis_AA install_skip no_sel");
+        return;
+    }
+    IMP cur = method_getImplementation(m);
+    if (cur == (IMP)LBAA_CallBackResponse) {
+        sAAInstalled = YES;
+        return;
+    }
+    // forensics 可能后装覆盖；每次发现非本 IMP 再包一层
+    sOrigCallBackResponse = (void (*)(id, SEL, id, id, id))cur;
+    method_setImplementation(m, (IMP)LBAA_CallBackResponse);
+    sAAInstalled = YES;
+    LBStateLog([NSString stringWithFormat:
+                @"hypothesis_AA install_OK orig=%p", sOrigCallBackResponse]);
 }
 
 static id LBReaderVCFromContext(id obj) {
@@ -1132,6 +1237,7 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     sReentryGuard = YES;
     sInvokeCount++;
     LBSetState(LBLoadCurCpStateInvokingOriginal, @"routeB_invoke_begin");
+    LBAAInstallCallBackResponseBridge();
     LBTraceLoadCurCp([NSString stringWithFormat:
                       @"sm=invokingOriginal ch=%@ target=%@ orig=%p",
                       sChapterUrl ?: @"-", containerName, sOrigLoadCurCp]);
