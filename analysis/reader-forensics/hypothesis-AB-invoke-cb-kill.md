@@ -48,7 +48,7 @@ dispatch_async(global) →
 | `pre_invoke_orig` | `sOrigLoadCurCp` 前 |
 | `invoke_orig_returned` | invoke 返回后立刻 |
 | `post_invoke_*` / `await_native_chain` | Z 探针与 O 等待 |
-| `swcf_enter` / `swcf_exit` | `NSString stringWithContentsOfFile`（仅 xsfolder/book） |
+| `swcf_*` | **已撤**：全局钩 `stringWithContentsOfFile` 会打断 import/书源读取（903846e 真机无 invoke） |
 | `cb_enter` / `cb_exit` | `callBackResponse` 前后（透传 next，不 inject） |
 | `check_*` / `format_*` | 若 selector 存在 |
 | `fatal_signal SIG=n` | SIGSEGV/BUS/ABRT/TRAP/ILL |

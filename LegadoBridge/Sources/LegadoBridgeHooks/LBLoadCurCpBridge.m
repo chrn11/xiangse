@@ -28,7 +28,6 @@ static const void *kLBAssocFoundContainerKey = &kLBAssocFoundContainerKey;
 static void (*sABNextCallBackResponse)(id, SEL, id, id, id) = NULL;
 static void (*sABNextFormatCallBack)(id, SEL, id, id, id) = NULL;
 static BOOL (*sABNextCheckCallBack)(id, SEL, id, id, id) = NULL;
-static id (*sABNextStringWithContents)(id, SEL, id, NSUInteger, NSError **) = NULL;
 static BOOL sABSignalInstalled = NO;
 
 static void LBABSyncProbe(NSString *tag);
@@ -176,27 +175,6 @@ static BOOL LBAB_CheckCallBack(id self, SEL _cmd, id response, id config, id use
     return ok;
 }
 
-static id LBAB_StringWithContents(id self, SEL _cmd, id path, NSUInteger enc, NSError **err) {
-    NSString *p = [path isKindOfClass:[NSString class]] ? (NSString *)path : nil;
-    BOOL interesting = p.length > 0 &&
-                       ([p containsString:@"xsfolder"] || [p containsString:@"/book/"]);
-    if (interesting) {
-        LBABSyncProbe([NSString stringWithFormat:@"swcf_enter leaf=%@", p.lastPathComponent ?: @"-"]);
-    }
-    id ret = sABNextStringWithContents
-                 ? sABNextStringWithContents(self, _cmd, path, enc, err)
-                 : nil;
-    if (interesting) {
-        NSUInteger len = [ret isKindOfClass:[NSString class]] ? [(NSString *)ret length] : 0;
-        LBABSyncProbe([NSString stringWithFormat:
-                       @"swcf_exit leaf=%@ len=%lu nil=%d",
-                       p.lastPathComponent ?: @"-",
-                       (unsigned long)len,
-                       ret ? 0 : 1]);
-    }
-    return ret;
-}
-
 static void LBABInstallProbes(void) {
     LBABInstallSignalProbes();
 
@@ -240,17 +218,8 @@ static void LBABInstallProbes(void) {
         LBABSyncProbe(@"install_skip no_LPNetWork2");
     }
 
-    Method sw = class_getClassMethod([NSString class],
-                                     @selector(stringWithContentsOfFile:encoding:error:));
-    if (sw) {
-        IMP cur = method_getImplementation(sw);
-        if (cur != (IMP)LBAB_StringWithContents) {
-            sABNextStringWithContents = (id (*)(id, SEL, id, NSUInteger, NSError **))cur;
-            method_setImplementation(sw, (IMP)LBAB_StringWithContents);
-            LBABSyncProbe(@"install_swcf");
-        }
-    }
-
+    // 不钩 NSString#stringWithContentsOfFile：全局 class method 易打断 import/书源读取。
+    // 异步块读文件存活点改由 cb_enter 前是否出现 + Z fileExists 间接判定。
     LBABSyncProbe(@"install_done");
 }
 
