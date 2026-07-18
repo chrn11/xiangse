@@ -294,9 +294,7 @@ static void LBAEProbeDispatchGates(id response, id config, id userInfo, NSString
                    path]);
 }
 
-/// AG：syslog 证实 inThread QF 在 bg 触 UIWindowScene → SIGSEGV(11) 无 .ips。
-/// KEEP inject_inThread（original 仍同步进入本钩）；仅把 QF 本体 marshal 到主线程（非 bounce CB）。
-static void LBAE_QueryFinishOnMain(id self, SEL _cmd, id response, id config, id userInfo) {
+static void LBAE_QueryFinish(id self, SEL _cmd, id response, id config, id userInfo) {
     NSUInteger respLen = [response isKindOfClass:[NSString class]] ? [(NSString *)response length] : 0;
     if (respLen == 0 && [response isKindOfClass:[NSDictionary class]]) {
         id c = ((NSDictionary *)response)[@"content"] ?: ((NSDictionary *)response)[@"chapterContent"];
@@ -316,17 +314,6 @@ static void LBAE_QueryFinishOnMain(id self, SEL _cmd, id response, id config, id
     }
     LBABSyncProbe(@"ag_post_qf");
     LBABSyncProbe(@"qf_exit");
-}
-
-static void LBAE_QueryFinish(id self, SEL _cmd, id response, id config, id userInfo) {
-    if (![NSThread isMainThread]) {
-        LBABSyncProbe(@"ag_qf_marshal_to_main");
-        dispatch_sync(dispatch_get_main_queue(), ^{
-            LBAE_QueryFinishOnMain(self, _cmd, response, config, userInfo);
-        });
-        return;
-    }
-    LBAE_QueryFinishOnMain(self, _cmd, response, config, userInfo);
 }
 
 static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id userInfo) {
