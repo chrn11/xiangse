@@ -10,6 +10,9 @@
 #import <stdio.h>
 #import <string.h>
 #import <time.h>
+#import <mach/mach.h>
+#import <mach/task_info.h>
+#import <stdlib.h>
 
 static void (*sOrigLoadCurCp)(id, SEL) = NULL;
 static LBLoadCurCpState sState = LBLoadCurCpStateIdle;
@@ -49,6 +52,10 @@ static id LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id user
 static BOOL LBAB_CheckCallBack(id self, SEL _cmd, id response, id config, id userInfo);
 static void LBAE_QueryFinish(id self, SEL _cmd, id response, id config, id userInfo);
 static void LBAEProbeDispatchGates(id response, id config, id userInfo, NSString *phase);
+static long LBAGFootprintMB(void);
+static long LBAGUptimeMs(void);
+static void LBAGStartBgHeartbeat(void);
+static void LBAGInstallAtExit(void);
 
 static void LBTraceLoadCurCp(NSString *msg) {
     if (msg.length == 0) return;
@@ -83,24 +90,42 @@ static void LBStateLog(NSString *msg) {
     LBTraceLoadCurCp([NSString stringWithFormat:@"loadCurCp %@ sm=%@", msg ?: @"", LBLoadCurCpBridgeStateName()]);
 }
 
-/// POSIX append+fsync：SIGKILL 前尽量保住最后一条存活点
+/// AG：phys_footprint（MB）；失败返回 -1
+static long LBAGFootprintMB(void) {
+    task_vm_info_data_t info;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    kern_return_t kr = task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info, &count);
+    if (kr != KERN_SUCCESS) return -1;
+    return (long)(info.phys_footprint / (1024ull * 1024ull));
+}
+
+static long LBAGUptimeMs(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts) != 0) return -1;
+    return (long)(ts.tv_sec * 1000L + ts.tv_nsec / 1000000L);
+}
+
+/// AG：POSIX append+fsync：SIGKILL 前尽量保住最后一条存活点；附 pid/uptime/mem
 static void LBABSyncProbe(NSString *tag) {
     if (tag.length == 0) return;
     NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_ab_probe.txt"];
     const char *cpath = path.fileSystemRepresentation;
     if (!cpath) return;
 
-    char buf[640];
+    char buf[768];
     time_t now = time(NULL);
     struct tm tm;
     localtime_r(&now, &tm);
     int n = snprintf(buf, sizeof(buf),
-                     "%04d-%02d-%02d %02d:%02d:%02d | hypothesis_AC %s main=%d inv=%lu\n",
+                     "%04d-%02d-%02d %02d:%02d:%02d | hypothesis_AC %s main=%d inv=%lu pid=%d up=%ld mem=%ld\n",
                      tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
                      tm.tm_hour, tm.tm_min, tm.tm_sec,
                      tag.UTF8String ?: "?",
                      [NSThread isMainThread] ? 1 : 0,
-                     (unsigned long)sInvokeCount);
+                     (unsigned long)sInvokeCount,
+                     (int)getpid(),
+                     LBAGUptimeMs(),
+                     LBAGFootprintMB());
     if (n <= 0) return;
     if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
 
@@ -125,6 +150,45 @@ static void LBABSyncProbe(NSString *tag) {
         [fh synchronizeFile];
         [fh closeFile];
     }
+}
+
+/// AG：bg 心跳——主队列卡死时仍能写盘；停跳+pid 变 → 进程已死（非仅 main 饿死）
+static void LBAGStartBgHeartbeat(void) {
+    static int sStarted = 0;
+    if (sStarted) return;
+    sStarted = 1;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        for (int i = 0; i < 40; i++) {
+            LBABSyncProbe([NSString stringWithFormat:@"ag_bg_hb i=%d", i]);
+            usleep(200000);
+        }
+        LBABSyncProbe(@"ag_bg_hb_done");
+    });
+}
+
+static void LBAGAtExitProbe(void) {
+    char mark[96];
+    int n = snprintf(mark, sizeof(mark), "hypothesis_AC ag_atexit pid=%d\n", (int)getpid());
+    const char *home = getenv("HOME");
+    char path[512];
+    if (home && home[0]) {
+        snprintf(path, sizeof(path), "%s/Documents/legado_ab_probe.txt", home);
+    } else {
+        snprintf(path, sizeof(path), "/tmp/legado_ab_probe.txt");
+    }
+    int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        if (n > 0) (void)write(fd, mark, (size_t)n);
+        (void)fsync(fd);
+        close(fd);
+    }
+}
+
+static void LBAGInstallAtExit(void) {
+    static int sOnce = 0;
+    if (sOnce) return;
+    sOnce = 1;
+    (void)atexit(LBAGAtExitProbe);
 }
 
 static void LBABOnFatalSignal(int sig) {
@@ -248,6 +312,7 @@ static void LBAE_QueryFinish(id self, SEL _cmd, id response, id config, id userI
     } else {
         LBABSyncProbe(@"qf_early_return reason=null_next");
     }
+    LBABSyncProbe(@"ag_post_qf");
     LBABSyncProbe(@"qf_exit");
 }
 
@@ -437,6 +502,7 @@ static id LBAB_StringWithContents(id self, SEL _cmd, id path, NSUInteger enc, NS
 
 static void LBABInstallProbes(void) {
     LBABInstallSignalProbes();
+    LBAGInstallAtExit();
     // 只装一次：invoke 前反复 setImplementation 会把 next 指到 forensics 桩并成环
     if (sABHooksInstalled) return;
 
@@ -546,6 +612,7 @@ static void LBABInstallProbes(void) {
 
     sABHooksInstalled = YES;
     LBABSyncProbe(@"install_done");
+    LBABSyncProbe(@"ag_keep_inThread=1");
 }
 
 static void LBSetState(LBLoadCurCpState next, NSString *why) {
@@ -1633,6 +1700,7 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     sInvokeCount++;
     LBSetState(LBLoadCurCpStateInvokingOriginal, @"routeB_invoke_begin");
     LBABInstallProbes();
+    LBAGStartBgHeartbeat();
     LBABSyncProbe([NSString stringWithFormat:@"pre_invoke_orig target=%@", containerName]);
     LBTraceLoadCurCp([NSString stringWithFormat:
                       @"sm=invokingOriginal ch=%@ target=%@ orig=%p",
