@@ -667,7 +667,8 @@ static IMP LBFHookIMPForSelector(NSString *selName) {
     if ([selName isEqualToString:@"onDivisionTextFinish:cpIndex:"]) return (IMP)LBFHook_v_at_id_q;
     if ([selName isEqualToString:@"divisionResponse:cpTitle:cpIndex:"]) return (IMP)LBFHook_v_at_id_id_q;
     if ([selName isEqualToString:@"divisionResponse:cpTitle:cpIndex:heights:"]) return (IMP)LBFHook_v_at_id_id_q_id;
-    if ([selName isEqualToString:@"lpNetWorkDelegateQueryFinish:config:userInfo:"]) {
+    if ([selName isEqualToString:@"lpNetWorkDelegateQueryFinish:config:userInfo:"] ||
+        [selName isEqualToString:@"callBackResponse:config:userInfo:"]) {
         return (IMP)LBFHook_v_at_id_id_id;
     }
     if ([selName isEqualToString:@"divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:"]) {
@@ -690,6 +691,7 @@ static NSArray<NSString *> *LBFObserverSelectors(void) {
         @"divisionResponse:cpTitle:cpIndex:", @"divisionResponse:cpTitle:cpIndex:heights:",
         @"onDivisionTextFinish:cpIndex:",
         @"lpNetWorkDelegateQueryFinish:config:userInfo:",
+        @"callBackResponse:config:userInfo:",
         @"resetLoadCpTip:",
         @"drawRect:", @"resetContentPosByScreenSize:",
         @"showContent:", @"showContent:title:", @"setPageModel:",
@@ -706,6 +708,7 @@ static NSArray<NSString *> *LBFObserverProbeClasses(void) {
         @"TextReadTV", @"TextReadTVBase",
         @"ReadPageModel",
         @"BookDbManager", @"BookQueryManager", @"CacherManager",
+        @"LPNetWork2", @"LPNetWork1",
     ];
 }
 

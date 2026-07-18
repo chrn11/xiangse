@@ -326,6 +326,115 @@ static void LBApplyDicContents(id target, NSMutableDictionary *dc, NSMutableArra
     } @catch (__unused NSException *e) {}
 }
 
+/// 假设 Z：本地异步块 @0x10006171c 用 AppConfig#getBookDirByBookKey: 拼路径，
+/// bookKey 来自 getBookKey: → getBookKeyByBookName:author:（格式 bookName_author），
+/// 与 dicBook.bookKey（Legado URL 键）无关。seed 必须落到同一目录，否则
+/// stringWithContentsOfFile 得 nil → callBackResponse 空载 → 无 QF。
+static id LBAppConfigShared(void) {
+    Class cls = NSClassFromString(@"AppConfig");
+    if (!cls) return nil;
+    if ([cls respondsToSelector:@selector(sharedInstance)]) {
+        return ((id (*)(id, SEL))objc_msgSend)(cls, @selector(sharedInstance));
+    }
+    if ([cls respondsToSelector:@selector(sharedManager)]) {
+        return ((id (*)(id, SEL))objc_msgSend)(cls, @selector(sharedManager));
+    }
+    return nil;
+}
+
+static NSString *LBNativeBookKey(NSString *bookName, NSString *author, NSDictionary *book) {
+    id cfg = LBAppConfigShared();
+    if (cfg && [book isKindOfClass:[NSDictionary class]]) {
+        SEL gk = NSSelectorFromString(@"getBookKey:");
+        if ([cfg respondsToSelector:gk]) {
+            @try {
+                id k = ((id (*)(id, SEL, id))objc_msgSend)(cfg, gk, book);
+                if ([k isKindOfClass:[NSString class]] && [(NSString *)k length] > 0) {
+                    return (NSString *)k;
+                }
+            } @catch (__unused NSException *e) {}
+        }
+    }
+    if (cfg && bookName.length > 0) {
+        SEL gk2 = NSSelectorFromString(@"getBookKeyByBookName:author:");
+        if ([cfg respondsToSelector:gk2]) {
+            @try {
+                id k = ((id (*)(id, SEL, id, id))objc_msgSend)(
+                    cfg, gk2, bookName, author ?: @"");
+                if ([k isKindOfClass:[NSString class]] && [(NSString *)k length] > 0) {
+                    return (NSString *)k;
+                }
+            } @catch (__unused NSException *e) {}
+        }
+    }
+    // 静态回退：与 getBookKeyByBookName 的 stringByAppendingFormat:@"_%@" 同形
+    if (bookName.length == 0) return nil;
+    NSString *bn = bookName;
+    if (bn.length > 20) bn = [bn substringToIndex:20];
+    NSString *au = author ?: @"";
+    if (au.length > 20) au = [au substringToIndex:20];
+    return [bn stringByAppendingFormat:@"_%@", au];
+}
+
+/// 反汇编 @0x100061480：AppConfig#getBookDir:(book) 优先；其次 getBookDirByBookKey:。
+static NSString *LBNativeBookDirForBook(NSDictionary *book, NSString *bookKey) {
+    id cfg = LBAppConfigShared();
+    if (cfg && [book isKindOfClass:[NSDictionary class]]) {
+        SEL gd = NSSelectorFromString(@"getBookDir:");
+        if ([cfg respondsToSelector:gd]) {
+            @try {
+                id d = ((id (*)(id, SEL, id))objc_msgSend)(cfg, gd, book);
+                if ([d isKindOfClass:[NSString class]] && [(NSString *)d length] > 0) {
+                    return (NSString *)d;
+                }
+            } @catch (__unused NSException *e) {}
+        }
+    }
+    if (cfg && bookKey.length > 0) {
+        SEL gd2 = NSSelectorFromString(@"getBookDirByBookKey:");
+        if ([cfg respondsToSelector:gd2]) {
+            @try {
+                id d = ((id (*)(id, SEL, id))objc_msgSend)(cfg, gd2, bookKey);
+                if ([d isKindOfClass:[NSString class]] && [(NSString *)d length] > 0) {
+                    return (NSString *)d;
+                }
+            } @catch (__unused NSException *e) {}
+        }
+    }
+    if (bookKey.length == 0) return nil;
+    return [NSHomeDirectory() stringByAppendingPathComponent:
+            [NSString stringWithFormat:@"Documents/xsfolder/book/%@", bookKey]];
+}
+
+static NSString *LBNativeBookDirForKey(NSString *bookKey) {
+    return LBNativeBookDirForBook(nil, bookKey);
+}
+
+static void LBLogHypothesisZFileProbe(NSString *tag, NSString *bookKey, NSInteger cpIndex,
+                                      NSUInteger bodyLen) {
+    NSString *dir = LBNativeBookDirForKey(bookKey);
+    NSString *rel = [NSString stringWithFormat:@"%ld", (long)cpIndex];
+    NSString *cpPath = dir.length ? [dir stringByAppendingPathComponent:rel] : nil;
+    BOOL exists = cpPath.length > 0 &&
+                  [[NSFileManager defaultManager] fileExistsAtPath:cpPath];
+    unsigned long long fsz = 0;
+    if (exists) {
+        NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:cpPath
+                                                                               error:NULL];
+        fsz = [attrs fileSize];
+    }
+    LBStateLog([NSString stringWithFormat:
+                @"hypothesis_Z %@ bookKeyLen=%lu bookDirLen=%lu cpRel=%@ "
+                @"fileExists=%d fileSize=%llu bodyLen=%lu",
+                tag ?: @"-",
+                (unsigned long)bookKey.length,
+                (unsigned long)dir.length,
+                rel,
+                exists ? 1 : 0,
+                fsz,
+                (unsigned long)bodyLen]);
+}
+
 /// confirmed 边界：dicContents / xsfolder / setCpCached（禁 UI / pageModel）
 static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArray *paths) {
     if (!reader || ![payload isKindOfClass:[NSDictionary class]]) return NO;
@@ -341,11 +450,41 @@ static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArra
         id d = [reader valueForKey:@"dicBook"];
         if ([d isKindOfClass:[NSDictionary class]]) dicBook = d;
     } @catch (__unused NSException *e) {}
-    NSString *bookKey = [dicBook[@"bookKey"] isKindOfClass:[NSString class]] ? dicBook[@"bookKey"] : @"legado|bridge";
+    NSString *legacyKey = [dicBook[@"bookKey"] isKindOfClass:[NSString class]] ? dicBook[@"bookKey"] : nil;
+    NSString *bookName = nil;
+    NSString *author = nil;
+    if ([dicBook[@"bookName"] isKindOfClass:[NSString class]]) bookName = dicBook[@"bookName"];
+    else if ([dicBook[@"name"] isKindOfClass:[NSString class]]) bookName = dicBook[@"name"];
+    else if ([dicBook[@"title"] isKindOfClass:[NSString class]]) bookName = dicBook[@"title"];
+    if ([dicBook[@"author"] isKindOfClass:[NSString class]]) author = dicBook[@"author"];
+    if (bookName.length == 0 && [payload[@"bookName"] isKindOfClass:[NSString class]]) {
+        bookName = payload[@"bookName"];
+    }
+    if (author.length == 0 && [payload[@"author"] isKindOfClass:[NSString class]]) {
+        author = payload[@"author"];
+    }
+    if (bookName.length == 0) bookName = @"斗破苍穹";
+    if (author.length == 0) author = @"天蚕土豆";
+    NSMutableDictionary *keyBook = [NSMutableDictionary dictionary];
+    if ([dicBook isKindOfClass:[NSDictionary class]]) {
+        [keyBook addEntriesFromDictionary:dicBook];
+    }
+    keyBook[@"bookName"] = bookName;
+    keyBook[@"author"] = author;
+    NSString *bookKey = LBNativeBookKey(bookName, author, keyBook);
+    if (bookKey.length == 0) {
+        bookKey = legacyKey.length > 0 ? legacyKey : @"legado|bridge";
+    }
     NSString *sourceName = [dicBook[@"sourceName"] isKindOfClass:[NSString class]] ? dicBook[@"sourceName"] : @"本地静态测试源";
     if (sourceName.length == 0) {
         sourceName = [payload[@"sourceName"] isKindOfClass:[NSString class]] ? payload[@"sourceName"] : @"本地静态测试源";
     }
+    LBStateLog([NSString stringWithFormat:
+                @"hypothesis_Z native_bookKeyLen=%lu legacyKeyLen=%lu nameLen=%lu authorLen=%lu",
+                (unsigned long)bookKey.length,
+                (unsigned long)legacyKey.length,
+                (unsigned long)bookName.length,
+                (unsigned long)author.length]);
 
     // 1) dicContents
     @try {
@@ -379,37 +518,51 @@ static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArra
     } @catch (__unused NSException *e) {}
 
     // 2) xsfolder + localSourceText（供 queryCpFileByBook 读本地缓存）
+    // 假设 Z：主写 native getBookDirByBookKey 目录；legacyKey 不同则双写兜底。
     @try {
-        NSString *bookDir = [NSHomeDirectory() stringByAppendingPathComponent:
-                             [NSString stringWithFormat:@"Documents/xsfolder/book/%@", bookKey]];
-        [[NSFileManager defaultManager] createDirectoryAtPath:bookDir
-                                  withIntermediateDirectories:YES
-                                                   attributes:nil
-                                                        error:NULL];
-        NSString *cpPath = [bookDir stringByAppendingPathComponent:
-                            [NSString stringWithFormat:@"%ld", (long)cpIndex]];
-        [body writeToFile:cpPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        NSString *altPath = [bookDir stringByAppendingPathComponent:
-                             [NSString stringWithFormat:@"%@%ld", bookKey, (long)cpIndex]];
-        [body writeToFile:altPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        NSDictionary *lstPlist = @{
-            @"list": @[ @{
-                @"title": title,
-                @"url": [@(cpIndex) stringValue]
-            } ]
-        };
-        [lstPlist writeToFile:[bookDir stringByAppendingPathComponent:@"localSourceText"]
-                   atomically:YES];
-        for (id tgt in @[reader, LBFindReadPageContainerForReader(reader) ?: [NSNull null]]) {
-            if (tgt == (id)[NSNull null]) continue;
-            @try { [tgt setValue:bookDir forKey:@"bookDirPath"]; } @catch (__unused NSException *e) {}
-            if ([tgt respondsToSelector:NSSelectorFromString(@"setBookDirPath:")]) {
-                ((void (*)(id, SEL, id))objc_msgSend)(
-                    tgt, NSSelectorFromString(@"setBookDirPath:"), bookDir);
+        NSMutableArray<NSString *> *dirs = [NSMutableArray array];
+        NSString *nativeDir = LBNativeBookDirForBook(keyBook, bookKey);
+        if (nativeDir.length > 0) [dirs addObject:nativeDir];
+        if (legacyKey.length > 0 && ![legacyKey isEqualToString:bookKey]) {
+            NSString *legacyDir = [NSHomeDirectory() stringByAppendingPathComponent:
+                                   [NSString stringWithFormat:@"Documents/xsfolder/book/%@", legacyKey]];
+            if (legacyDir.length > 0) [dirs addObject:legacyDir];
+        }
+        NSString *primaryDir = dirs.firstObject;
+        for (NSString *bookDir in dirs) {
+            [[NSFileManager defaultManager] createDirectoryAtPath:bookDir
+                                      withIntermediateDirectories:YES
+                                                       attributes:nil
+                                                            error:NULL];
+            NSString *cpPath = [bookDir stringByAppendingPathComponent:
+                                [NSString stringWithFormat:@"%ld", (long)cpIndex]];
+            [body writeToFile:cpPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            NSString *dirKey = [bookDir lastPathComponent] ?: bookKey;
+            NSString *altPath = [bookDir stringByAppendingPathComponent:
+                                 [NSString stringWithFormat:@"%@%ld", dirKey, (long)cpIndex]];
+            [body writeToFile:altPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            NSDictionary *lstPlist = @{
+                @"list": @[ @{
+                    @"title": title,
+                    @"url": [@(cpIndex) stringValue]
+                } ]
+            };
+            [lstPlist writeToFile:[bookDir stringByAppendingPathComponent:@"localSourceText"]
+                       atomically:YES];
+        }
+        if (primaryDir.length > 0) {
+            for (id tgt in @[reader, LBFindReadPageContainerForReader(reader) ?: [NSNull null]]) {
+                if (tgt == (id)[NSNull null]) continue;
+                @try { [tgt setValue:primaryDir forKey:@"bookDirPath"]; } @catch (__unused NSException *e) {}
+                if ([tgt respondsToSelector:NSSelectorFromString(@"setBookDirPath:")]) {
+                    ((void (*)(id, SEL, id))objc_msgSend)(
+                        tgt, NSSelectorFromString(@"setBookDirPath:"), primaryDir);
+                }
             }
         }
         [paths addObject:@"xsfolder"];
         [paths addObject:@"localSourceText"];
+        LBLogHypothesisZFileProbe(@"seed", bookKey, cpIndex, body.length);
     } @catch (__unused NSException *e) {}
 
     // 3) BookDbManager#setCpCached
@@ -663,8 +816,15 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
         if (![bk isKindOfClass:[NSString class]] || [(NSString *)bk length] == 0) {
             bk = dicBook[@"bookKey"];
         }
-        if ([bk isKindOfClass:[NSString class]] && [(NSString *)bk length] > 0 &&
-            !([fat[@"bookKey"] isKindOfClass:[NSString class]] && [fat[@"bookKey"] length] > 0)) {
+        // 假设 Z：fat.bookKey 仅作旁路；真正路径键由 getBookKey(bookName,author) 决定。
+        // 仍写入 nativeKey，避免其它读 bookKey 的路径漂移。
+        NSString *nativeKey = LBNativeBookKey(bookName, author, fat);
+        if (nativeKey.length > 0) {
+            fat[@"bookKey"] = nativeKey;
+            bk = nativeKey;
+        } else if ([bk isKindOfClass:[NSString class]] && [(NSString *)bk length] > 0 &&
+                   !([fat[@"bookKey"] isKindOfClass:[NSString class]] &&
+                     [fat[@"bookKey"] length] > 0)) {
             fat[@"bookKey"] = bk;
         }
         // 假设 X（反汇编校正）：@0x10006116c/1a8 的 chapterList|chapterContent 是
@@ -972,6 +1132,31 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
         LBStateLog([NSString stringWithFormat:@"invoke_orig_OK target=%@", containerName]);
         LBTraceLoadCurCp(@"ORIG loadCurCp OK");
         LBLogLoadCurCpGates(reader, container, @"post_invoke_routeB");
+        // 假设 Z：异步 notify=callBackResponse→QF；延迟探针确认 native 目录正文在位
+        if (sPendingPayload) {
+            NSDictionary *payload = sPendingPayload;
+            NSInteger cpIndex = LBCpIndexFromPayload(payload, reader);
+            NSUInteger bodyLen = LBBodyFromPayload(payload).length;
+            NSString *bookName = @"斗破苍穹";
+            NSString *author = @"天蚕土豆";
+            NSMutableDictionary *probeBook = [NSMutableDictionary dictionary];
+            @try {
+                id fat = [reader valueForKey:@"dicFatBook"];
+                if ([fat isKindOfClass:[NSDictionary class]]) {
+                    [probeBook addEntriesFromDictionary:(NSDictionary *)fat];
+                    if ([fat[@"bookName"] isKindOfClass:[NSString class]]) bookName = fat[@"bookName"];
+                    if ([fat[@"author"] isKindOfClass:[NSString class]]) author = fat[@"author"];
+                }
+            } @catch (__unused NSException *e) {}
+            probeBook[@"bookName"] = bookName;
+            probeBook[@"author"] = author;
+            NSString *bk = LBNativeBookKey(bookName, author, probeBook) ?: @"";
+            LBLogHypothesisZFileProbe(@"post_invoke", bk, cpIndex, bodyLen);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                LBLogHypothesisZFileProbe(@"async_plus0.6s", bk, cpIndex, bodyLen);
+            });
+        }
         // 假设 O：invoke_orig_OK 后禁止人工 kick；等原生 queryCpFileByBook→QF→DR→finish
         if (sPendingPayload && LBBodyFromPayload(sPendingPayload).length > 0) {
             LBTraceLoadCurCp(@"hypothesis_O kick_disabled await_native_chain");

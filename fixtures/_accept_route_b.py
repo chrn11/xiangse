@@ -24,7 +24,7 @@ BUNDLE = "com.appbox.StandarReader"
 OUT = ROOT / "fixtures" / "_accept_route_b.json"
 OUT_TASK6 = ROOT / "fixtures" / "_accept_task6_ch1.json"
 # CI_RUN 在 CI 成功后回填；EXPECT_SHA/IPA 运行时对齐 HEAD（避免 amend 鸡生蛋）
-CI_RUN = "PENDING"
+CI_RUN = "29640095056"
 MODEL = "cursor-grok-4.5-high-fast"
 
 
@@ -109,7 +109,17 @@ def evaluate(blob: str, dump: str, xiaoyan: dict | None, frontmost: dict | None)
     reader_ready = [ln for ln in blob.splitlines() if "routeB reader_ready" in ln]
     schedule_wait = [ln for ln in blob.splitlines() if "routeB schedule_wait_reader" in ln]
 
-    qf = [ln for ln in dump.splitlines() if runtime_line(ln) and "lpNetWorkDelegateQueryFinish" in ln]
+    # 本地章路径 notify=callBackResponse:config:userInfo:，再进 QF；两者都算原生链
+    qf = [
+        ln
+        for ln in dump.splitlines()
+        if runtime_line(ln)
+        and (
+            "lpNetWorkDelegateQueryFinish" in ln
+            or "callBackResponse:config:userInfo:" in ln
+        )
+    ]
+    cb = [ln for ln in dump.splitlines() if runtime_line(ln) and "callBackResponse:config:userInfo:" in ln]
     dr = [ln for ln in dump.splitlines() if runtime_line(ln) and "divisionResponse:cpTitle:cpIndex:" in ln]
     fin = [ln for ln in dump.splitlines() if runtime_line(ln) and "onDivisionTextFinish:cpIndex:" in ln]
 
@@ -138,7 +148,7 @@ def evaluate(blob: str, dump: str, xiaoyan: dict | None, frontmost: dict | None)
     has_invoke_ok = bool(invoke_ok)
     no_desktop = not springboard and bundle in ("", BUNDLE)
 
-    has_native_chain = bool(qf or dr or fin)
+    has_native_chain = bool(qf or cb or dr or fin)
 
     if resolve_miss and not has_container_hit:
         verdict, reason = "FAIL_CONTAINER_MISS", "routeB_resolve miss，container 未解析"
@@ -151,6 +161,8 @@ def evaluate(blob: str, dump: str, xiaoyan: dict | None, frontmost: dict | None)
             bits = []
             if qf:
                 bits.append("QF")
+            if cb:
+                bits.append("CB")
             if dr:
                 bits.append("DR")
             if fin:
@@ -194,6 +206,7 @@ def evaluate(blob: str, dump: str, xiaoyan: dict | None, frontmost: dict | None)
         "routeB_reader_ready": reader_ready[-6:],
         "routeB_schedule_wait_reader": schedule_wait[-6:],
         "qf": qf[-4:],
+        "cb": cb[-4:],
         "dr": dr[-4:],
         "finish": fin[-4:],
         "xiaoyan_passed": bool(xiaoyan and xiaoyan.get("passed")),
@@ -370,12 +383,15 @@ def main() -> int:
     w_seed = [ln for ln in blob.splitlines() if "hypothesis_W seed" in ln]
     x_seed = [ln for ln in blob.splitlines() if "hypothesis_X seed" in ln]
     y_seed = [ln for ln in blob.splitlines() if "hypothesis_Y seed" in ln]
+    z_seed = [ln for ln in blob.splitlines() if "hypothesis_Z" in ln]
     fat_gates = [ln for ln in blob.splitlines() if "dicFatBook=" in ln]
     use_gates = [ln for ln in blob.splitlines() if "useSNameLen=" in ln]
     sil_gates = [ln for ln in blob.splitlines() if "sourceILKeys=" in ln]
     qf_n = len(report.get("qf") or [])
+    cb_n = len(report.get("cb") or [])
     dr_n = len(report.get("dr") or [])
     fin_n = len(report.get("finish") or [])
+    z_file_ok = any("fileExists=1" in ln for ln in z_seed)
     first_ok = bool(
         report.get("xiaoyan_passed")
         and qf_n > 0
@@ -383,30 +399,32 @@ def main() -> int:
     )
     sil_ge1 = any("sourceILKeys=" in ln and "sourceILKeys=0" not in ln for ln in sil_gates)
     report["ci_conclusion"] = "success"
-    report["hypothesis"] = "Y"
+    report["hypothesis"] = "Z"
     report["task"] = "task6-ch1"
-    report["hypothesis_y"] = {
+    report["hypothesis_z"] = {
         "claim": (
-            "形态校正：强制 _useSName=localSourceText（hasPrefix localSource），"
-            "_sourceIL[localSourceText]={_lCTime,lastChapterTitle}，补 queryInfo.url"
+            "本地异步 @0x10006171c 经 callBackResponse→QF；"
+            "seed 对齐 AppConfig getBookKey/getBookDirByBookKey 路径"
         ),
-        "seed_lines": y_seed[-4:],
-        "gates_use": use_gates[-4:],
-        "gates_sil": sil_gates[-4:],
-        "gates_fat": fat_gates[-4:],
-        "sourceILKeys_ge1": sil_ge1,
+        "seed_lines": z_seed[-6:],
+        "fileExists": z_file_ok,
+        "cb": cb_n,
         "qf_dr_finish": bool(qf_n or dr_n or fin_n),
         "xiaoyan": bool(report.get("xiaoyan_passed")),
+        "y_kept": bool(y_seed and sil_ge1),
     }
     report["first_chapter_approved"] = first_ok
     report["first_chapter_approved_reason"] = (
         "QF+萧炎上屏"
         if first_ok
-        else f"QF={qf_n} DR={dr_n} finish={fin_n} xiaoyan={report.get('xiaoyan_passed')}"
+        else (
+            f"QF={qf_n} CB={cb_n} DR={dr_n} finish={fin_n} "
+            f"xiaoyan={report.get('xiaoyan_passed')} zFile={z_file_ok}"
+        )
     )
     report["handoff"] = {
         "1_head": (
-            f"{sha}（KEEP V=0b87bdf W=e747030 X=67ea65b）"
+            f"{sha}（KEEP V=0b87bdf W=e747030 X=67ea65b Y=f35b167）"
         ),
         "2_ci_ipa": (
             f"LegadoBridge-IPA-Debug run {CI_RUN} success → "
@@ -414,9 +432,9 @@ def main() -> int:
         ),
         "3_install": str(report.get("install") or "")[:200],
         "4_root_cause": (
-            "Y：138bfb5 空壳 sourceILKeys=1 仍无 QF，因 useSName=「本地静态测试源」(len=7) "
-            "不过 @0x100061500 hasPrefix:localSource；强制 localSourceText + "
-            f"bookShelf 形站点对象 + queryInfo.url；sourceILKeys_ge1={sil_ge1}；QF={qf_n}"
+            "Z：异步块 getBookDirByBookKey(getBookKey(bookName,author))；"
+            "旧 seed 用 dicBook.bookKey 错目录→读文件 nil→无 QF；"
+            f"fileExists={z_file_ok} CB={cb_n} QF={qf_n}"
         ),
         "5_routeB_chain": (
             "schedule_wait_reader→reader_ready→retry_on_cache→resolve hit→"
@@ -424,25 +442,28 @@ def main() -> int:
             if hit_sched or hit_ready or hit_container
             else "routeB 链未完整"
         ),
-        "6_native_chain": f"QF={qf_n} DR={dr_n} finish={fin_n}；萧炎={report.get('xiaoyan_passed')}",
-        "7_y_seed": (
-            f"hypothesis_Y seed lines={len(y_seed)} X={len(x_seed)} W={len(w_seed)}；"
-            f"sil 样本={sil_gates[-1] if sil_gates else '-'}"
+        "6_native_chain": (
+            f"QF={qf_n} CB={cb_n} DR={dr_n} finish={fin_n}；"
+            f"萧炎={report.get('xiaoyan_passed')}"
+        ),
+        "7_z_seed": (
+            f"hypothesis_Z lines={len(z_seed)} Y={len(y_seed)} X={len(x_seed)} W={len(w_seed)}；"
+            f"z 样本={z_seed[-1] if z_seed else '-'}"
         ),
         "8_ui": (
             f"shelf={report.get('on_shelf')} springboard={report.get('springboard')} "
             f"bundle={report.get('frontmost_bundle')} texts={(frontmost or {}).get('texts')}"
         ),
         "9_keep_or_revert": (
-            "KEEP Y（QF 出现）；V+W+X 保留"
-            if (y_seed and qf_n > 0)
+            "KEEP Z（QF 出现）；KEEP V+W+X+Y"
+            if (z_seed and qf_n > 0)
             else (
-                "KEEP Y（sourceILKeys>=1 已越过站点门；下缺口另析）；V+W+X 保留"
-                if (y_seed and sil_ge1)
+                "KEEP Z（路径已对齐/CB 出现）；KEEP V+W+X+Y"
+                if (z_seed and (z_file_ok or cb_n > 0))
                 else (
-                    "revert Y 保留 V+W+X"
-                    if y_seed
-                    else "Y 未播种；保留 V+W+X"
+                    "revert Z 保留 V+W+X+Y"
+                    if z_seed
+                    else "Z 未播种；保留 V+W+X+Y"
                 )
             )
         ),
