@@ -1,0 +1,260 @@
+{
+  "sha": "d0030bd",
+  "pid0": 61859,
+  "pid1": 61947,
+  "conclusion": "已定位 bg UIKit caller 与 main 阻塞点；写下一刀",
+  "mid_chain_launch_app": false,
+  "hits": [
+    {
+      "date": "2026-07-18 12:52:31 +0000",
+      "process": "StandarReader",
+      "level": "notice",
+      "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+    },
+    {
+      "date": "2026-07-18 12:52:31 +0000",
+      "process": "StandarReader",
+      "level": "notice",
+      "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+    },
+    {
+      "date": "2026-07-18 12:52:31 +0000",
+      "process": "StandarReader",
+      "level": "notice",
+      "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "StandarReader[61859] Corpse allowed 1 of 5"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update(enter): pid 61946, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update: init: limit on pid 61946 (-1MB F ) targeting priority(210) dirty?=0x0"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "45A8EEA1-E9ED-4639-AA88-F625AF76566A monitor: got an update with info exited, exit reason namespace=2 code=11"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:61859] termination reported by launchd (2, 11, 11)"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "Firing exit handlers for 61859 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:61859] Process exited: <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>."
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "wifid",
+      "level": "notice",
+      "message": "-[WiFiUserInteractionMonitor setApplicationRunningState:foregroundState:andNetworkingState:forBundleId:]: com.appbox.StandarReader exited"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "observedProcessStatesDidChange"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "Received state update for 61859"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "observedProcessStatesDidChange"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "Received state update for 61859"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "530518794173500: <private>"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "/System/Library/CoreServices/ReportCrash[61946] ==> (apply-protobox)"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update(enter): pid 61946, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update: init: limit on pid 61946 (-1MB F ) targeting priority(210) dirty?=0x0"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "ReportCrash (unified) launched in agent mode"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "Trying to create CR directory structure as root"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "symbolication mode: 1, safe vm: 0"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "Loading Preferences From Direct CFPrefsD"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "CM90 : [CrashReport].[initWithTask]~"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "Parsing corpse data for pid 61859"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "proc_name(0) = [11] <private>"
+    },
+    {
+      "date": "2026-07-18 12:52:32 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "ASI found [dyld] (sensitive) 'dyld config: DYLD_INSERT_LIBRARIES=/usr/lib/systemhook-E6876FE3F60FF5E1.dylib DYLD_IN_CACHE=0 '"
+    },
+    {
+      "date": "2026-07-18 12:52:43 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "530529831922416: <private>"
+    },
+    {
+      "date": "2026-07-18 12:52:43 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "530529831946333: <private>"
+    },
+    {
+      "date": "2026-07-18 12:52:43 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "530529832150416: <private>"
+    },
+    {
+      "date": "2026-07-18 12:52:43 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "530529832154083: <private>"
+    },
+    {
+      "date": "2026-07-18 12:52:43 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "530529832155500: <private>"
+    },
+    {
+      "date": "2026-07-18 12:52:43 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "530529832156041: <private>"
+    },
+    {
+      "date": "2026-07-18 12:52:43 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "530529832156541: <private>"
+    },
+    {
+      "date": "2026-07-18 12:52:43 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "530529832157041: <private>"
+    },
+    {
+      "date": "2026-07-18 12:52:43 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "530529832157541: <private>"
+    },
+    {
+      "date": "2026-07-18 12:52:43 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "530529832158000: <private>"
+    },
+    {
+      "date": "2026-07-18 12:52:43 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "530529832158500: <private>"
+    },
+    {
+      "date": "2026-07-18 12:52:53 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "530539832021666: <private>"
+    },
+    {
+      "date": "2026-07-18 12:52:53 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "530539832048833: <private>"
+    }
+  ],
+  "ai_bg_uikit": [
+    "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_uikit sel=windows hit=1 th= | state=idle token=- ch=- inv=0",
+    "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_uikit sel=windows hit=2 th= | state=idle token=- ch=- inv=0",
+    "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_uikit sel=windows hit=3 th= | state=contentReady token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0",
+    "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_uikit sel=windows hit=4 th= | state=contentReady token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0",
+    "2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=1 th= stack=64 < 2288 < 712 < 1 < 1 < 1",
+    "2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=2 th= stack=656 < 64 < 2288 < 712 < 1 < 1 < 1",
+    "2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=3 th= stack=64 < 16 < 2316 < 712 < 1 < 1 < 1",
+    "2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=4 th= stack=656 < 64 < 16 < 2316 < 712 < 1 < 1 < 1"
+  ],
+  "ai_main_block_pc": []
+}

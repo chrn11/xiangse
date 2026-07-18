@@ -1,0 +1,1070 @@
+{
+  "timestamp": "20260718T125158Z",
+  "sha": "d0030bd",
+  "ipa": "D:\\soft\\xiangse\\dist-ci\\d0030bd\\dist\\StandarReader-legado-bridge-debug.ipa",
+  "hypothesis": "AI",
+  "role": "AI-bg-UIWindowScene-caller-and-main-block",
+  "model": "cursor-grok-4.5",
+  "mock": "http://192.168.1.4:8765",
+  "mcp": "http://192.168.1.6:8090",
+  "banned": [
+    "bounce",
+    "dontFormat",
+    "mid_chain_launch_app",
+    "dispatch_sync_main_QF"
+  ],
+  "keep": [
+    "inject_inThread",
+    "V+W+X+Y+Z",
+    "BQM check/format id return",
+    "forensics_no_steal"
+  ],
+  "steps": [
+    "install",
+    "reset",
+    "nativeRead"
+  ],
+  "frontmost_log": [
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 61859,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 61859,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 61859,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "pre_nativeRead_observe",
+      "front": {
+        "pid": 61859,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 61947,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 61947,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 61947,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 61947,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 61947,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 61947,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    }
+  ],
+  "pid_log": [
+    {
+      "t": 0.0,
+      "phase": "pre_nativeRead",
+      "pid": 61859
+    },
+    {
+      "t": 2.26,
+      "phase": "poll_0",
+      "pid": 61947,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 4.11,
+      "phase": "poll_2",
+      "pid": 61947,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 6.76,
+      "phase": "poll_5",
+      "pid": 61947,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 10.92,
+      "phase": "poll_10",
+      "pid": 61947,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 19.05,
+      "phase": "poll_20",
+      "pid": 61947,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 30.49,
+      "phase": "poll_35",
+      "pid": 61947,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 41.47,
+      "phase": "post_poll",
+      "pid": 61947
+    }
+  ],
+  "launch_app_calls": [
+    {
+      "phase": "setup_kill",
+      "ok": true
+    },
+    {
+      "phase": "setup_launch",
+      "ok": true
+    }
+  ],
+  "chapter_probe": {
+    "ok": true,
+    "code": 200
+  },
+  "upload": {
+    "path": "/var/mobile/Library/Caches/ios-mcp-uploads/28F40A57-CCA8-4EAE-A75C-917F9FB57D4C-StandarReader-legado-bridge-debug.ipa",
+    "filename": "StandarReader-legado-bridge-debug.ipa",
+    "size": 3594190
+  },
+  "install": "Installed app package from /var/mobile/Library/Caches/ios-mcp-uploads/28F40A57-CCA8-4EAE-A75C-917F9FB57D4C-StandarReader-legado-bridge-debug.ipa",
+  "build_manifest": {
+    "git_commit": "d0030bd2c90f0d3d9c05d88398a8fd7f140cffe3",
+    "variant": "legado-debug",
+    "github_run_id": "29645025834",
+    "built_at_utc": "2026-07-18T12:50:54Z"
+  },
+  "doc": "/var/mobile/Containers/Data/Application/F68CEBC8-BFC4-4E6C-92E3-C2B6DE4464CD/Documents",
+  "capture_start": {
+    "bundle_ids": [
+      "com.appbox.StandarReader"
+    ],
+    "crash_baseline_count": 0,
+    "capture_id": 1784379151,
+    "started": true
+  },
+  "mid_chain_launch_app": false,
+  "capture_stop": {
+    "capture_seconds": 45,
+    "new_crash_count": 0,
+    "new_crash_reports": [],
+    "syslog_count": 4285,
+    "syslog_kill_hits": [
+      {
+        "date": "2026-07-18 12:52:31 +0000",
+        "process": "StandarReader",
+        "level": "notice",
+        "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+      },
+      {
+        "date": "2026-07-18 12:52:31 +0000",
+        "process": "StandarReader",
+        "level": "notice",
+        "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+      },
+      {
+        "date": "2026-07-18 12:52:31 +0000",
+        "process": "StandarReader",
+        "level": "notice",
+        "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "StandarReader[61859] Corpse allowed 1 of 5"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update(enter): pid 61946, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update: init: limit on pid 61946 (-1MB F ) targeting priority(210) dirty?=0x0"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "45A8EEA1-E9ED-4639-AA88-F625AF76566A monitor: got an update with info exited, exit reason namespace=2 code=11"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[application<com.appbox.StandarReader>:61859] termination reported by launchd (2, 11, 11)"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "Firing exit handlers for 61859 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "[application<com.appbox.StandarReader>:61859] Process exited: <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>."
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "wifid",
+        "level": "notice",
+        "message": "-[WiFiUserInteractionMonitor setApplicationRunningState:foregroundState:andNetworkingState:forBundleId:]: com.appbox.StandarReader exited"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "observedProcessStatesDidChange"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "Received state update for 61859"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "observedProcessStatesDidChange"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "Received state update for 61859"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530518794173500: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "/System/Library/CoreServices/ReportCrash[61946] ==> (apply-protobox)"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update(enter): pid 61946, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update: init: limit on pid 61946 (-1MB F ) targeting priority(210) dirty?=0x0"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "ReportCrash",
+        "level": "notice",
+        "message": "ReportCrash (unified) launched in agent mode"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "ReportCrash",
+        "level": "notice",
+        "message": "Trying to create CR directory structure as root"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "ReportCrash",
+        "level": "notice",
+        "message": "symbolication mode: 1, safe vm: 0"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "ReportCrash",
+        "level": "notice",
+        "message": "Loading Preferences From Direct CFPrefsD"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "ReportCrash",
+        "level": "notice",
+        "message": "CM90 : [CrashReport].[initWithTask]~"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "ReportCrash",
+        "level": "notice",
+        "message": "Parsing corpse data for pid 61859"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "ReportCrash",
+        "level": "notice",
+        "message": "proc_name(0) = [11] <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:32 +0000",
+        "process": "ReportCrash",
+        "level": "notice",
+        "message": "ASI found [dyld] (sensitive) 'dyld config: DYLD_INSERT_LIBRARIES=/usr/lib/systemhook-E6876FE3F60FF5E1.dylib DYLD_IN_CACHE=0 '"
+      },
+      {
+        "date": "2026-07-18 12:52:43 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530529831922416: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:43 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530529831946333: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:43 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530529832150416: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:43 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530529832154083: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:43 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530529832155500: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:43 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530529832156041: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:43 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530529832156541: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:43 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530529832157041: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:43 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530529832157541: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:43 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530529832158000: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:43 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530529832158500: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:53 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530539832021666: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:53 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530539832048833: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:53 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530539832197083: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:53 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530539832199458: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:53 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530539832200375: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:53 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530539832201083: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:53 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530539832201541: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:53 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530539832202041: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:53 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530539832202500: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:53 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530539832202916: <private>"
+      },
+      {
+        "date": "2026-07-18 12:52:53 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530539832203375: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:03 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530549832213833: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:03 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530549832223708: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:03 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530549832370500: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:03 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530549832373375: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:03 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530549832374833: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:03 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530549832375333: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:03 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530549832375791: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:03 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530549832376291: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:03 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530549832376750: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:03 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530549832377166: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:03 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530549832377625: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:03 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530549832569250: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:13 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530559832376666: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:13 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530559832389708: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:13 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530559832604875: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:13 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530559832608375: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:13 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530559832609666: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:13 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530559832610208: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:13 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530559832611000: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:13 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530559832611500: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:13 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530559832612000: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:13 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530559832612458: <private>"
+      },
+      {
+        "date": "2026-07-18 12:53:13 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "530559832612958: <private>"
+      }
+    ]
+  },
+  "polls": [
+    {
+      "t": 32.98,
+      "ac_runtime_n": 78,
+      "ac_last": "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 61947,
+      "bg_hb_n": 6
+    },
+    {
+      "t": 33.69,
+      "ac_runtime_n": 78,
+      "ac_last": "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 61947,
+      "bg_hb_n": 6
+    },
+    {
+      "t": 34.44,
+      "ac_runtime_n": 78,
+      "ac_last": "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 61947,
+      "bg_hb_n": 6
+    },
+    {
+      "t": 35.26,
+      "ac_runtime_n": 78,
+      "ac_last": "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 61947,
+      "bg_hb_n": 6
+    },
+    {
+      "t": 36.12,
+      "ac_runtime_n": 78,
+      "ac_last": "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 61947,
+      "bg_hb_n": 6
+    },
+    {
+      "t": 36.88,
+      "ac_runtime_n": 78,
+      "ac_last": "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 61947,
+      "bg_hb_n": 6
+    },
+    {
+      "t": 37.6,
+      "ac_runtime_n": 78,
+      "ac_last": "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 61947,
+      "bg_hb_n": 6
+    },
+    {
+      "t": 38.38,
+      "ac_runtime_n": 78,
+      "ac_last": "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 61947,
+      "bg_hb_n": 6
+    },
+    {
+      "t": 39.18,
+      "ac_runtime_n": 78,
+      "ac_last": "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 61947,
+      "bg_hb_n": 6
+    },
+    {
+      "t": 39.92,
+      "ac_runtime_n": 78,
+      "ac_last": "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 61947,
+      "bg_hb_n": 6
+    },
+    {
+      "t": 40.69,
+      "ac_runtime_n": 78,
+      "ac_last": "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 61947,
+      "bg_hb_n": 6
+    },
+    {
+      "t": 41.45,
+      "ac_runtime_n": 78,
+      "ac_last": "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 61947,
+      "bg_hb_n": 6
+    }
+  ],
+  "sync": {
+    "sha": "d0030bd",
+    "probe_last_line": "2026-07-18 20:52:33 | hypothesis_AC ai_keep_inThread=1 main=1 inv=0 pid=61947 up=530632603 mem=7",
+    "ai_last_runtime": "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "ai_runtime": [
+      "2026-07-18 20:52:31 | hypothesis_AC ai_bg_uikit sel=windows hit=1 th= main=0 inv=0 pid=61859 up=530631042 mem=35",
+      "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_tag=LBLegadoKeyWindow main=0",
+      "2026-07-18 20:52:31 | hypothesis_AC ai_bg_uikit sel=windows hit=2 th= main=0 inv=0 pid=61859 up=530631044 mem=35",
+      "2026-07-18 20:52:31 | hypothesis_AC ai_bg_uikit sel=windows hit=3 th= main=0 inv=0 pid=61859 up=530631045 mem=35",
+      "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_tag=LBLegadoKeyWindow main=0",
+      "2026-07-18 20:52:31 | hypothesis_AC ai_bg_uikit sel=windows hit=4 th= main=0 inv=0 pid=61859 up=530631046 mem=35",
+      "2026-07-18 20:52:32 | hypothesis_AC pre_invoke_orig target=TextRPageContainer main=1 inv=1 pid=61859 up=530631666 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC ag_bg_hb i=0 main=0 inv=1 pid=61859 up=530631666 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC invoke_orig_returned target=TextRPageContainer main=1 inv=1 pid=61859 up=530631667 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC swcf_enter leaf=0 main=0 inv=1 pid=61859 up=530631667 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC ai_main_rl_observer_ok main=1 inv=1 pid=61859 up=530631667 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC swcf_exit leaf=0 len=111 nil=0 main=0 inv=1 pid=61859 up=530631667 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC cb_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 self=BookQueryManager main=0 inv=1 pid=61859 up=530631667 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC cb_precheck_gate_resp nil=0 len=111 self=BookQueryManager main=0 next=0x104bb61d4 main=0 inv=1 pid=61859 up=530631668 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC post_invoke_gates_done main=1 inv=1 pid=61859 up=530631668 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC qf_dispatch_inject_inThread action=chapterContent main=0 inv=1 pid=61859 up=530631668 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC post_invoke_z_probe_done main=1 inv=1 pid=61859 up=530631668 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC check_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 cfg=1 ui=1 self=BookQueryManager qsrc=localSourceText respCls=__NSCFString main=0 inv=1 pid=61859 up=530631668 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC check_exit ok=1 main=0 inv=1 pid=61859 up=530631668 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC format_enter respLen=111 action=chapterContent dontFormat=0 main=0 inv=1 pid=61859 up=530631669 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC await_native_chain main=1 inv=1 pid=61859 up=530631669 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC invoke_reentry_cleared main=1 inv=1 pid=61859 up=530631669 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread main=0 inv=1 pid=61859 up=530631669 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC format_exit outNil=0 outLen=107 outCls=__NSCFString main=0 inv=1 pid=61859 up=530631669 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC invoke_state_idle main=1 inv=1 pid=61859 up=530631669 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC qf_enter self=TextRPageContainer respLen=107 action=chapterContent respCls=__NSCFString main=0 inv=1 pid=61859 up=530631669 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=4 main=0 inv=1 pid=61859 up=530631772 mem=42",
+      "2026-07-18 20:52:32 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=4 main=0 inv=1 pid=61859 up=530631878 mem=43",
+      "2026-07-18 20:52:32 | hypothesis_AC ag_bg_hb i=1 main=0 inv=1 pid=61859 up=530631889 mem=43",
+      "2026-07-18 20:52:32 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=4 main=0 inv=1 pid=61859 up=530631983 mem=43",
+      "2026-07-18 20:52:32 | hypothesis_AC ag_post_qf main=0 inv=1 pid=61859 up=530631983 mem=43",
+      "2026-07-18 20:52:32 | hypothesis_AC qf_exit main=0 inv=1 pid=61859 up=530631983 mem=43",
+      "2026-07-18 20:52:32 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread main=0 inv=1 pid=61859 up=530631996 mem=43",
+      "2026-07-18 20:52:32 | hypothesis_AC cb_precheck_gate_check_seen main=0 inv=1 pid=61859 up=530631997 mem=43",
+      "2026-07-18 20:52:32 | hypothesis_AC cb_exit main=0 inv=1 pid=61859 up=530631997 mem=43",
+      "2026-07-18 20:52:32 | hypothesis_AC ai_main_watch i=3 drain=0 wait=0 src=0 bgWin=4 main=0 inv=1 pid=61859 up=530632088 mem=44",
+      "2026-07-18 20:52:32 | hypothesis_AC ag_bg_hb i=2 main=0 inv=1 pid=61859 up=530632101 mem=44",
+      "2026-07-18 20:52:33 | hypothesis_AC ai_hook_windows_ok main=1 inv=0 pid=61947 up=530632591 mem=6",
+      "2026-07-18 20:52:33 | hypothesis_AC ag_keep_inThread=1 main=1 inv=0 pid=61947 up=530632602 mem=7",
+      "2026-07-18 20:52:33 | hypothesis_AC ai_keep_inThread=1 main=1 inv=0 pid=61947 up=530632603 mem=7",
+      "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_uikit sel=windows hit=1 th= | state=idle token=- ch=- inv=0",
+      "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_uikit sel=windows hit=2 th= | state=idle token=- ch=- inv=0",
+      "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_uikit sel=windows hit=3 th= | state=contentReady token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0",
+      "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_uikit sel=windows hit=4 th= | state=contentReady token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC pre_invoke_orig target=TextRPageContainer | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ag_bg_hb i=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC invoke_orig_returned target=TextRPageContainer | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC swcf_enter leaf=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ai_main_rl_observer_ok | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC swcf_exit leaf=0 len=111 nil=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC cb_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 self=BookQueryManager | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC cb_precheck_gate_resp nil=0 len=111 self=BookQueryManager main=0 next=0x104bb61d4 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC post_invoke_gates_done | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC qf_dispatch_inject_inThread action=chapterContent | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC post_invoke_z_probe_done | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC check_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 cfg=1 ui=1 self=BookQueryManager qsrc=localSourceText respCls=__NSCFString | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC check_exit ok=1 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC format_enter respLen=111 action=chapterContent dontFormat=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC await_native_chain | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC invoke_reentry_cleared | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC format_exit outNil=0 outLen=107 outCls=__NSCFString | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC invoke_state_idle | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC qf_enter self=TextRPageContainer respLen=107 action=chapterContent respCls=__NSCFString | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=4 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=4 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ag_bg_hb i=1 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=4 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ag_post_qf | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC qf_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC cb_precheck_gate_check_seen | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC cb_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ai_main_watch i=3 drain=0 wait=0 src=0 bgWin=4 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ag_bg_hb i=2 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_hook_windows_ok | state=idle token=- ch=- inv=0",
+      "2026-07-18 12:52:33 +0000 | hypothesis_AC ag_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "2026-07-18 12:52:33 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0"
+    ],
+    "ai_bg_uikit": [
+      "2026-07-18 20:52:31 | hypothesis_AC ai_bg_uikit sel=windows hit=1 th= main=0 inv=0 pid=61859 up=530631042 mem=35",
+      "2026-07-18 20:52:31 | hypothesis_AC ai_bg_uikit sel=windows hit=2 th= main=0 inv=0 pid=61859 up=530631044 mem=35",
+      "2026-07-18 20:52:31 | hypothesis_AC ai_bg_uikit sel=windows hit=3 th= main=0 inv=0 pid=61859 up=530631045 mem=35",
+      "2026-07-18 20:52:31 | hypothesis_AC ai_bg_uikit sel=windows hit=4 th= main=0 inv=0 pid=61859 up=530631046 mem=35",
+      "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_uikit sel=windows hit=1 th= | state=idle token=- ch=- inv=0",
+      "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_uikit sel=windows hit=2 th= | state=idle token=- ch=- inv=0",
+      "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_uikit sel=windows hit=3 th= | state=contentReady token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0",
+      "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_uikit sel=windows hit=4 th= | state=contentReady token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0",
+      "2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=1 th= stack=64 < 2288 < 712 < 1 < 1 < 1",
+      "2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=2 th= stack=656 < 64 < 2288 < 712 < 1 < 1 < 1",
+      "2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=3 th= stack=64 < 16 < 2316 < 712 < 1 < 1 < 1",
+      "2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=4 th= stack=656 < 64 < 16 < 2316 < 712 < 1 < 1 < 1"
+    ],
+    "ai_bg_tags": [
+      "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_tag=LBLegadoKeyWindow main=0",
+      "2026-07-18 12:52:31 +0000 | hypothesis_AC ai_bg_tag=LBLegadoKeyWindow main=0"
+    ],
+    "ai_main_block_pc": [],
+    "ai_main_watch_tail": [
+      "2026-07-18 20:52:32 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=4 main=0 inv=1 pid=61859 up=530631772 mem=42",
+      "2026-07-18 20:52:32 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=4 main=0 inv=1 pid=61859 up=530631878 mem=43",
+      "2026-07-18 20:52:32 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=4 main=0 inv=1 pid=61859 up=530631983 mem=43",
+      "2026-07-18 20:52:32 | hypothesis_AC ai_main_watch i=3 drain=0 wait=0 src=0 bgWin=4 main=0 inv=1 pid=61859 up=530632088 mem=44",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=4 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=4 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=4 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ai_main_watch i=3 drain=0 wait=0 src=0 bgWin=4 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+    ],
+    "ai_main_drain": [],
+    "ai_probe_tail": [
+      "2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=1 th= stack=64 < 2288 < 712 < 1 < 1 < 1",
+      "2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=2 th= stack=656 < 64 < 2288 < 712 < 1 < 1 < 1",
+      "2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=3 th= stack=64 < 16 < 2316 < 712 < 1 < 1 < 1",
+      "2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=4 th= stack=656 < 64 < 16 < 2316 < 712 < 1 < 1 < 1"
+    ],
+    "qf_dispatch_gates": [
+      "2026-07-18 20:52:32 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread main=0 inv=1 pid=61859 up=530631669 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread main=0 inv=1 pid=61859 up=530631996 mem=43",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+    ],
+    "has_qf": true,
+    "qf_n": 2,
+    "has_qf_enter": true,
+    "has_qf_exit": true,
+    "has_ag_post_qf": true,
+    "has_main_pulse": false,
+    "has_ai_main_drain": false,
+    "has_bg_hb": true,
+    "bg_hb_n": 6,
+    "bg_hb_tail": [
+      "2026-07-18 20:52:32 | hypothesis_AC ag_bg_hb i=0 main=0 inv=1 pid=61859 up=530631666 mem=41",
+      "2026-07-18 20:52:32 | hypothesis_AC ag_bg_hb i=1 main=0 inv=1 pid=61859 up=530631889 mem=43",
+      "2026-07-18 20:52:32 | hypothesis_AC ag_bg_hb i=2 main=0 inv=1 pid=61859 up=530632101 mem=44",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ag_bg_hb i=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ag_bg_hb i=1 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 12:52:32 +0000 | hypothesis_AC ag_bg_hb i=2 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+    ],
+    "has_bg_hb_done": false,
+    "has_atexit": false,
+    "has_async_plus": false,
+    "pids": [
+      "61859",
+      "61947"
+    ],
+    "pid0": 61859,
+    "pid1": 61947,
+    "pid_stable": false,
+    "probe_pid_stable": false,
+    "os_pid_stable": false,
+    "relaunch_after_chain": false,
+    "mid_chain_launch_app": false,
+    "has_format_enter": true,
+    "has_format_exit": true,
+    "has_cb_enter": true,
+    "has_cb_exit": true,
+    "has_inject_inThread": true,
+    "has_ai_keep_inThread": true,
+    "path_sync_inThread": true,
+    "path_async_main": false,
+    "has_fatal": false,
+    "has_bg_caller": true,
+    "has_main_block_evidence": true,
+    "reader_foreground": true,
+    "frontmost_final": {
+      "pid": 61947,
+      "contextId": 3167902499,
+      "bundleId": "com.appbox.StandarReader",
+      "sceneIdentifier": "com.appbox.StandarReader",
+      "processName": "StandarReader",
+      "displayId": 1,
+      "name": "StandarReader"
+    },
+    "xiaoyan": {
+      "passed": false,
+      "text": "萧炎",
+      "elements": [
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 47,
+            "x": 8,
+            "width": 49,
+            "height": 44
+          },
+          "text": "整理"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 53,
+            "x": 135,
+            "width": 59,
+            "height": 32
+          },
+          "text": "书架"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 53,
+            "x": 195,
+            "width": 60,
+            "height": 32
+          },
+          "text": "发现"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 47,
+            "x": 284,
+            "width": 48,
+            "height": 44
+          },
+          "text": "搜索"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 47,
+            "x": 340,
+            "width": 42,
+            "height": 44
+          },
+          "text": "添加"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 37,
+            "x": 0,
+            "width": 390,
+            "height": 54
+          },
+          "text": "下拉可以刷新"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 91,
+            "x": 0,
+            "width": 390,
+            "height": 753
+          },
+          "text": "空列表"
+        },
+        {
+          "type": "element",
+          "clickable": true,
+          "rect": {
+            "y": 47,
+            "x": 0,
+            "width": 390,
+            "height": 44
+          }
+        }
+      ],
+      "error": null
+    },
+    "ui_texts": [
+      "整理",
+      "书架",
+      "发现",
+      "搜索",
+      "添加",
+      "下拉可以刷新",
+      "空列表"
+    ],
+    "decision": {
+      "branch": "forensics_both",
+      "action": "已定位 bg UIKit caller 与 main 阻塞点；写下一刀",
+      "commit": false
+    },
+    "first_chapter_approved": false,
+    "new_standar_ips_today": [],
+    "jetsam_hits": [],
+    "syslog_kill_hits_n": 72,
+    "capture_new_crashes": null
+  },
+  "decision": {
+    "branch": "forensics_both",
+    "action": "已定位 bg UIKit caller 与 main 阻塞点；写下一刀",
+    "commit": false
+  },
+  "first_chapter_approved": false,
+  "reader_foreground": true
+}

@@ -1,0 +1,4 @@
+2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=1 th= stack=64 < 2288 < 712 < 1 < 1 < 1
+2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=2 th= stack=656 < 64 < 2288 < 712 < 1 < 1 < 1
+2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=3 th= stack=64 < 16 < 2316 < 712 < 1 < 1 < 1
+2026-07-18 12:52:31 +0000 | ai_bg_uikit sel=windows hit=4 th= stack=656 < 64 < 16 < 2316 < 712 < 1 < 1 < 1
