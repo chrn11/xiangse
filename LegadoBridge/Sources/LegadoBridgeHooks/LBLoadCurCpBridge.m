@@ -410,9 +410,9 @@ static NSString *LBNativeBookDirForKey(NSString *bookKey) {
     return LBNativeBookDirForBook(nil, bookKey);
 }
 
-static void LBLogHypothesisZFileProbe(NSString *tag, NSString *bookKey, NSInteger cpIndex,
-                                      NSUInteger bodyLen) {
-    NSString *dir = LBNativeBookDirForKey(bookKey);
+static void LBLogHypothesisZFileProbe(NSString *tag, NSDictionary *book, NSString *bookKey,
+                                      NSInteger cpIndex, NSUInteger bodyLen) {
+    NSString *dir = LBNativeBookDirForBook(book, bookKey);
     NSString *rel = [NSString stringWithFormat:@"%ld", (long)cpIndex];
     NSString *cpPath = dir.length ? [dir stringByAppendingPathComponent:rel] : nil;
     BOOL exists = cpPath.length > 0 &&
@@ -423,11 +423,13 @@ static void LBLogHypothesisZFileProbe(NSString *tag, NSString *bookKey, NSIntege
                                                                                error:NULL];
         fsz = [attrs fileSize];
     }
+    // 打出 lastPathComponent，区分 getBookKey 是「名|作者」还是「名_作者」
     LBStateLog([NSString stringWithFormat:
-                @"hypothesis_Z %@ bookKeyLen=%lu bookDirLen=%lu cpRel=%@ "
+                @"hypothesis_Z %@ bookKey=%@ dirLeaf=%@ bookDirLen=%lu cpRel=%@ "
                 @"fileExists=%d fileSize=%llu bodyLen=%lu",
                 tag ?: @"-",
-                (unsigned long)bookKey.length,
+                bookKey ?: @"-",
+                dir.lastPathComponent ?: @"-",
                 (unsigned long)dir.length,
                 rel,
                 exists ? 1 : 0,
@@ -562,7 +564,13 @@ static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArra
         }
         [paths addObject:@"xsfolder"];
         [paths addObject:@"localSourceText"];
-        LBLogHypothesisZFileProbe(@"seed", bookKey, cpIndex, body.length);
+        LBLogHypothesisZFileProbe(@"seed", keyBook, bookKey, cpIndex, body.length);
+        if (primaryDir.length > 0) {
+            LBStateLog([NSString stringWithFormat:
+                        @"hypothesis_Z write_dirs primaryLeaf=%@ nDirs=%lu",
+                        primaryDir.lastPathComponent ?: @"-",
+                        (unsigned long)dirs.count]);
+        }
     } @catch (__unused NSException *e) {}
 
     // 3) BookDbManager#setCpCached
@@ -1151,10 +1159,10 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
             probeBook[@"bookName"] = bookName;
             probeBook[@"author"] = author;
             NSString *bk = LBNativeBookKey(bookName, author, probeBook) ?: @"";
-            LBLogHypothesisZFileProbe(@"post_invoke", bk, cpIndex, bodyLen);
+            LBLogHypothesisZFileProbe(@"post_invoke", probeBook, bk, cpIndex, bodyLen);
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
-                LBLogHypothesisZFileProbe(@"async_plus0.6s", bk, cpIndex, bodyLen);
+                LBLogHypothesisZFileProbe(@"async_plus0.6s", probeBook, bk, cpIndex, bodyLen);
             });
         }
         // 假设 O：invoke_orig_OK 后禁止人工 kick；等原生 queryCpFileByBook→QF→DR→finish
