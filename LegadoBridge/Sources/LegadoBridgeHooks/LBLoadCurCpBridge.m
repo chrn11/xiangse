@@ -667,6 +667,79 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
             !([fat[@"bookKey"] isKindOfClass:[NSString class]] && [fat[@"bookKey"] length] > 0)) {
             fat[@"bookKey"] = bk;
         }
+        // 假设 X：queryCpFileByBook → queryByActionID 时 sourceName 实参恒为 nil
+        //（@0x100060ec0 mov x5,#0），随后用 book[@"_useSName"]；length==0 则
+        // @0x100061204 cbz 早退。紧邻 @0x100061214/_254 还要求 _sourceIL[useSName]。
+        NSString *useSName = nil;
+        if ([fat[@"_useSName"] isKindOfClass:[NSString class]] && [fat[@"_useSName"] length] > 0) {
+            useSName = fat[@"_useSName"];
+        } else if ([dicBook[@"_useSName"] isKindOfClass:[NSString class]] &&
+                   [dicBook[@"_useSName"] length] > 0) {
+            useSName = dicBook[@"_useSName"];
+        } else if ([dicBook[@"sourceName"] isKindOfClass:[NSString class]] &&
+                   [dicBook[@"sourceName"] length] > 0) {
+            useSName = dicBook[@"sourceName"];
+        } else if ([payload[@"sourceName"] isKindOfClass:[NSString class]] &&
+                   [payload[@"sourceName"] length] > 0) {
+            useSName = payload[@"sourceName"];
+        } else {
+            // 与 LBSeedConfirmedCache 写入的 xsfolder/localSourceText 对齐
+            useSName = @"localSourceText";
+        }
+        fat[@"_useSName"] = useSName;
+        if (![fat[@"sourceName"] isKindOfClass:[NSString class]] || [fat[@"sourceName"] length] == 0) {
+            fat[@"sourceName"] = useSName;
+        }
+        NSMutableDictionary *sourceIL = nil;
+        id sil = fat[@"_sourceIL"];
+        if ([sil isKindOfClass:[NSMutableDictionary class]]) {
+            sourceIL = (NSMutableDictionary *)sil;
+        } else if ([sil isKindOfClass:[NSDictionary class]]) {
+            sourceIL = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)sil];
+        } else {
+            sourceIL = [NSMutableDictionary dictionary];
+        }
+        if (![sourceIL[useSName] isKindOfClass:[NSDictionary class]]) {
+            NSString *lastTitle = title;
+            sourceIL[useSName] = @{
+                @"_lCTime": @"0",
+                @"lastChapterTitle": lastTitle ?: @"",
+            };
+        }
+        fat[@"_sourceIL"] = sourceIL;
+        // arrCatalog 项作 queryInfo：补 _useSName，避免后续键路径再空
+        id catObj = nil;
+        @try { catObj = [reader valueForKey:@"arrCatalog"]; } @catch (__unused NSException *e) {}
+        if ([catObj isKindOfClass:[NSArray class]]) {
+            NSMutableArray *patched = [NSMutableArray arrayWithCapacity:[(NSArray *)catObj count]];
+            BOOL changed = NO;
+            for (id item in (NSArray *)catObj) {
+                if (![item isKindOfClass:[NSDictionary class]]) {
+                    if (item) [patched addObject:item];
+                    continue;
+                }
+                NSMutableDictionary *m = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)item];
+                if (![m[@"_useSName"] isKindOfClass:[NSString class]] || [m[@"_useSName"] length] == 0) {
+                    m[@"_useSName"] = useSName;
+                    changed = YES;
+                }
+                if (![m[@"sourceName"] isKindOfClass:[NSString class]] || [m[@"sourceName"] length] == 0) {
+                    m[@"sourceName"] = useSName;
+                    changed = YES;
+                }
+                [patched addObject:m];
+            }
+            if (changed) {
+                @try {
+                    if ([reader respondsToSelector:NSSelectorFromString(@"setArrCatalog:")]) {
+                        ((void (*)(id, SEL, id))objc_msgSend)(
+                            reader, NSSelectorFromString(@"setArrCatalog:"), patched);
+                    } else {
+                        [reader setValue:patched forKey:@"arrCatalog"];
+                    }
+                } @catch (__unused NSException *e) {}
+            }
+        }
         if ([reader respondsToSelector:NSSelectorFromString(@"setDicFatBook:")]) {
             ((void (*)(id, SEL, id))objc_msgSend)(
                 reader, NSSelectorFromString(@"setDicFatBook:"), fat);
@@ -679,6 +752,12 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
                     (unsigned long)[fat[@"author"] length],
                     (unsigned long)([fat[@"bookKey"] isKindOfClass:[NSString class]]
                                     ? [fat[@"bookKey"] length] : 0)]);
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_X seed _useSNameLen=%lu sourceNameLen=%lu sourceILKeys=%lu",
+                    (unsigned long)[fat[@"_useSName"] length],
+                    (unsigned long)([fat[@"sourceName"] isKindOfClass:[NSString class]]
+                                    ? [fat[@"sourceName"] length] : 0),
+                    (unsigned long)sourceIL.count]);
     } @catch (__unused NSException *e) {
         LBStateLog(@"hypothesis_W seed_dicFatBook_failed");
     }
@@ -718,16 +797,28 @@ static void LBLogLoadCurCpGates(id reader, id container, NSString *tag) {
     NSInteger pageStatus = -999;
     if (pageModel) pageStatus = LBReadIntegerKey(pageModel, @"pageStatus", -999);
     else if (container) pageStatus = LBReadIntegerKey(container, @"pageStatus", -999);
+    NSUInteger useSNameLen = 0, sourceILKeys = 0;
+    @try {
+        id fat = [reader valueForKey:@"dicFatBook"];
+        if ([fat isKindOfClass:[NSDictionary class]]) {
+            id us = fat[@"_useSName"] ?: fat[@"sourceName"];
+            if ([us isKindOfClass:[NSString class]]) useSNameLen = [(NSString *)us length];
+            id sil = fat[@"_sourceIL"];
+            if ([sil isKindOfClass:[NSDictionary class]]) sourceILKeys = [(NSDictionary *)sil count];
+        }
+    } @catch (__unused NSException *e) {}
 
     LBStateLog([NSString stringWithFormat:
                 @"hypothesis_R2 gates(%@) arrCatalog=%lu dicContents@r=%lu dicContents@c=%lu "
                 @"dicFatBook=%lu bookKeyLen=%lu bookDirLen=%lu nCp@pm=%ld pageStatus=%ld "
+                @"useSNameLen=%lu sourceILKeys=%lu "
                 @"(curCp@r/c N/A paged-no-ivar got %ld/%ld)",
                 tag ?: @"-",
                 (unsigned long)nCat, (unsigned long)nDc, (unsigned long)nDcC,
                 (unsigned long)nFat,
                 (unsigned long)bookKey.length, (unsigned long)bookDir.length,
                 (long)nCp, (long)pageStatus,
+                (unsigned long)useSNameLen, (unsigned long)sourceILKeys,
                 (long)curR, (long)curC]);
 }
 
