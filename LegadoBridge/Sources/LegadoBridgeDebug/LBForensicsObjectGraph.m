@@ -21,6 +21,8 @@ extern NSString *LBForensicsUTCNowString(void);
 #pragma mark - Window / discovery
 
 static UIWindow *LBFKeyWindow(void) {
+    // AK：非主线程禁止任何 windows API
+    if (![NSThread isMainThread]) return nil;
     UIApplication *app = UIApplication.sharedApplication;
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in app.connectedScenes) {
@@ -34,6 +36,7 @@ static UIWindow *LBFKeyWindow(void) {
 }
 
 static void LBFCollectAllWindows(NSMutableArray<UIWindow *> *out) {
+    if (![NSThread isMainThread]) return;
     UIApplication *app = UIApplication.sharedApplication;
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in app.connectedScenes) {

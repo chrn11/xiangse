@@ -63,6 +63,9 @@ static void LBAGInstallAtExit(void);
 static void LBAIInstallWindowSceneHook(void);
 static void LBAIStartMainBlockSampler(void);
 static void LBAIWriteLong(NSString *line);
+static void LBAICaptureMainMachThread(void);
+static void LBAKSampleMainThreadPC(int round);
+static void LBAKStartPostIdleMainBlockForensics(void);
 
 static void LBTraceLoadCurCp(NSString *msg) {
     if (msg.length == 0) return;
@@ -427,6 +430,119 @@ static void LBAIStartMainBlockSampler(void) {
                        atomic_load(&sAIMainRlBeforeWaiting),
                        atomic_load(&sAIMainRlBeforeSources),
                        atomic_load(&sAIBgWindowsHit)]);
+    });
+}
+
+/// AK：按符号粗分类主线程阻塞点（勿叠 WakeUp；仅取证）
+static NSString *LBAKClassifyMainBlock(const char *sym, const char *sym2) {
+    NSString *a = sym ? [NSString stringWithUTF8String:sym] : @"";
+    NSString *b = sym2 ? [NSString stringWithUTF8String:sym2] : @"";
+    NSString *blob = [[NSString stringWithFormat:@"%@ %@", a, b] lowercaseString];
+    if ([blob containsString:@"dispatch_sync"] || [blob containsString:@"_dispatch_barrier_sync"] ||
+        [blob containsString:@"dispatch_lane_barrier"]) {
+        return @"ak_main_block_dispatch_sync";
+    }
+    if ([blob containsString:@"mach_msg"] || [blob containsString:@"kevent"] ||
+        [blob containsString:@"__psynch"] || [blob containsString:@"semaphore_wait"] ||
+        [blob containsString:@"cfrunloop"] || [blob containsString:@"gsvent"]) {
+        return @"ak_main_block_runloop_wait";
+    }
+    if ([blob containsString:@"legadobridge"] || [blob containsString:@"lbload"] ||
+        [blob containsString:@"lbforensics"] || [blob containsString:@"lbab"] ||
+        [blob containsString:@"lbai"]) {
+        return @"ak_main_block_bridge";
+    }
+    if ([blob containsString:@"uikit"] || [blob containsString:@"uiwindow"] ||
+        [blob containsString:@"uiview"]) {
+        return @"ak_main_block_uikit";
+    }
+    if (a.length == 0 || [a isEqualToString:@"?"]) {
+        return @"ak_main_block_nosym";
+    }
+    return @"ak_main_block_other";
+}
+
+static atomic_int sAKIdleForensicsInFlight = 0;
+
+static void LBAKSampleMainThreadPC(int round) {
+    if ([NSThread isMainThread]) return;
+    mach_port_t mainTh = sAIMainMachThread;
+    if (mainTh == MACH_PORT_NULL) {
+        LBABSyncProbe([NSString stringWithFormat:@"ak_main_block_no_port r=%d", round]);
+        return;
+    }
+    if (thread_suspend(mainTh) != KERN_SUCCESS) {
+        LBABSyncProbe([NSString stringWithFormat:@"ak_main_block_suspend_fail r=%d", round]);
+        return;
+    }
+#if defined(__aarch64__)
+    arm_thread_state64_t state;
+    mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
+    kern_return_t kr = thread_get_state(mainTh, ARM_THREAD_STATE64,
+                                        (thread_state_t)&state, &count);
+    if (kr == KERN_SUCCESS) {
+        uint64_t pc = arm_thread_state64_get_pc(state);
+        uint64_t lr = arm_thread_state64_get_lr(state);
+        uint64_t fp = arm_thread_state64_get_fp(state);
+        Dl_info di = {0}, di2 = {0};
+        const char *sym = "?";
+        const char *sym2 = "?";
+        if (dladdr((void *)(uintptr_t)pc, &di) && di.dli_sname) sym = di.dli_sname;
+        if (dladdr((void *)(uintptr_t)lr, &di2) && di2.dli_sname) sym2 = di2.dli_sname;
+        NSString *cls = LBAKClassifyMainBlock(sym, sym2);
+        LBABSyncProbe([NSString stringWithFormat:
+                       @"%@ r=%d pc=%llx(%s) lr=%llx(%s) wait=%d src=%d drain=%d",
+                       cls, round,
+                       (unsigned long long)pc, sym,
+                       (unsigned long long)lr, sym2,
+                       atomic_load(&sAIMainRlBeforeWaiting),
+                       atomic_load(&sAIMainRlBeforeSources),
+                       atomic_load(&sAIMainDrainSeen)]);
+        LBAIWriteLong([NSString stringWithFormat:
+                       @"ak_main_block_pc r=%d class=%@ pc=%llx(%s) lr=%llx(%s) fp=%llx wait=%d src=%d drain=%d",
+                       round, cls,
+                       (unsigned long long)pc, sym,
+                       (unsigned long long)lr, sym2,
+                       (unsigned long long)fp,
+                       atomic_load(&sAIMainRlBeforeWaiting),
+                       atomic_load(&sAIMainRlBeforeSources),
+                       atomic_load(&sAIMainDrainSeen)]);
+    } else {
+        LBABSyncProbe([NSString stringWithFormat:@"ak_main_block_state_fail r=%d kr=%d", round, (int)kr]);
+    }
+#else
+    LBABSyncProbe([NSString stringWithFormat:@"ak_main_block_skip_arch r=%d", round]);
+#endif
+    (void)thread_resume(mainTh);
+}
+
+/// AK：idle 后立即密集采 PC（禁 WakeUp / 禁 drain enqueue）
+static void LBAKStartPostIdleMainBlockForensics(void) {
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&sAKIdleForensicsInFlight, &expected, 1)) {
+        LBABSyncProbe(@"ak_main_idle_forensics_busy");
+        return;
+    }
+    if ([NSThread isMainThread]) {
+        LBAICaptureMainMachThread();
+    }
+    LBABSyncProbe(@"ak_main_idle_forensics_start");
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        const useconds_t delays[] = {0, 30000, 80000, 150000, 300000, 500000};
+        useconds_t prev = 0;
+        for (int i = 0; i < (int)(sizeof(delays) / sizeof(delays[0])); i++) {
+            useconds_t d = delays[i];
+            if (d > prev) usleep(d - prev);
+            prev = d;
+            LBAKSampleMainThreadPC(i);
+        }
+        LBABSyncProbe([NSString stringWithFormat:
+                       @"ak_main_idle_forensics_end wait=%d src=%d drain=%d bgWin=%d",
+                       atomic_load(&sAIMainRlBeforeWaiting),
+                       atomic_load(&sAIMainRlBeforeSources),
+                       atomic_load(&sAIMainDrainSeen),
+                       atomic_load(&sAIBgWindowsHit)]);
+        atomic_store(&sAKIdleForensicsInFlight, 0);
     });
 }
 
@@ -863,6 +979,7 @@ static void LBABInstallProbes(void) {
     LBABSyncProbe(@"install_done");
     LBABSyncProbe(@"ag_keep_inThread=1");
     LBABSyncProbe(@"ai_keep_inThread=1");
+    LBABSyncProbe(@"ak_keep_inThread=1");
 }
 
 static void LBSetState(LBLoadCurCpState next, NSString *why) {
@@ -2010,6 +2127,9 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     if (sState == LBLoadCurCpStateInvokingOriginal) {
         LBSetState(LBLoadCurCpStateIdle, @"invoke_orig_done_pending_render");
         LBABSyncProbe(@"invoke_state_idle");
+        // AK：idle 后立即采 main PC（禁 WakeUp / 禁 drain enqueue；KEEP inThread）
+        LBABSyncProbe(@"ak_main_idle_seen");
+        LBAKStartPostIdleMainBlockForensics();
     }
 }
 
@@ -2061,13 +2181,43 @@ static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt) {
 
 /// 在窗口/导航栈上找 TextReadVC*（不依赖 CExports）
 static id LBFindTextReaderVCInHierarchy(void) {
-    NSArray *windows = [UIApplication sharedApplication].windows;
-    if (windows.count == 0) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-        UIWindow *kw = [UIApplication sharedApplication].keyWindow;
-#pragma clang diagnostic pop
-        if (kw) windows = @[kw];
+    // AK：禁止直接碰 UIApplication.windows / keyWindow；bg 仅弱缓存
+    if (![NSThread isMainThread]) {
+        LBABSyncProbe(@"hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy");
+        UIWindow *kw = LBLegadoKeyWindow();
+        NSArray *windows = kw ? @[kw] : @[];
+        for (UIWindow *w in windows) {
+            UIViewController *root = w.rootViewController;
+            if (!root) continue;
+            NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+            while (stack.count > 0) {
+                UIViewController *vc = stack.lastObject;
+                [stack removeLastObject];
+                NSString *cn = NSStringFromClass([vc class]);
+                if ([cn containsString:@"TextReadVC"] || [cn containsString:@"ReadVCBase"]) {
+                    return vc;
+                }
+                for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
+                if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
+                if ([vc isKindOfClass:[UINavigationController class]]) {
+                    for (UIViewController *c in [(UINavigationController *)vc viewControllers]) {
+                        [stack addObject:c];
+                    }
+                }
+            }
+        }
+        return nil;
+    }
+    UIWindow *key = LBLegadoKeyWindow();
+    NSMutableArray *windows = [NSMutableArray array];
+    if (key) [windows addObject:key];
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+                if (w && ![windows containsObject:w]) [windows addObject:w];
+            }
+        }
     }
     for (UIWindow *w in windows) {
         UIViewController *root = w.rootViewController;

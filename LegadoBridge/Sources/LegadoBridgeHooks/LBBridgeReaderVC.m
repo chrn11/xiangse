@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import "LegadoBridge.h"
+#import "LBInternal.h"
 
 /// Bridge 阅读页：仅作原生 TextReadVC 失败时的兜底；主路径应走 openReader。
 @interface LBBridgeReaderVC : UIViewController
@@ -110,26 +111,8 @@ static __weak LBBridgeReaderVC *sVisibleBridgeReader = nil;
 @end
 
 static UIViewController *LBBridgeReaderHost(void) {
-    UIWindow *key = nil;
-    if (@available(iOS 13.0, *)) {
-        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-            if (scene.activationState != UISceneActivationStateForegroundActive) continue;
-            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
-            for (UIWindow *w in ((UIWindowScene *)scene).windows) {
-                if (w.isKeyWindow) { key = w; break; }
-            }
-            if (!key && ((UIWindowScene *)scene).windows.count > 0) {
-                key = ((UIWindowScene *)scene).windows.firstObject;
-            }
-            if (key) break;
-        }
-    }
-    if (!key) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-        key = UIApplication.sharedApplication.keyWindow;
-#pragma clang diagnostic pop
-    }
+    // AK：经 LBLegadoKeyWindow；bg 仅弱缓存/nil（本函数由 presentBlock 主线程调用）
+    UIWindow *key = LBLegadoKeyWindow();
     UIViewController *host = key.rootViewController;
     while (host.presentedViewController) {
         host = host.presentedViewController;

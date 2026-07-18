@@ -263,6 +263,25 @@ static void LBDumpVisibleVCTree(void) {
 
 static NSArray<UIWindow *> *LBAllAppWindows(void) {
     NSMutableArray *wins = [NSMutableArray array];
+    // AK：非主线程禁止任何 windows API（含 UIApplication.windows / keyWindow / scene）
+    if (![NSThread isMainThread]) {
+        NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_ab_probe.txt"];
+        UIWindow *key = LBLegadoKeyWindow(); // 仅弱缓存 / nil，内部已打 ak_bg_windows_api_skip
+        NSString *line = [NSString stringWithFormat:
+                          @"%@ | hypothesis_AK ak_bg_windows_api_skip caller=LBAllAppWindows cached=%d\n",
+                          [NSDate date], key ? 1 : 0];
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+        if (!fh) {
+            [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        } else {
+            [fh seekToEndOfFile];
+            [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+            [fh synchronizeFile];
+            [fh closeFile];
+        }
+        if (key) [wins addObject:key];
+        return wins;
+    }
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:[UIWindowScene class]]) continue;
@@ -2291,18 +2310,12 @@ static UINavigationController *LBFindBestNavigationController(UIViewController *
 @end
 
 static void LBReloadLegadoCatalogListIfVisible(void) {
-    UIApplication *app = [UIApplication sharedApplication];
-    UIWindow *win = nil;
-    if (@available(iOS 13.0, *)) {
-        for (UIScene *sc in app.connectedScenes) {
-            if (![sc isKindOfClass:[UIWindowScene class]]) continue;
-            for (UIWindow *w in ((UIWindowScene *)sc).windows) {
-                if (w.isKeyWindow) { win = w; break; }
-            }
-            if (win) break;
-        }
+    // AK：统一经 LBLegadoKeyWindow / LBAllAppWindows，bg 不触 windows API
+    UIWindow *win = LBLegadoKeyWindow();
+    if (!win) {
+        NSArray *all = LBAllAppWindows();
+        win = all.firstObject;
     }
-    if (!win) win = app.keyWindow;
     UIViewController *root = win.rootViewController;
     NSMutableArray *stack = [NSMutableArray array];
     if (root) [stack addObject:root];

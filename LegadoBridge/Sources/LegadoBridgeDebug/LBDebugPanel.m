@@ -54,6 +54,8 @@ static void LBAppendPanel(NSString *line) {
 #pragma mark - VC / view discovery
 
 static UIWindow *LBKeyWindow(void) {
+    // AK：非主线程禁止任何 windows API
+    if (![NSThread isMainThread]) return nil;
     UIApplication *app = UIApplication.sharedApplication;
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in app.connectedScenes) {

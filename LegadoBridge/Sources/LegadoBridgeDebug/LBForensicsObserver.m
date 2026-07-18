@@ -145,15 +145,20 @@ static BOOL LBFVCHierarchyContains(UIViewController *root, UIViewController *tar
 }
 
 static NSDictionary *LBFGatherAutoDumpUIHints(id triggerVC) {
-    if (![NSThread isMainThread]) {
-        LBFAISyncProbe(@"ai_bg_tag=LBFGatherAutoDumpUIHints");
-    }
     NSMutableDictionary *hints = [NSMutableDictionary dictionary];
     NSString *triggerClass = LBFShapeOfObject(triggerVC);
     hints[@"triggerVC"] = @{
         @"address": LBForensicsPointer(triggerVC),
         @"class": triggerClass ?: @"?",
     };
+    // AK：非主线程禁止任何 windows API
+    if (![NSThread isMainThread]) {
+        LBFAISyncProbe(@"hypothesis_AK ak_bg_windows_api_skip caller=LBFGatherAutoDumpUIHints");
+        hints[@"windows"] = @[];
+        hints[@"triggerOnAnyWindow"] = @NO;
+        hints[@"ak_bg_windows_skipped"] = @YES;
+        return hints;
+    }
     UIApplication *app = UIApplication.sharedApplication;
     NSMutableArray *windows = [NSMutableArray array];
     if (@available(iOS 13.0, *)) {
