@@ -125,12 +125,13 @@ static void LBABSyncProbe(NSString *tag) {
     struct tm tm;
     localtime_r(&now, &tm);
     int n = snprintf(buf, sizeof(buf),
-                     "%04d-%02d-%02d %02d:%02d:%02d | hypothesis_AC %s main=%d inv=%lu\n",
+                     "%04d-%02d-%02d %02d:%02d:%02d | hypothesis_AC %s main=%d inv=%lu pid=%d\n",
                      tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
                      tm.tm_hour, tm.tm_min, tm.tm_sec,
                      tag.UTF8String ?: "?",
                      [NSThread isMainThread] ? 1 : 0,
-                     (unsigned long)sInvokeCount);
+                     (unsigned long)sInvokeCount,
+                     (int)getpid());
     if (n <= 0) return;
     if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
 
@@ -268,15 +269,20 @@ static void LBAE_QueryFinish(id self, SEL _cmd, id response, id config, id userI
     }
     id action = ([config isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)config)[@"actionID"] : nil);
     LBABSyncProbe([NSString stringWithFormat:
-                   @"qf_enter self=%@ respLen=%lu action=%@ respCls=%@",
+                   @"qf_enter self=%@ respLen=%lu action=%@ respCls=%@ %@",
                    self ? NSStringFromClass(object_getClass(self)) : @"nil",
                    (unsigned long)respLen,
                    [action isKindOfClass:[NSString class]] ? action : @"-",
-                   response ? NSStringFromClass(object_getClass(response)) : @"nil"]);
-    if (sAENextQueryFinish) {
-        sAENextQueryFinish(self, _cmd, response, config, userInfo);
-    } else {
-        LBABSyncProbe(@"qf_early_return reason=null_next");
+                   response ? NSStringFromClass(object_getClass(response)) : @"nil",
+                   LBAFAppStateTag()]);
+    @try {
+        if (sAENextQueryFinish) {
+            sAENextQueryFinish(self, _cmd, response, config, userInfo);
+        } else {
+            LBABSyncProbe(@"qf_early_return reason=null_next");
+        }
+    } @catch (NSException *ex) {
+        LBABSyncProbe([NSString stringWithFormat:@"qf_EX %@", ex.reason ?: @""]);
     }
     LBABSyncProbe(@"qf_exit");
 }
@@ -343,6 +349,21 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
     dispatch_async(dispatch_get_main_queue(), ^{
         LBABSyncProbe([NSString stringWithFormat:@"qf_dispatch_main_pulse %@", LBAFAppStateTag()]);
     });
+    // AF：bg 侧 1.2s 内等主队列回执；TIMEOUT=主线程堵死/未跑 runloop；ok=主队列可排空
+    {
+        dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBABSyncProbe([NSString stringWithFormat:@"af_main_drain_ok %@", LBAFAppStateTag()]);
+            dispatch_semaphore_signal(sem);
+        });
+        long waitRc = dispatch_semaphore_wait(
+            sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)));
+        if (waitRc == 0) {
+            LBABSyncProbe(@"af_main_drain_wait_ok");
+        } else {
+            LBABSyncProbe(@"af_main_drain_TIMEOUT");
+        }
+    }
     if (sADCheckEntered == 0) {
         if (respNil) {
             LBABSyncProbe(@"cb_precheck_gate_skip_check reason=resp_nil");
@@ -1668,58 +1689,63 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
                        containerName, LBAFAppStateTag()]);
         LBStateLog([NSString stringWithFormat:@"invoke_orig_OK target=%@", containerName]);
         LBTraceLoadCurCp(@"ORIG loadCurCp OK");
-        // AF：先入队 drain 槽，再做 post-invoke 探针，避免同步重活挡住已排队的 async_main QF
+        // AF：立即结束 invoke 临界区并让出主队列，使已入队的 async_main QF 优先于 Z 探针重活
+        sReentryGuard = NO;
+        if (sState == LBLoadCurCpStateInvokingOriginal) {
+            LBSetState(LBLoadCurCpStateIdle, @"invoke_orig_done_pending_render");
+            LBABSyncProbe([NSString stringWithFormat:@"invoke_state_idle %@", LBAFAppStateTag()]);
+        }
+        LBABSyncProbe(@"invoke_reentry_cleared");
+        LBABSyncProbe(@"await_native_chain");
+        __weak id weakReader = reader;
+        __weak id weakContainer = container;
+        NSDictionary *payload = sPendingPayload;
         dispatch_async(dispatch_get_main_queue(), ^{
             LBABSyncProbe([NSString stringWithFormat:@"af_main_drain_slot %@", LBAFAppStateTag()]);
+            id strongReader = weakReader;
+            id strongContainer = weakContainer;
+            if (strongReader) {
+                LBLogLoadCurCpGates(strongReader, strongContainer, @"post_invoke_routeB");
+            }
+            LBABSyncProbe(@"post_invoke_gates_done");
+            if (payload) {
+                NSInteger cpIndex = LBCpIndexFromPayload(payload, strongReader);
+                NSUInteger bodyLen = LBBodyFromPayload(payload).length;
+                NSString *bookName = @"斗破苍穹";
+                NSString *author = @"天蚕土豆";
+                NSMutableDictionary *probeBook = [NSMutableDictionary dictionary];
+                @try {
+                    id fat = [strongReader valueForKey:@"dicFatBook"];
+                    if ([fat isKindOfClass:[NSDictionary class]]) {
+                        [probeBook addEntriesFromDictionary:(NSDictionary *)fat];
+                        if ([fat[@"bookName"] isKindOfClass:[NSString class]]) bookName = fat[@"bookName"];
+                        if ([fat[@"author"] isKindOfClass:[NSString class]]) author = fat[@"author"];
+                    }
+                } @catch (__unused NSException *e) {}
+                probeBook[@"bookName"] = bookName;
+                probeBook[@"author"] = author;
+                NSString *bk = LBNativeBookKey(bookName, author, probeBook) ?: @"";
+                LBLogHypothesisZFileProbe(@"post_invoke", probeBook, bk, cpIndex, bodyLen);
+                LBABSyncProbe(@"post_invoke_z_probe_done");
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    LBABSyncProbe([NSString stringWithFormat:@"async_plus0.6s_enter %@",
+                                   LBAFAppStateTag()]);
+                    LBLogHypothesisZFileProbe(@"async_plus0.6s", probeBook, bk, cpIndex, bodyLen);
+                    LBABSyncProbe(@"async_plus0.6s_done");
+                });
+            }
+            if (payload && LBBodyFromPayload(payload).length > 0) {
+                LBTraceLoadCurCp(@"hypothesis_O kick_disabled await_native_chain");
+                LBStateLog(@"hypothesis_O kick_disabled await_native_QF_DR_finish");
+            }
         });
-        LBLogLoadCurCpGates(reader, container, @"post_invoke_routeB");
-        LBABSyncProbe(@"post_invoke_gates_done");
-        // 假设 Z：异步 notify=callBackResponse→QF；延迟探针确认 native 目录正文在位
-        if (sPendingPayload) {
-            NSDictionary *payload = sPendingPayload;
-            NSInteger cpIndex = LBCpIndexFromPayload(payload, reader);
-            NSUInteger bodyLen = LBBodyFromPayload(payload).length;
-            NSString *bookName = @"斗破苍穹";
-            NSString *author = @"天蚕土豆";
-            NSMutableDictionary *probeBook = [NSMutableDictionary dictionary];
-            @try {
-                id fat = [reader valueForKey:@"dicFatBook"];
-                if ([fat isKindOfClass:[NSDictionary class]]) {
-                    [probeBook addEntriesFromDictionary:(NSDictionary *)fat];
-                    if ([fat[@"bookName"] isKindOfClass:[NSString class]]) bookName = fat[@"bookName"];
-                    if ([fat[@"author"] isKindOfClass:[NSString class]]) author = fat[@"author"];
-                }
-            } @catch (__unused NSException *e) {}
-            probeBook[@"bookName"] = bookName;
-            probeBook[@"author"] = author;
-            NSString *bk = LBNativeBookKey(bookName, author, probeBook) ?: @"";
-            LBLogHypothesisZFileProbe(@"post_invoke", probeBook, bk, cpIndex, bodyLen);
-            LBABSyncProbe(@"post_invoke_z_probe_done");
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
-                LBABSyncProbe([NSString stringWithFormat:@"async_plus0.6s_enter %@",
-                               LBAFAppStateTag()]);
-                LBLogHypothesisZFileProbe(@"async_plus0.6s", probeBook, bk, cpIndex, bodyLen);
-                LBABSyncProbe(@"async_plus0.6s_done");
-            });
-        }
-        // 假设 O：invoke_orig_OK 后禁止人工 kick；等原生 queryCpFileByBook→QF→DR→finish
-        if (sPendingPayload && LBBodyFromPayload(sPendingPayload).length > 0) {
-            LBTraceLoadCurCp(@"hypothesis_O kick_disabled await_native_chain");
-            LBStateLog(@"hypothesis_O kick_disabled await_native_QF_DR_finish");
-            LBABSyncProbe(@"await_native_chain");
-        }
+        return;
     } @catch (NSException *ex) {
         LBABSyncProbe([NSString stringWithFormat:@"invoke_orig_EX %@", ex.reason ?: @""]);
         LBSetState(LBLoadCurCpStateFailed, [NSString stringWithFormat:@"invoke_orig_EX %@", ex.reason ?: @""]);
         sReentryGuard = NO;
         return;
-    }
-    sReentryGuard = NO;
-    LBABSyncProbe(@"invoke_reentry_cleared");
-    if (sState == LBLoadCurCpStateInvokingOriginal) {
-        LBSetState(LBLoadCurCpStateIdle, @"invoke_orig_done_pending_render");
-        LBABSyncProbe([NSString stringWithFormat:@"invoke_state_idle %@", LBAFAppStateTag()]);
     }
 }
 
