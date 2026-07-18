@@ -1,0 +1,173 @@
+{
+  "mcp": "http://192.168.1.6:8090",
+  "crashes": {
+    "reports": [
+      {
+        "path": "/var/mobile/Library/Logs/CrashReporter/cfprefsd-2026-07-18-020800.ips",
+        "size": 17285,
+        "name": "cfprefsd-2026-07-18-020800.ips",
+        "date": 1784311685
+      },
+      {
+        "path": "/var/mobile/Library/Logs/CrashReporter/Via-2026-07-17-015214.ips",
+        "size": 62035,
+        "name": "Via-2026-07-17-015214.ips",
+        "date": 1784224335
+      },
+      {
+        "path": "/var/mobile/Library/Logs/CrashReporter/WeChat-2026-07-16-220251.ips",
+        "size": 185791,
+        "name": "WeChat-2026-07-16-220251.ips",
+        "date": 1784210572
+      },
+      {
+        "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-16-114653.ips",
+        "size": 1173663,
+        "name": "StandarReader-2026-07-16-114653.ips",
+        "date": 1784173614
+      },
+      {
+        "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-16-114553.ips",
+        "size": 1187342,
+        "name": "StandarReader-2026-07-16-114553.ips",
+        "date": 1784173553
+      },
+      {
+        "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-16-114539.ips",
+        "size": 1183598,
+        "name": "StandarReader-2026-07-16-114539.ips",
+        "date": 1784173540
+      },
+      {
+        "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-16-114523.ips",
+        "size": 1181772,
+        "name": "StandarReader-2026-07-16-114523.ips",
+        "date": 1784173523
+      },
+      {
+        "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-16-114421.ips",
+        "size": 1192085,
+        "name": "StandarReader-2026-07-16-114421.ips",
+        "date": 1784173462
+      },
+      {
+        "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-16-114408.ips",
+        "size": 1178310,
+        "name": "StandarReader-2026-07-16-114408.ips",
+        "date": 1784173448
+      },
+      {
+        "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-16-114351.ips",
+        "size": 1176035,
+        "name": "StandarReader-2026-07-16-114351.ips",
+        "date": 1784173432
+      },
+      {
+        "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-16-114241.ips",
+        "size": 1188459,
+        "name": "StandarReader-2026-07-16-114241.ips",
+        "date": 1784173362
+      },
+      {
+        "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-16-114227.ips",
+        "size": 1183975,
+        "name": "StandarReader-2026-07-16-114227.ips",
+        "date": 1784173348
+      }
+    ],
+    "count": 12,
+    "scanned_dirs": [
+      "/var/mobile/Library/Logs/CrashReporter",
+      "/var/mobile/Library/Logs/CrashReporter/Retired",
+      "/Library/Logs/CrashReporter"
+    ]
+  },
+  "syslog": {
+    "error": "timed out",
+    "prev": "timed out"
+  },
+  "cmds": [
+    {
+      "cmd": "ls -lt /var/mobile/Library/Logs/CrashReporter/*.ips | head -25",
+      "r": {
+        "exitCode": 0,
+        "output": "ls: 无法访问 '/var/mobile/Library/Logs/CrashReporter/*.ips': No such file or directory\n"
+      }
+    },
+    {
+      "cmd": "ls -lt /var/mobile/Library/Logs/CrashReporter/*Standar* 2>&1 | head -15",
+      "r": {
+        "exitCode": 0,
+        "output": "ls: 无法访问 '/var/mobile/Library/Logs/CrashReporter/*Standar*': No such file or directory\n"
+      }
+    },
+    {
+      "cmd": "ls -lt /var/mobile/Library/Logs/CrashReporter/Retired/*Standar* 2>&1 | head -15",
+      "r": {
+        "exitCode": 0,
+        "output": "ls: 无法访问 '/var/mobile/Library/Logs/CrashReporter/Retired/*Standar*': No such file or directory\n"
+      }
+    },
+    {
+      "cmd": "ls -lt /var/mobile/Library/Logs/CrashReporter/*Jetsam* 2>&1 | head -20",
+      "r": {
+        "exitCode": 0,
+        "output": "ls: 无法访问 '/var/mobile/Library/Logs/CrashReporter/*Jetsam*': No such file or directory\n"
+      }
+    },
+    {
+      "cmd": "ls -lt /Library/Logs/CrashReporter/*Standar* 2>&1 | head -10",
+      "r": {
+        "exitCode": 0,
+        "output": "ls: 无法访问 '/Library/Logs/CrashReporter/*Standar*': No such file or directory\n"
+      }
+    },
+    {
+      "cmd": "find /var/mobile/Library/Logs -name '*Standar*' -mtime -2 2>&1 | head -30",
+      "r": {
+        "exitCode": 0,
+        "output": "find: ‘/var/mobile/Library/Logs’: No such file or directory\n"
+      }
+    },
+    {
+      "cmd": "find /var/mobile/Library/Logs -name '*Jetsam*' -mtime -2 2>&1 | head -30",
+      "r": {
+        "exitCode": 0,
+        "output": "find: ‘/var/mobile/Library/Logs’: No such file or directory\n"
+      }
+    }
+  ],
+  "standar_reports": [
+    {
+      "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-16-114653.ips",
+      "size": 1173663,
+      "name": "StandarReader-2026-07-16-114653.ips",
+      "date": 1784173614
+    },
+    {
+      "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-16-114553.ips",
+      "size": 1187342,
+      "name": "StandarReader-2026-07-16-114553.ips",
+      "date": 1784173553
+    },
+    {
+      "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-16-114539.ips",
+      "size": 1183598,
+      "name": "StandarReader-2026-07-16-114539.ips",
+      "date": 1784173540
+    },
+    {
+      "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-16-114523.ips",
+      "size": 1181772,
+      "name": "StandarReader-2026-07-16-114523.ips",
+      "date": 1784173523
+    },
+    {
+      "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-16-114421.ips",
+      "size": 1192085,
+      "name": "StandarReader-2026-07-16-114421.ips",
+      "date": 1784173462
+    }
+  ],
+  "latest_sr_crash_err": "{\"message\": \"Missing required parameter: path\", \"code\": -32602}"
+}

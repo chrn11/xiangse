@@ -4,6 +4,12 @@
 #import <objc/runtime.h>
 #import <UIKit/UIKit.h>
 #import <dlfcn.h>
+#import <fcntl.h>
+#import <unistd.h>
+#import <signal.h>
+#import <stdio.h>
+#import <string.h>
+#import <time.h>
 
 static void (*sOrigLoadCurCp)(id, SEL) = NULL;
 static LBLoadCurCpState sState = LBLoadCurCpStateIdle;
@@ -18,6 +24,16 @@ static __weak id sWeakHookReceiver = nil;
 static BOOL sReentryGuard = NO;
 static const void *kLBAssocFoundContainerKey = &kLBAssocFoundContainerKey;
 
+/// 假设 AB：只读同步探针（禁 bounce / 禁改 CB 语义）
+static void (*sABNextCallBackResponse)(id, SEL, id, id, id) = NULL;
+static void (*sABNextFormatCallBack)(id, SEL, id, id, id) = NULL;
+static BOOL (*sABNextCheckCallBack)(id, SEL, id, id, id) = NULL;
+static id (*sABNextStringWithContents)(id, SEL, id, NSUInteger, NSError **) = NULL;
+static BOOL sABSignalInstalled = NO;
+
+static void LBABSyncProbe(NSString *tag);
+static void LBABInstallProbes(void);
+
 static void LBTraceLoadCurCp(NSString *msg) {
     if (msg.length == 0) return;
     NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_openreader_trace.txt"];
@@ -29,6 +45,7 @@ static void LBTraceLoadCurCp(NSString *msg) {
     }
     [fh seekToEndOfFile];
     [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    [fh synchronizeFile];
     [fh closeFile];
 }
 
@@ -45,8 +62,196 @@ static void LBStateLog(NSString *msg) {
     }
     [fh seekToEndOfFile];
     [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    [fh synchronizeFile];
     [fh closeFile];
     LBTraceLoadCurCp([NSString stringWithFormat:@"loadCurCp %@ sm=%@", msg ?: @"", LBLoadCurCpBridgeStateName()]);
+}
+
+/// POSIX append+fsync：SIGKILL 前尽量保住最后一条存活点
+static void LBABSyncProbe(NSString *tag) {
+    if (tag.length == 0) return;
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_ab_probe.txt"];
+    const char *cpath = path.fileSystemRepresentation;
+    if (!cpath) return;
+
+    char buf[640];
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    int n = snprintf(buf, sizeof(buf),
+                     "%04d-%02d-%02d %02d:%02d:%02d | hypothesis_AB %s main=%d inv=%lu\n",
+                     tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                     tm.tm_hour, tm.tm_min, tm.tm_sec,
+                     tag.UTF8String ?: "?",
+                     [NSThread isMainThread] ? 1 : 0,
+                     (unsigned long)sInvokeCount);
+    if (n <= 0) return;
+    if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
+
+    int fd = open(cpath, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        (void)write(fd, buf, (size_t)n);
+        (void)fsync(fd);
+        close(fd);
+    }
+    // 同步进 state，便于现有验收扫尾
+    NSString *statePath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_loadcurcp_state.txt"];
+    NSString *line = [NSString stringWithFormat:@"%@ | hypothesis_AB %s | state=%@ token=%@ ch=%@ inv=%lu\n",
+                      [NSDate date], tag.UTF8String ?: "?",
+                      LBLoadCurCpBridgeStateName(), sToken ?: @"-",
+                      sChapterUrl ?: @"-", (unsigned long)sInvokeCount];
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:statePath];
+    if (!fh) {
+        [line writeToFile:statePath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    } else {
+        [fh seekToEndOfFile];
+        [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+        [fh synchronizeFile];
+        [fh closeFile];
+    }
+}
+
+static void LBABOnFatalSignal(int sig) {
+    char mark[80];
+    int n = snprintf(mark, sizeof(mark), "hypothesis_AB fatal_signal SIG=%d\n", sig);
+    const char *home = getenv("HOME");
+    char path[512];
+    if (home && home[0]) {
+        snprintf(path, sizeof(path), "%s/Documents/legado_ab_probe.txt", home);
+    } else {
+        snprintf(path, sizeof(path), "/tmp/legado_ab_probe.txt");
+    }
+    int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        if (n > 0) (void)write(fd, mark, (size_t)n);
+        (void)fsync(fd);
+        close(fd);
+    }
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+static void LBABInstallSignalProbes(void) {
+    if (sABSignalInstalled) return;
+    sABSignalInstalled = YES;
+    signal(SIGSEGV, LBABOnFatalSignal);
+    signal(SIGBUS, LBABOnFatalSignal);
+    signal(SIGABRT, LBABOnFatalSignal);
+    signal(SIGTRAP, LBABOnFatalSignal);
+    signal(SIGILL, LBABOnFatalSignal);
+}
+
+static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id userInfo) {
+    NSUInteger respLen = [response isKindOfClass:[NSString class]] ? [(NSString *)response length] : 0;
+    id action = ([config isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)config)[@"actionID"] : nil);
+    id target = ([userInfo isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)userInfo)[@"callback_target"] : nil);
+    id dont = ([userInfo isKindOfClass:[NSDictionary class]]
+               ? ((NSDictionary *)userInfo)[@"callback_dontFormatResponse"] : nil);
+    LBABSyncProbe([NSString stringWithFormat:
+                   @"cb_enter respLen=%lu action=%@ target=%@ dontFormat=%d",
+                   (unsigned long)respLen,
+                   [action isKindOfClass:[NSString class]] ? action : @"-",
+                   target ? NSStringFromClass(object_getClass(target)) : @"nil",
+                   dont ? 1 : 0]);
+    if (!sABNextCallBackResponse) {
+        LBABSyncProbe(@"cb_skip_null_next");
+        return;
+    }
+    sABNextCallBackResponse(self, _cmd, response, config, userInfo);
+    LBABSyncProbe(@"cb_exit");
+}
+
+static void LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id userInfo) {
+    LBABSyncProbe(@"format_enter");
+    if (sABNextFormatCallBack) {
+        sABNextFormatCallBack(self, _cmd, response, config, userInfo);
+    }
+    LBABSyncProbe(@"format_exit");
+}
+
+static BOOL LBAB_CheckCallBack(id self, SEL _cmd, id response, id config, id userInfo) {
+    LBABSyncProbe(@"check_enter");
+    BOOL ok = sABNextCheckCallBack ? sABNextCheckCallBack(self, _cmd, response, config, userInfo) : YES;
+    LBABSyncProbe([NSString stringWithFormat:@"check_exit ok=%d", ok ? 1 : 0]);
+    return ok;
+}
+
+static id LBAB_StringWithContents(id self, SEL _cmd, id path, NSUInteger enc, NSError **err) {
+    NSString *p = [path isKindOfClass:[NSString class]] ? (NSString *)path : nil;
+    BOOL interesting = p.length > 0 &&
+                       ([p containsString:@"xsfolder"] || [p containsString:@"/book/"]);
+    if (interesting) {
+        LBABSyncProbe([NSString stringWithFormat:@"swcf_enter leaf=%@", p.lastPathComponent ?: @"-"]);
+    }
+    id ret = sABNextStringWithContents
+                 ? sABNextStringWithContents(self, _cmd, path, enc, err)
+                 : nil;
+    if (interesting) {
+        NSUInteger len = [ret isKindOfClass:[NSString class]] ? [(NSString *)ret length] : 0;
+        LBABSyncProbe([NSString stringWithFormat:
+                       @"swcf_exit leaf=%@ len=%lu nil=%d",
+                       p.lastPathComponent ?: @"-",
+                       (unsigned long)len,
+                       ret ? 0 : 1]);
+    }
+    return ret;
+}
+
+static void LBABInstallProbes(void) {
+    LBABInstallSignalProbes();
+
+    Class net = NSClassFromString(@"LPNetWork2");
+    if (net) {
+        SEL cbSel = NSSelectorFromString(@"callBackResponse:config:userInfo:");
+        Method cbm = class_getInstanceMethod(net, cbSel);
+        if (cbm) {
+            IMP cur = method_getImplementation(cbm);
+            if (cur != (IMP)LBAB_CallBackResponse) {
+                sABNextCallBackResponse = (void (*)(id, SEL, id, id, id))cur;
+                method_setImplementation(cbm, (IMP)LBAB_CallBackResponse);
+                LBABSyncProbe([NSString stringWithFormat:@"install_cb next=%p", sABNextCallBackResponse]);
+            }
+        }
+        SEL fmtSel = NSSelectorFromString(@"formatCallBackResponse:config:userInfo:");
+        Method fmtm = class_getInstanceMethod(net, fmtSel);
+        if (fmtm) {
+            IMP cur = method_getImplementation(fmtm);
+            if (cur != (IMP)LBAB_FormatCallBack) {
+                sABNextFormatCallBack = (void (*)(id, SEL, id, id, id))cur;
+                method_setImplementation(fmtm, (IMP)LBAB_FormatCallBack);
+                LBABSyncProbe(@"install_format");
+            }
+        } else {
+            LBABSyncProbe(@"install_format_missing");
+        }
+        SEL chkSel = NSSelectorFromString(@"checkCallBackResponse:config:userInfo:");
+        Method chkm = class_getInstanceMethod(net, chkSel);
+        if (chkm) {
+            IMP cur = method_getImplementation(chkm);
+            if (cur != (IMP)LBAB_CheckCallBack) {
+                sABNextCheckCallBack = (BOOL (*)(id, SEL, id, id, id))cur;
+                method_setImplementation(chkm, (IMP)LBAB_CheckCallBack);
+                LBABSyncProbe(@"install_check");
+            }
+        } else {
+            LBABSyncProbe(@"install_check_missing");
+        }
+    } else {
+        LBABSyncProbe(@"install_skip no_LPNetWork2");
+    }
+
+    Method sw = class_getClassMethod([NSString class],
+                                     @selector(stringWithContentsOfFile:encoding:error:));
+    if (sw) {
+        IMP cur = method_getImplementation(sw);
+        if (cur != (IMP)LBAB_StringWithContents) {
+            sABNextStringWithContents = (id (*)(id, SEL, id, NSUInteger, NSError **))cur;
+            method_setImplementation(sw, (IMP)LBAB_StringWithContents);
+            LBABSyncProbe(@"install_swcf");
+        }
+    }
+
+    LBABSyncProbe(@"install_done");
 }
 
 static void LBSetState(LBLoadCurCpState next, NSString *why) {
@@ -70,6 +275,7 @@ void LBLoadCurCpBridgeRegisterOrig(void (*orig)(id, SEL)) {
     if (!orig) return;
     sOrigLoadCurCp = orig;
     LBStateLog([NSString stringWithFormat:@"register_orig imp=%p", orig]);
+    LBABInstallProbes();
 }
 
 static NSString *LBBodyFromPayload(NSDictionary *payload);
@@ -1132,14 +1338,18 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     sReentryGuard = YES;
     sInvokeCount++;
     LBSetState(LBLoadCurCpStateInvokingOriginal, @"routeB_invoke_begin");
+    LBABInstallProbes();
+    LBABSyncProbe([NSString stringWithFormat:@"pre_invoke_orig target=%@", containerName]);
     LBTraceLoadCurCp([NSString stringWithFormat:
                       @"sm=invokingOriginal ch=%@ target=%@ orig=%p",
                       sChapterUrl ?: @"-", containerName, sOrigLoadCurCp]);
     @try {
         sOrigLoadCurCp(container, @selector(loadCurCp));
+        LBABSyncProbe([NSString stringWithFormat:@"invoke_orig_returned target=%@", containerName]);
         LBStateLog([NSString stringWithFormat:@"invoke_orig_OK target=%@", containerName]);
         LBTraceLoadCurCp(@"ORIG loadCurCp OK");
         LBLogLoadCurCpGates(reader, container, @"post_invoke_routeB");
+        LBABSyncProbe(@"post_invoke_gates_done");
         // 假设 Z：异步 notify=callBackResponse→QF；延迟探针确认 native 目录正文在位
         if (sPendingPayload) {
             NSDictionary *payload = sPendingPayload;
@@ -1160,24 +1370,31 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
             probeBook[@"author"] = author;
             NSString *bk = LBNativeBookKey(bookName, author, probeBook) ?: @"";
             LBLogHypothesisZFileProbe(@"post_invoke", probeBook, bk, cpIndex, bodyLen);
+            LBABSyncProbe(@"post_invoke_z_probe_done");
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
+                LBABSyncProbe(@"async_plus0.6s_enter");
                 LBLogHypothesisZFileProbe(@"async_plus0.6s", probeBook, bk, cpIndex, bodyLen);
+                LBABSyncProbe(@"async_plus0.6s_done");
             });
         }
         // 假设 O：invoke_orig_OK 后禁止人工 kick；等原生 queryCpFileByBook→QF→DR→finish
         if (sPendingPayload && LBBodyFromPayload(sPendingPayload).length > 0) {
             LBTraceLoadCurCp(@"hypothesis_O kick_disabled await_native_chain");
             LBStateLog(@"hypothesis_O kick_disabled await_native_QF_DR_finish");
+            LBABSyncProbe(@"await_native_chain");
         }
     } @catch (NSException *ex) {
+        LBABSyncProbe([NSString stringWithFormat:@"invoke_orig_EX %@", ex.reason ?: @""]);
         LBSetState(LBLoadCurCpStateFailed, [NSString stringWithFormat:@"invoke_orig_EX %@", ex.reason ?: @""]);
         sReentryGuard = NO;
         return;
     }
     sReentryGuard = NO;
+    LBABSyncProbe(@"invoke_reentry_cleared");
     if (sState == LBLoadCurCpStateInvokingOriginal) {
         LBSetState(LBLoadCurCpStateIdle, @"invoke_orig_done_pending_render");
+        LBABSyncProbe(@"invoke_state_idle");
     }
 }
 
