@@ -271,6 +271,12 @@ static atomic_int sAIMainRlBeforeWaiting = 0;
 static atomic_int sAIMainRlBeforeSources = 0;
 static atomic_int sAIMainSamplerStarted = 0;
 static CFRunLoopObserverRef sAIRunLoopObs = NULL;
+static mach_port_t sAIMainMachThread = MACH_PORT_NULL;
+
+static void LBAICaptureMainMachThread(void) {
+    if (![NSThread isMainThread]) return;
+    sAIMainMachThread = pthread_mach_thread_np(pthread_self());
+}
 
 static NSArray *LBAI_Windows(id self, SEL _cmd) {
     if (![NSThread isMainThread]) {
@@ -344,7 +350,7 @@ static void LBAIEnsureRunLoopObserver(void) {
 /// AI：从 bg 看 main 是否排空；若未排空则尝试挂起主线程读 LR/PC（符号靠 ai_probe 关联）
 static void LBAISampleMainThreadPC(int round) {
     if ([NSThread isMainThread]) return;
-    mach_port_t mainTh = pthread_mach_thread_np(pthread_main_thread_np());
+    mach_port_t mainTh = sAIMainMachThread;
     if (mainTh == MACH_PORT_NULL) return;
     if (thread_suspend(mainTh) != KERN_SUCCESS) {
         LBABSyncProbe([NSString stringWithFormat:@"ai_main_sample_suspend_fail r=%d", round]);
