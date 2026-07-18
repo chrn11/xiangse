@@ -320,9 +320,15 @@ static void LBAE_QueryFinishOnMain(id self, SEL _cmd, id response, id config, id
 
 static void LBAE_QueryFinish(id self, SEL _cmd, id response, id config, id userInfo) {
     if (![NSThread isMainThread]) {
-        LBABSyncProbe(@"ag_qf_marshal_to_main");
-        dispatch_sync(dispatch_get_main_queue(), ^{
-            LBAE_QueryFinishOnMain(self, _cmd, response, config, userInfo);
+        // sync 会死锁（main 仍可能在等 CB 栈）；async 让 CB 先返回，由主队列跑 QF
+        LBABSyncProbe(@"ag_qf_marshal_async_main");
+        id slf = self;
+        id resp = response;
+        id cfg = config;
+        id ui = userInfo;
+        SEL cmd = _cmd;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBAE_QueryFinishOnMain(slf, cmd, resp, cfg, ui);
         });
         return;
     }
