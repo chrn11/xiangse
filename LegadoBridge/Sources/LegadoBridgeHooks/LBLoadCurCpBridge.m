@@ -618,15 +618,80 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
             LBStateLog(@"hypothesis_Q seed_arrCatalog_failed");
         }
     }
+
+    // 假设 W：queryCpFileByBook → queryByActionID 调 AppConfig#getBookKey:(book)。
+    // book=nil 或非 Dictionary / 缺 bookName|author → @0x10006114c cbz 早退，无 QF。
+    // V 真机：pre pageStatus=3 → post=1，已越过 cmp #3；ivar _dicFatBook 仍为 nil。
+    @try {
+        id existing = nil;
+        @try { existing = [reader valueForKey:@"dicFatBook"]; } @catch (__unused NSException *e) {}
+        NSMutableDictionary *fat = nil;
+        if ([existing isKindOfClass:[NSMutableDictionary class]]) {
+            fat = (NSMutableDictionary *)existing;
+        } else if ([existing isKindOfClass:[NSDictionary class]]) {
+            fat = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)existing];
+        } else {
+            fat = [NSMutableDictionary dictionary];
+        }
+        NSDictionary *dicBook = nil;
+        @try {
+            id d = [reader valueForKey:@"dicBook"];
+            if ([d isKindOfClass:[NSDictionary class]]) dicBook = (NSDictionary *)d;
+        } @catch (__unused NSException *e) {}
+        NSString *bookName = nil;
+        NSString *author = nil;
+        if ([dicBook[@"bookName"] isKindOfClass:[NSString class]]) bookName = dicBook[@"bookName"];
+        else if ([dicBook[@"name"] isKindOfClass:[NSString class]]) bookName = dicBook[@"name"];
+        else if ([dicBook[@"title"] isKindOfClass:[NSString class]]) bookName = dicBook[@"title"];
+        if ([dicBook[@"author"] isKindOfClass:[NSString class]]) author = dicBook[@"author"];
+        if (bookName.length == 0 && [payload[@"bookName"] isKindOfClass:[NSString class]]) {
+            bookName = payload[@"bookName"];
+        }
+        if (author.length == 0 && [payload[@"author"] isKindOfClass:[NSString class]]) {
+            author = payload[@"author"];
+        }
+        if (bookName.length == 0) bookName = @"斗破苍穹";
+        if (author.length == 0) author = @"天蚕土豆";
+        if (![fat[@"bookName"] isKindOfClass:[NSString class]] || [fat[@"bookName"] length] == 0) {
+            fat[@"bookName"] = bookName;
+        }
+        if (![fat[@"author"] isKindOfClass:[NSString class]] || [fat[@"author"] length] == 0) {
+            fat[@"author"] = author;
+        }
+        id bk = nil;
+        @try { bk = [reader valueForKey:@"bookKey"]; } @catch (__unused NSException *e) {}
+        if (![bk isKindOfClass:[NSString class]] || [(NSString *)bk length] == 0) {
+            bk = dicBook[@"bookKey"];
+        }
+        if ([bk isKindOfClass:[NSString class]] && [(NSString *)bk length] > 0 &&
+            !([fat[@"bookKey"] isKindOfClass:[NSString class]] && [fat[@"bookKey"] length] > 0)) {
+            fat[@"bookKey"] = bk;
+        }
+        if ([reader respondsToSelector:NSSelectorFromString(@"setDicFatBook:")]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(
+                reader, NSSelectorFromString(@"setDicFatBook:"), fat);
+        } else {
+            [reader setValue:fat forKey:@"dicFatBook"];
+        }
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_W seed dicFatBook bookNameLen=%lu authorLen=%lu bookKeyLen=%lu",
+                    (unsigned long)[fat[@"bookName"] length],
+                    (unsigned long)[fat[@"author"] length],
+                    (unsigned long)([fat[@"bookKey"] isKindOfClass:[NSString class]]
+                                    ? [fat[@"bookKey"] length] : 0)]);
+    } @catch (__unused NSException *e) {
+        LBStateLog(@"hypothesis_W seed_dicFatBook_failed");
+    }
 }
 
 static void LBLogLoadCurCpGates(id reader, id container, NSString *tag) {
-    NSUInteger nCat = 0, nDc = 0, nDcC = 0;
+    NSUInteger nCat = 0, nDc = 0, nDcC = 0, nFat = 0;
     NSString *bookKey = @"-";
     NSString *bookDir = @"-";
     NSInteger curR = -999, curC = -999, nCp = -999;
     @try { nCat = LBCountOrZero([reader valueForKey:@"arrCatalog"]); } @catch (__unused NSException *e) {}
     @try { nDc = LBCountOrZero([reader valueForKey:@"dicContents"]); } @catch (__unused NSException *e) {}
+    @try { nFat = LBCountOrZero([reader valueForKey:@"dicFatBook"]); } @catch (__unused NSException *e) {}
     if (container) {
         @try { nDcC = LBCountOrZero([container valueForKey:@"dicContents"]); } @catch (__unused NSException *e) {}
     }
@@ -656,10 +721,11 @@ static void LBLogLoadCurCpGates(id reader, id container, NSString *tag) {
 
     LBStateLog([NSString stringWithFormat:
                 @"hypothesis_R2 gates(%@) arrCatalog=%lu dicContents@r=%lu dicContents@c=%lu "
-                @"bookKeyLen=%lu bookDirLen=%lu nCp@pm=%ld pageStatus=%ld "
+                @"dicFatBook=%lu bookKeyLen=%lu bookDirLen=%lu nCp@pm=%ld pageStatus=%ld "
                 @"(curCp@r/c N/A paged-no-ivar got %ld/%ld)",
                 tag ?: @"-",
                 (unsigned long)nCat, (unsigned long)nDc, (unsigned long)nDcC,
+                (unsigned long)nFat,
                 (unsigned long)bookKey.length, (unsigned long)bookDir.length,
                 (long)nCp, (long)pageStatus,
                 (long)curR, (long)curC]);
