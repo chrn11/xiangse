@@ -24,11 +24,10 @@ static __weak id sWeakHookReceiver = nil;
 static BOOL sReentryGuard = NO;
 static const void *kLBAssocFoundContainerKey = &kLBAssocFoundContainerKey;
 
-/// 假设 AC/AD/AE/AF：CB 透传链上 check/format/QF 派发取证（禁 bounce / 禁 dontFormat）
+/// 假设 AC/AD/AE：CB 透传链上 check/format/QF 派发取证（禁 bounce / 禁 dontFormat）
 /// AB 真机：cb_enter×N 无 check/format/cb_exit；6b5ef8e 未清 openOnce 假阳性已 revert 回 swcf
 /// AD：original CB 在 check 前仅 response==nil 门禁；runtime check/format 在 BookQueryManager 覆盖实现
 /// AE：format 编码为返回 id（@40@0:8@16@24@32）；void 钩会丢掉返回值并破坏 format 后 QF 派发
-/// AF：撤 callback_inThread；查主队列不排空（前台挂起 / 心跳）并让 async_main→QF 自然落地
 static void (*sABNextCallBackResponse)(id, SEL, id, id, id) = NULL;
 static id (*sABNextFormatCallBack)(id, SEL, id, id, id) = NULL;
 static BOOL (*sABNextCheckCallBack)(id, SEL, id, id, id) = NULL;
@@ -44,8 +43,6 @@ typedef IMP (*LBACForensicsHookIMPForSelectorNameFn)(NSString *);
 
 static void LBABSyncProbe(NSString *tag);
 static void LBABInstallProbes(void);
-static NSString *LBAFAppStateTag(void);
-static void LBAFStartMainHeartbeat(void);
 static IMP LBACPeelObserverNext(Class cls, SEL sel, IMP cur);
 static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id userInfo);
 static id LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id userInfo);
@@ -87,33 +84,6 @@ static void LBStateLog(NSString *msg) {
 }
 
 /// POSIX append+fsync：SIGKILL 前尽量保住最后一条存活点
-static NSString *LBAFAppStateTag(void) {
-    // 0=active 1=inactive 2=background；非主线程读 UIApplication 仅作取证
-    NSInteger st = -1;
-    @try {
-        st = (NSInteger)[UIApplication sharedApplication].applicationState;
-    } @catch (__unused NSException *e) {
-        st = -1;
-    }
-    const char *name = "unknown";
-    if (st == UIApplicationStateActive) name = "active";
-    else if (st == UIApplicationStateInactive) name = "inactive";
-    else if (st == UIApplicationStateBackground) name = "background";
-    return [NSString stringWithFormat:@"app=%s(%ld)", name, (long)st];
-}
-
-static void LBAFStartMainHeartbeat(void) {
-    // AF：invoke 前后主队列心跳；若 hb 停而进程仍在 → 主线程堵死；若 hb 与进程同灭 → 重建/挂起
-    for (NSInteger i = 0; i < 12; i++) {
-        int64_t ns = (int64_t)((0.25 + 0.25 * i) * NSEC_PER_SEC);
-        NSInteger tick = i;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, ns), dispatch_get_main_queue(), ^{
-            LBABSyncProbe([NSString stringWithFormat:@"af_main_hb tick=%ld %@",
-                           (long)tick, LBAFAppStateTag()]);
-        });
-    }
-}
-
 static void LBABSyncProbe(NSString *tag) {
     if (tag.length == 0) return;
     NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_ab_probe.txt"];
@@ -324,24 +294,31 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
         LBABSyncProbe(@"cb_early_return reason=null_next");
         return;
     }
-    // AF：不再注入 callback_inThread；保持 original async_main 派 QF（禁 bounce/dontFormat）。
-    // AE 的 inThread 能进 QF 但不能上屏，且主队列 pulse 仍为 0——疑前台挂起导致主队列不排空。
-    LBABSyncProbe([NSString stringWithFormat:
-                   @"af_no_inThread_inject action=%@ %@",
-                   [action isKindOfClass:[NSString class]] ? action : @"-",
-                   LBAFAppStateTag()]);
+    // AE：format 后 original 在 !callback_inThread 时 dispatch_async(main) 派 QF；
+    // 真机主队列在 invoke 后不排空（pulse/async_plus/qf 均为 0）且约 +2s 进程重建。
+    // 对 chapterContent 写入 callback_inThread，走 original 同步 QF 分支（禁 bounce/dontFormat）。
+    id userInfoForOrig = userInfo;
+    if ([action isKindOfClass:[NSString class]] &&
+        [(NSString *)action isEqualToString:@"chapterContent"] &&
+        [userInfo isKindOfClass:[NSDictionary class]] &&
+        ((NSDictionary *)userInfo)[@"callback_inThread"] == nil &&
+        ((NSDictionary *)userInfo)[@"callback_target"] != nil) {
+        NSMutableDictionary *ui = [((NSDictionary *)userInfo) mutableCopy] ?: [NSMutableDictionary dictionary];
+        ui[@"callback_inThread"] = @YES;
+        userInfoForOrig = ui;
+        LBABSyncProbe(@"qf_dispatch_inject_inThread action=chapterContent");
+    }
     sADCheckEntered = 0;
     sABInCallBack = 1;
     @try {
-        sABNextCallBackResponse(self, _cmd, response, config, userInfo);
+        sABNextCallBackResponse(self, _cmd, response, config, userInfoForOrig);
     } @finally {
         sABInCallBack = 0;
     }
-    // AE/AF：original 在 format 后可能 dispatch_async(main) 派 QF；CB 返回后主队列脉冲确认可排空
-    LBAEProbeDispatchGates(response, config, userInfo, @"after_cb");
-    LBABSyncProbe([NSString stringWithFormat:@"af_after_cb %@", LBAFAppStateTag()]);
+    // AE：original 在 format 后可能 dispatch_async(main) 派 QF；CB 返回后主队列脉冲确认可排空
+    LBAEProbeDispatchGates(response, config, userInfoForOrig, @"after_cb");
     dispatch_async(dispatch_get_main_queue(), ^{
-        LBABSyncProbe([NSString stringWithFormat:@"qf_dispatch_main_pulse %@", LBAFAppStateTag()]);
+        LBABSyncProbe(@"qf_dispatch_main_pulse");
     });
     if (sADCheckEntered == 0) {
         if (respNil) {
@@ -1656,22 +1633,15 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     sInvokeCount++;
     LBSetState(LBLoadCurCpStateInvokingOriginal, @"routeB_invoke_begin");
     LBABInstallProbes();
-    LBABSyncProbe([NSString stringWithFormat:@"pre_invoke_orig target=%@ %@",
-                   containerName, LBAFAppStateTag()]);
-    LBAFStartMainHeartbeat();
+    LBABSyncProbe([NSString stringWithFormat:@"pre_invoke_orig target=%@", containerName]);
     LBTraceLoadCurCp([NSString stringWithFormat:
                       @"sm=invokingOriginal ch=%@ target=%@ orig=%p",
                       sChapterUrl ?: @"-", containerName, sOrigLoadCurCp]);
     @try {
         sOrigLoadCurCp(container, @selector(loadCurCp));
-        LBABSyncProbe([NSString stringWithFormat:@"invoke_orig_returned target=%@ %@",
-                       containerName, LBAFAppStateTag()]);
+        LBABSyncProbe([NSString stringWithFormat:@"invoke_orig_returned target=%@", containerName]);
         LBStateLog([NSString stringWithFormat:@"invoke_orig_OK target=%@", containerName]);
         LBTraceLoadCurCp(@"ORIG loadCurCp OK");
-        // AF：先入队 drain 槽，再做 post-invoke 探针，避免同步重活挡住已排队的 async_main QF
-        dispatch_async(dispatch_get_main_queue(), ^{
-            LBABSyncProbe([NSString stringWithFormat:@"af_main_drain_slot %@", LBAFAppStateTag()]);
-        });
         LBLogLoadCurCpGates(reader, container, @"post_invoke_routeB");
         LBABSyncProbe(@"post_invoke_gates_done");
         // 假设 Z：异步 notify=callBackResponse→QF；延迟探针确认 native 目录正文在位
@@ -1697,8 +1667,7 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
             LBABSyncProbe(@"post_invoke_z_probe_done");
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
-                LBABSyncProbe([NSString stringWithFormat:@"async_plus0.6s_enter %@",
-                               LBAFAppStateTag()]);
+                LBABSyncProbe(@"async_plus0.6s_enter");
                 LBLogHypothesisZFileProbe(@"async_plus0.6s", probeBook, bk, cpIndex, bodyLen);
                 LBABSyncProbe(@"async_plus0.6s_done");
             });
@@ -1719,7 +1688,7 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     LBABSyncProbe(@"invoke_reentry_cleared");
     if (sState == LBLoadCurCpStateInvokingOriginal) {
         LBSetState(LBLoadCurCpStateIdle, @"invoke_orig_done_pending_render");
-        LBABSyncProbe([NSString stringWithFormat:@"invoke_state_idle %@", LBAFAppStateTag()]);
+        LBABSyncProbe(@"invoke_state_idle");
     }
 }
 
