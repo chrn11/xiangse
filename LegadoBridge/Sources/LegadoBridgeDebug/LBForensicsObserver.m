@@ -732,8 +732,10 @@ static BOOL LBFInstallHookOnMethod(Class owner, NSString *ownerName, NSString *s
     NSString *key = LBFOrigKey(ownerName, selName);
     IMP current = method_getImplementation(m);
     if ([g_installedKeys containsObject:key]) {
-        // 已装过则不再抢回：50ms retry 若把 Bridge AC/AB 钩写进 g_orig 再盖回 forensics，
-        // 会形成 forensics→AB→forensics 环（真机 cb_enter 风暴、无 check/format）。
+        if (current != hook) {
+            g_origIMPs[key] = [NSValue valueWithPointer:current];
+            method_setImplementation(m, hook);
+        }
         return YES;
     }
 

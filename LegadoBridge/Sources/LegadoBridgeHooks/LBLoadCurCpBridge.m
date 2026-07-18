@@ -24,25 +24,17 @@ static __weak id sWeakHookReceiver = nil;
 static BOOL sReentryGuard = NO;
 static const void *kLBAssocFoundContainerKey = &kLBAssocFoundContainerKey;
 
-/// 假设 AC：CB 透传链上 format 前 check_* / early-return 取证（禁 bounce / 禁 dontFormat）
-/// AB 真机：cb_enter×N 无 check/format/cb_exit；6b5ef8e 未清 openOnce 假阳性已 revert 回 swcf
+/// 假设 AB：同步探针 + 最小防护（禁 bounce）
+/// 真机：cb_enter×N（bg, respLen=111, dontFormat=0）无 cb_exit/format → 互套/重入风暴后重启
 static void (*sABNextCallBackResponse)(id, SEL, id, id, id) = NULL;
 static void (*sABNextFormatCallBack)(id, SEL, id, id, id) = NULL;
 static BOOL (*sABNextCheckCallBack)(id, SEL, id, id, id) = NULL;
-static id (*sABNextStringWithContents)(id, SEL, id, NSUInteger, NSError **) = NULL;
 static BOOL sABSignalInstalled = NO;
 static BOOL sABHooksInstalled = NO;
 static _Thread_local int sABInCallBack = 0;
 
-typedef IMP (*LBACForensicsResolveObserverOrigIMPFn)(Class, SEL);
-typedef IMP (*LBACForensicsHookIMPForSelectorNameFn)(NSString *);
-
 static void LBABSyncProbe(NSString *tag);
 static void LBABInstallProbes(void);
-static IMP LBACPeelObserverNext(Class cls, SEL sel, IMP cur);
-static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id userInfo);
-static void LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id userInfo);
-static BOOL LBAB_CheckCallBack(id self, SEL _cmd, id response, id config, id userInfo);
 
 static void LBTraceLoadCurCp(NSString *msg) {
     if (msg.length == 0) return;
@@ -89,7 +81,7 @@ static void LBABSyncProbe(NSString *tag) {
     struct tm tm;
     localtime_r(&now, &tm);
     int n = snprintf(buf, sizeof(buf),
-                     "%04d-%02d-%02d %02d:%02d:%02d | hypothesis_AC %s main=%d inv=%lu\n",
+                     "%04d-%02d-%02d %02d:%02d:%02d | hypothesis_AB %s main=%d inv=%lu\n",
                      tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
                      tm.tm_hour, tm.tm_min, tm.tm_sec,
                      tag.UTF8String ?: "?",
@@ -106,7 +98,7 @@ static void LBABSyncProbe(NSString *tag) {
     }
     // 同步进 state，便于现有验收扫尾
     NSString *statePath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_loadcurcp_state.txt"];
-    NSString *line = [NSString stringWithFormat:@"%@ | hypothesis_AC %s | state=%@ token=%@ ch=%@ inv=%lu\n",
+    NSString *line = [NSString stringWithFormat:@"%@ | hypothesis_AB %s | state=%@ token=%@ ch=%@ inv=%lu\n",
                       [NSDate date], tag.UTF8String ?: "?",
                       LBLoadCurCpBridgeStateName(), sToken ?: @"-",
                       sChapterUrl ?: @"-", (unsigned long)sInvokeCount];
@@ -123,7 +115,7 @@ static void LBABSyncProbe(NSString *tag) {
 
 static void LBABOnFatalSignal(int sig) {
     char mark[80];
-    int n = snprintf(mark, sizeof(mark), "hypothesis_AC fatal_signal SIG=%d\n", sig);
+    int n = snprintf(mark, sizeof(mark), "hypothesis_AB fatal_signal SIG=%d\n", sig);
     const char *home = getenv("HOME");
     char path[512];
     if (home && home[0]) {
@@ -151,37 +143,8 @@ static void LBABInstallSignalProbes(void) {
     signal(SIGILL, LBABOnFatalSignal);
 }
 
-/// 若当前 IMP 是 forensics observer 桩，剥到其 orig，避免 next=forensics 且 orig=AB 成环
-static IMP LBACPeelObserverNext(Class cls, SEL sel, IMP cur) {
-    if (!cls || !sel || !cur) return cur;
-    static LBACForensicsHookIMPForSelectorNameFn hookForSel = NULL;
-    static LBACForensicsResolveObserverOrigIMPFn resolveObs = NULL;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        hookForSel = (LBACForensicsHookIMPForSelectorNameFn)dlsym(
-            RTLD_DEFAULT, "LBForensicsHookIMPForSelectorName");
-        resolveObs = (LBACForensicsResolveObserverOrigIMPFn)dlsym(
-            RTLD_DEFAULT, "LBForensicsResolveObserverOrigIMP");
-    });
-    if (hookForSel) {
-        IMP fh = hookForSel(NSStringFromSelector(sel));
-        if (fh && cur == fh && resolveObs) {
-            IMP peeled = resolveObs(cls, sel);
-            if (peeled && peeled != cur && peeled != (IMP)LBAB_CallBackResponse &&
-                peeled != (IMP)LBAB_FormatCallBack && peeled != (IMP)LBAB_CheckCallBack) {
-                return peeled;
-            }
-        }
-    }
-    if (cur == (IMP)LBAB_CallBackResponse || cur == (IMP)LBAB_FormatCallBack ||
-        cur == (IMP)LBAB_CheckCallBack) {
-        return NULL;
-    }
-    return cur;
-}
-
 static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id userInfo) {
-    // 防 AB↔forensics 互套：重入只放行 next，禁改 userInfo / 禁 dontFormat
+    // 防 AB↔forensics 互套：重入只放行 next，不再打探针/改 userInfo
     if (sABInCallBack > 0) {
         if (sABInCallBack >= 3) {
             LBABSyncProbe(@"cb_reentry_depth_abort");
@@ -195,25 +158,40 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
         return;
     }
 
+    NSMutableDictionary *ui = nil;
+    if ([userInfo isKindOfClass:[NSMutableDictionary class]]) {
+        ui = (NSMutableDictionary *)userInfo;
+    } else if ([userInfo isKindOfClass:[NSDictionary class]]) {
+        ui = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)userInfo];
+    } else {
+        ui = [NSMutableDictionary dictionary];
+    }
+
     NSUInteger respLen = [response isKindOfClass:[NSString class]] ? [(NSString *)response length] : 0;
     id action = ([config isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)config)[@"actionID"] : nil);
-    id target = ([userInfo isKindOfClass:[NSDictionary class]]
-                 ? ((NSDictionary *)userInfo)[@"callback_target"] : nil);
-    id dont = ([userInfo isKindOfClass:[NSDictionary class]]
-               ? ((NSDictionary *)userInfo)[@"callback_dontFormatResponse"] : nil);
+    BOOL chapterContent = [action isKindOfClass:[NSString class]] &&
+                          [(NSString *)action isEqualToString:@"chapterContent"];
+    BOOL stringBody = respLen > 0;
+    // 最小修复：章文跳过后台 format（禁 bounce；target 已由 query 写入）
+    if ((chapterContent || stringBody) && ui[@"callback_dontFormatResponse"] == nil) {
+        ui[@"callback_dontFormatResponse"] = @YES;
+        LBABSyncProbe(@"inject_dontFormat");
+    }
+
+    id target = ui[@"callback_target"];
     LBABSyncProbe([NSString stringWithFormat:
                    @"cb_enter respLen=%lu action=%@ target=%@ dontFormat=%d",
                    (unsigned long)respLen,
                    [action isKindOfClass:[NSString class]] ? action : @"-",
                    target ? NSStringFromClass(object_getClass(target)) : @"nil",
-                   dont ? 1 : 0]);
+                   ui[@"callback_dontFormatResponse"] ? 1 : 0]);
     if (!sABNextCallBackResponse) {
-        LBABSyncProbe(@"cb_early_return reason=null_next");
+        LBABSyncProbe(@"cb_skip_null_next");
         return;
     }
     sABInCallBack = 1;
     @try {
-        sABNextCallBackResponse(self, _cmd, response, config, userInfo);
+        sABNextCallBackResponse(self, _cmd, response, config, ui);
     } @finally {
         sABInCallBack = 0;
     }
@@ -221,81 +199,23 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
 }
 
 static void LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id userInfo) {
-    NSUInteger respLen = [response isKindOfClass:[NSString class]] ? [(NSString *)response length] : 0;
-    id action = ([config isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)config)[@"actionID"] : nil);
-    id dont = ([userInfo isKindOfClass:[NSDictionary class]]
-               ? ((NSDictionary *)userInfo)[@"callback_dontFormatResponse"] : nil);
-    LBABSyncProbe([NSString stringWithFormat:
-                   @"format_enter respLen=%lu action=%@ dontFormat=%d",
-                   (unsigned long)respLen,
-                   [action isKindOfClass:[NSString class]] ? action : @"-",
-                   dont ? 1 : 0]);
+    LBABSyncProbe(@"format_enter");
     if (sABNextFormatCallBack) {
         sABNextFormatCallBack(self, _cmd, response, config, userInfo);
-    } else {
-        LBABSyncProbe(@"format_early_return reason=null_next");
     }
     LBABSyncProbe(@"format_exit");
 }
 
 static BOOL LBAB_CheckCallBack(id self, SEL _cmd, id response, id config, id userInfo) {
-    NSUInteger respLen = [response isKindOfClass:[NSString class]] ? [(NSString *)response length] : 0;
-    id action = ([config isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)config)[@"actionID"] : nil);
-    id target = ([userInfo isKindOfClass:[NSDictionary class]]
-                 ? ((NSDictionary *)userInfo)[@"callback_target"] : nil);
-    id dont = ([userInfo isKindOfClass:[NSDictionary class]]
-               ? ((NSDictionary *)userInfo)[@"callback_dontFormatResponse"] : nil);
-    BOOL hasCfg = [config isKindOfClass:[NSDictionary class]];
-    BOOL hasUI = [userInfo isKindOfClass:[NSDictionary class]];
-    LBABSyncProbe([NSString stringWithFormat:
-                   @"check_enter respLen=%lu action=%@ target=%@ dontFormat=%d cfg=%d ui=%d",
-                   (unsigned long)respLen,
-                   [action isKindOfClass:[NSString class]] ? action : @"-",
-                   target ? NSStringFromClass(object_getClass(target)) : @"nil",
-                   dont ? 1 : 0, hasCfg ? 1 : 0, hasUI ? 1 : 0]);
-    if (!sABNextCheckCallBack) {
-        LBABSyncProbe(@"check_early_return reason=null_next ok=1");
-        return YES;
-    }
-    BOOL ok = sABNextCheckCallBack(self, _cmd, response, config, userInfo);
-    if (ok) {
-        LBABSyncProbe(@"check_exit ok=1");
-    } else {
-        // original CB 在 check 失败时会早退、不进 format
-        LBABSyncProbe([NSString stringWithFormat:
-                       @"check_early_return reason=check_failed ok=0 respLen=%lu action=%@ target=%@",
-                       (unsigned long)respLen,
-                       [action isKindOfClass:[NSString class]] ? action : @"-",
-                       target ? NSStringFromClass(object_getClass(target)) : @"nil"]);
-        LBABSyncProbe(@"check_exit ok=0");
-    }
+    LBABSyncProbe(@"check_enter");
+    BOOL ok = sABNextCheckCallBack ? sABNextCheckCallBack(self, _cmd, response, config, userInfo) : YES;
+    LBABSyncProbe([NSString stringWithFormat:@"check_exit ok=%d", ok ? 1 : 0]);
     return ok;
-}
-
-static id LBAB_StringWithContents(id self, SEL _cmd, id path, NSUInteger enc, NSError **err) {
-    NSString *p = [path isKindOfClass:[NSString class]] ? (NSString *)path : nil;
-    BOOL interesting = p.length > 0 &&
-                       ([p containsString:@"xsfolder"] || [p containsString:@"/book/"]);
-    if (interesting) {
-        LBABSyncProbe([NSString stringWithFormat:@"swcf_enter leaf=%@", p.lastPathComponent ?: @"-"]);
-    }
-    id ret = sABNextStringWithContents
-                 ? sABNextStringWithContents(self, _cmd, path, enc, err)
-                 : nil;
-    if (interesting) {
-        NSUInteger len = [ret isKindOfClass:[NSString class]] ? [(NSString *)ret length] : 0;
-        LBABSyncProbe([NSString stringWithFormat:
-                       @"swcf_exit leaf=%@ len=%lu nil=%d",
-                       p.lastPathComponent ?: @"-",
-                       (unsigned long)len,
-                       ret ? 0 : 1]);
-    }
-    return ret;
 }
 
 static void LBABInstallProbes(void) {
     LBABInstallSignalProbes();
-    // 只装一次：invoke 前反复 setImplementation 会把 next 指到 forensics 桩并成环
+    // 只装一次：反复 method_setImplementation 易与 forensics early-wrap 互套
     if (sABHooksInstalled) return;
 
     Class net = NSClassFromString(@"LPNetWork2");
@@ -304,41 +224,20 @@ static void LBABInstallProbes(void) {
         Method cbm = class_getInstanceMethod(net, cbSel);
         if (cbm) {
             IMP cur = method_getImplementation(cbm);
-            if (cur == (IMP)LBAB_CallBackResponse) {
-                LBABSyncProbe(@"install_cb_skip already_self");
-            } else if (!sABNextCallBackResponse) {
-                IMP next = LBACPeelObserverNext(net, cbSel, cur);
-                if (!next) {
-                    LBABSyncProbe([NSString stringWithFormat:
-                                   @"install_cb_pollute_blocked cur=%p", cur]);
-                } else {
-                    if (next != cur) {
-                        LBABSyncProbe([NSString stringWithFormat:
-                                       @"install_cb_peeled cur=%p next=%p", cur, next]);
-                    }
-                    sABNextCallBackResponse = (void (*)(id, SEL, id, id, id))next;
-                    method_setImplementation(cbm, (IMP)LBAB_CallBackResponse);
-                    LBABSyncProbe([NSString stringWithFormat:
-                                   @"install_cb next=%p", sABNextCallBackResponse]);
-                }
-            } else {
-                LBABSyncProbe([NSString stringWithFormat:
-                               @"install_cb_skip next_frozen cur=%p", cur]);
+            if (cur != (IMP)LBAB_CallBackResponse) {
+                sABNextCallBackResponse = (void (*)(id, SEL, id, id, id))cur;
+                method_setImplementation(cbm, (IMP)LBAB_CallBackResponse);
+                LBABSyncProbe([NSString stringWithFormat:@"install_cb next=%p", sABNextCallBackResponse]);
             }
         }
         SEL fmtSel = NSSelectorFromString(@"formatCallBackResponse:config:userInfo:");
         Method fmtm = class_getInstanceMethod(net, fmtSel);
         if (fmtm) {
             IMP cur = method_getImplementation(fmtm);
-            if (cur != (IMP)LBAB_FormatCallBack && !sABNextFormatCallBack) {
-                IMP next = LBACPeelObserverNext(net, fmtSel, cur);
-                if (next) {
-                    sABNextFormatCallBack = (void (*)(id, SEL, id, id, id))next;
-                    method_setImplementation(fmtm, (IMP)LBAB_FormatCallBack);
-                    LBABSyncProbe(@"install_format");
-                } else {
-                    LBABSyncProbe(@"install_format_pollute_blocked");
-                }
+            if (cur != (IMP)LBAB_FormatCallBack) {
+                sABNextFormatCallBack = (void (*)(id, SEL, id, id, id))cur;
+                method_setImplementation(fmtm, (IMP)LBAB_FormatCallBack);
+                LBABSyncProbe(@"install_format");
             }
         } else {
             LBABSyncProbe(@"install_format_missing");
@@ -347,33 +246,16 @@ static void LBABInstallProbes(void) {
         Method chkm = class_getInstanceMethod(net, chkSel);
         if (chkm) {
             IMP cur = method_getImplementation(chkm);
-            if (cur != (IMP)LBAB_CheckCallBack && !sABNextCheckCallBack) {
-                IMP next = LBACPeelObserverNext(net, chkSel, cur);
-                if (next) {
-                    sABNextCheckCallBack = (BOOL (*)(id, SEL, id, id, id))next;
-                    method_setImplementation(chkm, (IMP)LBAB_CheckCallBack);
-                    LBABSyncProbe(@"install_check");
-                } else {
-                    LBABSyncProbe(@"install_check_pollute_blocked");
-                }
+            if (cur != (IMP)LBAB_CheckCallBack) {
+                sABNextCheckCallBack = (BOOL (*)(id, SEL, id, id, id))cur;
+                method_setImplementation(chkm, (IMP)LBAB_CheckCallBack);
+                LBABSyncProbe(@"install_check");
             }
         } else {
             LBABSyncProbe(@"install_check_missing");
         }
     } else {
         LBABSyncProbe(@"install_skip no_LPNetWork2");
-    }
-
-    // 恢复 swcf：6b5ef8e 以「无 invoke」为由撤钩，但 903846e 验收已有 cb_enter，证据不完整
-    Method sw = class_getClassMethod([NSString class],
-                                     @selector(stringWithContentsOfFile:encoding:error:));
-    if (sw) {
-        IMP cur = method_getImplementation(sw);
-        if (cur != (IMP)LBAB_StringWithContents && !sABNextStringWithContents) {
-            sABNextStringWithContents = (id (*)(id, SEL, id, NSUInteger, NSError **))cur;
-            method_setImplementation(sw, (IMP)LBAB_StringWithContents);
-            LBABSyncProbe(@"install_swcf");
-        }
     }
 
     sABHooksInstalled = YES;
