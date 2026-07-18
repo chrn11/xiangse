@@ -1,0 +1,45 @@
+{
+  "timestamp": "20260718T122359Z",
+  "sha": "f7b54eb",
+  "hypothesis": "AG",
+  "ci_run_forensic": "29643902644",
+  "mid_chain_launch_app": false,
+  "banned": [
+    "bounce",
+    "dontFormat",
+    "mid_chain_launch_app",
+    "remove_inThread"
+  ],
+  "keep": [
+    "inject_inThread",
+    "V+W+X+Y+Z",
+    "BQM check/format id return"
+  ],
+  "pid_log_sample": [
+    {
+      "phase": "pre_nativeRead",
+      "pid": 61304
+    },
+    {
+      "phase": "poll_0",
+      "pid": 61385
+    }
+  ],
+  "launch_app_calls_forensic": [
+    {
+      "phase": "setup_kill"
+    },
+    {
+      "phase": "setup_launch"
+    }
+  ],
+  "sync_ref": "fixtures/_accept_ag_probe_sync.json",
+  "syslog_ref": "fixtures/_accept_ag_kill_syslog.json",
+  "decision": {
+    "branch": "sigsegv_uikit_off_main",
+    "kill": "SIGSEGV(11)",
+    "xiaoyan": false,
+    "pid_stable": false,
+    "inThread": "KEEP"
+  }
+}

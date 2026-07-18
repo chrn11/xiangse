@@ -1,0 +1,39 @@
+{
+  "sha": "f7b54eb",
+  "ci_run": "29643902644",
+  "pid": 61304,
+  "conclusion": "SIGSEGV(11) after inThread QF on background thread; UIWindowScene non-main",
+  "mid_chain_launch_app": false,
+  "hits": [
+    {
+      "date": "2026-07-18 12:15:23 +0000",
+      "process": "StandarReader",
+      "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+    },
+    {
+      "date": "2026-07-18 12:15:24 +0000",
+      "process": "kernel",
+      "message": "StandarReader[61304] Corpse allowed 1 of 5"
+    },
+    {
+      "date": "2026-07-18 12:15:24 +0000",
+      "process": "ReportCrash",
+      "message": "Parsing corpse data for pid 61304"
+    },
+    {
+      "date": "2026-07-18 12:15:24 +0000",
+      "process": "runningboardd",
+      "message": "termination reported by launchd (2, 11, 11)"
+    },
+    {
+      "date": "2026-07-18 12:15:24 +0000",
+      "process": "SpringBoard",
+      "message": "Firing exit handlers for 61304 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+    },
+    {
+      "date": "2026-07-18 12:15:24 +0000",
+      "process": "SpringBoard",
+      "message": "Process exited: ... domain:signal(2) code:SIGSEGV(11)"
+    }
+  ]
+}

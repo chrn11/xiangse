@@ -347,7 +347,47 @@ def main() -> int:
     capture_stop = None
     try:
         capture_stop = c.call("stop_capture", timeout=60)
-        report["capture_stop"] = capture_stop
+        if isinstance(capture_stop, dict):
+            entries = capture_stop.get("syslog_entries") or []
+            keys = (
+                "jetsam",
+                "memorystatus",
+                "SIGSEGV",
+                "SIGKILL",
+                "Watchdog",
+                "scene-update",
+                "UIWindowScene",
+                "non-main thread",
+                "Corpse",
+                "termination",
+                "exited",
+                "ReportCrash",
+            )
+            hits = []
+            for e in entries:
+                if not isinstance(e, dict):
+                    continue
+                blob = f"{e.get('message', '')} {e.get('process', '')}"
+                if any(k.lower() in blob.lower() for k in keys):
+                    hits.append(
+                        {
+                            "date": e.get("date"),
+                            "process": e.get("process"),
+                            "level": e.get("level"),
+                            "message": str(e.get("message") or "")[:300],
+                        }
+                    )
+                    if len(hits) >= 80:
+                        break
+            report["capture_stop"] = {
+                "capture_seconds": capture_stop.get("capture_seconds"),
+                "new_crash_count": capture_stop.get("new_crash_count"),
+                "new_crash_reports": capture_stop.get("new_crash_reports"),
+                "syslog_count": capture_stop.get("syslog_count"),
+                "syslog_kill_hits": hits,
+            }
+        else:
+            report["capture_stop"] = capture_stop
     except Exception as exc:
         report["capture_stop_err"] = str(exc)
 
