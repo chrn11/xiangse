@@ -335,6 +335,7 @@ static void LBAIEnsureRunLoopObserver(void) {
         dispatch_async(dispatch_get_main_queue(), ^{ LBAIEnsureRunLoopObserver(); });
         return;
     }
+    LBAICaptureMainMachThread();
     if (sAIRunLoopObs) return;
     sAIRunLoopObs = CFRunLoopObserverCreate(kCFAllocatorDefault,
                                             kCFRunLoopBeforeWaiting | kCFRunLoopBeforeSources,
@@ -1958,6 +1959,7 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
         sOrigLoadCurCp(container, @selector(loadCurCp));
         LBABSyncProbe([NSString stringWithFormat:@"invoke_orig_returned target=%@", containerName]);
         // AI：invoke 返回后立刻采样主队列是否排空 / 主线程 PC
+        LBAICaptureMainMachThread();
         LBAIStartMainBlockSampler();
         LBStateLog([NSString stringWithFormat:@"invoke_orig_OK target=%@", containerName]);
         LBTraceLoadCurCp(@"ORIG loadCurCp OK");
