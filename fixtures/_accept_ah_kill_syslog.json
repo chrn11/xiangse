@@ -1,0 +1,49 @@
+{
+  "sha": "69d99c5",
+  "ci_run": "29644642978",
+  "pid": 61659,
+  "conclusion": "AH prefer async_main failed: main never drained (no pulse/drain/QF); process still SIGSEGV(11) with UIWindowScene non-main even without QF/inThread",
+  "mid_chain_launch_app": false,
+  "hits": [
+    {
+      "date": "2026-07-18 12:39:52 +0000",
+      "process": "StandarReader",
+      "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+    },
+    {
+      "date": "2026-07-18 12:39:53 +0000",
+      "process": "kernel",
+      "message": "StandarReader[61659] Corpse allowed 1 of 5"
+    },
+    {
+      "date": "2026-07-18 12:39:53 +0000",
+      "process": "runningboardd",
+      "message": "[application<com.appbox.StandarReader>:61659] termination reported by launchd (2, 11, 11)"
+    },
+    {
+      "date": "2026-07-18 12:39:53 +0000",
+      "process": "SpringBoard",
+      "message": "Firing exit handlers for 61659 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+    },
+    {
+      "date": "2026-07-18 12:39:53 +0000",
+      "process": "SpringBoard",
+      "message": "[application<com.appbox.StandarReader>:61659] Process exited: <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>."
+    },
+    {
+      "date": "2026-07-18 12:39:53 +0000",
+      "process": "ReportCrash",
+      "message": "Parsing corpse data for pid 61659"
+    },
+    {
+      "date": "2026-07-18 12:39:53 +0000",
+      "process": "SpringBoard",
+      "message": "Process exited: <FBApplicationProcess: 0x9b6dff5b0; application<com.appbox.StandarReader>:61659(v28F5C)> -> <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+    },
+    {
+      "date": "2026-07-18 12:39:53 +0000",
+      "process": "runningboardd",
+      "message": "[application<com.appbox.StandarReader>:61736] Set jetsam priority to 100 [0] flag[1]"
+    }
+  ]
+}
