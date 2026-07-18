@@ -157,8 +157,7 @@ static NSDictionary *LBFGatherAutoDumpUIHints(id triggerVC) {
     return hints;
 }
 
-/// AH：真正执行 auto-dump（须已在主线程）；由 Schedule 延后调用，避免挡住 async_main QF
-static void LBFPerformAutoDumpPhaseNow(id triggerVC, NSString *phase) {
+static void LBFScheduleAutoDumpPhase(id triggerVC, NSString *phase) {
     if (!phase.length || !triggerVC) return;
     if (![NSThread isMainThread]) {
         LBFWriteHookPing([NSString stringWithFormat:@"skip dump %@ (not main)", phase]);
@@ -188,25 +187,6 @@ static void LBFPerformAutoDumpPhaseNow(id triggerVC, NSString *phase) {
         @try {
             LBForensicsWriteDumpFiles(finalDump);
         } @catch (__unused NSException *e) {}
-    });
-}
-
-static void LBFScheduleAutoDumpPhase(id triggerVC, NSString *phase) {
-    if (!phase.length || !triggerVC) return;
-    if (![NSThread isMainThread]) {
-        LBFWriteHookPing([NSString stringWithFormat:@"skip dump %@ (not main)", phase]);
-        return;
-    }
-    // AH：invoke→CB 窗口内禁止同步 PerformDump（UIWindowScene 全图枚举），延后 1.5s
-    // 让原版 async_main QF 先排空；禁抢回逻辑不变
-    NSString *phaseCopy = [phase copy];
-    __weak id weakTrig = triggerVC;
-    LBFWriteHookPing([NSString stringWithFormat:@"ah_defer_dump %@ +1.5s", phaseCopy]);
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        id strong = weakTrig;
-        if (!strong) return;
-        LBFPerformAutoDumpPhaseNow(strong, phaseCopy);
     });
 }
 
@@ -361,39 +341,19 @@ static BOOL LBFEnsureEarlyWrap(Class cls, NSString *selName) {
     return YES;
 }
 
-/// AH：已知阅读 VC 的 loadCurCp early-wrap 是否已就位（用于停止 50ms 重试）
-static BOOL LBFEarlyWrapIsReady(void) {
-    LBFInitEarlyWrapGlobals();
-    for (NSString *cn in @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1"]) {
-        Class cls = objc_getClass(cn.UTF8String);
-        if (!cls) cls = NSClassFromString(cn);
-        if (!cls) continue;
-        Method m = class_getInstanceMethod(cls, @selector(loadCurCp));
-        if (!m) continue;
-        if (method_getImplementation(m) == (IMP)LBFEarlyWrap_loadCurCp) return YES;
-        NSString *key = LBFEarlyWrapKey(cn, @"loadCurCp");
-        if (g_earlyNextIMPs[key]) return YES;
-    }
-    return NO;
-}
-
 static void LBFEarlyWrapDiscoverAndInstall(void) {
     LBFInitEarlyWrapGlobals();
     NSArray<NSString *> *names = @[
         @"TextReadVC3", @"TextReadVC2", @"TextReadVC1",
         @"ReadVCBase2", @"ReadVCBase1", @"ReadVCBase",
     ];
-    BOOL namedHit = NO;
     for (NSString *cn in names) {
         Class cls = objc_getClass(cn.UTF8String);
         if (!cls) cls = NSClassFromString(cn);
         if (!cls) continue;
-        namedHit = YES;
         LBFEnsureEarlyWrap(cls, @"viewDidLoad");
         LBFEnsureEarlyWrap(cls, @"loadCurCp");
     }
-    // AH：命名类已命中则跳过全量 classList（原 50ms 循环每次扫全表会饿死主队列）
-    if (namedHit && LBFEarlyWrapIsReady()) return;
     int n = objc_getClassList(NULL, 0);
     if (n <= 0) return;
     Class *buf = (Class *)calloc((size_t)n, sizeof(Class));
@@ -460,19 +420,8 @@ static void LBFEarlyWrap_loadCurCp(id self, SEL _cmd) {
 }
 
 static void LBFScheduleEarlyWrapRetry(void) {
-    static int sRetries = 0;
     LBFEarlyWrapDiscoverAndInstall();
     LBForensicsInstallObservers();
-    // AH：禁止永久 50ms 重试占主队列（AF/AG 证实 async_main QF/pulse 全不跑）。
-    // 装成功或达上限即停；fishhook 仍拦截后续 method_setImplementation；禁抢回不变。
-    BOOL ready = LBFEarlyWrapIsReady();
-    if (ready || sRetries >= 80) {
-        LBFWriteHookPing([NSString stringWithFormat:
-                          @"ah_early_wrap_retry_stop ready=%d retries=%d",
-                          ready ? 1 : 0, sRetries]);
-        return;
-    }
-    sRetries++;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         LBFScheduleEarlyWrapRetry();
