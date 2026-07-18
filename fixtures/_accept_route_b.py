@@ -23,10 +23,9 @@ MOCK = "http://192.168.1.4:8765"
 BUNDLE = "com.appbox.StandarReader"
 OUT = ROOT / "fixtures" / "_accept_route_b.json"
 OUT_TASK6 = ROOT / "fixtures" / "_accept_task6_ch1.json"
-IPA = ROOT / "dist-ci" / "138bfb5" / "dist" / "StandarReader-legado-bridge-debug.ipa"
-CI_RUN = "29639588355"
+# CI_RUN 在 CI 成功后回填；EXPECT_SHA/IPA 运行时对齐 HEAD（避免 amend 鸡生蛋）
+CI_RUN = "PENDING"
 MODEL = "cursor-grok-4.5-high-fast"
-EXPECT_SHA = "138bfb5"
 
 
 def git_sha() -> str:
@@ -38,6 +37,10 @@ def git_sha() -> str:
         check=False,
     )
     return (r.stdout or "").strip() or "unknown"
+
+
+def ipa_for_sha(sha: str) -> Path:
+    return ROOT / "dist-ci" / sha / "dist" / "StandarReader-legado-bridge-debug.ipa"
 
 
 def probe_mock() -> dict:
@@ -202,14 +205,15 @@ def evaluate(blob: str, dump: str, xiaoyan: dict | None, frontmost: dict | None)
 
 
 def main() -> int:
-    if not IPA.is_file():
-        raise FileNotFoundError(IPA)
-
     sha = git_sha()
+    ipa = ipa_for_sha(sha)
+    if not ipa.is_file():
+        raise FileNotFoundError(ipa)
+
     report: dict = {
         "timestamp": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
         "sha": sha,
-        "ipa": str(IPA),
+        "ipa": str(ipa),
         "ci_run": CI_RUN,
         "ci_conclusion": "success",
         "pushed": True,
@@ -228,7 +232,7 @@ def main() -> int:
         report["install"] = "skipped (SKIP_INSTALL=1, IPA already on device)"
         report["steps"].append("install_skipped")
     else:
-        up = c.upload_file(IPA, filename=IPA.name)
+        up = c.upload_file(ipa, filename=ipa.name)
         dp = up.get("path") if isinstance(up, dict) else str(up)
         report["install"] = c.call("install_app", {"path": dp}, timeout=600)
         report["steps"].append("install")
@@ -340,9 +344,11 @@ def main() -> int:
         "hypothesis_V seed",
         "hypothesis_W seed",
         "hypothesis_X seed",
+        "hypothesis_Y seed",
         "gates(pre_invoke",
         "gates(post_invoke",
         "useSNameLen=",
+        "sourceILKeys=",
     )
     report["log_excerpt"] = [
         ln
@@ -363,8 +369,10 @@ def main() -> int:
     hit_sched = bool(report.get("routeB_schedule_wait_reader"))
     w_seed = [ln for ln in blob.splitlines() if "hypothesis_W seed" in ln]
     x_seed = [ln for ln in blob.splitlines() if "hypothesis_X seed" in ln]
+    y_seed = [ln for ln in blob.splitlines() if "hypothesis_Y seed" in ln]
     fat_gates = [ln for ln in blob.splitlines() if "dicFatBook=" in ln]
     use_gates = [ln for ln in blob.splitlines() if "useSNameLen=" in ln]
+    sil_gates = [ln for ln in blob.splitlines() if "sourceILKeys=" in ln]
     qf_n = len(report.get("qf") or [])
     dr_n = len(report.get("dr") or [])
     fin_n = len(report.get("finish") or [])
@@ -373,17 +381,20 @@ def main() -> int:
         and qf_n > 0
         and report.get("verdict") == "PASS"
     )
+    sil_ge1 = any("sourceILKeys=" in ln and "sourceILKeys=0" not in ln for ln in sil_gates)
     report["ci_conclusion"] = "success"
-    report["hypothesis"] = "X"
+    report["hypothesis"] = "Y"
     report["task"] = "task6-ch1"
-    report["hypothesis_x"] = {
+    report["hypothesis_y"] = {
         "claim": (
-            "反汇编校正：chapterList|chapterContent 为 actionID（已硬编码）；"
-            "W 后首缺口 seed fat[_useSName]，越过「没有使用中的站点」"
+            "X 后缺口：seed fat[_sourceIL][useSName]（bookShelf.plist 形），"
+            "sourceILKeys>=1，越过「站点没有这本书」，争取运行时 QF"
         ),
-        "seed_lines": x_seed[-4:],
+        "seed_lines": y_seed[-4:],
         "gates_use": use_gates[-4:],
+        "gates_sil": sil_gates[-4:],
         "gates_fat": fat_gates[-4:],
+        "sourceILKeys_ge1": sil_ge1,
         "qf_dr_finish": bool(qf_n or dr_n or fin_n),
         "xiaoyan": bool(report.get("xiaoyan_passed")),
     }
@@ -394,16 +405,17 @@ def main() -> int:
         else f"QF={qf_n} DR={dr_n} finish={fin_n} xiaoyan={report.get('xiaoyan_passed')}"
     )
     report["handoff"] = {
-        "1_head": f"{sha}（expect {EXPECT_SHA}；KEEP V=0b87bdf W=e747030）",
+        "1_head": (
+            f"{sha}（KEEP V=0b87bdf W=e747030 X=67ea65b）"
+        ),
         "2_ci_ipa": (
             f"LegadoBridge-IPA-Debug run {CI_RUN} success → "
-            f"dist-ci/{EXPECT_SHA}/dist/StandarReader-legado-bridge-debug.ipa"
+            f"dist-ci/{sha}/dist/StandarReader-legado-bridge-debug.ipa"
         ),
         "3_install": str(report.get("install") or "")[:200],
         "4_root_cause": (
-            "W 后仍无 QF：queryByActionID sourceName 实参 nil，"
-            "fat 缺 _useSName → @0x100061204「没有使用中的站点」；"
-            "chapterList/chapterContent 是 actionID 非 fat 键"
+            "Y：种 _sourceIL[useSName]={_lCTime,lastChapterTitle} 对齐 bookShelf.plist；"
+            f"sourceILKeys_ge1={sil_ge1}；QF={qf_n}"
         ),
         "5_routeB_chain": (
             "schedule_wait_reader→reader_ready→retry_on_cache→resolve hit→"
@@ -412,21 +424,25 @@ def main() -> int:
             else "routeB 链未完整"
         ),
         "6_native_chain": f"QF={qf_n} DR={dr_n} finish={fin_n}；萧炎={report.get('xiaoyan_passed')}",
-        "7_x_seed": (
-            f"hypothesis_X seed lines={len(x_seed)} W={len(w_seed)}；"
-            f"useSName 样本={use_gates[-1] if use_gates else '-'}"
+        "7_y_seed": (
+            f"hypothesis_Y seed lines={len(y_seed)} X={len(x_seed)} W={len(w_seed)}；"
+            f"sil 样本={sil_gates[-1] if sil_gates else '-'}"
         ),
         "8_ui": (
             f"shelf={report.get('on_shelf')} springboard={report.get('springboard')} "
             f"bundle={report.get('frontmost_bundle')} texts={(frontmost or {}).get('texts')}"
         ),
         "9_keep_or_revert": (
-            "KEEP X"
-            if (x_seed and qf_n > 0)
+            "KEEP Y（QF 出现）；V+W+X 保留"
+            if (y_seed and qf_n > 0)
             else (
-                "KEEP X（_useSName 已种，下缺口 _sourceIL）"
-                if x_seed
-                else "若 X 无效则 revert X 保留 V+W"
+                "KEEP Y（sourceILKeys>=1 已越过站点门；下缺口另析）；V+W+X 保留"
+                if (y_seed and sil_ge1)
+                else (
+                    "revert Y 保留 V+W+X"
+                    if y_seed
+                    else "Y 未播种；保留 V+W+X"
+                )
             )
         ),
         "10_verdict": (

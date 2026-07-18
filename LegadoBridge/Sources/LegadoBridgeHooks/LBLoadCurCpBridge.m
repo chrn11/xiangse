@@ -671,25 +671,54 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
         // queryByActionID 的 actionID（queryCpFileByBook 已硬编码 @"chapterContent"），
         // 不是 fat 字典键。W 之后最先挡住的字段是 book[@"_useSName"]：
         // sourceName 实参恒 nil（@0x100060ec0），length==0 → @0x100061204 返
-        // 「没有使用中的站点」。本 commit 只种这一字段。
-        if (![fat[@"_useSName"] isKindOfClass:[NSString class]] ||
-            [fat[@"_useSName"] length] == 0) {
-            NSString *useSName = nil;
-            if ([dicBook[@"_useSName"] isKindOfClass:[NSString class]] &&
-                [dicBook[@"_useSName"] length] > 0) {
-                useSName = dicBook[@"_useSName"];
-            } else if ([dicBook[@"sourceName"] isKindOfClass:[NSString class]] &&
-                       [dicBook[@"sourceName"] length] > 0) {
-                useSName = dicBook[@"sourceName"];
-            } else if ([payload[@"sourceName"] isKindOfClass:[NSString class]] &&
-                       [payload[@"sourceName"] length] > 0) {
-                useSName = payload[@"sourceName"];
-            } else {
-                // 与 LBSeedConfirmedCache / bookShelf.plist 本地文本源对齐
-                useSName = @"localSourceText";
-            }
-            fat[@"_useSName"] = useSName;
+        // 「没有使用中的站点」。
+        NSString *useSName = nil;
+        if ([fat[@"_useSName"] isKindOfClass:[NSString class]] &&
+            [fat[@"_useSName"] length] > 0) {
+            useSName = fat[@"_useSName"];
+        } else if ([dicBook[@"_useSName"] isKindOfClass:[NSString class]] &&
+                   [dicBook[@"_useSName"] length] > 0) {
+            useSName = dicBook[@"_useSName"];
+        } else if ([dicBook[@"sourceName"] isKindOfClass:[NSString class]] &&
+                   [dicBook[@"sourceName"] length] > 0) {
+            useSName = dicBook[@"sourceName"];
+        } else if ([payload[@"sourceName"] isKindOfClass:[NSString class]] &&
+                   [payload[@"sourceName"] length] > 0) {
+            useSName = payload[@"sourceName"];
+        } else {
+            // 与 LBSeedConfirmedCache / bookShelf.plist 本地文本源对齐
+            useSName = @"localSourceText";
         }
+        fat[@"_useSName"] = useSName;
+        // 假设 Y：X 后 sourceILKeys=0 → @0x100061254「站点没有这本书」
+        // （fat[@"_sourceIL"][useSName] 缺失）。对照 bookShelf.plist 文本源条目，
+        // 仅种 _sourceIL[useSName]={_lCTime,lastChapterTitle}，不叠种 arrCatalog。
+        NSMutableDictionary *sourceIL = nil;
+        id sil = fat[@"_sourceIL"];
+        if ([sil isKindOfClass:[NSMutableDictionary class]]) {
+            sourceIL = (NSMutableDictionary *)sil;
+        } else if ([sil isKindOfClass:[NSDictionary class]]) {
+            sourceIL = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)sil];
+        } else {
+            sourceIL = [NSMutableDictionary dictionary];
+        }
+        if (![sourceIL[useSName] isKindOfClass:[NSDictionary class]]) {
+            NSString *lastTitle = title;
+            if ([dicBook[@"_sourceIL"] isKindOfClass:[NSDictionary class]]) {
+                id existingEntry = dicBook[@"_sourceIL"][useSName];
+                if ([existingEntry isKindOfClass:[NSDictionary class]]) {
+                    id lt = existingEntry[@"lastChapterTitle"];
+                    if ([lt isKindOfClass:[NSString class]] && [(NSString *)lt length] > 0) {
+                        lastTitle = (NSString *)lt;
+                    }
+                }
+            }
+            sourceIL[useSName] = @{
+                @"_lCTime": @"0",
+                @"lastChapterTitle": lastTitle ?: @"",
+            };
+        }
+        fat[@"_sourceIL"] = sourceIL;
         if ([reader respondsToSelector:NSSelectorFromString(@"setDicFatBook:")]) {
             ((void (*)(id, SEL, id))objc_msgSend)(
                 reader, NSSelectorFromString(@"setDicFatBook:"), fat);
@@ -706,6 +735,10 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
                     @"hypothesis_X seed _useSNameLen=%lu",
                     (unsigned long)([fat[@"_useSName"] isKindOfClass:[NSString class]]
                                     ? [fat[@"_useSName"] length] : 0)]);
+        LBStateLog([NSString stringWithFormat:
+                    @"hypothesis_Y seed _sourceILKeys=%lu useSNameLen=%lu",
+                    (unsigned long)sourceIL.count,
+                    (unsigned long)[useSName length]]);
     } @catch (__unused NSException *e) {
         LBStateLog(@"hypothesis_W seed_dicFatBook_failed");
     }
