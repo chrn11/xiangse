@@ -1,0 +1,278 @@
+{
+  "sha": "fe1c9eb",
+  "probe_last_line": "2026-07-18 21:14:19 | hypothesis_AC ak_keep_inThread=1 main=1 inv=0 pid=62309 up=531938560 mem=7",
+  "ak_last_runtime": "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=4 class=ak_main_block_other pc=192b9b9a4(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) lr=2b5dc48192b9ba04(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) fp=16d39fae0 wait=0 src=0 drain=0",
+  "ak_runtime": [
+    "2026-07-18 21:14:18 | hypothesis_AC check_exit ok=1 main=0 inv=1 pid=62219 up=531937695 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC post_invoke_z_probe_done main=1 inv=1 pid=62219 up=531937695 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC format_enter respLen=111 action=chapterContent dontFormat=0 main=0 inv=1 pid=62219 up=531937695 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread main=0 inv=1 pid=62219 up=531937695 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC await_native_chain main=1 inv=1 pid=62219 up=531937696 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC format_exit outNil=0 outLen=107 outCls=__NSCFString main=0 inv=1 pid=62219 up=531937696 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC invoke_reentry_cleared main=1 inv=1 pid=62219 up=531937696 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC qf_enter self=TextRPageContainer respLen=107 action=chapterContent respCls=__NSCFString main=0 inv=1 pid=62219 up=531937696 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC invoke_state_idle main=1 inv=1 pid=62219 up=531937696 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC ak_main_idle_seen main=1 inv=1 pid=62219 up=531937696 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC ak_main_idle_forensics_start main=1 inv=1 pid=62219 up=531937696 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC ag_post_qf main=0 inv=1 pid=62219 up=531937697 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC qf_exit main=0 inv=1 pid=62219 up=531937697 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC ak_main_block_other r=0 pc=1830a3480(objc_autorelease) lr=18a03f05c(<redacted>) wait=0 src=0 drain=0 main=0 inv=1 pid=62219 up=531937698 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread main=0 inv=1 pid=62219 up=531937716 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC cb_precheck_gate_check_seen main=0 inv=1 pid=62219 up=531937716 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC cb_exit main=0 inv=1 pid=62219 up=531937716 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC ak_main_block_other r=1 pc=198483604(<redacted>) lr=e35e89019848471c(<redacted>) wait=0 src=0 drain=0 main=0 inv=1 pid=62219 up=531937729 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC ak_main_block_other r=2 pc=1e9d2263c(_platform_strcmp) lr=192b9b464(res_getTableItemByKey) wait=0 src=0 drain=0 main=0 inv=1 pid=62219 up=531937785 mem=42",
+    "2026-07-18 21:14:18 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=62219 up=531937795 mem=42",
+    "2026-07-18 21:14:18 | hypothesis_AC ak_main_block_other r=3 pc=192bf3828(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) wait=0 src=0 drain=0 main=0 inv=1 pid=62219 up=531937861 mem=42",
+    "2026-07-18 21:14:18 | hypothesis_AC ag_bg_hb i=1 main=0 inv=1 pid=62219 up=531937893 mem=42",
+    "2026-07-18 21:14:18 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=62219 up=531937900 mem=42",
+    "2026-07-18 21:14:18 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=62219 up=531938006 mem=40",
+    "2026-07-18 21:14:18 | hypothesis_AC ai_main_block_pc r=2 pc=192b968dc lr=7e336c0192b67e3c main=0 inv=1 pid=62219 up=531938006 mem=40",
+    "2026-07-18 21:14:18 | hypothesis_AC ak_main_block_other r=4 pc=192b9b9a4(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) lr=2b5dc48192b9ba04(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) wait=0 src=0 drain=0 main=0 inv=1 pid=62219 up=531938016 mem=40",
+    "2026-07-18 21:14:18 | hypothesis_AC ag_bg_hb i=2 main=0 inv=1 pid=62219 up=531938095 mem=41",
+    "2026-07-18 21:14:19 | hypothesis_AC ai_hook_windows_ok main=1 inv=0 pid=62309 up=531938547 mem=7",
+    "2026-07-18 21:14:19 | hypothesis_AC ag_keep_inThread=1 main=1 inv=0 pid=62309 up=531938559 mem=7",
+    "2026-07-18 21:14:19 | hypothesis_AC ai_keep_inThread=1 main=1 inv=0 pid=62309 up=531938559 mem=7",
+    "2026-07-18 21:14:19 | hypothesis_AC ak_keep_inThread=1 main=1 inv=0 pid=62309 up=531938560 mem=7",
+    "2026-07-18 13:14:17 +0000 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC pre_invoke_orig target=TextRPageContainer | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ag_bg_hb i=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC invoke_orig_returned target=TextRPageContainer | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC swcf_enter leaf=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ai_main_rl_observer_ok | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC swcf_exit leaf=0 len=111 nil=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC cb_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 self=BookQueryManager | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC cb_precheck_gate_resp nil=0 len=111 self=BookQueryManager main=0 next=0x102a221d4 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC qf_dispatch_inject_inThread action=chapterContent | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC post_invoke_gates_done | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC check_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 cfg=1 ui=1 self=BookQueryManager qsrc=localSourceText respCls=__NSCFString | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC check_exit ok=1 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC post_invoke_z_probe_done | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC format_enter respLen=111 action=chapterContent dontFormat=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC await_native_chain | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC format_exit outNil=0 outLen=107 outCls=__NSCFString | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC invoke_reentry_cleared | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC qf_enter self=TextRPageContainer respLen=107 action=chapterContent respCls=__NSCFString | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC invoke_state_idle | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_idle_seen | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_idle_forensics_start | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ag_post_qf | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC qf_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=0 pc=1830a3480(objc_autorelease) lr=18a03f05c(<redacted>) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC cb_precheck_gate_check_seen | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC cb_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=1 pc=198483604(<redacted>) lr=e35e89019848471c(<redacted>) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=2 pc=1e9d2263c(_platform_strcmp) lr=192b9b464(res_getTableItemByKey) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=3 pc=192bf3828(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ag_bg_hb i=1 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ai_main_block_pc r=2 pc=192b968dc lr=7e336c0192b67e3c | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=4 pc=192b9b9a4(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) lr=2b5dc48192b9ba04(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ag_bg_hb i=2 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:19 +0000 | hypothesis_AC ai_hook_windows_ok | state=idle token=- ch=- inv=0",
+    "2026-07-18 13:14:19 +0000 | hypothesis_AC ag_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-18 13:14:19 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-18 13:14:19 +0000 | hypothesis_AC ak_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=0 class=ak_main_block_other pc=1830a3480(objc_autorelease) lr=18a03f05c(<redacted>) fp=16d465b40 wait=0 src=0 drain=0",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=1 class=ak_main_block_other pc=198483604(<redacted>) lr=e35e89019848471c(<redacted>) fp=16d453af0 wait=0 src=0 drain=0",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=2 class=ak_main_block_other pc=1e9d2263c(_platform_strcmp) lr=192b9b464(res_getTableItemByKey) fp=16d42feb0 wait=0 src=0 drain=0",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=3 class=ak_main_block_other pc=192bf3828(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) fp=16d400b20 wait=0 src=0 drain=0",
+    "2026-07-18 13:14:18 +0000 | ai_main_block_pc r=2 pc=192b968dc(ures_getByKey) lr=7e336c0192b67e3c(ucurr_forLocale) fp=16d3a5ac0 wait=0 src=0 drain=0",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=4 class=ak_main_block_other pc=192b9b9a4(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) lr=2b5dc48192b9ba04(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) fp=16d39fae0 wait=0 src=0 drain=0"
+  ],
+  "ak_bg_skip": [
+    "2026-07-18 13:14:17 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-18 13:14:17 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBAllAppWindows cached=1",
+    "2026-07-18 21:14:17 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy main=0 inv=0 pid=62219 up=531936980 mem=35",
+    "2026-07-18 13:14:17 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-18 13:14:17 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-18 13:14:17 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBAllAppWindows cached=1",
+    "2026-07-18 13:14:17 +0000 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0"
+  ],
+  "ak_main_block": [
+    "2026-07-18 21:14:18 | hypothesis_AC ak_main_block_other r=0 pc=1830a3480(objc_autorelease) lr=18a03f05c(<redacted>) wait=0 src=0 drain=0 main=0 inv=1 pid=62219 up=531937698 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC ak_main_block_other r=1 pc=198483604(<redacted>) lr=e35e89019848471c(<redacted>) wait=0 src=0 drain=0 main=0 inv=1 pid=62219 up=531937729 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC ak_main_block_other r=2 pc=1e9d2263c(_platform_strcmp) lr=192b9b464(res_getTableItemByKey) wait=0 src=0 drain=0 main=0 inv=1 pid=62219 up=531937785 mem=42",
+    "2026-07-18 21:14:18 | hypothesis_AC ak_main_block_other r=3 pc=192bf3828(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) wait=0 src=0 drain=0 main=0 inv=1 pid=62219 up=531937861 mem=42",
+    "2026-07-18 21:14:18 | hypothesis_AC ak_main_block_other r=4 pc=192b9b9a4(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) lr=2b5dc48192b9ba04(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) wait=0 src=0 drain=0 main=0 inv=1 pid=62219 up=531938016 mem=40",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=0 pc=1830a3480(objc_autorelease) lr=18a03f05c(<redacted>) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=1 pc=198483604(<redacted>) lr=e35e89019848471c(<redacted>) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=2 pc=1e9d2263c(_platform_strcmp) lr=192b9b464(res_getTableItemByKey) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=3 pc=192bf3828(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=4 pc=192b9b9a4(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) lr=2b5dc48192b9ba04(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=0 class=ak_main_block_other pc=1830a3480(objc_autorelease) lr=18a03f05c(<redacted>) fp=16d465b40 wait=0 src=0 drain=0",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=1 class=ak_main_block_other pc=198483604(<redacted>) lr=e35e89019848471c(<redacted>) fp=16d453af0 wait=0 src=0 drain=0",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=2 class=ak_main_block_other pc=1e9d2263c(_platform_strcmp) lr=192b9b464(res_getTableItemByKey) fp=16d42feb0 wait=0 src=0 drain=0",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=3 class=ak_main_block_other pc=192bf3828(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) fp=16d400b20 wait=0 src=0 drain=0",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=4 class=ak_main_block_other pc=192b9b9a4(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) lr=2b5dc48192b9ba04(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) fp=16d39fae0 wait=0 src=0 drain=0"
+  ],
+  "ak_main_idle": [
+    "2026-07-18 21:14:18 | hypothesis_AC ak_main_idle_seen main=1 inv=1 pid=62219 up=531937696 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC ak_main_idle_forensics_start main=1 inv=1 pid=62219 up=531937696 mem=41",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_idle_seen | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_idle_forensics_start | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "ai_main_drain": [],
+  "ai_main_watch_tail": [
+    "2026-07-18 21:14:18 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=62219 up=531937795 mem=42",
+    "2026-07-18 21:14:18 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=62219 up=531937900 mem=42",
+    "2026-07-18 21:14:18 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=62219 up=531938006 mem=40",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "ai_bg_uikit": [],
+  "qf_dispatch_gates": [
+    "2026-07-18 21:14:18 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread main=0 inv=1 pid=62219 up=531937695 mem=41",
+    "2026-07-18 21:14:18 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread main=0 inv=1 pid=62219 up=531937716 mem=41",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "has_qf": true,
+  "qf_n": 2,
+  "has_qf_enter": true,
+  "has_qf_exit": true,
+  "qf_main": false,
+  "has_main_pulse": false,
+  "has_ai_main_drain": false,
+  "has_ak_skip": true,
+  "has_ak_block": true,
+  "has_async_plus": false,
+  "pids": [
+    "62219",
+    "62309"
+  ],
+  "pid0": 62219,
+  "pid1": 62309,
+  "pid_stable": false,
+  "probe_pid_stable": false,
+  "os_pid_stable": false,
+  "relaunch_after_chain": false,
+  "mid_chain_launch_app": false,
+  "has_format_enter": true,
+  "has_format_exit": true,
+  "has_cb_enter": true,
+  "has_cb_exit": true,
+  "has_inject_inThread": true,
+  "has_ak_keep_inThread": true,
+  "path_sync_inThread": true,
+  "path_async_main": false,
+  "has_fatal": false,
+  "scene_syslog_n": 0,
+  "sigsegv_n": 3,
+  "bg_uikit_n": 0,
+  "reader_foreground": true,
+  "frontmost_final": {
+    "pid": 62309,
+    "contextId": 3167902499,
+    "bundleId": "com.appbox.StandarReader",
+    "sceneIdentifier": "com.appbox.StandarReader",
+    "processName": "StandarReader",
+    "displayId": 1,
+    "name": "StandarReader"
+  },
+  "xiaoyan": {
+    "passed": false,
+    "text": "萧炎",
+    "elements": [
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 47,
+          "x": 8,
+          "width": 49,
+          "height": 44
+        },
+        "text": "整理"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 53,
+          "x": 135,
+          "width": 59,
+          "height": 32
+        },
+        "text": "书架"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 53,
+          "x": 195,
+          "width": 60,
+          "height": 32
+        },
+        "text": "发现"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 47,
+          "x": 284,
+          "width": 48,
+          "height": 44
+        },
+        "text": "搜索"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 47,
+          "x": 340,
+          "width": 42,
+          "height": 44
+        },
+        "text": "添加"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 37,
+          "x": 0,
+          "width": 390,
+          "height": 54
+        },
+        "text": "下拉可以刷新"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 91,
+          "x": 0,
+          "width": 390,
+          "height": 753
+        },
+        "text": "空列表"
+      }
+    ],
+    "error": null
+  },
+  "ui_texts": [
+    "整理",
+    "书架",
+    "发现",
+    "搜索",
+    "添加",
+    "下拉可以刷新",
+    "空列表"
+  ],
+  "decision": {
+    "branch": "ak_main_block_found",
+    "action": "采到 ak_main_block_*；对照符号决定是否最小修",
+    "commit": false
+  },
+  "first_chapter_approved": false,
+  "syslog_kill_hits_n": 80
+}

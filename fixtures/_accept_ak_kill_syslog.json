@@ -1,0 +1,291 @@
+{
+  "sha": "fe1c9eb",
+  "pid0": 62219,
+  "pid1": 62309,
+  "conclusion": "采到 ak_main_block_*；对照符号决定是否最小修",
+  "mid_chain_launch_app": false,
+  "hits": [
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "StandarReader[62219] Corpse allowed 1 of 5"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update(enter): pid 62308, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update: init: limit on pid 62308 (-1MB F ) targeting priority(210) dirty?=0x0"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "C060F330-17CD-4121-A503-A9F7FAC19A7C monitor: got an update with info exited, exit reason namespace=2 code=11"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:62219] termination reported by launchd (2, 11, 11)"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "Firing exit handlers for 62219 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:62219] Process exited: <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>."
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "wifid",
+      "level": "notice",
+      "message": "-[WiFiUserInteractionMonitor setApplicationRunningState:foregroundState:andNetworkingState:forBundleId:]: com.appbox.StandarReader exited"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "observedProcessStatesDidChange"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "Received state update for 62219"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "531824768751458: <private>"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "observedProcessStatesDidChange"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "Received state update for 62219"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "/System/Library/CoreServices/ReportCrash[62308] ==> (apply-protobox)"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update(enter): pid 62308, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update: init: limit on pid 62308 (-1MB F ) targeting priority(210) dirty?=0x0"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "ReportCrash (unified) launched in agent mode"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "Trying to create CR directory structure as root"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "symbolication mode: 1, safe vm: 0"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "Loading Preferences From Direct CFPrefsD"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "CM90 : [CrashReport].[initWithTask]~"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "Parsing corpse data for pid 62219"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "proc_name(0) = [11] <private>"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update(enter): pid 62309, priority 30, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update: init: limit on pid 62309 (-1MB F ) targeting priority(30) dirty?=0x0"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "Process exited: <FBApplicationProcess: 0x9b6cb0420; application<com.appbox.StandarReader>:62219(v29513)> -> <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:62309] Set jetsam priority to 100 [0] flag[1]"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Assertion 47396-47397-80027 (target:[application<com.appbox.StandarReader>:62309]) will be created as inactive as originator process has not exited"
+    },
+    {
+      "date": "2026-07-18 13:14:23 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "531829858137708: <private>"
+    },
+    {
+      "date": "2026-07-18 13:14:23 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "531829858149708: <private>"
+    },
+    {
+      "date": "2026-07-18 13:14:23 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "531829858423125: <private>"
+    },
+    {
+      "date": "2026-07-18 13:14:23 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "531829858426375: <private>"
+    },
+    {
+      "date": "2026-07-18 13:14:23 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "531829858427541: <private>"
+    },
+    {
+      "date": "2026-07-18 13:14:23 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "531829858428083: <private>"
+    },
+    {
+      "date": "2026-07-18 13:14:23 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "531829858428666: <private>"
+    },
+    {
+      "date": "2026-07-18 13:14:23 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "531829858429166: <private>"
+    },
+    {
+      "date": "2026-07-18 13:14:23 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "531829858429958: <private>"
+    },
+    {
+      "date": "2026-07-18 13:14:23 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "531829858430416: <private>"
+    },
+    {
+      "date": "2026-07-18 13:14:23 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "531829858430875: <private>"
+    },
+    {
+      "date": "2026-07-18 13:14:29 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus: Pressure level has been elevated for too long. killing up to 142 idle processes"
+    }
+  ],
+  "scene_syslog": [],
+  "sigsegv": [
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "Firing exit handlers for 62219 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:62219] Process exited: <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>."
+    },
+    {
+      "date": "2026-07-18 13:14:18 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "Process exited: <FBApplicationProcess: 0x9b6cb0420; application<com.appbox.StandarReader>:62219(v29513)> -> <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+    }
+  ],
+  "ak_bg_skip": [
+    "2026-07-18 13:14:17 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-18 13:14:17 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBAllAppWindows cached=1",
+    "2026-07-18 21:14:17 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy main=0 inv=0 pid=62219 up=531936980 mem=35",
+    "2026-07-18 13:14:17 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-18 13:14:17 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-18 13:14:17 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBAllAppWindows cached=1",
+    "2026-07-18 13:14:17 +0000 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0"
+  ],
+  "ak_main_block": [
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=0 pc=1830a3480(objc_autorelease) lr=18a03f05c(<redacted>) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=1 pc=198483604(<redacted>) lr=e35e89019848471c(<redacted>) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=2 pc=1e9d2263c(_platform_strcmp) lr=192b9b464(res_getTableItemByKey) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=3 pc=192bf3828(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | hypothesis_AC ak_main_block_other r=4 pc=192b9b9a4(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) lr=2b5dc48192b9ba04(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=0 class=ak_main_block_other pc=1830a3480(objc_autorelease) lr=18a03f05c(<redacted>) fp=16d465b40 wait=0 src=0 drain=0",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=1 class=ak_main_block_other pc=198483604(<redacted>) lr=e35e89019848471c(<redacted>) fp=16d453af0 wait=0 src=0 drain=0",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=2 class=ak_main_block_other pc=1e9d2263c(_platform_strcmp) lr=192b9b464(res_getTableItemByKey) fp=16d42feb0 wait=0 src=0 drain=0",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=3 class=ak_main_block_other pc=192bf3828(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) fp=16d400b20 wait=0 src=0 drain=0",
+    "2026-07-18 13:14:18 +0000 | ak_main_block_pc r=4 class=ak_main_block_other pc=192b9b9a4(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) lr=2b5dc48192b9ba04(_ZNK3icu13ResourceArray8getValueEiRNS_13ResourceValueE) fp=16d39fae0 wait=0 src=0 drain=0"
+  ]
+}
