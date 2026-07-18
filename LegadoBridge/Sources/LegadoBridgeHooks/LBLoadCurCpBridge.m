@@ -294,15 +294,29 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
         LBABSyncProbe(@"cb_early_return reason=null_next");
         return;
     }
+    // AE：format 后 original 在 !callback_inThread 时 dispatch_async(main) 派 QF；
+    // 真机主队列在 invoke 后不排空（pulse/async_plus/qf 均为 0）且约 +2s 进程重建。
+    // 对 chapterContent 写入 callback_inThread，走 original 同步 QF 分支（禁 bounce/dontFormat）。
+    id userInfoForOrig = userInfo;
+    if ([action isKindOfClass:[NSString class]] &&
+        [(NSString *)action isEqualToString:@"chapterContent"] &&
+        [userInfo isKindOfClass:[NSDictionary class]] &&
+        ((NSDictionary *)userInfo)[@"callback_inThread"] == nil &&
+        ((NSDictionary *)userInfo)[@"callback_target"] != nil) {
+        NSMutableDictionary *ui = [((NSDictionary *)userInfo) mutableCopy] ?: [NSMutableDictionary dictionary];
+        ui[@"callback_inThread"] = @YES;
+        userInfoForOrig = ui;
+        LBABSyncProbe(@"qf_dispatch_inject_inThread action=chapterContent");
+    }
     sADCheckEntered = 0;
     sABInCallBack = 1;
     @try {
-        sABNextCallBackResponse(self, _cmd, response, config, userInfo);
+        sABNextCallBackResponse(self, _cmd, response, config, userInfoForOrig);
     } @finally {
         sABInCallBack = 0;
     }
     // AE：original 在 format 后可能 dispatch_async(main) 派 QF；CB 返回后主队列脉冲确认可排空
-    LBAEProbeDispatchGates(response, config, userInfo, @"after_cb");
+    LBAEProbeDispatchGates(response, config, userInfoForOrig, @"after_cb");
     dispatch_async(dispatch_get_main_queue(), ^{
         LBABSyncProbe(@"qf_dispatch_main_pulse");
     });
