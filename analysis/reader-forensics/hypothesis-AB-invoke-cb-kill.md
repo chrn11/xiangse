@@ -56,18 +56,25 @@ dispatch_async(global) →
 
 ---
 
-## 4. 根因（取证阶段一句话）
+## 4. 根因（真机 fsync 裁定）
 
-**今日杀点无新 `.ips`；历史同类进程死亡为 scene-update watchdog（bug_type 509），不是已证实的 EXC_BAD_ACCESS。**  
-精确最后存活指令以真机 `legado_ab_probe.txt` 最后一行裁定（见验收脚本）。
+**`cb_enter`（bg、`respLen=111`、`target=TextRPageContainer`、`dontFormat=0`）风暴式重入，无 `cb_exit` / 无 `format_enter` / 无 `fatal_signal` / 无新 `.ips`；约 +12s `register_orig inv=0`。**  
+不是目录问题（`fileExists=1`）；不是已证实的 EXC_BAD_ACCESS；更像 **AB↔forensics 钩互套重入 + 后台 CB 未跳过 format**。历史 ips 多为 scene-update watchdog（bug_type 509）。
+
+证据：`fixtures/_diag_ab_force_nativeread.json`（清 openOnce + 点掉「导入书源」后复现）。
 
 ---
 
-## 5. 下一刀（勿瞎叠 AA bounce）
+## 5. 最小修复（禁 bounce）
 
-1. 装 AB IPA → nativeRead → 读 `legado_ab_probe.txt` 最后一条。  
-2. 若停在 `swcf_exit` 前 → 异步块未跑完 / 读文件前崩。  
-3. 若 `swcf_exit` 有、`cb_enter` 无 → notify 前崩（config/userInfo 组装）。  
-4. 若 `cb_enter` 有、`format_enter` 有、无 `format_exit` → **后台 format 崩** → 可试「仅 inject dontFormat、禁 bounce」（与 AA2 `32211af` 同思路但须带 fsync 证据）。  
-5. 若 `cb_exit` 有、无 QF → target/主队列派发问题（另刀，禁 bounce 互套）。  
-6. 若出现 `fatal_signal` → 按 SIG 对照；若始终无 signal/ips 且 +1s 重启 → 优先查 watchdog/Jetsam，而非再包主线程 bounce。
+1. **钩只装一次**（禁 invoke 前反复 `method_setImplementation`）  
+2. **重入深度护栏**（防 AB↔forensics 死循环）  
+3. **章文注入 `callback_dontFormatResponse=YES`**（同线程放行，禁 bounce）
+
+---
+
+## 6. 验收注意
+
+- 须点掉 Alert「导入 1 个书源」→「好」  
+- 须清 `legado_catalog_openreader.txt` / 杀进程，否则 `nativeRead skip openOnce sameBook`  
+- 成功：`inject_dontFormat` + `cb_exit` + QF；失败只 revert AB
