@@ -24,8 +24,9 @@ static __weak id sWeakHookReceiver = nil;
 static BOOL sReentryGuard = NO;
 static const void *kLBAssocFoundContainerKey = &kLBAssocFoundContainerKey;
 
-/// 假设 AC：CB 透传链上 format 前 check_* / early-return 取证（禁 bounce / 禁 dontFormat）
+/// 假设 AC/AD：CB 透传链上 format 前 check_* / early-return 取证（禁 bounce / 禁 dontFormat）
 /// AB 真机：cb_enter×N 无 check/format/cb_exit；6b5ef8e 未清 openOnce 假阳性已 revert 回 swcf
+/// AD：original CB 在 check 前仅 response==nil 门禁；runtime check/format 在 BookQueryManager 覆盖实现
 static void (*sABNextCallBackResponse)(id, SEL, id, id, id) = NULL;
 static void (*sABNextFormatCallBack)(id, SEL, id, id, id) = NULL;
 static BOOL (*sABNextCheckCallBack)(id, SEL, id, id, id) = NULL;
@@ -33,6 +34,7 @@ static id (*sABNextStringWithContents)(id, SEL, id, NSUInteger, NSError **) = NU
 static BOOL sABSignalInstalled = NO;
 static BOOL sABHooksInstalled = NO;
 static _Thread_local int sABInCallBack = 0;
+static _Thread_local int sADCheckEntered = 0;
 
 typedef IMP (*LBACForensicsResolveObserverOrigIMPFn)(Class, SEL);
 typedef IMP (*LBACForensicsHookIMPForSelectorNameFn)(NSString *);
@@ -201,21 +203,46 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
                  ? ((NSDictionary *)userInfo)[@"callback_target"] : nil);
     id dont = ([userInfo isKindOfClass:[NSDictionary class]]
                ? ((NSDictionary *)userInfo)[@"callback_dontFormatResponse"] : nil);
+    NSString *selfCls = self ? NSStringFromClass(object_getClass(self)) : @"nil";
+    BOOL respNil = (response == nil);
+    BOOL main = [NSThread isMainThread];
     LBABSyncProbe([NSString stringWithFormat:
-                   @"cb_enter respLen=%lu action=%@ target=%@ dontFormat=%d",
+                   @"cb_enter respLen=%lu action=%@ target=%@ dontFormat=%d self=%@",
                    (unsigned long)respLen,
                    [action isKindOfClass:[NSString class]] ? action : @"-",
                    target ? NSStringFromClass(object_getClass(target)) : @"nil",
-                   dont ? 1 : 0]);
+                   dont ? 1 : 0,
+                   selfCls]);
+    // AD：original @0x10008a234 仅 cbz response→跳过 check；无 config/action/dontFormat/主线程门禁
+    LBABSyncProbe([NSString stringWithFormat:
+                   @"cb_precheck_gate_resp nil=%d len=%lu self=%@ main=%d next=%p",
+                   respNil ? 1 : 0,
+                   (unsigned long)respLen,
+                   selfCls,
+                   main ? 1 : 0,
+                   sABNextCallBackResponse]);
     if (!sABNextCallBackResponse) {
         LBABSyncProbe(@"cb_early_return reason=null_next");
         return;
     }
+    sADCheckEntered = 0;
     sABInCallBack = 1;
     @try {
         sABNextCallBackResponse(self, _cmd, response, config, userInfo);
     } @finally {
         sABInCallBack = 0;
+    }
+    if (sADCheckEntered == 0) {
+        if (respNil) {
+            LBABSyncProbe(@"cb_precheck_gate_skip_check reason=resp_nil");
+        } else {
+            // 非 nil 却未见 check_enter：多半钩在 LPNetWork2 而 runtime 走 BQM 覆盖
+            LBABSyncProbe([NSString stringWithFormat:
+                           @"cb_precheck_gate_skip_check reason=no_check_enter self=%@",
+                           selfCls]);
+        }
+    } else {
+        LBABSyncProbe(@"cb_precheck_gate_check_seen");
     }
     LBABSyncProbe(@"cb_exit");
 }
@@ -239,20 +266,31 @@ static void LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id us
 }
 
 static BOOL LBAB_CheckCallBack(id self, SEL _cmd, id response, id config, id userInfo) {
+    sADCheckEntered = 1;
     NSUInteger respLen = [response isKindOfClass:[NSString class]] ? [(NSString *)response length] : 0;
+    if (respLen == 0 && [response isKindOfClass:[NSDictionary class]]) {
+        id c = ((NSDictionary *)response)[@"content"] ?: ((NSDictionary *)response)[@"chapterContent"];
+        if ([c isKindOfClass:[NSString class]]) respLen = [(NSString *)c length];
+    }
     id action = ([config isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)config)[@"actionID"] : nil);
     id target = ([userInfo isKindOfClass:[NSDictionary class]]
                  ? ((NSDictionary *)userInfo)[@"callback_target"] : nil);
     id dont = ([userInfo isKindOfClass:[NSDictionary class]]
                ? ((NSDictionary *)userInfo)[@"callback_dontFormatResponse"] : nil);
+    id qsrc = ([userInfo isKindOfClass:[NSDictionary class]]
+               ? ((NSDictionary *)userInfo)[@"querySourceName"] : nil);
     BOOL hasCfg = [config isKindOfClass:[NSDictionary class]];
     BOOL hasUI = [userInfo isKindOfClass:[NSDictionary class]];
+    NSString *selfCls = self ? NSStringFromClass(object_getClass(self)) : @"nil";
     LBABSyncProbe([NSString stringWithFormat:
-                   @"check_enter respLen=%lu action=%@ target=%@ dontFormat=%d cfg=%d ui=%d",
+                   @"check_enter respLen=%lu action=%@ target=%@ dontFormat=%d cfg=%d ui=%d self=%@ qsrc=%@ respCls=%@",
                    (unsigned long)respLen,
                    [action isKindOfClass:[NSString class]] ? action : @"-",
                    target ? NSStringFromClass(object_getClass(target)) : @"nil",
-                   dont ? 1 : 0, hasCfg ? 1 : 0, hasUI ? 1 : 0]);
+                   dont ? 1 : 0, hasCfg ? 1 : 0, hasUI ? 1 : 0,
+                   selfCls,
+                   [qsrc isKindOfClass:[NSString class]] ? qsrc : @"-",
+                   response ? NSStringFromClass(object_getClass(response)) : @"nil"]);
     if (!sABNextCheckCallBack) {
         LBABSyncProbe(@"check_early_return reason=null_next ok=1");
         return YES;
@@ -263,10 +301,12 @@ static BOOL LBAB_CheckCallBack(id self, SEL _cmd, id response, id config, id use
     } else {
         // original CB 在 check 失败时会早退、不进 format
         LBABSyncProbe([NSString stringWithFormat:
-                       @"check_early_return reason=check_failed ok=0 respLen=%lu action=%@ target=%@",
+                       @"check_early_return reason=check_failed ok=0 respLen=%lu action=%@ target=%@ self=%@ qsrc=%@",
                        (unsigned long)respLen,
                        [action isKindOfClass:[NSString class]] ? action : @"-",
-                       target ? NSStringFromClass(object_getClass(target)) : @"nil"]);
+                       target ? NSStringFromClass(object_getClass(target)) : @"nil",
+                       selfCls,
+                       [qsrc isKindOfClass:[NSString class]] ? qsrc : @"-"]);
         LBABSyncProbe(@"check_exit ok=0");
     }
     return ok;
@@ -326,16 +366,21 @@ static void LBABInstallProbes(void) {
                                @"install_cb_skip next_frozen cur=%p", cur]);
             }
         }
+        // AD：chapterContent 路径 self=BookQueryManager，其覆盖 check/format；
+        // 只钩 LPNetWork2 会装到「response!=nil」短实现，runtime 永远看不到 check_enter。
+        Class chkOwner = NSClassFromString(@"BookQueryManager") ?: net;
         SEL fmtSel = NSSelectorFromString(@"formatCallBackResponse:config:userInfo:");
-        Method fmtm = class_getInstanceMethod(net, fmtSel);
+        Method fmtm = class_getInstanceMethod(chkOwner, fmtSel);
         if (fmtm) {
             IMP cur = method_getImplementation(fmtm);
             if (cur != (IMP)LBAB_FormatCallBack && !sABNextFormatCallBack) {
-                IMP next = LBACPeelObserverNext(net, fmtSel, cur);
+                IMP next = LBACPeelObserverNext(chkOwner, fmtSel, cur);
                 if (next) {
                     sABNextFormatCallBack = (void (*)(id, SEL, id, id, id))next;
                     method_setImplementation(fmtm, (IMP)LBAB_FormatCallBack);
-                    LBABSyncProbe(@"install_format");
+                    LBABSyncProbe([NSString stringWithFormat:
+                                   @"install_format owner=%@",
+                                   NSStringFromClass(chkOwner)]);
                 } else {
                     LBABSyncProbe(@"install_format_pollute_blocked");
                 }
@@ -344,15 +389,17 @@ static void LBABInstallProbes(void) {
             LBABSyncProbe(@"install_format_missing");
         }
         SEL chkSel = NSSelectorFromString(@"checkCallBackResponse:config:userInfo:");
-        Method chkm = class_getInstanceMethod(net, chkSel);
+        Method chkm = class_getInstanceMethod(chkOwner, chkSel);
         if (chkm) {
             IMP cur = method_getImplementation(chkm);
             if (cur != (IMP)LBAB_CheckCallBack && !sABNextCheckCallBack) {
-                IMP next = LBACPeelObserverNext(net, chkSel, cur);
+                IMP next = LBACPeelObserverNext(chkOwner, chkSel, cur);
                 if (next) {
                     sABNextCheckCallBack = (BOOL (*)(id, SEL, id, id, id))next;
                     method_setImplementation(chkm, (IMP)LBAB_CheckCallBack);
-                    LBABSyncProbe(@"install_check");
+                    LBABSyncProbe([NSString stringWithFormat:
+                                   @"install_check owner=%@",
+                                   NSStringFromClass(chkOwner)]);
                 } else {
                     LBABSyncProbe(@"install_check_pollute_blocked");
                 }
