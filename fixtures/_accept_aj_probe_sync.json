@@ -1,0 +1,260 @@
+{
+  "sha": "0a5a08a",
+  "probe_last_line": "2026-07-18 21:02:00 | hypothesis_AC aj_keep_inThread=1 main=1 inv=0 pid=62062 up=531199921 mem=6",
+  "aj_last_runtime": "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0",
+  "aj_runtime": [
+    "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_allwindows_skip main=0",
+    "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_keywindow_skip main=0",
+    "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_allwindows_skip main=0",
+    "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_keywindow_skip main=0",
+    "2026-07-18 21:01:59 | hypothesis_AC pre_invoke_orig target=TextRPageContainer main=1 inv=1 pid=61973 up=531199022 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC ag_bg_hb i=0 main=0 inv=1 pid=61973 up=531199022 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC invoke_orig_returned target=TextRPageContainer main=1 inv=1 pid=61973 up=531199023 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC swcf_enter leaf=0 main=0 inv=1 pid=61973 up=531199023 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC ai_main_rl_observer_ok main=1 inv=1 pid=61973 up=531199023 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC swcf_exit leaf=0 len=111 nil=0 main=0 inv=1 pid=61973 up=531199024 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC cb_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 self=BookQueryManager main=0 inv=1 pid=61973 up=531199024 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC cb_precheck_gate_resp nil=0 len=111 self=BookQueryManager main=0 next=0x10253e1d4 main=0 inv=1 pid=61973 up=531199024 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC post_invoke_gates_done main=1 inv=1 pid=61973 up=531199024 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC qf_dispatch_inject_inThread action=chapterContent main=0 inv=1 pid=61973 up=531199024 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC check_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 cfg=1 ui=1 self=BookQueryManager qsrc=localSourceText respCls=__NSCFString main=0 inv=1 pid=61973 up=531199025 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC post_invoke_z_probe_done main=1 inv=1 pid=61973 up=531199025 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC check_exit ok=1 main=0 inv=1 pid=61973 up=531199025 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC format_enter respLen=111 action=chapterContent dontFormat=0 main=0 inv=1 pid=61973 up=531199025 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC await_native_chain main=1 inv=1 pid=61973 up=531199025 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread main=0 inv=1 pid=61973 up=531199025 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC invoke_reentry_cleared main=1 inv=1 pid=61973 up=531199026 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC format_exit outNil=0 outLen=107 outCls=__NSCFString main=0 inv=1 pid=61973 up=531199026 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC invoke_state_idle main=1 inv=1 pid=61973 up=531199026 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC qf_enter self=TextRPageContainer respLen=107 action=chapterContent respCls=__NSCFString main=0 inv=1 pid=61973 up=531199026 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC aj_main_drain_enqueue main=1 inv=1 pid=61973 up=531199026 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC ag_post_qf main=0 inv=1 pid=61973 up=531199027 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC qf_exit main=0 inv=1 pid=61973 up=531199027 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread main=0 inv=1 pid=61973 up=531199053 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC cb_precheck_gate_check_seen main=0 inv=1 pid=61973 up=531199054 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC cb_exit main=0 inv=1 pid=61973 up=531199054 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=61973 up=531199129 mem=42",
+    "2026-07-18 21:01:59 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=61973 up=531199234 mem=42",
+    "2026-07-18 21:01:59 | hypothesis_AC ag_bg_hb i=1 main=0 inv=1 pid=61973 up=531199290 mem=43",
+    "2026-07-18 21:01:59 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=61973 up=531199339 mem=43",
+    "2026-07-18 21:01:59 | hypothesis_AC ai_main_block_pc r=2 pc=198481318 lr=b6a1f81984810cc main=0 inv=1 pid=61973 up=531199340 mem=43",
+    "2026-07-18 21:02:00 | hypothesis_AC ai_hook_windows_ok main=1 inv=0 pid=62062 up=531199910 mem=6",
+    "2026-07-18 21:02:00 | hypothesis_AC ag_keep_inThread=1 main=1 inv=0 pid=62062 up=531199921 mem=6",
+    "2026-07-18 21:02:00 | hypothesis_AC ai_keep_inThread=1 main=1 inv=0 pid=62062 up=531199921 mem=6",
+    "2026-07-18 21:02:00 | hypothesis_AC aj_keep_inThread=1 main=1 inv=0 pid=62062 up=531199921 mem=6",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC pre_invoke_orig target=TextRPageContainer | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC ag_bg_hb i=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC invoke_orig_returned target=TextRPageContainer | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC swcf_enter leaf=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_rl_observer_ok | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC swcf_exit leaf=0 len=111 nil=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC cb_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 self=BookQueryManager | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC cb_precheck_gate_resp nil=0 len=111 self=BookQueryManager main=0 next=0x10253e1d4 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC post_invoke_gates_done | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC qf_dispatch_inject_inThread action=chapterContent | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC check_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 cfg=1 ui=1 self=BookQueryManager qsrc=localSourceText respCls=__NSCFString | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC post_invoke_z_probe_done | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC check_exit ok=1 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC format_enter respLen=111 action=chapterContent dontFormat=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC await_native_chain | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC invoke_reentry_cleared | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC format_exit outNil=0 outLen=107 outCls=__NSCFString | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC invoke_state_idle | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC qf_enter self=TextRPageContainer respLen=107 action=chapterContent respCls=__NSCFString | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC aj_main_drain_enqueue | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC ag_post_qf | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC qf_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC cb_precheck_gate_check_seen | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC cb_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC ag_bg_hb i=1 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_block_pc r=2 pc=198481318 lr=b6a1f81984810cc | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:02:00 +0000 | hypothesis_AC ai_hook_windows_ok | state=idle token=- ch=- inv=0",
+    "2026-07-18 13:02:00 +0000 | hypothesis_AC ag_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-18 13:02:00 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0"
+  ],
+  "aj_bg_skip": [
+    "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_allwindows_skip main=0",
+    "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_keywindow_skip main=0",
+    "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_allwindows_skip main=0",
+    "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_keywindow_skip main=0"
+  ],
+  "aj_main_drain": [
+    "2026-07-18 21:01:59 | hypothesis_AC aj_main_drain_enqueue main=1 inv=1 pid=61973 up=531199026 mem=41",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC aj_main_drain_enqueue | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "ai_main_drain": [],
+  "ai_main_watch_tail": [
+    "2026-07-18 21:01:59 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=61973 up=531199129 mem=42",
+    "2026-07-18 21:01:59 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=61973 up=531199234 mem=42",
+    "2026-07-18 21:01:59 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=61973 up=531199339 mem=43",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "ai_bg_uikit": [],
+  "qf_dispatch_gates": [
+    "2026-07-18 21:01:59 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread main=0 inv=1 pid=61973 up=531199025 mem=41",
+    "2026-07-18 21:01:59 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread main=0 inv=1 pid=61973 up=531199053 mem=41",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "has_qf": true,
+  "qf_n": 2,
+  "has_qf_enter": true,
+  "has_qf_exit": true,
+  "qf_main": false,
+  "has_main_pulse": false,
+  "has_aj_main_drain": true,
+  "has_aj_main_pulse": false,
+  "has_ai_main_drain": false,
+  "has_aj_skip": true,
+  "has_async_plus": false,
+  "pids": [
+    "61973",
+    "62062"
+  ],
+  "pid0": 61973,
+  "pid1": 62062,
+  "pid_stable": false,
+  "probe_pid_stable": false,
+  "os_pid_stable": false,
+  "relaunch_after_chain": false,
+  "mid_chain_launch_app": false,
+  "has_format_enter": true,
+  "has_format_exit": true,
+  "has_cb_enter": true,
+  "has_cb_exit": true,
+  "has_inject_inThread": true,
+  "has_aj_keep_inThread": true,
+  "path_sync_inThread": true,
+  "path_async_main": false,
+  "has_fatal": false,
+  "scene_syslog_n": 3,
+  "sigsegv_n": 2,
+  "reader_foreground": true,
+  "frontmost_final": {
+    "pid": 62062,
+    "contextId": 3167902499,
+    "bundleId": "com.appbox.StandarReader",
+    "sceneIdentifier": "com.appbox.StandarReader",
+    "processName": "StandarReader",
+    "displayId": 1,
+    "name": "StandarReader"
+  },
+  "xiaoyan": {
+    "passed": false,
+    "text": "萧炎",
+    "elements": [
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 47,
+          "x": 8,
+          "width": 49,
+          "height": 44
+        },
+        "text": "整理"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 53,
+          "x": 135,
+          "width": 59,
+          "height": 32
+        },
+        "text": "书架"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 53,
+          "x": 195,
+          "width": 60,
+          "height": 32
+        },
+        "text": "发现"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 47,
+          "x": 284,
+          "width": 48,
+          "height": 44
+        },
+        "text": "搜索"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 47,
+          "x": 340,
+          "width": 42,
+          "height": 44
+        },
+        "text": "添加"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 37,
+          "x": 0,
+          "width": 390,
+          "height": 54
+        },
+        "text": "下拉可以刷新"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 91,
+          "x": 0,
+          "width": 390,
+          "height": 753
+        },
+        "text": "空列表"
+      },
+      {
+        "type": "element",
+        "clickable": true,
+        "rect": {
+          "y": 47,
+          "x": 0,
+          "width": 390,
+          "height": 44
+        }
+      }
+    ],
+    "error": null
+  },
+  "ui_texts": [
+    "整理",
+    "书架",
+    "发现",
+    "搜索",
+    "添加",
+    "下拉可以刷新",
+    "空列表"
+  ],
+  "decision": {
+    "branch": "pid_changed",
+    "action": "pid 不稳；对照 syslog UIWindowScene/SIGSEGV",
+    "commit": false
+  },
+  "first_chapter_approved": false,
+  "syslog_kill_hits_n": 80
+}

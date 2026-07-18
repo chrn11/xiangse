@@ -1,0 +1,1074 @@
+{
+  "timestamp": "20260718T130125Z",
+  "sha": "0a5a08a",
+  "ipa": "D:\\soft\\xiangse\\dist-ci\\0a5a08a\\dist\\StandarReader-legado-bridge-debug.ipa",
+  "hypothesis": "AJ",
+  "role": "AJ-ban-bg-UIWindowScene-and-idle-main-drain",
+  "model": "cursor-grok-4.5",
+  "mock": "http://192.168.1.4:8765",
+  "mcp": "http://192.168.1.6:8090",
+  "banned": [
+    "bounce",
+    "dontFormat",
+    "mid_chain_launch_app",
+    "dispatch_sync_main_QF"
+  ],
+  "keep": [
+    "inject_inThread",
+    "V+W+X+Y+Z",
+    "BQM check/format id return",
+    "aj_bg_keywindow_skip"
+  ],
+  "steps": [
+    "install",
+    "reset",
+    "nativeRead"
+  ],
+  "frontmost_log": [
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 61973,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 61973,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 61973,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "pre_nativeRead_observe",
+      "front": {
+        "pid": 61973,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 62062,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 62062,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 62062,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 62062,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 62062,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 62062,
+        "contextId": 3167902499,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    }
+  ],
+  "pid_log": [
+    {
+      "t": 0.0,
+      "phase": "pre_nativeRead",
+      "pid": 61973
+    },
+    {
+      "t": 2.24,
+      "phase": "poll_0",
+      "pid": 62062,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 3.92,
+      "phase": "poll_2",
+      "pid": 62062,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 6.53,
+      "phase": "poll_5",
+      "pid": 62062,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 10.7,
+      "phase": "poll_10",
+      "pid": 62062,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 18.49,
+      "phase": "poll_20",
+      "pid": 62062,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 29.42,
+      "phase": "poll_35",
+      "pid": 62062,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 39.75,
+      "phase": "post_poll",
+      "pid": 62062
+    }
+  ],
+  "launch_app_calls": [
+    {
+      "phase": "setup_kill",
+      "ok": true
+    },
+    {
+      "phase": "setup_launch",
+      "ok": true
+    }
+  ],
+  "chapter_probe": {
+    "ok": true,
+    "code": 200
+  },
+  "upload": {
+    "path": "/var/mobile/Library/Caches/ios-mcp-uploads/1524BB49-1C9C-48B0-ACB2-37D0B5F4E4CF-StandarReader-legado-bridge-debug.ipa",
+    "filename": "StandarReader-legado-bridge-debug.ipa",
+    "size": 3597395
+  },
+  "install": "Installed app package from /var/mobile/Library/Caches/ios-mcp-uploads/1524BB49-1C9C-48B0-ACB2-37D0B5F4E4CF-StandarReader-legado-bridge-debug.ipa",
+  "build_manifest": {
+    "git_commit": "0a5a08ae0fa04230e47c4283221e9dfbd680695f",
+    "variant": "legado-debug",
+    "github_run_id": "29645307271",
+    "built_at_utc": "2026-07-18T13:00:18Z"
+  },
+  "doc": "/var/mobile/Containers/Data/Application/F68CEBC8-BFC4-4E6C-92E3-C2B6DE4464CD/Documents",
+  "capture_start": {
+    "bundle_ids": [
+      "com.appbox.StandarReader"
+    ],
+    "crash_baseline_count": 0,
+    "capture_id": 1784379718,
+    "started": true
+  },
+  "mid_chain_launch_app": false,
+  "capture_stop": {
+    "capture_seconds": 43,
+    "new_crash_count": 0,
+    "new_crash_reports": [],
+    "syslog_count": 3985,
+    "syslog_kill_hits": [
+      {
+        "date": "2026-07-18 13:01:58 +0000",
+        "process": "StandarReader",
+        "level": "notice",
+        "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+      },
+      {
+        "date": "2026-07-18 13:01:58 +0000",
+        "process": "StandarReader",
+        "level": "notice",
+        "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+      },
+      {
+        "date": "2026-07-18 13:01:58 +0000",
+        "process": "StandarReader",
+        "level": "notice",
+        "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "531085.161 memorystatus: killing_idle_process pid 61960 [fitcored] (sustained-memory-pressure 0) 6064KB - memorystatus_available_pages: 50454 compressor_size:68436"
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "37F7FFA2-D67A-4C23-B658-43863429572E monitor: got an update with info exited, exit reason namespace=1 code=9"
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process fitcored [61960] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.fitcore>:61960] termination reported by launchd (1, 9, 9)"
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "531085.665 memorystatus: killing_idle_process pid 61110 [profiled] (sustained-memory-pressure 0) 3649KB - memorystatus_available_pages: 50455 compressor_size:68406"
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process profiled [61110] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "816502FE-F383-441C-9F78-36479D1215E7 monitor: got an update with info exited, exit reason namespace=1 code=9"
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.managedconfiguration.profiled>:61110] termination reported by launchd (1, 9, 9)"
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "StandarReader[61973] Corpse allowed 1 of 5"
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update(enter): pid 62061, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+      },
+      {
+        "date": "2026-07-18 13:01:59 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update: init: limit on pid 62061 (-1MB F ) targeting priority(210) dirty?=0x0"
+      },
+      {
+        "date": "2026-07-18 13:02:00 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "B3C74654-16D2-40C9-9558-A184AA3BF12B monitor: got an update with info exited, exit reason namespace=2 code=11"
+      },
+      {
+        "date": "2026-07-18 13:02:00 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[application<com.appbox.StandarReader>:61973] termination reported by launchd (2, 11, 11)"
+      },
+      {
+        "date": "2026-07-18 13:02:00 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "Firing exit handlers for 61973 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+      },
+      {
+        "date": "2026-07-18 13:02:00 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "[application<com.appbox.StandarReader>:61973] Process exited: <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>."
+      },
+      {
+        "date": "2026-07-18 13:02:00 +0000",
+        "process": "wifid",
+        "level": "notice",
+        "message": "-[WiFiUserInteractionMonitor setApplicationRunningState:foregroundState:andNetworkingState:forBundleId:]: com.appbox.StandarReader exited"
+      },
+      {
+        "date": "2026-07-18 13:02:00 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "observedProcessStatesDidChange"
+      },
+      {
+        "date": "2026-07-18 13:02:00 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "Received state update for 61973"
+      },
+      {
+        "date": "2026-07-18 13:02:00 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "observedProcessStatesDidChange"
+      },
+      {
+        "date": "2026-07-18 13:02:00 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "Received state update for 61973"
+      },
+      {
+        "date": "2026-07-18 13:02:00 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "531086130342625: <private>"
+      },
+      {
+        "date": "2026-07-18 13:02:00 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "/System/Library/CoreServices/ReportCrash[62061] ==> (apply-protobox)"
+      },
+      {
+        "date": "2026-07-18 13:02:00 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update(enter): pid 62061, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+      },
+      {
+        "date": "2026-07-18 13:02:00 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update: init: limit on pid 62061 (-1MB F ) targeting priority(210) dirty?=0x0"
+      },
+      {
+        "date": "2026-07-18 13:02:04 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "531090.202 memorystatus: killing_idle_process pid 61081 [ScreenTimeAgent] (sustained-memory-pressure 0) 5904KB - memorystatus_available_pages: 52968 compressor_size:67812"
+      },
+      {
+        "date": "2026-07-18 13:02:04 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-18 13:02:04 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-18 13:02:04 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process ScreenTimeAgent [61081] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-18 13:02:04 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "531090.709 memorystatus: killing_idle_process pid 61641 [atc] (sustained-memory-pressure 0) 6400KB - memorystatus_available_pages: 53254 compressor_size:67747"
+      },
+      {
+        "date": "2026-07-18 13:02:04 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-18 13:02:04 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-18 13:02:04 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process atc [61641] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-18 13:02:04 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "084B58F3-791C-4199-814C-16B53FEFB12F monitor: got an update with info exited, exit reason namespace=1 code=9"
+      },
+      {
+        "date": "2026-07-18 13:02:04 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.atc>:61641] termination reported by launchd (1, 9, 9)"
+      },
+      {
+        "date": "2026-07-18 13:02:05 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "531091.215 memorystatus: killing_idle_process pid 61122 [itunescloudd] (sustained-memory-pressure 0) 8192KB - memorystatus_available_pages: 53616 compressor_size:67652"
+      },
+      {
+        "date": "2026-07-18 13:02:05 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-18 13:02:05 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-18 13:02:05 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process itunescloudd [61122] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-18 13:02:05 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "3D3C3FB6-F944-45C9-AF05-B64B05B8747D monitor: got an update with info exited, exit reason namespace=1 code=9"
+      },
+      {
+        "date": "2026-07-18 13:02:05 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.itunescloudd>:61122] termination reported by launchd (1, 9, 9)"
+      },
+      {
+        "date": "2026-07-18 13:02:05 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "Firing exit handlers for 61122 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:jetsam(1) code:idle-exit(9)>>"
+      },
+      {
+        "date": "2026-07-18 13:02:05 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "[osservice<com.apple.itunescloudd>:61122] Process exited: <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:jetsam(1) code:idle-exit(9)>>."
+      },
+      {
+        "date": "2026-07-18 13:02:05 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "531091.719 memorystatus: killing_idle_process pid 61630 [gamed] (sustained-memory-pressure 0) 6736KB - memorystatus_available_pages: 53918 compressor_size:67536"
+      },
+      {
+        "date": "2026-07-18 13:02:05 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-18 13:02:05 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-18 13:02:05 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process gamed [61630] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-18 13:02:05 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "BB7AECFA-6A61-4634-9B52-786BFA739B26 monitor: got an update with info exited, exit reason namespace=1 code=9"
+      },
+      {
+        "date": "2026-07-18 13:02:05 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.gamed>:61630] termination reported by launchd (1, 9, 9)"
+      },
+      {
+        "date": "2026-07-18 13:02:06 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "531092.224 memorystatus: killing_idle_process pid 61757 [countryd] (sustained-memory-pressure 0) 1680KB - memorystatus_available_pages: 54114 compressor_size:67534"
+      },
+      {
+        "date": "2026-07-18 13:02:06 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-18 13:02:06 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-18 13:02:06 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process countryd [61757] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-18 13:02:09 +0000",
+        "process": "wifid",
+        "level": "notice",
+        "message": "__WiFiServerClientTerminationCallback: Client routined terminated, cleanup state"
+      },
+      {
+        "date": "2026-07-18 13:02:09 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "531095.243 memorystatus: killing_idle_process pid 60929 [routined] (sustained-memory-pressure 0) 6784KB - memorystatus_available_pages: 55601 compressor_size:67375"
+      },
+      {
+        "date": "2026-07-18 13:02:09 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-18 13:02:09 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-18 13:02:09 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process routined [60929] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-18 13:02:09 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "194DEA45-049B-4FA6-8D82-5455074BEECD monitor: got an update with info exited, exit reason namespace=1 code=9"
+      },
+      {
+        "date": "2026-07-18 13:02:09 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.routined>:60929] termination reported by launchd (1, 9, 9)"
+      },
+      {
+        "date": "2026-07-18 13:02:09 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "531095.747 memorystatus: killing_idle_process pid 61151 [nearbyd] (sustained-memory-pressure 0) 3664KB - memorystatus_available_pages: 55723 compressor_size:67299"
+      },
+      {
+        "date": "2026-07-18 13:02:09 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-18 13:02:09 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-18 13:02:09 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process nearbyd [61151] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-18 13:02:09 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "5EE08EE0-CA75-4CA7-AAE3-E9F71114E429 monitor: got an update with info exited, exit reason namespace=1 code=9"
+      },
+      {
+        "date": "2026-07-18 13:02:09 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.nearbyd>:61151] termination reported by launchd (1, 9, 9)"
+      },
+      {
+        "date": "2026-07-18 13:02:10 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "531096.251 memorystatus: killing_idle_process pid 61792 [photoanalysisd] (sustained-memory-pressure 0) 4144KB - memorystatus_available_pages: 55816 compressor_size:67254"
+      },
+      {
+        "date": "2026-07-18 13:02:10 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-18 13:02:10 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-18 13:02:10 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process photoanalysisd [61792] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-18 13:02:10 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "531096.755 memorystatus: killing_idle_process pid 61811 [FinHealthXPCServices] (sustained-memory-pressure 0) 1920KB - memorystatus_available_pages: 55856 compressor_size:67220"
+      },
+      {
+        "date": "2026-07-18 13:02:10 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-18 13:02:10 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-18 13:02:10 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process FinHealthXPCServices [61811] killed by jetsam reason sustained-memory-pressure"
+      }
+    ]
+  },
+  "polls": [
+    {
+      "t": 31.64,
+      "ac_runtime_n": 74,
+      "ac_last": "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 62062
+    },
+    {
+      "t": 32.46,
+      "ac_runtime_n": 74,
+      "ac_last": "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 62062
+    },
+    {
+      "t": 33.11,
+      "ac_runtime_n": 74,
+      "ac_last": "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 62062
+    },
+    {
+      "t": 33.84,
+      "ac_runtime_n": 74,
+      "ac_last": "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 62062
+    },
+    {
+      "t": 34.62,
+      "ac_runtime_n": 74,
+      "ac_last": "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 62062
+    },
+    {
+      "t": 35.42,
+      "ac_runtime_n": 74,
+      "ac_last": "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 62062
+    },
+    {
+      "t": 36.11,
+      "ac_runtime_n": 74,
+      "ac_last": "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 62062
+    },
+    {
+      "t": 36.88,
+      "ac_runtime_n": 74,
+      "ac_last": "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 62062
+    },
+    {
+      "t": 37.57,
+      "ac_runtime_n": 74,
+      "ac_last": "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 62062
+    },
+    {
+      "t": 38.22,
+      "ac_runtime_n": 74,
+      "ac_last": "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 62062
+    },
+    {
+      "t": 39.0,
+      "ac_runtime_n": 74,
+      "ac_last": "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 62062
+    },
+    {
+      "t": 39.72,
+      "ac_runtime_n": 74,
+      "ac_last": "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 62062
+    }
+  ],
+  "sync": {
+    "sha": "0a5a08a",
+    "probe_last_line": "2026-07-18 21:02:00 | hypothesis_AC aj_keep_inThread=1 main=1 inv=0 pid=62062 up=531199921 mem=6",
+    "aj_last_runtime": "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "aj_runtime": [
+      "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_allwindows_skip main=0",
+      "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_keywindow_skip main=0",
+      "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_allwindows_skip main=0",
+      "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_keywindow_skip main=0",
+      "2026-07-18 21:01:59 | hypothesis_AC pre_invoke_orig target=TextRPageContainer main=1 inv=1 pid=61973 up=531199022 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC ag_bg_hb i=0 main=0 inv=1 pid=61973 up=531199022 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC invoke_orig_returned target=TextRPageContainer main=1 inv=1 pid=61973 up=531199023 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC swcf_enter leaf=0 main=0 inv=1 pid=61973 up=531199023 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC ai_main_rl_observer_ok main=1 inv=1 pid=61973 up=531199023 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC swcf_exit leaf=0 len=111 nil=0 main=0 inv=1 pid=61973 up=531199024 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC cb_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 self=BookQueryManager main=0 inv=1 pid=61973 up=531199024 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC cb_precheck_gate_resp nil=0 len=111 self=BookQueryManager main=0 next=0x10253e1d4 main=0 inv=1 pid=61973 up=531199024 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC post_invoke_gates_done main=1 inv=1 pid=61973 up=531199024 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC qf_dispatch_inject_inThread action=chapterContent main=0 inv=1 pid=61973 up=531199024 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC check_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 cfg=1 ui=1 self=BookQueryManager qsrc=localSourceText respCls=__NSCFString main=0 inv=1 pid=61973 up=531199025 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC post_invoke_z_probe_done main=1 inv=1 pid=61973 up=531199025 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC check_exit ok=1 main=0 inv=1 pid=61973 up=531199025 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC format_enter respLen=111 action=chapterContent dontFormat=0 main=0 inv=1 pid=61973 up=531199025 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC await_native_chain main=1 inv=1 pid=61973 up=531199025 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread main=0 inv=1 pid=61973 up=531199025 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC invoke_reentry_cleared main=1 inv=1 pid=61973 up=531199026 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC format_exit outNil=0 outLen=107 outCls=__NSCFString main=0 inv=1 pid=61973 up=531199026 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC invoke_state_idle main=1 inv=1 pid=61973 up=531199026 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC qf_enter self=TextRPageContainer respLen=107 action=chapterContent respCls=__NSCFString main=0 inv=1 pid=61973 up=531199026 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC aj_main_drain_enqueue main=1 inv=1 pid=61973 up=531199026 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC ag_post_qf main=0 inv=1 pid=61973 up=531199027 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC qf_exit main=0 inv=1 pid=61973 up=531199027 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread main=0 inv=1 pid=61973 up=531199053 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC cb_precheck_gate_check_seen main=0 inv=1 pid=61973 up=531199054 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC cb_exit main=0 inv=1 pid=61973 up=531199054 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=61973 up=531199129 mem=42",
+      "2026-07-18 21:01:59 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=61973 up=531199234 mem=42",
+      "2026-07-18 21:01:59 | hypothesis_AC ag_bg_hb i=1 main=0 inv=1 pid=61973 up=531199290 mem=43",
+      "2026-07-18 21:01:59 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=61973 up=531199339 mem=43",
+      "2026-07-18 21:01:59 | hypothesis_AC ai_main_block_pc r=2 pc=198481318 lr=b6a1f81984810cc main=0 inv=1 pid=61973 up=531199340 mem=43",
+      "2026-07-18 21:02:00 | hypothesis_AC ai_hook_windows_ok main=1 inv=0 pid=62062 up=531199910 mem=6",
+      "2026-07-18 21:02:00 | hypothesis_AC ag_keep_inThread=1 main=1 inv=0 pid=62062 up=531199921 mem=6",
+      "2026-07-18 21:02:00 | hypothesis_AC ai_keep_inThread=1 main=1 inv=0 pid=62062 up=531199921 mem=6",
+      "2026-07-18 21:02:00 | hypothesis_AC aj_keep_inThread=1 main=1 inv=0 pid=62062 up=531199921 mem=6",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC pre_invoke_orig target=TextRPageContainer | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC ag_bg_hb i=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC invoke_orig_returned target=TextRPageContainer | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC swcf_enter leaf=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_rl_observer_ok | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC swcf_exit leaf=0 len=111 nil=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC cb_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 self=BookQueryManager | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC cb_precheck_gate_resp nil=0 len=111 self=BookQueryManager main=0 next=0x10253e1d4 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC post_invoke_gates_done | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC qf_dispatch_inject_inThread action=chapterContent | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC check_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 cfg=1 ui=1 self=BookQueryManager qsrc=localSourceText respCls=__NSCFString | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC post_invoke_z_probe_done | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC check_exit ok=1 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC format_enter respLen=111 action=chapterContent dontFormat=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC await_native_chain | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC invoke_reentry_cleared | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC format_exit outNil=0 outLen=107 outCls=__NSCFString | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC invoke_state_idle | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC qf_enter self=TextRPageContainer respLen=107 action=chapterContent respCls=__NSCFString | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC aj_main_drain_enqueue | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC ag_post_qf | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC qf_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC cb_precheck_gate_check_seen | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC cb_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC ag_bg_hb i=1 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_block_pc r=2 pc=198481318 lr=b6a1f81984810cc | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:02:00 +0000 | hypothesis_AC ai_hook_windows_ok | state=idle token=- ch=- inv=0",
+      "2026-07-18 13:02:00 +0000 | hypothesis_AC ag_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "2026-07-18 13:02:00 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "2026-07-18 13:02:00 +0000 | hypothesis_AC aj_keep_inThread=1 | state=idle token=- ch=- inv=0"
+    ],
+    "aj_bg_skip": [
+      "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_allwindows_skip main=0",
+      "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_keywindow_skip main=0",
+      "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_allwindows_skip main=0",
+      "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_keywindow_skip main=0"
+    ],
+    "aj_main_drain": [
+      "2026-07-18 21:01:59 | hypothesis_AC aj_main_drain_enqueue main=1 inv=1 pid=61973 up=531199026 mem=41",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC aj_main_drain_enqueue | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+    ],
+    "ai_main_drain": [],
+    "ai_main_watch_tail": [
+      "2026-07-18 21:01:59 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=61973 up=531199129 mem=42",
+      "2026-07-18 21:01:59 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=61973 up=531199234 mem=42",
+      "2026-07-18 21:01:59 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=61973 up=531199339 mem=43",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+    ],
+    "ai_bg_uikit": [],
+    "qf_dispatch_gates": [
+      "2026-07-18 21:01:59 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread main=0 inv=1 pid=61973 up=531199025 mem=41",
+      "2026-07-18 21:01:59 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread main=0 inv=1 pid=61973 up=531199053 mem=41",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-18 13:01:59 +0000 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+    ],
+    "has_qf": true,
+    "qf_n": 2,
+    "has_qf_enter": true,
+    "has_qf_exit": true,
+    "qf_main": false,
+    "has_main_pulse": false,
+    "has_aj_main_drain": true,
+    "has_aj_main_pulse": false,
+    "has_ai_main_drain": false,
+    "has_aj_skip": true,
+    "has_async_plus": false,
+    "pids": [
+      "61973",
+      "62062"
+    ],
+    "pid0": 61973,
+    "pid1": 62062,
+    "pid_stable": false,
+    "probe_pid_stable": false,
+    "os_pid_stable": false,
+    "relaunch_after_chain": false,
+    "mid_chain_launch_app": false,
+    "has_format_enter": true,
+    "has_format_exit": true,
+    "has_cb_enter": true,
+    "has_cb_exit": true,
+    "has_inject_inThread": true,
+    "has_aj_keep_inThread": true,
+    "path_sync_inThread": true,
+    "path_async_main": false,
+    "has_fatal": false,
+    "scene_syslog_n": 3,
+    "sigsegv_n": 2,
+    "reader_foreground": true,
+    "frontmost_final": {
+      "pid": 62062,
+      "contextId": 3167902499,
+      "bundleId": "com.appbox.StandarReader",
+      "sceneIdentifier": "com.appbox.StandarReader",
+      "processName": "StandarReader",
+      "displayId": 1,
+      "name": "StandarReader"
+    },
+    "xiaoyan": {
+      "passed": false,
+      "text": "萧炎",
+      "elements": [
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 47,
+            "x": 8,
+            "width": 49,
+            "height": 44
+          },
+          "text": "整理"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 53,
+            "x": 135,
+            "width": 59,
+            "height": 32
+          },
+          "text": "书架"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 53,
+            "x": 195,
+            "width": 60,
+            "height": 32
+          },
+          "text": "发现"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 47,
+            "x": 284,
+            "width": 48,
+            "height": 44
+          },
+          "text": "搜索"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 47,
+            "x": 340,
+            "width": 42,
+            "height": 44
+          },
+          "text": "添加"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 37,
+            "x": 0,
+            "width": 390,
+            "height": 54
+          },
+          "text": "下拉可以刷新"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 91,
+            "x": 0,
+            "width": 390,
+            "height": 753
+          },
+          "text": "空列表"
+        },
+        {
+          "type": "element",
+          "clickable": true,
+          "rect": {
+            "y": 47,
+            "x": 0,
+            "width": 390,
+            "height": 44
+          }
+        }
+      ],
+      "error": null
+    },
+    "ui_texts": [
+      "整理",
+      "书架",
+      "发现",
+      "搜索",
+      "添加",
+      "下拉可以刷新",
+      "空列表"
+    ],
+    "decision": {
+      "branch": "pid_changed",
+      "action": "pid 不稳；对照 syslog UIWindowScene/SIGSEGV",
+      "commit": false
+    },
+    "first_chapter_approved": false,
+    "syslog_kill_hits_n": 80
+  },
+  "decision": {
+    "branch": "pid_changed",
+    "action": "pid 不稳；对照 syslog UIWindowScene/SIGSEGV",
+    "commit": false
+  },
+  "first_chapter_approved": false,
+  "reader_foreground": true
+}

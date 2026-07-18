@@ -1,0 +1,293 @@
+{
+  "sha": "0a5a08a",
+  "pid0": 61973,
+  "pid1": 62062,
+  "conclusion": "pid 不稳；对照 syslog UIWindowScene/SIGSEGV",
+  "mid_chain_launch_app": false,
+  "hits": [
+    {
+      "date": "2026-07-18 13:01:58 +0000",
+      "process": "StandarReader",
+      "level": "notice",
+      "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+    },
+    {
+      "date": "2026-07-18 13:01:58 +0000",
+      "process": "StandarReader",
+      "level": "notice",
+      "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+    },
+    {
+      "date": "2026-07-18 13:01:58 +0000",
+      "process": "StandarReader",
+      "level": "notice",
+      "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "531085.161 memorystatus: killing_idle_process pid 61960 [fitcored] (sustained-memory-pressure 0) 6064KB - memorystatus_available_pages: 50454 compressor_size:68436"
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "UserEventAgent",
+      "level": "notice",
+      "message": "kernel jetsam snapshot note received"
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "37F7FFA2-D67A-4C23-B658-43863429572E monitor: got an update with info exited, exit reason namespace=1 code=9"
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Attempting to write jetsam report"
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Process fitcored [61960] killed by jetsam reason sustained-memory-pressure"
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[osservice<com.apple.fitcore>:61960] termination reported by launchd (1, 9, 9)"
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "UserEventAgent",
+      "level": "notice",
+      "message": "kernel jetsam snapshot note received"
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "531085.665 memorystatus: killing_idle_process pid 61110 [profiled] (sustained-memory-pressure 0) 3649KB - memorystatus_available_pages: 50455 compressor_size:68406"
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Attempting to write jetsam report"
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Process profiled [61110] killed by jetsam reason sustained-memory-pressure"
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "816502FE-F383-441C-9F78-36479D1215E7 monitor: got an update with info exited, exit reason namespace=1 code=9"
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[osservice<com.apple.managedconfiguration.profiled>:61110] termination reported by launchd (1, 9, 9)"
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "StandarReader[61973] Corpse allowed 1 of 5"
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update(enter): pid 62061, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+    },
+    {
+      "date": "2026-07-18 13:01:59 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update: init: limit on pid 62061 (-1MB F ) targeting priority(210) dirty?=0x0"
+    },
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "B3C74654-16D2-40C9-9558-A184AA3BF12B monitor: got an update with info exited, exit reason namespace=2 code=11"
+    },
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:61973] termination reported by launchd (2, 11, 11)"
+    },
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "Firing exit handlers for 61973 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+    },
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:61973] Process exited: <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>."
+    },
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "wifid",
+      "level": "notice",
+      "message": "-[WiFiUserInteractionMonitor setApplicationRunningState:foregroundState:andNetworkingState:forBundleId:]: com.appbox.StandarReader exited"
+    },
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "observedProcessStatesDidChange"
+    },
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "Received state update for 61973"
+    },
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "observedProcessStatesDidChange"
+    },
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "Received state update for 61973"
+    },
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "531086130342625: <private>"
+    },
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "/System/Library/CoreServices/ReportCrash[62061] ==> (apply-protobox)"
+    },
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update(enter): pid 62061, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+    },
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update: init: limit on pid 62061 (-1MB F ) targeting priority(210) dirty?=0x0"
+    },
+    {
+      "date": "2026-07-18 13:02:04 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "531090.202 memorystatus: killing_idle_process pid 61081 [ScreenTimeAgent] (sustained-memory-pressure 0) 5904KB - memorystatus_available_pages: 52968 compressor_size:67812"
+    },
+    {
+      "date": "2026-07-18 13:02:04 +0000",
+      "process": "UserEventAgent",
+      "level": "notice",
+      "message": "kernel jetsam snapshot note received"
+    },
+    {
+      "date": "2026-07-18 13:02:04 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Attempting to write jetsam report"
+    },
+    {
+      "date": "2026-07-18 13:02:04 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Process ScreenTimeAgent [61081] killed by jetsam reason sustained-memory-pressure"
+    },
+    {
+      "date": "2026-07-18 13:02:04 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "531090.709 memorystatus: killing_idle_process pid 61641 [atc] (sustained-memory-pressure 0) 6400KB - memorystatus_available_pages: 53254 compressor_size:67747"
+    },
+    {
+      "date": "2026-07-18 13:02:04 +0000",
+      "process": "UserEventAgent",
+      "level": "notice",
+      "message": "kernel jetsam snapshot note received"
+    },
+    {
+      "date": "2026-07-18 13:02:04 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Attempting to write jetsam report"
+    },
+    {
+      "date": "2026-07-18 13:02:04 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Process atc [61641] killed by jetsam reason sustained-memory-pressure"
+    },
+    {
+      "date": "2026-07-18 13:02:04 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "084B58F3-791C-4199-814C-16B53FEFB12F monitor: got an update with info exited, exit reason namespace=1 code=9"
+    }
+  ],
+  "scene_syslog": [
+    {
+      "date": "2026-07-18 13:01:58 +0000",
+      "process": "StandarReader",
+      "level": "notice",
+      "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+    },
+    {
+      "date": "2026-07-18 13:01:58 +0000",
+      "process": "StandarReader",
+      "level": "notice",
+      "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+    },
+    {
+      "date": "2026-07-18 13:01:58 +0000",
+      "process": "StandarReader",
+      "level": "notice",
+      "message": "Unsupported enumeration of UIWindowScene windows on non-main thread."
+    }
+  ],
+  "sigsegv": [
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "Firing exit handlers for 61973 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+    },
+    {
+      "date": "2026-07-18 13:02:00 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:61973] Process exited: <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>."
+    }
+  ],
+  "aj_bg_skip": [
+    "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_allwindows_skip main=0",
+    "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_keywindow_skip main=0",
+    "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_allwindows_skip main=0",
+    "2026-07-18 13:01:58 +0000 | hypothesis_AJ aj_bg_keywindow_skip main=0"
+  ],
+  "aj_main_drain": [
+    "2026-07-18 21:01:59 | hypothesis_AC aj_main_drain_enqueue main=1 inv=1 pid=61973 up=531199026 mem=41",
+    "2026-07-18 13:01:59 +0000 | hypothesis_AC aj_main_drain_enqueue | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ]
+}
