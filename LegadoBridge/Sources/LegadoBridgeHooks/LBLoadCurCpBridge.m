@@ -863,6 +863,7 @@ static void LBABInstallProbes(void) {
     LBABSyncProbe(@"install_done");
     LBABSyncProbe(@"ag_keep_inThread=1");
     LBABSyncProbe(@"ai_keep_inThread=1");
+    LBABSyncProbe(@"aj_keep_inThread=1");
 }
 
 static void LBSetState(LBLoadCurCpState next, NSString *why) {
@@ -2010,6 +2011,16 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     if (sState == LBLoadCurCpStateInvokingOriginal) {
         LBSetState(LBLoadCurCpStateIdle, @"invoke_orig_done_pending_render");
         LBABSyncProbe(@"invoke_state_idle");
+        // AJ：idle 当帧尝试唤醒 main drain（禁 QF 钩内 sync；仅 async + RunLoop wakeup）
+        LBABSyncProbe(@"aj_main_drain_enqueue");
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBABSyncProbe(@"aj_main_drain");
+            LBABSyncProbe(@"aj_main_pulse");
+        });
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), kCFRunLoopCommonModes, ^{
+            LBABSyncProbe(@"aj_main_drain_rl");
+        });
+        CFRunLoopWakeUp(CFRunLoopGetMain());
     }
 }
 

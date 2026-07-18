@@ -263,6 +263,30 @@ static void LBDumpVisibleVCTree(void) {
 
 static NSArray<UIWindow *> *LBAllAppWindows(void) {
     NSMutableArray *wins = [NSMutableArray array];
+    // AJ：非主线程禁止枚举 UIWindowScene.windows（与 LBLegadoKeyWindow 同根因）
+    if (![NSThread isMainThread]) {
+        NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_ab_probe.txt"];
+        NSString *line = [NSString stringWithFormat:
+                          @"%@ | hypothesis_AJ aj_bg_allwindows_skip main=0\n", [NSDate date]];
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+        if (!fh) {
+            [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        } else {
+            [fh seekToEndOfFile];
+            [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+            [fh synchronizeFile];
+            [fh closeFile];
+        }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        for (UIWindow *w in UIApplication.sharedApplication.windows) {
+            if (w && ![wins containsObject:w]) [wins addObject:w];
+        }
+#pragma clang diagnostic pop
+        UIWindow *key = LBLegadoKeyWindow();
+        if (key && ![wins containsObject:key]) [wins addObject:key];
+        return wins;
+    }
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:[UIWindowScene class]]) continue;
