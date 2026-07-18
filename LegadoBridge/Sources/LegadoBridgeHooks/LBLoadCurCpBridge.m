@@ -672,27 +672,32 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
         // 不是 fat 字典键。W 之后最先挡住的字段是 book[@"_useSName"]：
         // sourceName 实参恒 nil（@0x100060ec0），length==0 → @0x100061204 返
         // 「没有使用中的站点」。
-        NSString *useSName = nil;
+        // 假设 Y（形态校正，非仅 keys）：138bfb5/7b52bfb 虽 sourceILKeys=1 仍无 QF。
+        // 真机 useSNameLen=7 = dicBook.sourceName「本地静态测试源」；越过后
+        // @0x100061500 [useSName hasPrefix:@"localSource"] 失败，落入站点注册表分支
+        // 而非本地 xsfolder。LBSeedConfirmedCache 写的文件名是 localSourceText，
+        // 故强制 _useSName=localSourceText，并种 _sourceIL[localSourceText]=
+        // bookShelf.plist 形 {_lCTime,lastChapterTitle}。本地 chapterContent 块
+        // @0x100061808 还读 queryInfo[@"url"] → 补 arrCatalog.url（cpIndex 文件名）。
+        NSString *prevUse = nil;
         if ([fat[@"_useSName"] isKindOfClass:[NSString class]] &&
             [fat[@"_useSName"] length] > 0) {
-            useSName = fat[@"_useSName"];
+            prevUse = fat[@"_useSName"];
         } else if ([dicBook[@"_useSName"] isKindOfClass:[NSString class]] &&
                    [dicBook[@"_useSName"] length] > 0) {
-            useSName = dicBook[@"_useSName"];
+            prevUse = dicBook[@"_useSName"];
         } else if ([dicBook[@"sourceName"] isKindOfClass:[NSString class]] &&
                    [dicBook[@"sourceName"] length] > 0) {
-            useSName = dicBook[@"sourceName"];
+            prevUse = dicBook[@"sourceName"];
         } else if ([payload[@"sourceName"] isKindOfClass:[NSString class]] &&
                    [payload[@"sourceName"] length] > 0) {
-            useSName = payload[@"sourceName"];
-        } else {
-            // 与 LBSeedConfirmedCache / bookShelf.plist 本地文本源对齐
-            useSName = @"localSourceText";
+            prevUse = payload[@"sourceName"];
+        }
+        NSString *useSName = @"localSourceText";
+        if ([prevUse hasPrefix:@"localSource"] && [prevUse length] > 0) {
+            useSName = prevUse;
         }
         fat[@"_useSName"] = useSName;
-        // 假设 Y：X 后 sourceILKeys=0 → @0x100061254「站点没有这本书」
-        // （fat[@"_sourceIL"][useSName] 缺失）。对照 bookShelf.plist 文本源条目，
-        // 仅种 _sourceIL[useSName]={_lCTime,lastChapterTitle}，不叠种 arrCatalog。
         NSMutableDictionary *sourceIL = nil;
         id sil = fat[@"_sourceIL"];
         if ([sil isKindOfClass:[NSMutableDictionary class]]) {
@@ -702,10 +707,19 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
         } else {
             sourceIL = [NSMutableDictionary dictionary];
         }
+        // 清掉非 localSource* 键（如「本地静态测试源」），避免 keys>=1 但查错键
+        if (prevUse.length > 0 && ![prevUse hasPrefix:@"localSource"] &&
+            sourceIL[prevUse] != nil) {
+            [sourceIL removeObjectForKey:prevUse];
+        }
         if (![sourceIL[useSName] isKindOfClass:[NSDictionary class]]) {
             NSString *lastTitle = title;
             if ([dicBook[@"_sourceIL"] isKindOfClass:[NSDictionary class]]) {
                 id existingEntry = dicBook[@"_sourceIL"][useSName];
+                if (![existingEntry isKindOfClass:[NSDictionary class]] &&
+                    prevUse.length > 0) {
+                    existingEntry = dicBook[@"_sourceIL"][prevUse];
+                }
                 if ([existingEntry isKindOfClass:[NSDictionary class]]) {
                     id lt = existingEntry[@"lastChapterTitle"];
                     if ([lt isKindOfClass:[NSString class]] && [(NSString *)lt length] > 0) {
@@ -713,12 +727,51 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
                     }
                 }
             }
+            // 原版 bookShelf.plist 文本源站点对象形态
             sourceIL[useSName] = @{
                 @"_lCTime": @"0",
                 @"lastChapterTitle": lastTitle ?: @"",
             };
         }
         fat[@"_sourceIL"] = sourceIL;
+        // queryInfo=arrCatalog 项：本地 chapterContent 读 queryInfo[@"url"] 作相对路径
+        id catObj = nil;
+        @try { catObj = [reader valueForKey:@"arrCatalog"]; } @catch (__unused NSException *e) {}
+        if ([catObj isKindOfClass:[NSArray class]]) {
+            NSMutableArray *patched = [NSMutableArray arrayWithCapacity:[(NSArray *)catObj count]];
+            BOOL changed = NO;
+            NSInteger i = 0;
+            for (id item in (NSArray *)catObj) {
+                if (![item isKindOfClass:[NSDictionary class]]) {
+                    if (item) [patched addObject:item];
+                    i++;
+                    continue;
+                }
+                NSMutableDictionary *m = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)item];
+                if (![m[@"url"] isKindOfClass:[NSString class]] || [m[@"url"] length] == 0) {
+                    id idx = m[@"cpIndex"] ?: m[@"index"] ?: @(i);
+                    m[@"url"] = [[idx description] copy] ?: [@(i) stringValue];
+                    changed = YES;
+                }
+                if (![m[@"_useSName"] isKindOfClass:[NSString class]] ||
+                    [m[@"_useSName"] length] == 0) {
+                    m[@"_useSName"] = useSName;
+                    changed = YES;
+                }
+                [patched addObject:m];
+                i++;
+            }
+            if (changed) {
+                @try {
+                    if ([reader respondsToSelector:NSSelectorFromString(@"setArrCatalog:")]) {
+                        ((void (*)(id, SEL, id))objc_msgSend)(
+                            reader, NSSelectorFromString(@"setArrCatalog:"), patched);
+                    } else {
+                        [reader setValue:patched forKey:@"arrCatalog"];
+                    }
+                } @catch (__unused NSException *e) {}
+            }
+        }
         if ([reader respondsToSelector:NSSelectorFromString(@"setDicFatBook:")]) {
             ((void (*)(id, SEL, id))objc_msgSend)(
                 reader, NSSelectorFromString(@"setDicFatBook:"), fat);
@@ -736,9 +789,12 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
                     (unsigned long)([fat[@"_useSName"] isKindOfClass:[NSString class]]
                                     ? [fat[@"_useSName"] length] : 0)]);
         LBStateLog([NSString stringWithFormat:
-                    @"hypothesis_Y seed _sourceILKeys=%lu useSNameLen=%lu",
+                    @"hypothesis_Y seed _sourceILKeys=%lu useSNameLen=%lu "
+                    @"useSName=%@ prevUseLen=%lu localPrefix=1",
                     (unsigned long)sourceIL.count,
-                    (unsigned long)[useSName length]]);
+                    (unsigned long)[useSName length],
+                    useSName,
+                    (unsigned long)(prevUse.length)]);
     } @catch (__unused NSException *e) {
         LBStateLog(@"hypothesis_W seed_dicFatBook_failed");
     }

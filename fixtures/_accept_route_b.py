@@ -387,8 +387,8 @@ def main() -> int:
     report["task"] = "task6-ch1"
     report["hypothesis_y"] = {
         "claim": (
-            "X 后缺口：seed fat[_sourceIL][useSName]（bookShelf.plist 形），"
-            "sourceILKeys>=1，越过「站点没有这本书」，争取运行时 QF"
+            "形态校正：强制 _useSName=localSourceText（hasPrefix localSource），"
+            "_sourceIL[localSourceText]={_lCTime,lastChapterTitle}，补 queryInfo.url"
         ),
         "seed_lines": y_seed[-4:],
         "gates_use": use_gates[-4:],
@@ -414,8 +414,9 @@ def main() -> int:
         ),
         "3_install": str(report.get("install") or "")[:200],
         "4_root_cause": (
-            "Y：种 _sourceIL[useSName]={_lCTime,lastChapterTitle} 对齐 bookShelf.plist；"
-            f"sourceILKeys_ge1={sil_ge1}；QF={qf_n}"
+            "Y：138bfb5 空壳 sourceILKeys=1 仍无 QF，因 useSName=「本地静态测试源」(len=7) "
+            "不过 @0x100061500 hasPrefix:localSource；强制 localSourceText + "
+            f"bookShelf 形站点对象 + queryInfo.url；sourceILKeys_ge1={sil_ge1}；QF={qf_n}"
         ),
         "5_routeB_chain": (
             "schedule_wait_reader→reader_ready→retry_on_cache→resolve hit→"
