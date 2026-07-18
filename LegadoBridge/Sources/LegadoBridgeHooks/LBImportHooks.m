@@ -146,25 +146,6 @@ static BOOL LBAppDelegate_didFinishLaunching_IMP(id self, SEL _cmd, id applicati
 /// Scene 安全取 keyWindow：优先 foreground scene 的 isKeyWindow，再 fallback 可见 window。
 /// iOS 13+ 上 `[UIApplication sharedApplication].keyWindow` 常为 nil，会导致导入弹窗静默失败。
 void LBLegadoShowImportAlert(void) {
-    // AJ：上游不得在 bg 触达 KeyWindow→UIWindowScene.windows
-    if (![NSThread isMainThread]) {
-        NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_ab_probe.txt"];
-        NSString *line = [NSString stringWithFormat:
-                          @"%@ | hypothesis_AJ aj_bg_importalert_skip\n", [NSDate date]];
-        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
-        if (!fh) {
-            [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        } else {
-            [fh seekToEndOfFile];
-            [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-            [fh synchronizeFile];
-            [fh closeFile];
-        }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            LBLegadoShowImportAlert();
-        });
-        return;
-    }
     UIWindow *window = LBLegadoKeyWindow();
     if (!window) {
         // 冷启动窗口未就绪时短暂重试，避免弹窗静默失败

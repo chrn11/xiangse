@@ -67,45 +67,21 @@ NSArray *LBMergeLegadoNames(NSArray *orig) {
     return merged.array;
 }
 
-/// AJ：主线程缓存的 keyWindow；bg 禁止枚举 UIWindowScene.windows，仅回缓存/legacy。
-static __weak UIWindow *sLBCachedKeyWindow = nil;
-
-static void LBAJProbeLine(NSString *tag) {
-    if (tag.length == 0) return;
-    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_ab_probe.txt"];
-    NSString *line = [NSString stringWithFormat:@"%@ | %@\n", [NSDate date], tag];
-    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
-    if (!fh) {
-        [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    } else {
-        [fh seekToEndOfFile];
-        [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-        [fh synchronizeFile];
-        [fh closeFile];
-    }
-}
-
-static UIWindow *LBLegacyKeyWindowOnly(void) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    UIWindow *legacyKey = UIApplication.sharedApplication.keyWindow;
-#pragma clang diagnostic pop
-    if (legacyKey.rootViewController) return legacyKey;
-    for (UIWindow *window in UIApplication.sharedApplication.windows) {
-        if (!window.isHidden && window.alpha > 0.01 && window.rootViewController) {
-            return window;
-        }
-    }
-    return nil;
-}
-
 UIWindow *LBLegadoKeyWindow(void) {
-    // AJ：非主线程禁止枚举 UIWindowScene.windows（AI 根因 caller）
+    // AI：若栈顶见 ai_bg_uikit，可据此归因到本函数（KEEP：不改行为，仅便于对照）
     if (![NSThread isMainThread]) {
-        LBAJProbeLine(@"hypothesis_AJ aj_bg_keywindow_skip main=0");
-        UIWindow *cached = sLBCachedKeyWindow;
-        if (cached && cached.rootViewController) return cached;
-        return LBLegacyKeyWindowOnly();
+        NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_ab_probe.txt"];
+        NSString *line = [NSString stringWithFormat:
+                          @"%@ | hypothesis_AC ai_bg_tag=LBLegadoKeyWindow main=0\n", [NSDate date]];
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+        if (!fh) {
+            [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        } else {
+            [fh seekToEndOfFile];
+            [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+            [fh synchronizeFile];
+            [fh closeFile];
+        }
     }
     UIWindow *fallback = nil;
     if (@available(iOS 13.0, *)) {
@@ -119,32 +95,26 @@ UIWindow *LBLegadoKeyWindow(void) {
             UIWindowScene *windowScene = (UIWindowScene *)scene;
             for (UIWindow *window in windowScene.windows) {
                 if (window.isHidden || window.alpha <= 0.01 || !window.rootViewController) continue;
-                if (window.isKeyWindow) {
-                    sLBCachedKeyWindow = window;
-                    return window;
-                }
+                if (window.isKeyWindow) return window;
                 if (!fallback) fallback = window;
             }
         }
     }
-    if (fallback) {
-        sLBCachedKeyWindow = fallback;
-        return fallback;
+    if (fallback) return fallback;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    UIWindow *legacyKey = UIApplication.sharedApplication.keyWindow;
+#pragma clang diagnostic pop
+    if (legacyKey.rootViewController) return legacyKey;
+    for (UIWindow *window in UIApplication.sharedApplication.windows) {
+        if (!window.isHidden && window.alpha > 0.01 && window.rootViewController) {
+            return window;
+        }
     }
-    UIWindow *legacy = LBLegacyKeyWindowOnly();
-    if (legacy) sLBCachedKeyWindow = legacy;
-    return legacy;
+    return nil;
 }
 
 void LBLegadoShowResult(NSString *msg) {
-    if (![NSThread isMainThread]) {
-        LBAJProbeLine(@"hypothesis_AJ aj_bg_showresult_skip");
-        NSString *copy = [msg copy] ?: @"";
-        dispatch_async(dispatch_get_main_queue(), ^{
-            LBLegadoShowResult(copy);
-        });
-        return;
-    }
     UIWindow *window = LBLegadoKeyWindow();
     UIViewController *rootVC = window.rootViewController;
     if (!rootVC) return;
@@ -160,14 +130,6 @@ void LBLegadoShowResult(NSString *msg) {
 }
 
 void LBLegadoPresentManagerVC(NSString *focusSourceUrl) {
-    if (![NSThread isMainThread]) {
-        LBAJProbeLine(@"hypothesis_AJ aj_bg_present_manager_skip");
-        NSString *url = [focusSourceUrl copy];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            LBLegadoPresentManagerVC(url);
-        });
-        return;
-    }
     UIWindow *window = LBLegadoKeyWindow();
     if (!window) return;
     UIViewController *rootVC = window.rootViewController;
