@@ -12,7 +12,11 @@
 #import <time.h>
 #import <mach/mach.h>
 #import <mach/task_info.h>
+#import <mach/thread_act.h>
+#import <pthread.h>
 #import <stdlib.h>
+#import <CoreFoundation/CoreFoundation.h>
+#import <stdatomic.h>
 
 static void (*sOrigLoadCurCp)(id, SEL) = NULL;
 static LBLoadCurCpState sState = LBLoadCurCpStateIdle;
@@ -56,6 +60,9 @@ static long LBAGFootprintMB(void);
 static long LBAGUptimeMs(void);
 static void LBAGStartBgHeartbeat(void);
 static void LBAGInstallAtExit(void);
+static void LBAIInstallWindowSceneHook(void);
+static void LBAIStartMainBlockSampler(void);
+static void LBAIWriteLong(NSString *line);
 
 static void LBTraceLoadCurCp(NSString *msg) {
     if (msg.length == 0) return;
@@ -191,6 +198,231 @@ static void LBAGInstallAtExit(void) {
     (void)atexit(LBAGAtExitProbe);
 }
 
+/// AI：长栈写入 Documents/legado_ai_probe.txt（ab_probe 行宽不够）
+static void LBAIWriteLong(NSString *line) {
+    if (line.length == 0) return;
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_ai_probe.txt"];
+    NSString *body = [NSString stringWithFormat:@"%@ | %@\n", [NSDate date], line];
+    const char *cpath = path.fileSystemRepresentation;
+    if (!cpath) return;
+    NSData *data = [body dataUsingEncoding:NSUTF8StringEncoding];
+    if (!data.length) return;
+    int fd = open(cpath, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd < 0) return;
+    (void)write(fd, data.bytes, data.length);
+    (void)fsync(fd);
+    close(fd);
+}
+
+static NSString *LBAICompactStack(NSUInteger maxFrames) {
+    NSArray *syms = [NSThread callStackSymbols];
+    if (![syms isKindOfClass:[NSArray class]] || syms.count == 0) return @"-";
+    NSMutableArray *keep = [NSMutableArray array];
+    NSUInteger skip = 2; // 本函数 + 钩子
+    for (NSUInteger i = skip; i < syms.count && keep.count < maxFrames; i++) {
+        NSString *s = [syms[i] description];
+        if (s.length == 0) continue;
+        // 压缩：优先保留 -[Class sel] / +[Class sel] / 符号名尾
+        NSRange r1 = [s rangeOfString:@"-["];
+        NSRange r2 = [s rangeOfString:@"+["];
+        NSRange r = (r1.location != NSNotFound) ? r1 : r2;
+        if (r.location != NSNotFound) {
+            NSString *tail = [s substringFromIndex:r.location];
+            NSRange end = [tail rangeOfString:@"]"];
+            if (end.location != NSNotFound) {
+                [keep addObject:[tail substringToIndex:end.location + 1]];
+                continue;
+            }
+        }
+        if ([s containsString:@"LegadoBridge"] || [s containsString:@"StandarReader"] ||
+            [s containsString:@"LB"] || [s containsString:@"UIKit"] ||
+            [s containsString:@"UIWindowScene"]) {
+            NSArray *parts = [s componentsSeparatedByCharactersInSet:
+                              [NSCharacterSet whitespaceCharacterSet]];
+            NSMutableArray *nz = [NSMutableArray array];
+            for (NSString *p in parts) {
+                if (p.length) [nz addObject:p];
+            }
+            if (nz.count >= 4) {
+                [keep addObject:nz.lastObject];
+            } else if (s.length > 80) {
+                [keep addObject:[s substringFromIndex:s.length - 80]];
+            } else {
+                [keep addObject:s];
+            }
+        }
+    }
+    if (keep.count == 0) {
+        // fallback：前 maxFrames 原始行截断
+        for (NSUInteger i = skip; i < syms.count && keep.count < maxFrames; i++) {
+            NSString *s = [syms[i] description];
+            if (s.length > 100) s = [s substringToIndex:100];
+            [keep addObject:s ?: @"?"];
+        }
+    }
+    return [keep componentsJoinedByString:@" < "];
+}
+
+static NSArray *(*sAINextWindows)(id, SEL) = NULL;
+static atomic_int sAIWindowsHooked = 0;
+static atomic_int sAIBgWindowsHit = 0;
+static atomic_int sAIMainDrainSeen = 0;
+static atomic_int sAIMainRlBeforeWaiting = 0;
+static atomic_int sAIMainRlBeforeSources = 0;
+static atomic_int sAIMainSamplerStarted = 0;
+static CFRunLoopObserverRef sAIRunLoopObs = NULL;
+
+static NSArray *LBAI_Windows(id self, SEL _cmd) {
+    if (![NSThread isMainThread]) {
+        int n = atomic_fetch_add(&sAIBgWindowsHit, 1) + 1;
+        if (n <= 12) {
+            NSString *stack = LBAICompactStack(14);
+            NSString *th = [NSThread currentThread].name ?: @"?";
+            LBABSyncProbe([NSString stringWithFormat:
+                           @"ai_bg_uikit sel=windows hit=%d th=%@", n, th]);
+            LBAIWriteLong([NSString stringWithFormat:
+                           @"ai_bg_uikit sel=windows hit=%d th=%@ stack=%@",
+                           n, th, stack]);
+        }
+    }
+    return sAINextWindows ? sAINextWindows(self, _cmd) : @[];
+}
+
+static void LBAIInstallWindowSceneHook(void) {
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&sAIWindowsHooked, &expected, 1)) return;
+    Class cls = NSClassFromString(@"UIWindowScene");
+    if (!cls) {
+        LBABSyncProbe(@"ai_hook_windows_missing_class");
+        atomic_store(&sAIWindowsHooked, 0);
+        return;
+    }
+    SEL sel = @selector(windows);
+    Method m = class_getInstanceMethod(cls, sel);
+    if (!m) {
+        LBABSyncProbe(@"ai_hook_windows_missing_sel");
+        atomic_store(&sAIWindowsHooked, 0);
+        return;
+    }
+    IMP cur = method_getImplementation(m);
+    if (cur == (IMP)LBAI_Windows) {
+        LBABSyncProbe(@"ai_hook_windows_already");
+        return;
+    }
+    sAINextWindows = (NSArray *(*)(id, SEL))cur;
+    method_setImplementation(m, (IMP)LBAI_Windows);
+    LBABSyncProbe(@"ai_hook_windows_ok");
+}
+
+static void LBAIRunLoopObserver(CFRunLoopObserverRef obs, CFRunLoopActivity activity, void *info) {
+    (void)obs; (void)info;
+    if (activity == kCFRunLoopBeforeWaiting) {
+        atomic_fetch_add(&sAIMainRlBeforeWaiting, 1);
+    } else if (activity == kCFRunLoopBeforeSources) {
+        atomic_fetch_add(&sAIMainRlBeforeSources, 1);
+    }
+}
+
+static void LBAIEnsureRunLoopObserver(void) {
+    if (sAIRunLoopObs) return;
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ LBAIEnsureRunLoopObserver(); });
+        return;
+    }
+    if (sAIRunLoopObs) return;
+    sAIRunLoopObs = CFRunLoopObserverCreate(kCFAllocatorDefault,
+                                            kCFRunLoopBeforeWaiting | kCFRunLoopBeforeSources,
+                                            true, 0, LBAIRunLoopObserver, NULL);
+    if (sAIRunLoopObs) {
+        CFRunLoopAddObserver(CFRunLoopGetMain(), sAIRunLoopObs, kCFRunLoopCommonModes);
+        LBABSyncProbe(@"ai_main_rl_observer_ok");
+    } else {
+        LBABSyncProbe(@"ai_main_rl_observer_fail");
+    }
+}
+
+/// AI：从 bg 看 main 是否排空；若未排空则尝试挂起主线程读 LR/PC（符号靠 ai_probe 关联）
+static void LBAISampleMainThreadPC(int round) {
+    if ([NSThread isMainThread]) return;
+    mach_port_t mainTh = pthread_mach_thread_np(pthread_main_thread_np());
+    if (mainTh == MACH_PORT_NULL) return;
+    if (thread_suspend(mainTh) != KERN_SUCCESS) {
+        LBABSyncProbe([NSString stringWithFormat:@"ai_main_sample_suspend_fail r=%d", round]);
+        return;
+    }
+#if defined(__aarch64__)
+    arm_thread_state64_t state;
+    mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
+    kern_return_t kr = thread_get_state(mainTh, ARM_THREAD_STATE64,
+                                        (thread_state_t)&state, &count);
+    if (kr == KERN_SUCCESS) {
+        uint64_t pc = arm_thread_state64_get_pc(state);
+        uint64_t lr = arm_thread_state64_get_lr(state);
+        uint64_t fp = arm_thread_state64_get_fp(state);
+        Dl_info di = {0}, di2 = {0};
+        const char *sym = "?";
+        const char *sym2 = "?";
+        if (dladdr((void *)(uintptr_t)pc, &di) && di.dli_sname) sym = di.dli_sname;
+        if (dladdr((void *)(uintptr_t)lr, &di2) && di2.dli_sname) sym2 = di2.dli_sname;
+        LBABSyncProbe([NSString stringWithFormat:
+                       @"ai_main_block_pc r=%d pc=%llx lr=%llx",
+                       round, (unsigned long long)pc, (unsigned long long)lr]);
+        LBAIWriteLong([NSString stringWithFormat:
+                       @"ai_main_block_pc r=%d pc=%llx(%s) lr=%llx(%s) fp=%llx wait=%d src=%d drain=%d",
+                       round,
+                       (unsigned long long)pc, sym,
+                       (unsigned long long)lr, sym2,
+                       (unsigned long long)fp,
+                       atomic_load(&sAIMainRlBeforeWaiting),
+                       atomic_load(&sAIMainRlBeforeSources),
+                       atomic_load(&sAIMainDrainSeen)]);
+    } else {
+        LBABSyncProbe([NSString stringWithFormat:@"ai_main_sample_state_fail r=%d kr=%d", round, (int)kr]);
+    }
+#else
+    LBABSyncProbe([NSString stringWithFormat:@"ai_main_sample_skip_arch r=%d", round]);
+#endif
+    (void)thread_resume(mainTh);
+}
+
+static void LBAIStartMainBlockSampler(void) {
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&sAIMainSamplerStarted, &expected, 1)) return;
+    LBAIEnsureRunLoopObserver();
+    atomic_store(&sAIMainDrainSeen, 0);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        atomic_store(&sAIMainDrainSeen, 1);
+        LBABSyncProbe([NSString stringWithFormat:
+                       @"ai_main_drain_slot wait=%d src=%d",
+                       atomic_load(&sAIMainRlBeforeWaiting),
+                       atomic_load(&sAIMainRlBeforeSources)]);
+    });
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        for (int i = 0; i < 25; i++) {
+            usleep(100000); // 100ms
+            int drained = atomic_load(&sAIMainDrainSeen);
+            int waitN = atomic_load(&sAIMainRlBeforeWaiting);
+            int srcN = atomic_load(&sAIMainRlBeforeSources);
+            LBABSyncProbe([NSString stringWithFormat:
+                           @"ai_main_watch i=%d drain=%d wait=%d src=%d bgWin=%d",
+                           i, drained, waitN, srcN, atomic_load(&sAIBgWindowsHit)]);
+            if (!drained && (i == 2 || i == 5 || i == 10 || i == 15)) {
+                LBAISampleMainThreadPC(i);
+            }
+            if (drained && waitN > 0) {
+                LBABSyncProbe([NSString stringWithFormat:@"ai_main_watch_done i=%d", i]);
+                break;
+            }
+        }
+        LBABSyncProbe([NSString stringWithFormat:
+                       @"ai_main_watch_end drain=%d wait=%d src=%d bgWin=%d",
+                       atomic_load(&sAIMainDrainSeen),
+                       atomic_load(&sAIMainRlBeforeWaiting),
+                       atomic_load(&sAIMainRlBeforeSources),
+                       atomic_load(&sAIBgWindowsHit)]);
+    });
+}
+
 static void LBABOnFatalSignal(int sig) {
     char mark[80];
     int n = snprintf(mark, sizeof(mark), "hypothesis_AC fatal_signal SIG=%d\n", sig);
@@ -219,6 +451,15 @@ static void LBABInstallSignalProbes(void) {
     signal(SIGABRT, LBABOnFatalSignal);
     signal(SIGTRAP, LBABOnFatalSignal);
     signal(SIGILL, LBABOnFatalSignal);
+}
+
+/// AI：尽早挂 UIWindowScene.windows，覆盖 invoke 前窗口
+__attribute__((constructor))
+static void LBAIConstructor(void) {
+    // UIKit 类可能尚未就绪；失败时 LBABInstallProbes 会重试
+    @autoreleasepool {
+        LBAIInstallWindowSceneHook();
+    }
 }
 
 /// 若当前 IMP 是 forensics observer 桩，剥到其 orig，避免 next=forensics 且 orig=AB 成环
@@ -503,6 +744,7 @@ static id LBAB_StringWithContents(id self, SEL _cmd, id path, NSUInteger enc, NS
 static void LBABInstallProbes(void) {
     LBABInstallSignalProbes();
     LBAGInstallAtExit();
+    LBAIInstallWindowSceneHook();
     // 只装一次：invoke 前反复 setImplementation 会把 next 指到 forensics 桩并成环
     if (sABHooksInstalled) return;
 
@@ -613,6 +855,7 @@ static void LBABInstallProbes(void) {
     sABHooksInstalled = YES;
     LBABSyncProbe(@"install_done");
     LBABSyncProbe(@"ag_keep_inThread=1");
+    LBABSyncProbe(@"ai_keep_inThread=1");
 }
 
 static void LBSetState(LBLoadCurCpState next, NSString *why) {
@@ -1708,6 +1951,8 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     @try {
         sOrigLoadCurCp(container, @selector(loadCurCp));
         LBABSyncProbe([NSString stringWithFormat:@"invoke_orig_returned target=%@", containerName]);
+        // AI：invoke 返回后立刻采样主队列是否排空 / 主线程 PC
+        LBAIStartMainBlockSampler();
         LBStateLog([NSString stringWithFormat:@"invoke_orig_OK target=%@", containerName]);
         LBTraceLoadCurCp(@"ORIG loadCurCp OK");
         LBLogLoadCurCpGates(reader, container, @"post_invoke_routeB");

@@ -68,6 +68,21 @@ NSArray *LBMergeLegadoNames(NSArray *orig) {
 }
 
 UIWindow *LBLegadoKeyWindow(void) {
+    // AI：若栈顶见 ai_bg_uikit，可据此归因到本函数（KEEP：不改行为，仅便于对照）
+    if (![NSThread isMainThread]) {
+        NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_ab_probe.txt"];
+        NSString *line = [NSString stringWithFormat:
+                          @"%@ | hypothesis_AC ai_bg_tag=LBLegadoKeyWindow main=0\n", [NSDate date]];
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+        if (!fh) {
+            [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        } else {
+            [fh seekToEndOfFile];
+            [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+            [fh synchronizeFile];
+            [fh closeFile];
+        }
+    }
     UIWindow *fallback = nil;
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {

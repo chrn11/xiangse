@@ -5,6 +5,10 @@
 #import <objc/message.h>
 #import <pthread.h>
 #import <dlfcn.h>
+#import <fcntl.h>
+#import <unistd.h>
+#import <stdio.h>
+#import <time.h>
 
 extern NSString *LBForensicsPointer(id obj);
 extern NSString *LBForensicsUTCNowString(void);
@@ -47,6 +51,32 @@ static NSString *LBFOrigKey(NSString *owner, NSString *sel) {
 static NSString *LBFThreadLabel(void) {
     if ([NSThread isMainThread]) return @"main";
     return [NSString stringWithFormat:@"bg-%@", [NSThread currentThread].name ?: @"?"];
+}
+
+/// AI：forensics 侧短探针（与 legado_ab_probe 同行格式，便于验收扫）
+static void LBFAISyncProbe(NSString *tag) {
+    if (tag.length == 0) return;
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_ab_probe.txt"];
+    const char *cpath = path.fileSystemRepresentation;
+    if (!cpath) return;
+    char buf[512];
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    int n = snprintf(buf, sizeof(buf),
+                     "%04d-%02d-%02d %02d:%02d:%02d | hypothesis_AC %s main=%d\n",
+                     tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                     tm.tm_hour, tm.tm_min, tm.tm_sec,
+                     tag.UTF8String ?: "?",
+                     [NSThread isMainThread] ? 1 : 0);
+    if (n <= 0) return;
+    if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
+    int fd = open(cpath, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        (void)write(fd, buf, (size_t)n);
+        (void)fsync(fd);
+        close(fd);
+    }
 }
 
 static NSString *LBFShapeOfObject(id obj) {
@@ -115,6 +145,9 @@ static BOOL LBFVCHierarchyContains(UIViewController *root, UIViewController *tar
 }
 
 static NSDictionary *LBFGatherAutoDumpUIHints(id triggerVC) {
+    if (![NSThread isMainThread]) {
+        LBFAISyncProbe(@"ai_bg_tag=LBFGatherAutoDumpUIHints");
+    }
     NSMutableDictionary *hints = [NSMutableDictionary dictionary];
     NSString *triggerClass = LBFShapeOfObject(triggerVC);
     hints[@"triggerVC"] = @{
@@ -801,6 +834,8 @@ void LBForensicsInstallEarlyWrap(void) {
 
 void LBForensicsInstallObservers(void) {
     if (![NSThread isMainThread]) {
+        // AI：此路径会 dispatch_sync(main)，若 main 正等本线程则死锁
+        LBFAISyncProbe(@"ai_bg_tag=ForensicsInstallObservers_sync_main");
         dispatch_sync(dispatch_get_main_queue(), ^{
             LBFInstallObserverHooks();
         });
