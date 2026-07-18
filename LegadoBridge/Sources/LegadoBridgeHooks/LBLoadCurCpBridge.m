@@ -578,9 +578,11 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
             if (n > 0) cpCount = n;
         } @catch (__unused NSException *e) {}
         LBSetIntegerKey(pageModel, @"nCpCount", (NSInteger)cpCount);
-        LBSetIntegerKey(pageModel, @"pageStatus", 0);
+        // 假设 V：loadCurCp @0x1000d7d8c 为 cmp pageStatus,#3；!=3 则 epilogue 早退，
+        // 永不进入 queryCpFileByBook（chain-msg + 反汇编 confirmed）。R2 误 seed=0。
+        LBSetIntegerKey(pageModel, @"pageStatus", 3);
         LBStateLog([NSString stringWithFormat:
-                    @"hypothesis_R2 seed pageModel nCpIndex=%ld nCpCount=%lu pageStatus=0",
+                    @"hypothesis_V seed pageModel nCpIndex=%ld nCpCount=%lu pageStatus=3",
                     (long)cpIndex, (unsigned long)cpCount]);
     }
     // 滚动容器若在栈上，补 curCpIndex
@@ -769,6 +771,7 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
         sOrigLoadCurCp(container, @selector(loadCurCp));
         LBStateLog([NSString stringWithFormat:@"invoke_orig_OK target=%@", containerName]);
         LBTraceLoadCurCp(@"ORIG loadCurCp OK");
+        LBLogLoadCurCpGates(reader, container, @"post_invoke_routeB");
         // 假设 O：invoke_orig_OK 后禁止人工 kick；等原生 queryCpFileByBook→QF→DR→finish
         if (sPendingPayload && LBBodyFromPayload(sPendingPayload).length > 0) {
             LBTraceLoadCurCp(@"hypothesis_O kick_disabled await_native_chain");
