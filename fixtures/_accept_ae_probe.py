@@ -174,6 +174,12 @@ def main() -> int:
     c.call("launch_app", {"bundle_id": BUNDLE}, timeout=30)
     time.sleep(2)
     dismiss(c)
+    # 先等 install_done，再清探针，避免误读旧 format_exit / 装钩竞态
+    for _ in range(40):
+        early = c.read_sandbox_text("legado_ab_probe.txt", max_bytes=200000) or ""
+        if "install_done" in early and "install_qf" in early:
+            break
+        time.sleep(0.25)
     doc = clear_all(c)
     report["doc"] = doc
     report["steps"].append("reset")
