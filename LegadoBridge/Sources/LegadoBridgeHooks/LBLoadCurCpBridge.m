@@ -24,12 +24,14 @@ static __weak id sWeakHookReceiver = nil;
 static BOOL sReentryGuard = NO;
 static const void *kLBAssocFoundContainerKey = &kLBAssocFoundContainerKey;
 
-/// 假设 AC/AD：CB 透传链上 format 前 check_* / early-return 取证（禁 bounce / 禁 dontFormat）
+/// 假设 AC/AD/AE：CB 透传链上 check/format/QF 派发取证（禁 bounce / 禁 dontFormat）
 /// AB 真机：cb_enter×N 无 check/format/cb_exit；6b5ef8e 未清 openOnce 假阳性已 revert 回 swcf
 /// AD：original CB 在 check 前仅 response==nil 门禁；runtime check/format 在 BookQueryManager 覆盖实现
+/// AE：format 编码为返回 id（@40@0:8@16@24@32）；void 钩会丢掉返回值并破坏 format 后 QF 派发
 static void (*sABNextCallBackResponse)(id, SEL, id, id, id) = NULL;
-static void (*sABNextFormatCallBack)(id, SEL, id, id, id) = NULL;
+static id (*sABNextFormatCallBack)(id, SEL, id, id, id) = NULL;
 static BOOL (*sABNextCheckCallBack)(id, SEL, id, id, id) = NULL;
+static void (*sAENextQueryFinish)(id, SEL, id, id, id) = NULL;
 static id (*sABNextStringWithContents)(id, SEL, id, NSUInteger, NSError **) = NULL;
 static BOOL sABSignalInstalled = NO;
 static BOOL sABHooksInstalled = NO;
@@ -43,8 +45,10 @@ static void LBABSyncProbe(NSString *tag);
 static void LBABInstallProbes(void);
 static IMP LBACPeelObserverNext(Class cls, SEL sel, IMP cur);
 static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id userInfo);
-static void LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id userInfo);
+static id LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id userInfo);
 static BOOL LBAB_CheckCallBack(id self, SEL _cmd, id response, id config, id userInfo);
+static void LBAE_QueryFinish(id self, SEL _cmd, id response, id config, id userInfo);
+static void LBAEProbeDispatchGates(id response, id config, id userInfo, NSString *phase);
 
 static void LBTraceLoadCurCp(NSString *msg) {
     if (msg.length == 0) return;
@@ -170,16 +174,81 @@ static IMP LBACPeelObserverNext(Class cls, SEL sel, IMP cur) {
         if (fh && cur == fh && resolveObs) {
             IMP peeled = resolveObs(cls, sel);
             if (peeled && peeled != cur && peeled != (IMP)LBAB_CallBackResponse &&
-                peeled != (IMP)LBAB_FormatCallBack && peeled != (IMP)LBAB_CheckCallBack) {
+                peeled != (IMP)LBAB_FormatCallBack && peeled != (IMP)LBAB_CheckCallBack &&
+                peeled != (IMP)LBAE_QueryFinish) {
                 return peeled;
             }
         }
     }
     if (cur == (IMP)LBAB_CallBackResponse || cur == (IMP)LBAB_FormatCallBack ||
-        cur == (IMP)LBAB_CheckCallBack) {
+        cur == (IMP)LBAB_CheckCallBack || cur == (IMP)LBAE_QueryFinish) {
         return NULL;
     }
     return cur;
+}
+
+/// AE：只读标出 format 后 QF 派发门禁（对应 original @0x10008a4cc–0x10008a6ac）
+static void LBAEProbeDispatchGates(id response, id config, id userInfo, NSString *phase) {
+    id action = ([config isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)config)[@"actionID"] : nil);
+    id target = ([userInfo isKindOfClass:[NSDictionary class]]
+                 ? ((NSDictionary *)userInfo)[@"callback_target"] : nil);
+    id notify = ([userInfo isKindOfClass:[NSDictionary class]]
+                 ? ((NSDictionary *)userInfo)[@"callback_notify"] : nil);
+    id inThread = ([userInfo isKindOfClass:[NSDictionary class]]
+                   ? ((NSDictionary *)userInfo)[@"callback_inThread"] : nil);
+    id dont = ([userInfo isKindOfClass:[NSDictionary class]]
+               ? ((NSDictionary *)userInfo)[@"callback_dontFormatResponse"] : nil);
+    SEL qfSel = NSSelectorFromString(@"lpNetWorkDelegateQueryFinish:config:userInfo:");
+    BOOL isCls = target && object_isClass(target);
+    BOOL responds = (target && !isCls && qfSel && [target respondsToSelector:qfSel]);
+    NSUInteger respLen = 0;
+    if ([response isKindOfClass:[NSString class]]) {
+        respLen = [(NSString *)response length];
+    } else if ([response isKindOfClass:[NSDictionary class]]) {
+        id c = ((NSDictionary *)response)[@"content"] ?: ((NSDictionary *)response)[@"chapterContent"];
+        if ([c isKindOfClass:[NSString class]]) respLen = [(NSString *)c length];
+    }
+    // path 估算：responds → (inThread? sync : async main)；!responds && !notify → skip
+    const char *path = "skip_no_target_or_notify";
+    if (responds) {
+        path = inThread ? "sync_inThread" : "async_main";
+    } else if (notify) {
+        path = "notify_only_no_qf";
+    }
+    LBABSyncProbe([NSString stringWithFormat:
+                   @"qf_dispatch_gates phase=%@ action=%@ target=%@ isClass=%d responds=%d notify=%d inThread=%d dont=%d respNil=%d respLen=%lu path=%s",
+                   phase ?: @"-",
+                   [action isKindOfClass:[NSString class]] ? action : @"-",
+                   target ? NSStringFromClass(object_getClass(target)) : @"nil",
+                   isCls ? 1 : 0,
+                   responds ? 1 : 0,
+                   notify ? 1 : 0,
+                   inThread ? 1 : 0,
+                   dont ? 1 : 0,
+                   response ? 0 : 1,
+                   (unsigned long)respLen,
+                   path]);
+}
+
+static void LBAE_QueryFinish(id self, SEL _cmd, id response, id config, id userInfo) {
+    NSUInteger respLen = [response isKindOfClass:[NSString class]] ? [(NSString *)response length] : 0;
+    if (respLen == 0 && [response isKindOfClass:[NSDictionary class]]) {
+        id c = ((NSDictionary *)response)[@"content"] ?: ((NSDictionary *)response)[@"chapterContent"];
+        if ([c isKindOfClass:[NSString class]]) respLen = [(NSString *)c length];
+    }
+    id action = ([config isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)config)[@"actionID"] : nil);
+    LBABSyncProbe([NSString stringWithFormat:
+                   @"qf_enter self=%@ respLen=%lu action=%@ respCls=%@",
+                   self ? NSStringFromClass(object_getClass(self)) : @"nil",
+                   (unsigned long)respLen,
+                   [action isKindOfClass:[NSString class]] ? action : @"-",
+                   response ? NSStringFromClass(object_getClass(response)) : @"nil"]);
+    if (sAENextQueryFinish) {
+        sAENextQueryFinish(self, _cmd, response, config, userInfo);
+    } else {
+        LBABSyncProbe(@"qf_early_return reason=null_next");
+    }
+    LBABSyncProbe(@"qf_exit");
 }
 
 static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id userInfo) {
@@ -232,6 +301,11 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
     } @finally {
         sABInCallBack = 0;
     }
+    // AE：original 在 format 后可能 dispatch_async(main) 派 QF；CB 返回后主队列脉冲确认可排空
+    LBAEProbeDispatchGates(response, config, userInfo, @"after_cb");
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LBABSyncProbe(@"qf_dispatch_main_pulse");
+    });
     if (sADCheckEntered == 0) {
         if (respNil) {
             LBABSyncProbe(@"cb_precheck_gate_skip_check reason=resp_nil");
@@ -247,7 +321,7 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
     LBABSyncProbe(@"cb_exit");
 }
 
-static void LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id userInfo) {
+static id LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id userInfo) {
     NSUInteger respLen = [response isKindOfClass:[NSString class]] ? [(NSString *)response length] : 0;
     id action = ([config isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)config)[@"actionID"] : nil);
     id dont = ([userInfo isKindOfClass:[NSDictionary class]]
@@ -257,12 +331,26 @@ static void LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id us
                    (unsigned long)respLen,
                    [action isKindOfClass:[NSString class]] ? action : @"-",
                    dont ? 1 : 0]);
+    // AE：必须透传 id 返回值；void 钩会使 caller retain 到垃圾/nil，后续 QF 参数损坏
+    id formatted = nil;
     if (sABNextFormatCallBack) {
-        sABNextFormatCallBack(self, _cmd, response, config, userInfo);
+        formatted = sABNextFormatCallBack(self, _cmd, response, config, userInfo);
     } else {
         LBABSyncProbe(@"format_early_return reason=null_next");
+        formatted = response;
     }
-    LBABSyncProbe(@"format_exit");
+    NSUInteger outLen = [formatted isKindOfClass:[NSString class]] ? [(NSString *)formatted length] : 0;
+    if (outLen == 0 && [formatted isKindOfClass:[NSDictionary class]]) {
+        id c = ((NSDictionary *)formatted)[@"content"] ?: ((NSDictionary *)formatted)[@"chapterContent"];
+        if ([c isKindOfClass:[NSString class]]) outLen = [(NSString *)c length];
+    }
+    LBAEProbeDispatchGates(formatted, config, userInfo, @"post_format");
+    LBABSyncProbe([NSString stringWithFormat:
+                   @"format_exit outNil=%d outLen=%lu outCls=%@",
+                   formatted ? 0 : 1,
+                   (unsigned long)outLen,
+                   formatted ? NSStringFromClass(object_getClass(formatted)) : @"nil"]);
+    return formatted;
 }
 
 static BOOL LBAB_CheckCallBack(id self, SEL _cmd, id response, id config, id userInfo) {
@@ -376,7 +464,7 @@ static void LBABInstallProbes(void) {
             if (cur != (IMP)LBAB_FormatCallBack && !sABNextFormatCallBack) {
                 IMP next = LBACPeelObserverNext(chkOwner, fmtSel, cur);
                 if (next) {
-                    sABNextFormatCallBack = (void (*)(id, SEL, id, id, id))next;
+                    sABNextFormatCallBack = (id (*)(id, SEL, id, id, id))next;
                     method_setImplementation(fmtm, (IMP)LBAB_FormatCallBack);
                     LBABSyncProbe([NSString stringWithFormat:
                                    @"install_format owner=%@",
@@ -406,6 +494,25 @@ static void LBABInstallProbes(void) {
             }
         } else {
             LBABSyncProbe(@"install_check_missing");
+        }
+        // AE：QF 实现在 ReadPageContainer（TextRPageContainer 继承）
+        Class qfOwner = NSClassFromString(@"ReadPageContainer");
+        SEL qfSel = NSSelectorFromString(@"lpNetWorkDelegateQueryFinish:config:userInfo:");
+        Method qfm = qfOwner ? class_getInstanceMethod(qfOwner, qfSel) : NULL;
+        if (qfm) {
+            IMP cur = method_getImplementation(qfm);
+            if (cur != (IMP)LBAE_QueryFinish && !sAENextQueryFinish) {
+                IMP next = LBACPeelObserverNext(qfOwner, qfSel, cur);
+                if (next) {
+                    sAENextQueryFinish = (void (*)(id, SEL, id, id, id))next;
+                    method_setImplementation(qfm, (IMP)LBAE_QueryFinish);
+                    LBABSyncProbe(@"install_qf owner=ReadPageContainer");
+                } else {
+                    LBABSyncProbe(@"install_qf_pollute_blocked");
+                }
+            }
+        } else {
+            LBABSyncProbe(@"install_qf_missing");
         }
     } else {
         LBABSyncProbe(@"install_skip no_LPNetWork2");
