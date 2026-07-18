@@ -748,13 +748,19 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
                     continue;
                 }
                 NSMutableDictionary *m = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)item];
-                if (![m[@"url"] isKindOfClass:[NSString class]] || [m[@"url"] length] == 0) {
-                    id idx = m[@"cpIndex"] ?: m[@"index"] ?: @(i);
-                    m[@"url"] = [[idx description] copy] ?: [@(i) stringValue];
+                // 本地 chapterContent @0x100061808：url 作 bookDir 相对文件名。
+                // Legado 章 url 常为 http(s)，必须改成 cpIndex（与 xsfolder 下 "0"/"1" 对齐）。
+                id idx = m[@"cpIndex"] ?: m[@"index"] ?: @(i);
+                NSString *rel = [[idx description] copy] ?: [@(i) stringValue];
+                NSString *curUrl = [m[@"url"] isKindOfClass:[NSString class]] ? m[@"url"] : @"";
+                BOOL httpish = [curUrl hasPrefix:@"http://"] || [curUrl hasPrefix:@"https://"] ||
+                               [curUrl containsString:@"://"];
+                if (curUrl.length == 0 || httpish) {
+                    m[@"url"] = rel;
                     changed = YES;
                 }
                 if (![m[@"_useSName"] isKindOfClass:[NSString class]] ||
-                    [m[@"_useSName"] length] == 0) {
+                    ![m[@"_useSName"] isEqualToString:useSName]) {
                     m[@"_useSName"] = useSName;
                     changed = YES;
                 }
