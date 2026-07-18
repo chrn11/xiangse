@@ -72,12 +72,24 @@ void LBLoadCurCpBridgeRegisterOrig(void (*orig)(id, SEL)) {
     LBStateLog([NSString stringWithFormat:@"register_orig imp=%p", orig]);
 }
 
+static NSString *LBBodyFromPayload(NSDictionary *payload);
+static void LBTryContentReadyAndInvoke(id reader, NSDictionary *payload);
+static void LBScheduleContentReadyWhenReaderReady(NSInteger attempt);
+
 void LBLoadCurCpBridgeCacheContainer(id readerVC, id container) {
     if (!readerVC || !container) return;
     objc_setAssociatedObject(readerVC, kLBAssocFoundContainerKey, container,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     LBStateLog([NSString stringWithFormat:@"hypothesis_F cache_container %@",
                 NSStringFromClass(object_getClass(container))]);
+    // 路 B：正文常先于 reader 可见到达（contentReady_no_reader_yet）。
+    // F 探针在 onReset 后写入 pageContainerA 时立刻重试 invoke，不依赖 CExports 1s delayed_postCurCp。
+    if (sPendingPayload && LBBodyFromPayload(sPendingPayload).length > 0 &&
+        (sState == LBLoadCurCpStateContentReady || sState == LBLoadCurCpStateFetching)) {
+        LBStateLog(@"routeB retry_on_cache_container");
+        sWeakReader = readerVC;
+        LBTryContentReadyAndInvoke(readerVC, sPendingPayload);
+    }
 }
 
 BOOL LBLoadCurCpBridgePassThroughToNative(void) {
@@ -819,6 +831,64 @@ static void LBScheduleInvokeWhenPageReady(id reader, NSInteger attempt) {
     });
 }
 
+/// 在窗口/导航栈上找 TextReadVC*（不依赖 CExports）
+static id LBFindTextReaderVCInHierarchy(void) {
+    NSArray *windows = [UIApplication sharedApplication].windows;
+    if (windows.count == 0) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        UIWindow *kw = [UIApplication sharedApplication].keyWindow;
+#pragma clang diagnostic pop
+        if (kw) windows = @[kw];
+    }
+    for (UIWindow *w in windows) {
+        UIViewController *root = w.rootViewController;
+        if (!root) continue;
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+        while (stack.count > 0) {
+            UIViewController *vc = stack.lastObject;
+            [stack removeLastObject];
+            NSString *cn = NSStringFromClass([vc class]);
+            if ([cn containsString:@"TextReadVC"] || [cn containsString:@"ReadVCBase"]) {
+                return vc;
+            }
+            for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
+            if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
+            if ([vc isKindOfClass:[UINavigationController class]]) {
+                for (UIViewController *c in [(UINavigationController *)vc viewControllers]) {
+                    [stack addObject:c];
+                }
+            }
+        }
+    }
+    return nil;
+}
+
+static void LBScheduleContentReadyWhenReaderReady(NSInteger attempt) {
+    if (attempt >= 40) {
+        LBStateLog(@"routeB wait_reader_timeout");
+        return;
+    }
+    if (!sPendingPayload || LBBodyFromPayload(sPendingPayload).length == 0) return;
+    if (sState != LBLoadCurCpStateContentReady && sState != LBLoadCurCpStateFetching) return;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (!sPendingPayload || LBBodyFromPayload(sPendingPayload).length == 0) return;
+        if (sState != LBLoadCurCpStateContentReady && sState != LBLoadCurCpStateFetching) return;
+        id reader = sWeakReader ?: LBFindTextReaderVCInHierarchy();
+        if (reader) {
+            LBStateLog([NSString stringWithFormat:
+                        @"routeB reader_ready attempt=%ld cls=%@",
+                        (long)attempt, NSStringFromClass(object_getClass(reader))]);
+            LBTryContentReadyAndInvoke(reader, sPendingPayload);
+            return;
+        }
+        LBStateLog([NSString stringWithFormat:
+                    @"routeB wait_reader attempt=%ld", (long)attempt]);
+        LBScheduleContentReadyWhenReaderReady(attempt + 1);
+    });
+}
+
 static void LBTryContentReadyAndInvoke(id reader, NSDictionary *payload) {
     if (!reader || ![payload isKindOfClass:[NSDictionary class]]) return;
     if (LBBodyFromPayload(payload).length == 0) {
@@ -838,10 +908,9 @@ static void LBTryContentReadyAndInvoke(id reader, NSDictionary *payload) {
     if (container) {
         LBEnsureLoadCurCpPrereqs(reader, container, payload);
         LBStateLog(@"routeB_container_hit immediate");
-        if (LBReaderIsAttachedToUI(reader)) {
-            LBInvokeOriginalLoadCurCp(reader, NO);
-            return;
-        }
+        // 有 container 即尝试 invoke；attached=0 时由 LBInvokeOriginalLoadCurCp 内部 defer
+        LBInvokeOriginalLoadCurCp(reader, YES);
+        return;
     }
     LBStateLog(@"routeB schedule_wait_container");
     LBScheduleInvokeWhenPageReady(reader, 0);
@@ -933,9 +1002,11 @@ void LBLoadCurCpBridgeOnContentPosted(NSDictionary *payload, id readerVC) {
     id bookUrl = payload[@"bookUrl"];
     if ([bookUrl isKindOfClass:[NSString class]]) sBookUrl = bookUrl;
 
-    id reader = readerVC ?: sWeakReader;
+    id reader = readerVC ?: sWeakReader ?: LBFindTextReaderVCInHierarchy();
     if (!reader) {
         LBSetState(LBLoadCurCpStateContentReady, @"contentReady_no_reader_yet");
+        LBStateLog(@"routeB schedule_wait_reader");
+        LBScheduleContentReadyWhenReaderReady(0);
         return;
     }
     LBTryContentReadyAndInvoke(reader, payload);
