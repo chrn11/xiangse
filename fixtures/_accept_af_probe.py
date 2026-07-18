@@ -403,17 +403,7 @@ def main() -> int:
         "main_hb_n": len(hb),
         "main_hb_tail": hb[-6:],
         "has_drain_slot": any("af_main_drain_slot" in ln for ln in ac_all),
-        "has_drain_ok": any("af_main_drain_ok" in ln for ln in ac_all),
-        "has_drain_timeout": any("af_main_drain_TIMEOUT" in ln for ln in ac_all),
-        "has_drain_wait_ok": any("af_main_drain_wait_ok" in ln for ln in ac_all),
         "has_async_plus": any("async_plus0.6s_enter" in ln for ln in ac_all),
-        "pids": sorted(
-            {
-                ln.split("pid=")[-1].split()[0]
-                for ln in ac_all
-                if "pid=" in ln
-            }
-        )[:8],
         "has_format_enter": any("format_enter" in ln for ln in ac_all),
         "has_format_exit": any("format_exit" in ln for ln in ac_all),
         "has_cb_enter": any("cb_enter" in ln for ln in ac_all),
