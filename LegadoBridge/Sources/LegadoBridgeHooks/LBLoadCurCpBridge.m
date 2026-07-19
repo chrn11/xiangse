@@ -17,6 +17,7 @@
 #import <stdlib.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <stdatomic.h>
+#import <sys/ucontext.h>
 
 static void (*sOrigLoadCurCp)(id, SEL) = NULL;
 static LBLoadCurCpState sState = LBLoadCurCpStateIdle;
@@ -66,6 +67,15 @@ static void LBAIWriteLong(NSString *line);
 static void LBAICaptureMainMachThread(void);
 static void LBAKSampleMainThreadPC(int round);
 static void LBAKStartPostIdleMainBlockForensics(void);
+static void LBALInstallQFUIKitHooks(void);
+static void LBALStartPostCbThreadSample(void);
+static void LBALInstallExceptionProbe(void);
+
+/// AL：QF/死后窗标志（供 UIKit 钩与 fatal 栈标注）
+static atomic_int sALInQF = 0;
+static atomic_int sALPostQF = 0;
+static atomic_int sALQFUIKitHit = 0;
+static char sALAltStack[65536];
 
 static void LBTraceLoadCurCp(NSString *msg) {
     if (msg.length == 0) return;
@@ -434,6 +444,7 @@ static void LBAIStartMainBlockSampler(void) {
 }
 
 /// AK：按符号粗分类主线程阻塞点（勿叠 WakeUp；仅取证）
+/// AL：ICU/本地化单独打 al_icu_trigger（主忙因标签）
 static NSString *LBAKClassifyMainBlock(const char *sym, const char *sym2) {
     NSString *a = sym ? [NSString stringWithUTF8String:sym] : @"";
     NSString *b = sym2 ? [NSString stringWithUTF8String:sym2] : @"";
@@ -455,6 +466,13 @@ static NSString *LBAKClassifyMainBlock(const char *sym, const char *sym2) {
     if ([blob containsString:@"uikit"] || [blob containsString:@"uiwindow"] ||
         [blob containsString:@"uiview"]) {
         return @"ak_main_block_uikit";
+    }
+    // AL：ICU / CLDR / 货币本地化（AK 已见 DecimalFormatSymbols / ResourceArray）
+    if ([blob containsString:@"icu"] || [blob containsString:@"ures_"] ||
+        [blob containsString:@"ucurr"] || [blob containsString:@"resourcearray"] ||
+        [blob containsString:@"res_gettable"] || [blob containsString:@"decimalformatsymbols"] ||
+        [blob containsString:@"uloc_"]) {
+        return @"al_icu_busy";
     }
     if (a.length == 0 || [a isEqualToString:@"?"]) {
         return @"ak_main_block_nosym";
@@ -490,6 +508,10 @@ static void LBAKSampleMainThreadPC(int round) {
         if (dladdr((void *)(uintptr_t)pc, &di) && di.dli_sname) sym = di.dli_sname;
         if (dladdr((void *)(uintptr_t)lr, &di2) && di2.dli_sname) sym2 = di2.dli_sname;
         NSString *cls = LBAKClassifyMainBlock(sym, sym2);
+        if ([cls isEqualToString:@"al_icu_busy"]) {
+            LBABSyncProbe([NSString stringWithFormat:
+                           @"al_icu_trigger r=%d pc=%s lr=%s", round, sym, sym2]);
+        }
         LBABSyncProbe([NSString stringWithFormat:
                        @"%@ r=%d pc=%llx(%s) lr=%llx(%s) wait=%d src=%d drain=%d",
                        cls, round,
@@ -546,9 +568,36 @@ static void LBAKStartPostIdleMainBlockForensics(void) {
     });
 }
 
-static void LBABOnFatalSignal(int sig) {
-    char mark[80];
-    int n = snprintf(mark, sizeof(mark), "hypothesis_AC fatal_signal SIG=%d\n", sig);
+/// AL：async-signal-safe 致命栈（PC/LR/FP/tid + QF 窗标志）；禁 ObjC
+static void LBALFatalSignalHandler(int sig, siginfo_t *info, void *ctx) {
+    uint64_t pc = 0, lr = 0, fp = 0;
+#if defined(__aarch64__) || defined(__arm64__)
+    ucontext_t *uc = (ucontext_t *)ctx;
+    if (uc && uc->uc_mcontext) {
+        pc = (uint64_t)uc->uc_mcontext->__ss.__pc;
+        lr = (uint64_t)uc->uc_mcontext->__ss.__lr;
+        fp = (uint64_t)uc->uc_mcontext->__ss.__fp;
+    }
+#else
+    (void)ctx;
+#endif
+    uint64_t fault = info ? (uint64_t)(uintptr_t)info->si_addr : 0;
+    int qf = atomic_load(&sALInQF);
+    int post = atomic_load(&sALPostQF);
+    char mark[320];
+    int n = snprintf(mark, sizeof(mark),
+                     "hypothesis_AC al_fatal_signal SIG=%d si_code=%d fault=%llx "
+                     "pc=%llx lr=%llx fp=%llx tid=%lu pid=%d inQF=%d postQF=%d\n",
+                     sig,
+                     info ? info->si_code : -1,
+                     (unsigned long long)fault,
+                     (unsigned long long)pc,
+                     (unsigned long long)lr,
+                     (unsigned long long)fp,
+                     (unsigned long)pthread_mach_thread_np(pthread_self()),
+                     (int)getpid(),
+                     qf,
+                     post);
     const char *home = getenv("HOME");
     char path[512];
     if (home && home[0]) {
@@ -562,18 +611,183 @@ static void LBABOnFatalSignal(int sig) {
         (void)fsync(fd);
         close(fd);
     }
-    signal(sig, SIG_DFL);
+    // 同步写 /tmp，崩溃后 Documents 可能未刷盘时仍可捞
+    fd = open("/tmp/legado_al_fatal.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        if (n > 0) (void)write(fd, mark, (size_t)n);
+        (void)fsync(fd);
+        close(fd);
+    }
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = SIG_DFL;
+    sigemptyset(&sa.sa_mask);
+    sigaction(sig, &sa, NULL);
     raise(sig);
 }
 
 static void LBABInstallSignalProbes(void) {
     if (sABSignalInstalled) return;
     sABSignalInstalled = YES;
-    signal(SIGSEGV, LBABOnFatalSignal);
-    signal(SIGBUS, LBABOnFatalSignal);
-    signal(SIGABRT, LBABOnFatalSignal);
-    signal(SIGTRAP, LBABOnFatalSignal);
-    signal(SIGILL, LBABOnFatalSignal);
+    stack_t ss;
+    memset(&ss, 0, sizeof(ss));
+    ss.ss_sp = sALAltStack;
+    ss.ss_size = sizeof(sALAltStack);
+    ss.ss_flags = 0;
+    (void)sigaltstack(&ss, NULL);
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = LBALFatalSignalHandler;
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+    sigaction(SIGABRT, &sa, NULL);
+    sigaction(SIGTRAP, &sa, NULL);
+    sigaction(SIGILL, &sa, NULL);
+    LBALInstallExceptionProbe();
+}
+
+static void LBALUncaughtException(NSException *ex) {
+    NSString *name = ex.name ?: @"?";
+    NSString *reason = ex.reason ?: @"?";
+    if (reason.length > 160) reason = [reason substringToIndex:160];
+    NSString *stack = LBAICompactStack(16);
+    LBABSyncProbe([NSString stringWithFormat:
+                   @"al_uncaught_exception name=%@ reason=%@ inQF=%d postQF=%d",
+                   name, reason,
+                   atomic_load(&sALInQF), atomic_load(&sALPostQF)]);
+    LBAIWriteLong([NSString stringWithFormat:
+                   @"al_uncaught_exception name=%@ reason=%@ stack=%@",
+                   name, reason, stack]);
+}
+
+static void LBALInstallExceptionProbe(void) {
+    static int once = 0;
+    if (once) return;
+    once = 1;
+    NSSetUncaughtExceptionHandler(&LBALUncaughtException);
+}
+
+/// AL：QF/死后窗内非主线程 UIKit 调用标签（不拦截，只打点）
+static void (*sALNextSetNeedsLayout)(id, SEL) = NULL;
+static void (*sALNextLayoutIfNeeded)(id, SEL) = NULL;
+static void (*sALNextSetNeedsDisplay)(id, SEL) = NULL;
+static atomic_int sALQFUIKitHooked = 0;
+
+static void LBALLogQFUIKit(SEL sel, id selfObj) {
+    if ([NSThread isMainThread]) return;
+    if (!atomic_load(&sALInQF) && !atomic_load(&sALPostQF)) return;
+    int n = atomic_fetch_add(&sALQFUIKitHit, 1) + 1;
+    if (n > 24) return;
+    NSString *cls = selfObj ? NSStringFromClass(object_getClass(selfObj)) : @"nil";
+    NSString *stack = (n <= 8) ? LBAICompactStack(12) : @"-";
+    LBABSyncProbe([NSString stringWithFormat:
+                   @"al_qf_uikit sel=%@ cls=%@ hit=%d inQF=%d postQF=%d",
+                   NSStringFromSelector(sel) ?: @"?",
+                   cls, n,
+                   atomic_load(&sALInQF), atomic_load(&sALPostQF)]);
+    if (n <= 8) {
+        LBAIWriteLong([NSString stringWithFormat:
+                       @"al_qf_uikit sel=%@ cls=%@ hit=%d stack=%@",
+                       NSStringFromSelector(sel) ?: @"?", cls, n, stack]);
+    }
+}
+
+static void LBAL_SetNeedsLayout(id self, SEL _cmd) {
+    LBALLogQFUIKit(_cmd, self);
+    if (sALNextSetNeedsLayout) sALNextSetNeedsLayout(self, _cmd);
+}
+
+static void LBAL_LayoutIfNeeded(id self, SEL _cmd) {
+    LBALLogQFUIKit(_cmd, self);
+    if (sALNextLayoutIfNeeded) sALNextLayoutIfNeeded(self, _cmd);
+}
+
+static void LBAL_SetNeedsDisplay(id self, SEL _cmd) {
+    LBALLogQFUIKit(_cmd, self);
+    if (sALNextSetNeedsDisplay) sALNextSetNeedsDisplay(self, _cmd);
+}
+
+static void LBALInstallQFUIKitHooks(void) {
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&sALQFUIKitHooked, &expected, 1)) return;
+    Class cls = [UIView class];
+    if (!cls) {
+        LBABSyncProbe(@"al_qf_uikit_hook_missing");
+        atomic_store(&sALQFUIKitHooked, 0);
+        return;
+    }
+    struct { SEL sel; IMP imp; void (**slot)(id, SEL); } specs[] = {
+        { @selector(setNeedsLayout), (IMP)LBAL_SetNeedsLayout, &sALNextSetNeedsLayout },
+        { @selector(layoutIfNeeded), (IMP)LBAL_LayoutIfNeeded, &sALNextLayoutIfNeeded },
+        { @selector(setNeedsDisplay), (IMP)LBAL_SetNeedsDisplay, &sALNextSetNeedsDisplay },
+    };
+    for (size_t i = 0; i < sizeof(specs) / sizeof(specs[0]); i++) {
+        Method m = class_getInstanceMethod(cls, specs[i].sel);
+        if (!m) continue;
+        IMP cur = method_getImplementation(m);
+        if (cur == specs[i].imp) continue;
+        *(specs[i].slot) = (void (*)(id, SEL))cur;
+        method_setImplementation(m, specs[i].imp);
+    }
+    LBABSyncProbe(@"al_qf_uikit_hook_ok");
+}
+
+/// AL：cb 后采样非主线程 PC（杀因可能在 QF 完成后的旁路线程）
+static void LBALSampleThreadPC(thread_t th, int idx) {
+    if (th == MACH_PORT_NULL) return;
+    if (thread_suspend(th) != KERN_SUCCESS) return;
+#if defined(__aarch64__)
+    arm_thread_state64_t state;
+    mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
+    kern_return_t kr = thread_get_state(th, ARM_THREAD_STATE64,
+                                        (thread_state_t)&state, &count);
+    if (kr == KERN_SUCCESS) {
+        uint64_t pc = arm_thread_state64_get_pc(state);
+        uint64_t lr = arm_thread_state64_get_lr(state);
+        Dl_info di = {0}, di2 = {0};
+        const char *sym = "?";
+        const char *sym2 = "?";
+        if (dladdr((void *)(uintptr_t)pc, &di) && di.dli_sname) sym = di.dli_sname;
+        if (dladdr((void *)(uintptr_t)lr, &di2) && di2.dli_sname) sym2 = di2.dli_sname;
+        BOOL isMain = (th == sAIMainMachThread);
+        LBABSyncProbe([NSString stringWithFormat:
+                       @"al_thr_pc i=%d main=%d pc=%llx(%s) lr=%llx(%s)",
+                       idx, isMain ? 1 : 0,
+                       (unsigned long long)pc, sym,
+                       (unsigned long long)lr, sym2]);
+    }
+#endif
+    (void)thread_resume(th);
+}
+
+static void LBALStartPostCbThreadSample(void) {
+    static atomic_int sOnce = 0;
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&sOnce, &expected, 1)) return;
+    atomic_store(&sALPostQF, 1);
+    LBABSyncProbe(@"al_post_cb_sample_start");
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        for (int round = 0; round < 6; round++) {
+            if (round) usleep(40000);
+            thread_act_array_t threads = NULL;
+            mach_msg_type_number_t n = 0;
+            if (task_threads(mach_task_self(), &threads, &n) != KERN_SUCCESS) continue;
+            int lim = (int)n;
+            if (lim > 12) lim = 12;
+            for (int i = 0; i < lim; i++) {
+                LBALSampleThreadPC(threads[i], round * 100 + i);
+            }
+            for (mach_msg_type_number_t i = 0; i < n; i++) {
+                mach_port_deallocate(mach_task_self(), threads[i]);
+            }
+            vm_deallocate(mach_task_self(), (vm_address_t)threads, n * sizeof(thread_t));
+        }
+        LBABSyncProbe([NSString stringWithFormat:
+                       @"al_post_cb_sample_end uikitHit=%d",
+                       atomic_load(&sALQFUIKitHit)]);
+    });
 }
 
 /// AI：尽早挂 UIWindowScene.windows，覆盖 invoke 前窗口
@@ -665,18 +879,36 @@ static void LBAE_QueryFinish(id self, SEL _cmd, id response, id config, id userI
         if ([c isKindOfClass:[NSString class]]) respLen = [(NSString *)c length];
     }
     id action = ([config isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)config)[@"actionID"] : nil);
+    atomic_store(&sALInQF, 1);
     LBABSyncProbe([NSString stringWithFormat:
                    @"qf_enter self=%@ respLen=%lu action=%@ respCls=%@",
                    self ? NSStringFromClass(object_getClass(self)) : @"nil",
                    (unsigned long)respLen,
                    [action isKindOfClass:[NSString class]] ? action : @"-",
                    response ? NSStringFromClass(object_getClass(response)) : @"nil"]);
-    if (sAENextQueryFinish) {
-        sAENextQueryFinish(self, _cmd, response, config, userInfo);
-    } else {
-        LBABSyncProbe(@"qf_early_return reason=null_next");
+    LBAIWriteLong([NSString stringWithFormat:
+                   @"al_qf_enter_stack main=%d stack=%@",
+                   [NSThread isMainThread] ? 1 : 0,
+                   LBAICompactStack(14)]);
+    @try {
+        if (sAENextQueryFinish) {
+            sAENextQueryFinish(self, _cmd, response, config, userInfo);
+        } else {
+            LBABSyncProbe(@"qf_early_return reason=null_next");
+        }
+    } @catch (NSException *ex) {
+        LBABSyncProbe([NSString stringWithFormat:
+                       @"al_qf_exception name=%@ reason=%@",
+                       ex.name ?: @"?", ex.reason ?: @"?"]);
+        @throw;
+    } @finally {
+        atomic_store(&sALInQF, 0);
+        atomic_store(&sALPostQF, 1);
     }
     LBABSyncProbe(@"ag_post_qf");
+    LBABSyncProbe([NSString stringWithFormat:
+                   @"al_qf_uikit_summary hit=%d",
+                   atomic_load(&sALQFUIKitHit)]);
     LBABSyncProbe(@"qf_exit");
 }
 
@@ -762,6 +994,8 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
         LBABSyncProbe(@"cb_precheck_gate_check_seen");
     }
     LBABSyncProbe(@"cb_exit");
+    // AL：QF/CB 均已返回后仍可能 SIGSEGV——采全线程 PC
+    LBALStartPostCbThreadSample();
 }
 
 static id LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id userInfo) {
@@ -868,6 +1102,7 @@ static void LBABInstallProbes(void) {
     LBABInstallSignalProbes();
     LBAGInstallAtExit();
     LBAIInstallWindowSceneHook();
+    LBALInstallQFUIKitHooks();
     // 只装一次：invoke 前反复 setImplementation 会把 next 指到 forensics 桩并成环
     if (sABHooksInstalled) return;
 
@@ -980,6 +1215,7 @@ static void LBABInstallProbes(void) {
     LBABSyncProbe(@"ag_keep_inThread=1");
     LBABSyncProbe(@"ai_keep_inThread=1");
     LBABSyncProbe(@"ak_keep_inThread=1");
+    LBABSyncProbe(@"al_keep_inThread=1");
 }
 
 static void LBSetState(LBLoadCurCpState next, NSString *why) {
