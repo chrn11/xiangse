@@ -1,0 +1,834 @@
+{
+  "timestamp": "20260719T015804Z",
+  "sha": "ff4f5ea",
+  "ipa": "D:\\soft\\xiangse\\dist-ci\\ff4f5ea\\dist\\StandarReader-legado-bridge-debug.ipa",
+  "hypothesis": "AL",
+  "role": "AL-corpse-qf-uikit-icu-forensics",
+  "model": "cursor-grok-4.5",
+  "mock": "http://192.168.1.4:8765",
+  "mcp": "http://192.168.1.6:8090",
+  "banned": [
+    "bounce",
+    "dontFormat",
+    "mid_chain_launch_app",
+    "dispatch_sync_main_QF",
+    "empty_WakeUp"
+  ],
+  "keep": [
+    "inject_inThread",
+    "V+W+X+Y+Z",
+    "BQM check/format id return",
+    "ak_bg_windows_api_skip"
+  ],
+  "steps": [
+    "install",
+    "reset",
+    "nativeRead"
+  ],
+  "frontmost_log": [
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 69405,
+        "contextId": 1966949726,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 69405,
+        "contextId": 1966949726,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 69405,
+        "contextId": 1966949726,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "pre_nativeRead_observe",
+      "front": {
+        "pid": 69405,
+        "contextId": 1966949726,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 69463,
+        "contextId": 1966949726,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 69463,
+        "contextId": 1966949726,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 69463,
+        "contextId": 1966949726,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 69463,
+        "contextId": 1966949726,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 69463,
+        "contextId": 1966949726,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 69463,
+        "contextId": 1966949726,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    }
+  ],
+  "pid_log": [
+    {
+      "t": 0.0,
+      "phase": "pre_nativeRead",
+      "pid": 69405
+    },
+    {
+      "t": 2.33,
+      "phase": "poll_0",
+      "pid": 69463,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 4.19,
+      "phase": "poll_2",
+      "pid": 69463,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 6.79,
+      "phase": "poll_5",
+      "pid": 69463,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 11.23,
+      "phase": "poll_10",
+      "pid": 69463,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 19.33,
+      "phase": "poll_20",
+      "pid": 69463,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 30.97,
+      "phase": "poll_35",
+      "pid": 69463,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 42.07,
+      "phase": "post_poll",
+      "pid": 69463
+    }
+  ],
+  "launch_app_calls": [
+    {
+      "phase": "setup_kill",
+      "ok": true
+    },
+    {
+      "phase": "setup_launch",
+      "ok": true
+    }
+  ],
+  "chapter_probe": {
+    "ok": true,
+    "code": 200
+  },
+  "upload": {
+    "path": "/var/mobile/Library/Caches/ios-mcp-uploads/72592330-947B-4F1B-8F10-6AADC0796E2F-StandarReader-legado-bridge-debug.ipa",
+    "filename": "StandarReader-legado-bridge-debug.ipa",
+    "size": 3600477
+  },
+  "install": "Installed app package from /var/mobile/Library/Caches/ios-mcp-uploads/72592330-947B-4F1B-8F10-6AADC0796E2F-StandarReader-legado-bridge-debug.ipa",
+  "build_manifest": {
+    "git_commit": "ff4f5eac1efd4dbe2aa878bf3ab506f329362cd8",
+    "variant": "legado-debug",
+    "github_run_id": "29669310648",
+    "built_at_utc": "2026-07-19T01:55:09Z"
+  },
+  "doc": "/var/mobile/Containers/Data/Application/F68CEBC8-BFC4-4E6C-92E3-C2B6DE4464CD/Documents",
+  "capture_start": {
+    "bundle_ids": [
+      "com.appbox.StandarReader"
+    ],
+    "crash_baseline_count": 0,
+    "capture_id": 1784426316,
+    "started": true
+  },
+  "mid_chain_launch_app": false,
+  "capture_stop": {
+    "capture_seconds": 45,
+    "new_crash_count": 0,
+    "new_crash_reports": [],
+    "syslog_count": 4395,
+    "syslog_kill_hits": [
+      {
+        "date": "2026-07-19 01:58:56 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577701566773000: <private>"
+      },
+      {
+        "date": "2026-07-19 01:58:56 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577701566804375: <private>"
+      },
+      {
+        "date": "2026-07-19 01:58:56 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577701567030875: <private>"
+      },
+      {
+        "date": "2026-07-19 01:58:56 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577701567034333: <private>"
+      },
+      {
+        "date": "2026-07-19 01:58:56 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577701567035666: <private>"
+      },
+      {
+        "date": "2026-07-19 01:58:56 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577701567036250: <private>"
+      },
+      {
+        "date": "2026-07-19 01:58:56 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577701567036750: <private>"
+      },
+      {
+        "date": "2026-07-19 01:58:56 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577701567037291: <private>"
+      },
+      {
+        "date": "2026-07-19 01:58:56 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577701567037750: <private>"
+      },
+      {
+        "date": "2026-07-19 01:58:56 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577701567038250: <private>"
+      },
+      {
+        "date": "2026-07-19 01:58:56 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577701567038750: <private>"
+      },
+      {
+        "date": "2026-07-19 01:59:06 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577711566950208: <private>"
+      },
+      {
+        "date": "2026-07-19 01:59:06 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577711567012208: <private>"
+      },
+      {
+        "date": "2026-07-19 01:59:06 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577711567433541: <private>"
+      },
+      {
+        "date": "2026-07-19 01:59:06 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577711567440375: <private>"
+      },
+      {
+        "date": "2026-07-19 01:59:06 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577711567443250: <private>"
+      },
+      {
+        "date": "2026-07-19 01:59:06 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577711567445416: <private>"
+      },
+      {
+        "date": "2026-07-19 01:59:06 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577711567447166: <private>"
+      },
+      {
+        "date": "2026-07-19 01:59:06 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577711567449000: <private>"
+      },
+      {
+        "date": "2026-07-19 01:59:06 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577711567450875: <private>"
+      },
+      {
+        "date": "2026-07-19 01:59:06 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577711567452458: <private>"
+      },
+      {
+        "date": "2026-07-19 01:59:06 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "577711567453958: <private>"
+      },
+      {
+        "date": "2026-07-19 01:59:10 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update(enter): pid 69472, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+      },
+      {
+        "date": "2026-07-19 01:59:10 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update: init: limit on pid 69472 (-1MB F ) targeting priority(210) dirty?=0x0"
+      },
+      {
+        "date": "2026-07-19 01:59:10 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update(enter): pid 69472, priority 180, dirty=0x0, Active(20MB NF), Inactive(6MB, F )"
+      },
+      {
+        "date": "2026-07-19 01:59:10 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update: init: limit on pid 69472 (20MB NF) targeting priority(180) dirty?=0x0"
+      }
+    ]
+  },
+  "crash_logs": {
+    "count": 0,
+    "reports": []
+  },
+  "crash_stack": [],
+  "tmp_fatal": {
+    "exitCode": 0,
+    "output": ""
+  },
+  "polls": [
+    {
+      "t": 33.43,
+      "ac_runtime_n": 119,
+      "ac_last": "2026-07-19 01:58:38 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 69463
+    },
+    {
+      "t": 34.17,
+      "ac_runtime_n": 119,
+      "ac_last": "2026-07-19 01:58:38 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 69463
+    },
+    {
+      "t": 34.89,
+      "ac_runtime_n": 119,
+      "ac_last": "2026-07-19 01:58:38 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 69463
+    },
+    {
+      "t": 35.64,
+      "ac_runtime_n": 119,
+      "ac_last": "2026-07-19 01:58:38 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 69463
+    },
+    {
+      "t": 36.47,
+      "ac_runtime_n": 119,
+      "ac_last": "2026-07-19 01:58:38 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 69463
+    },
+    {
+      "t": 37.19,
+      "ac_runtime_n": 119,
+      "ac_last": "2026-07-19 01:58:38 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 69463
+    },
+    {
+      "t": 37.99,
+      "ac_runtime_n": 119,
+      "ac_last": "2026-07-19 01:58:38 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 69463
+    },
+    {
+      "t": 38.81,
+      "ac_runtime_n": 119,
+      "ac_last": "2026-07-19 01:58:38 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 69463
+    },
+    {
+      "t": 39.57,
+      "ac_runtime_n": 119,
+      "ac_last": "2026-07-19 01:58:38 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 69463
+    },
+    {
+      "t": 40.31,
+      "ac_runtime_n": 119,
+      "ac_last": "2026-07-19 01:58:38 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 69463
+    },
+    {
+      "t": 41.13,
+      "ac_runtime_n": 119,
+      "ac_last": "2026-07-19 01:58:38 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 69463
+    },
+    {
+      "t": 42.0,
+      "ac_runtime_n": 119,
+      "ac_last": "2026-07-19 01:58:38 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "front": "com.appbox.StandarReader",
+      "pid": 69463
+    }
+  ],
+  "sync": {
+    "sha": "ff4f5ea",
+    "probe_last_line": "2026-07-19 09:58:38 | hypothesis_AC al_keep_inThread=1 main=1 inv=0 pid=69463 up=577797613 mem=6",
+    "al_last_runtime": "2026-07-19 01:58:38 +0000 | ak_main_block_pc r=4 class=al_icu_busy pc=1e9d22214(_platform_memmove) lr=192ae30e0(_ZN3icu10CharString6appendEPKciR10UErrorCode) fp=16b854350 wait=0 src=0 drain=0",
+    "al_runtime": [
+      "2026-07-19 09:58:37 | hypothesis_AC ak_main_idle_seen main=1 inv=1 pid=69405 up=577796675 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC ak_main_idle_forensics_start main=1 inv=1 pid=69405 up=577796675 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC ak_main_block_other r=0 pc=18a084214(__CFAllocatorRespectsHintZeroWhenAllocating) lr=18a088704(_CFRuntimeCreateInstance) wait=0 src=0 drain=0 main=0 inv=1 pid=69405 up=577796676 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC ag_post_qf main=0 inv=1 pid=69405 up=577796684 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_qf_uikit_summary hit=0 main=0 inv=1 pid=69405 up=577796684 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC qf_exit main=0 inv=1 pid=69405 up=577796685 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread main=0 inv=1 pid=69405 up=577796685 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC cb_precheck_gate_check_seen main=0 inv=1 pid=69405 up=577796686 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC cb_exit main=0 inv=1 pid=69405 up=577796686 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_post_cb_sample_start main=0 inv=1 pid=69405 up=577796686 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=0 main=1 pc=192b2e4f0(_ZN3icu11StringPieceC1EPKc) lr=806ab0192b95ebc(ures_getByKeyWithFallback) main=0 inv=1 pid=69405 up=577796687 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=1 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) main=0 inv=1 pid=69405 up=577796688 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=2 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) main=0 inv=1 pid=69405 up=577796688 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=3 main=0 pc=1c8f6fc84(mach_msg2_trap) lr=1c8f82b54(mach_msg2_internal) main=0 inv=1 pid=69405 up=577796688 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=4 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) main=0 inv=1 pid=69405 up=577796689 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=5 main=0 pc=1c8f70c88(__psynch_mutexwait) lr=1e9dba114(<redacted>) main=0 inv=1 pid=69405 up=577796689 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=6 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) main=0 inv=1 pid=69405 up=577796689 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_icu_trigger r=1 pc=ures_getLocaleByType lr=ures_getLocaleByType main=0 inv=1 pid=69405 up=577796707 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_icu_busy r=1 pc=192b96fa8(ures_getLocaleByType) lr=6d5b9b8192b96fa8(ures_getLocaleByType) wait=0 src=0 drain=0 main=0 inv=1 pid=69405 up=577796708 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_icu_trigger r=2 pc=_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE lr=_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE main=0 inv=1 pid=69405 up=577796766 mem=43",
+      "2026-07-19 09:58:37 | hypothesis_AC al_icu_busy r=2 pc=192bf37d8(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) wait=0 src=0 drain=0 main=0 inv=1 pid=69405 up=577796766 mem=43",
+      "2026-07-19 09:58:37 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=69405 up=577796778 mem=43",
+      "2026-07-19 09:58:37 | hypothesis_AC al_icu_trigger r=3 pc=_ZN3icu13UnicodeString8copyFromERKS0_a lr=_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i main=0 inv=1 pid=69405 up=577796842 mem=40",
+      "2026-07-19 09:58:37 | hypothesis_AC al_icu_busy r=3 pc=192b8ce50(_ZN3icu13UnicodeString8copyFromERKS0_a) lr=fb003e0192c0aadc(_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i) wait=0 src=0 drain=0 main=0 inv=1 pid=69405 up=577796842 mem=40",
+      "2026-07-19 09:58:38 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=69405 up=577796883 mem=41",
+      "2026-07-19 09:58:38 | hypothesis_AC ag_bg_hb i=1 main=0 inv=1 pid=69405 up=577796912 mem=41",
+      "2026-07-19 09:58:38 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=69405 up=577796988 mem=41",
+      "2026-07-19 09:58:38 | hypothesis_AC ai_main_block_pc r=2 pc=1e9d22810 lr=192b998d8 main=0 inv=1 pid=69405 up=577796989 mem=41",
+      "2026-07-19 09:58:38 | hypothesis_AC al_icu_trigger r=4 pc=_platform_memmove lr=_ZN3icu10CharString6appendEPKciR10UErrorCode main=0 inv=1 pid=69405 up=577796997 mem=41",
+      "2026-07-19 09:58:38 | hypothesis_AC al_icu_busy r=4 pc=1e9d22214(_platform_memmove) lr=192ae30e0(_ZN3icu10CharString6appendEPKciR10UErrorCode) wait=0 src=0 drain=0 main=0 inv=1 pid=69405 up=577796997 mem=41",
+      "2026-07-19 09:58:38 | hypothesis_AC ai_hook_windows_ok main=1 inv=0 pid=69463 up=577797600 mem=6",
+      "2026-07-19 09:58:38 | hypothesis_AC al_qf_uikit_hook_ok main=1 inv=0 pid=69463 up=577797611 mem=6",
+      "2026-07-19 09:58:38 | hypothesis_AC ag_keep_inThread=1 main=1 inv=0 pid=69463 up=577797612 mem=6",
+      "2026-07-19 09:58:38 | hypothesis_AC ai_keep_inThread=1 main=1 inv=0 pid=69463 up=577797612 mem=6",
+      "2026-07-19 09:58:38 | hypothesis_AC ak_keep_inThread=1 main=1 inv=0 pid=69463 up=577797612 mem=6",
+      "2026-07-19 09:58:38 | hypothesis_AC al_keep_inThread=1 main=1 inv=0 pid=69463 up=577797613 mem=6",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC pre_invoke_orig target=TextRPageContainer | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC ag_bg_hb i=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC invoke_orig_returned target=TextRPageContainer | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC swcf_enter leaf=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC ai_main_rl_observer_ok | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC swcf_exit leaf=0 len=111 nil=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC cb_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 self=BookQueryManager | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC cb_precheck_gate_resp nil=0 len=111 self=BookQueryManager main=0 next=0x1045721d4 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC post_invoke_gates_done | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC qf_dispatch_inject_inThread action=chapterContent | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC post_invoke_z_probe_done | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC check_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 cfg=1 ui=1 self=BookQueryManager qsrc=localSourceText respCls=__NSCFString | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC check_exit ok=1 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC format_enter respLen=111 action=chapterContent dontFormat=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC await_native_chain | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC invoke_reentry_cleared | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC format_exit outNil=0 outLen=107 outCls=__NSCFString | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC invoke_state_idle | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC qf_enter self=TextRPageContainer respLen=107 action=chapterContent respCls=__NSCFString | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC ak_main_idle_seen | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC ak_main_idle_forensics_start | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC ak_main_block_other r=0 pc=18a084214(__CFAllocatorRespectsHintZeroWhenAllocating) lr=18a088704(_CFRuntimeCreateInstance) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC ag_post_qf | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_qf_uikit_summary hit=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC qf_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC cb_precheck_gate_check_seen | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC cb_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_post_cb_sample_start | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=0 main=1 pc=192b2e4f0(_ZN3icu11StringPieceC1EPKc) lr=806ab0192b95ebc(ures_getByKeyWithFallback) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=1 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=2 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=3 main=0 pc=1c8f6fc84(mach_msg2_trap) lr=1c8f82b54(mach_msg2_internal) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=4 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=5 main=0 pc=1c8f70c88(__psynch_mutexwait) lr=1e9dba114(<redacted>) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=6 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_trigger r=1 pc=ures_getLocaleByType lr=ures_getLocaleByType | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_busy r=1 pc=192b96fa8(ures_getLocaleByType) lr=6d5b9b8192b96fa8(ures_getLocaleByType) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_trigger r=2 pc=_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE lr=_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_busy r=2 pc=192bf37d8(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_trigger r=3 pc=_ZN3icu13UnicodeString8copyFromERKS0_a lr=_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_busy r=3 pc=192b8ce50(_ZN3icu13UnicodeString8copyFromERKS0_a) lr=fb003e0192c0aadc(_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC ai_main_watch i=1 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC ag_bg_hb i=1 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC ai_main_watch i=2 drain=0 wait=0 src=0 bgWin=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC ai_main_block_pc r=2 pc=1e9d22810 lr=192b998d8 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC al_icu_trigger r=4 pc=_platform_memmove lr=_ZN3icu10CharString6appendEPKciR10UErrorCode | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC al_icu_busy r=4 pc=1e9d22214(_platform_memmove) lr=192ae30e0(_ZN3icu10CharString6appendEPKciR10UErrorCode) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC ai_hook_windows_ok | state=idle token=- ch=- inv=0",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC al_qf_uikit_hook_ok | state=idle token=- ch=- inv=0",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC ag_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC ak_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+      "2026-07-19 01:58:37 +0000 | ak_main_block_pc r=0 class=ak_main_block_other pc=18a084214(__CFAllocatorRespectsHintZeroWhenAllocating) lr=18a088704(_CFRuntimeCreateInstance) fp=16b915d50 wait=0 src=0 drain=0",
+      "2026-07-19 01:58:37 +0000 | al_qf_enter_stack main=0 stack=340 < 566752 < 1164 < 340 < 399568",
+      "2026-07-19 01:58:37 +0000 | ak_main_block_pc r=1 class=al_icu_busy pc=192b96fa8(ures_getLocaleByType) lr=6d5b9b8192b96fa8(ures_getLocaleByType) fp=16b903720 wait=0 src=0 drain=0",
+      "2026-07-19 01:58:37 +0000 | ak_main_block_pc r=2 class=al_icu_busy pc=192bf37d8(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) fp=16b8e1a40 wait=0 src=0 drain=0",
+      "2026-07-19 01:58:37 +0000 | ak_main_block_pc r=3 class=al_icu_busy pc=192b8ce50(_ZN3icu13UnicodeString8copyFromERKS0_a) lr=fb003e0192c0aadc(_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i) fp=16b8b1da0 wait=0 src=0 drain=0",
+      "2026-07-19 01:58:38 +0000 | ai_main_block_pc r=2 pc=1e9d22810(_platform_strncmp) lr=192b998d8(ures_getVersionByKey) fp=16b859870 wait=0 src=0 drain=0",
+      "2026-07-19 01:58:38 +0000 | ak_main_block_pc r=4 class=al_icu_busy pc=1e9d22214(_platform_memmove) lr=192ae30e0(_ZN3icu10CharString6appendEPKciR10UErrorCode) fp=16b854350 wait=0 src=0 drain=0"
+    ],
+    "al_fatal": [],
+    "al_qf_uikit": [
+      "2026-07-19 09:58:37 | hypothesis_AC al_qf_uikit_summary hit=0 main=0 inv=1 pid=69405 up=577796684 mem=42",
+      "2026-07-19 09:58:38 | hypothesis_AC al_qf_uikit_hook_ok main=1 inv=0 pid=69463 up=577797611 mem=6",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_qf_uikit_summary hit=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC al_qf_uikit_hook_ok | state=idle token=- ch=- inv=0"
+    ],
+    "al_icu": [
+      "2026-07-19 09:58:37 | hypothesis_AC al_icu_trigger r=3 pc=_ZN3icu13UnicodeString8copyFromERKS0_a lr=_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i main=0 inv=1 pid=69405 up=577796842 mem=40",
+      "2026-07-19 09:58:37 | hypothesis_AC al_icu_busy r=3 pc=192b8ce50(_ZN3icu13UnicodeString8copyFromERKS0_a) lr=fb003e0192c0aadc(_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i) wait=0 src=0 drain=0 main=0 inv=1 pid=69405 up=577796842 mem=40",
+      "2026-07-19 09:58:38 | hypothesis_AC al_icu_trigger r=4 pc=_platform_memmove lr=_ZN3icu10CharString6appendEPKciR10UErrorCode main=0 inv=1 pid=69405 up=577796997 mem=41",
+      "2026-07-19 09:58:38 | hypothesis_AC al_icu_busy r=4 pc=1e9d22214(_platform_memmove) lr=192ae30e0(_ZN3icu10CharString6appendEPKciR10UErrorCode) wait=0 src=0 drain=0 main=0 inv=1 pid=69405 up=577796997 mem=41",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_trigger r=1 pc=ures_getLocaleByType lr=ures_getLocaleByType | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_busy r=1 pc=192b96fa8(ures_getLocaleByType) lr=6d5b9b8192b96fa8(ures_getLocaleByType) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_trigger r=2 pc=_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE lr=_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_busy r=2 pc=192bf37d8(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_trigger r=3 pc=_ZN3icu13UnicodeString8copyFromERKS0_a lr=_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_busy r=3 pc=192b8ce50(_ZN3icu13UnicodeString8copyFromERKS0_a) lr=fb003e0192c0aadc(_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC al_icu_trigger r=4 pc=_platform_memmove lr=_ZN3icu10CharString6appendEPKciR10UErrorCode | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC al_icu_busy r=4 pc=1e9d22214(_platform_memmove) lr=192ae30e0(_ZN3icu10CharString6appendEPKciR10UErrorCode) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | ak_main_block_pc r=1 class=al_icu_busy pc=192b96fa8(ures_getLocaleByType) lr=6d5b9b8192b96fa8(ures_getLocaleByType) fp=16b903720 wait=0 src=0 drain=0",
+      "2026-07-19 01:58:37 +0000 | ak_main_block_pc r=2 class=al_icu_busy pc=192bf37d8(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) fp=16b8e1a40 wait=0 src=0 drain=0",
+      "2026-07-19 01:58:37 +0000 | ak_main_block_pc r=3 class=al_icu_busy pc=192b8ce50(_ZN3icu13UnicodeString8copyFromERKS0_a) lr=fb003e0192c0aadc(_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i) fp=16b8b1da0 wait=0 src=0 drain=0",
+      "2026-07-19 01:58:38 +0000 | ak_main_block_pc r=4 class=al_icu_busy pc=1e9d22214(_platform_memmove) lr=192ae30e0(_ZN3icu10CharString6appendEPKciR10UErrorCode) fp=16b854350 wait=0 src=0 drain=0"
+    ],
+    "al_thr_pc": [
+      "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=0 main=1 pc=192b2e4f0(_ZN3icu11StringPieceC1EPKc) lr=806ab0192b95ebc(ures_getByKeyWithFallback) main=0 inv=1 pid=69405 up=577796687 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=1 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) main=0 inv=1 pid=69405 up=577796688 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=2 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) main=0 inv=1 pid=69405 up=577796688 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=3 main=0 pc=1c8f6fc84(mach_msg2_trap) lr=1c8f82b54(mach_msg2_internal) main=0 inv=1 pid=69405 up=577796688 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=4 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) main=0 inv=1 pid=69405 up=577796689 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=5 main=0 pc=1c8f70c88(__psynch_mutexwait) lr=1e9dba114(<redacted>) main=0 inv=1 pid=69405 up=577796689 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=6 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) main=0 inv=1 pid=69405 up=577796689 mem=42",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=0 main=1 pc=192b2e4f0(_ZN3icu11StringPieceC1EPKc) lr=806ab0192b95ebc(ures_getByKeyWithFallback) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=1 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=2 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=3 main=0 pc=1c8f6fc84(mach_msg2_trap) lr=1c8f82b54(mach_msg2_internal) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=4 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=5 main=0 pc=1c8f70c88(__psynch_mutexwait) lr=1e9dba114(<redacted>) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=6 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+    ],
+    "al_exception": [],
+    "ak_bg_skip": [
+      "2026-07-19 01:58:37 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBAllAppWindows cached=1",
+      "2026-07-19 09:58:37 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy main=0 inv=0 pid=69405 up=577795961 mem=36",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBAllAppWindows cached=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0"
+    ],
+    "ak_main_block": [
+      "2026-07-19 09:58:37 | hypothesis_AC al_icu_busy r=3 pc=192b8ce50(_ZN3icu13UnicodeString8copyFromERKS0_a) lr=fb003e0192c0aadc(_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i) wait=0 src=0 drain=0 main=0 inv=1 pid=69405 up=577796842 mem=40",
+      "2026-07-19 09:58:38 | hypothesis_AC al_icu_busy r=4 pc=1e9d22214(_platform_memmove) lr=192ae30e0(_ZN3icu10CharString6appendEPKciR10UErrorCode) wait=0 src=0 drain=0 main=0 inv=1 pid=69405 up=577796997 mem=41",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC ak_main_block_other r=0 pc=18a084214(__CFAllocatorRespectsHintZeroWhenAllocating) lr=18a088704(_CFRuntimeCreateInstance) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_busy r=1 pc=192b96fa8(ures_getLocaleByType) lr=6d5b9b8192b96fa8(ures_getLocaleByType) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_busy r=2 pc=192bf37d8(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_busy r=3 pc=192b8ce50(_ZN3icu13UnicodeString8copyFromERKS0_a) lr=fb003e0192c0aadc(_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:38 +0000 | hypothesis_AC al_icu_busy r=4 pc=1e9d22214(_platform_memmove) lr=192ae30e0(_ZN3icu10CharString6appendEPKciR10UErrorCode) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | ak_main_block_pc r=0 class=ak_main_block_other pc=18a084214(__CFAllocatorRespectsHintZeroWhenAllocating) lr=18a088704(_CFRuntimeCreateInstance) fp=16b915d50 wait=0 src=0 drain=0",
+      "2026-07-19 01:58:37 +0000 | ak_main_block_pc r=1 class=al_icu_busy pc=192b96fa8(ures_getLocaleByType) lr=6d5b9b8192b96fa8(ures_getLocaleByType) fp=16b903720 wait=0 src=0 drain=0",
+      "2026-07-19 01:58:37 +0000 | ak_main_block_pc r=2 class=al_icu_busy pc=192bf37d8(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) fp=16b8e1a40 wait=0 src=0 drain=0",
+      "2026-07-19 01:58:37 +0000 | ak_main_block_pc r=3 class=al_icu_busy pc=192b8ce50(_ZN3icu13UnicodeString8copyFromERKS0_a) lr=fb003e0192c0aadc(_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i) fp=16b8b1da0 wait=0 src=0 drain=0",
+      "2026-07-19 01:58:38 +0000 | ak_main_block_pc r=4 class=al_icu_busy pc=1e9d22214(_platform_memmove) lr=192ae30e0(_ZN3icu10CharString6appendEPKciR10UErrorCode) fp=16b854350 wait=0 src=0 drain=0"
+    ],
+    "qf_dispatch_gates": [
+      "2026-07-19 09:58:37 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread main=0 inv=1 pid=69405 up=577796675 mem=42",
+      "2026-07-19 09:58:37 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread main=0 inv=1 pid=69405 up=577796685 mem=42",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+      "2026-07-19 01:58:37 +0000 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+    ],
+    "has_qf": true,
+    "qf_n": 2,
+    "has_qf_enter": true,
+    "has_qf_exit": true,
+    "qf_main": false,
+    "has_ak_skip": true,
+    "pids": [
+      "69405",
+      "69463"
+    ],
+    "pid0": 69405,
+    "pid1": 69463,
+    "pid_stable": false,
+    "probe_pid_stable": false,
+    "os_pid_stable": false,
+    "relaunch_after_chain": false,
+    "mid_chain_launch_app": false,
+    "has_format_enter": true,
+    "has_format_exit": true,
+    "has_cb_enter": true,
+    "has_cb_exit": true,
+    "has_inject_inThread": true,
+    "has_ak_keep_inThread": true,
+    "has_al_keep_inThread": true,
+    "path_sync_inThread": true,
+    "has_fatal": false,
+    "al_fatal_n": 0,
+    "al_qf_uikit_n": 4,
+    "al_icu_n": 20,
+    "al_thr_pc_n": 14,
+    "scene_syslog_n": 0,
+    "sigsegv_n": 0,
+    "corpse_n": 0,
+    "reader_foreground": true,
+    "frontmost_final": {
+      "pid": 69463,
+      "contextId": 1966949726,
+      "bundleId": "com.appbox.StandarReader",
+      "sceneIdentifier": "com.appbox.StandarReader",
+      "processName": "StandarReader",
+      "displayId": 1,
+      "name": "StandarReader"
+    },
+    "xiaoyan": {
+      "passed": false,
+      "text": "萧炎",
+      "elements": [
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 47,
+            "x": 8,
+            "width": 49,
+            "height": 44
+          },
+          "text": "整理"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 53,
+            "x": 135,
+            "width": 59,
+            "height": 32
+          },
+          "text": "书架"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 53,
+            "x": 195,
+            "width": 60,
+            "height": 32
+          },
+          "text": "发现"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 47,
+            "x": 284,
+            "width": 48,
+            "height": 44
+          },
+          "text": "搜索"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 47,
+            "x": 340,
+            "width": 42,
+            "height": 44
+          },
+          "text": "添加"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 37,
+            "x": 0,
+            "width": 390,
+            "height": 54
+          },
+          "text": "下拉可以刷新"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 91,
+            "x": 0,
+            "width": 390,
+            "height": 753
+          },
+          "text": "空列表"
+        },
+        {
+          "type": "element",
+          "clickable": true,
+          "rect": {
+            "y": 47,
+            "x": 0,
+            "width": 390,
+            "height": 44
+          }
+        }
+      ],
+      "error": null
+    },
+    "ui_texts": [
+      "整理",
+      "书架",
+      "发现",
+      "搜索",
+      "添加",
+      "下拉可以刷新",
+      "空列表"
+    ],
+    "decision": {
+      "branch": "al_icu_post_cb_kill_no_fatal_stack",
+      "action": "QF/CB 完成后主线程 ICU 忙等，<40ms 内 pid 变；无 al_fatal/无 .ips/无 bg UIKit；只交取证，无最小修",
+      "commit": false
+    },
+    "first_chapter_approved": false,
+    "syslog_kill_hits_n": 26,
+    "crash_stack_n": 0,
+    "al_qf_uikit_real_n": 0,
+    "al_fatal_landed": false
+  },
+  "decision": {
+    "branch": "al_icu_post_cb_kill_no_fatal_stack",
+    "action": "QF/CB 完成后主线程 ICU 忙等，<40ms 内 pid 变；无 al_fatal/无 .ips/无 bg UIKit；只交取证，无最小修",
+    "commit": false
+  },
+  "first_chapter_approved": false,
+  "reader_foreground": true
+}

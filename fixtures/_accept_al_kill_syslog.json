@@ -1,0 +1,211 @@
+{
+  "sha": "ff4f5ea",
+  "pid0": 69405,
+  "pid1": 69463,
+  "conclusion": "QF/CB 完成后主线程 ICU 忙等，<40ms 内 pid 变；无 al_fatal/无 .ips；scene_syslog=0 KEEP AK；无最小修",
+  "mid_chain_launch_app": false,
+  "hits": [
+    {
+      "date": "2026-07-19 01:58:56 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577701566773000: <private>"
+    },
+    {
+      "date": "2026-07-19 01:58:56 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577701566804375: <private>"
+    },
+    {
+      "date": "2026-07-19 01:58:56 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577701567030875: <private>"
+    },
+    {
+      "date": "2026-07-19 01:58:56 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577701567034333: <private>"
+    },
+    {
+      "date": "2026-07-19 01:58:56 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577701567035666: <private>"
+    },
+    {
+      "date": "2026-07-19 01:58:56 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577701567036250: <private>"
+    },
+    {
+      "date": "2026-07-19 01:58:56 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577701567036750: <private>"
+    },
+    {
+      "date": "2026-07-19 01:58:56 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577701567037291: <private>"
+    },
+    {
+      "date": "2026-07-19 01:58:56 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577701567037750: <private>"
+    },
+    {
+      "date": "2026-07-19 01:58:56 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577701567038250: <private>"
+    },
+    {
+      "date": "2026-07-19 01:58:56 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577701567038750: <private>"
+    },
+    {
+      "date": "2026-07-19 01:59:06 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577711566950208: <private>"
+    },
+    {
+      "date": "2026-07-19 01:59:06 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577711567012208: <private>"
+    },
+    {
+      "date": "2026-07-19 01:59:06 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577711567433541: <private>"
+    },
+    {
+      "date": "2026-07-19 01:59:06 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577711567440375: <private>"
+    },
+    {
+      "date": "2026-07-19 01:59:06 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577711567443250: <private>"
+    },
+    {
+      "date": "2026-07-19 01:59:06 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577711567445416: <private>"
+    },
+    {
+      "date": "2026-07-19 01:59:06 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577711567447166: <private>"
+    },
+    {
+      "date": "2026-07-19 01:59:06 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577711567449000: <private>"
+    },
+    {
+      "date": "2026-07-19 01:59:06 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577711567450875: <private>"
+    },
+    {
+      "date": "2026-07-19 01:59:06 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577711567452458: <private>"
+    },
+    {
+      "date": "2026-07-19 01:59:06 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "577711567453958: <private>"
+    },
+    {
+      "date": "2026-07-19 01:59:10 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update(enter): pid 69472, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+    },
+    {
+      "date": "2026-07-19 01:59:10 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update: init: limit on pid 69472 (-1MB F ) targeting priority(210) dirty?=0x0"
+    },
+    {
+      "date": "2026-07-19 01:59:10 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update(enter): pid 69472, priority 180, dirty=0x0, Active(20MB NF), Inactive(6MB, F )"
+    },
+    {
+      "date": "2026-07-19 01:59:10 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update: init: limit on pid 69472 (20MB NF) targeting priority(180) dirty?=0x0"
+    }
+  ],
+  "scene_syslog": [],
+  "sigsegv": [],
+  "corpse": [],
+  "al_fatal": [],
+  "al_qf_uikit": [
+    "2026-07-19 09:58:37 | hypothesis_AC al_qf_uikit_summary hit=0 main=0 inv=1 pid=69405 up=577796684 mem=42",
+    "2026-07-19 09:58:38 | hypothesis_AC al_qf_uikit_hook_ok main=1 inv=0 pid=69463 up=577797611 mem=6",
+    "2026-07-19 01:58:37 +0000 | hypothesis_AC al_qf_uikit_summary hit=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:38 +0000 | hypothesis_AC al_qf_uikit_hook_ok | state=idle token=- ch=- inv=0"
+  ],
+  "al_icu": [
+    "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_trigger r=1 pc=ures_getLocaleByType lr=ures_getLocaleByType | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_busy r=1 pc=192b96fa8(ures_getLocaleByType) lr=6d5b9b8192b96fa8(ures_getLocaleByType) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_trigger r=2 pc=_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE lr=_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_busy r=2 pc=192bf37d8(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_trigger r=3 pc=_ZN3icu13UnicodeString8copyFromERKS0_a lr=_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:37 +0000 | hypothesis_AC al_icu_busy r=3 pc=192b8ce50(_ZN3icu13UnicodeString8copyFromERKS0_a) lr=fb003e0192c0aadc(_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:38 +0000 | hypothesis_AC al_icu_trigger r=4 pc=_platform_memmove lr=_ZN3icu10CharString6appendEPKciR10UErrorCode | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:38 +0000 | hypothesis_AC al_icu_busy r=4 pc=1e9d22214(_platform_memmove) lr=192ae30e0(_ZN3icu10CharString6appendEPKciR10UErrorCode) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:37 +0000 | ak_main_block_pc r=1 class=al_icu_busy pc=192b96fa8(ures_getLocaleByType) lr=6d5b9b8192b96fa8(ures_getLocaleByType) fp=16b903720 wait=0 src=0 drain=0",
+    "2026-07-19 01:58:37 +0000 | ak_main_block_pc r=2 class=al_icu_busy pc=192bf37d8(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) lr=192bf37d4(_ZN3icu20DecimalFormatSymbols28setPatternForCurrencySpacingE16UCurrencySpacingaRKNS_13UnicodeStringE) fp=16b8e1a40 wait=0 src=0 drain=0",
+    "2026-07-19 01:58:37 +0000 | ak_main_block_pc r=3 class=al_icu_busy pc=192b8ce50(_ZN3icu13UnicodeString8copyFromERKS0_a) lr=fb003e0192c0aadc(_ZN3icu17DateFormatSymbols11assignArrayERPNS_13UnicodeStringERiPKS1_i) fp=16b8b1da0 wait=0 src=0 drain=0",
+    "2026-07-19 01:58:38 +0000 | ak_main_block_pc r=4 class=al_icu_busy pc=1e9d22214(_platform_memmove) lr=192ae30e0(_ZN3icu10CharString6appendEPKciR10UErrorCode) fp=16b854350 wait=0 src=0 drain=0"
+  ],
+  "al_thr_pc": [
+    "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=0 main=1 pc=192b2e4f0(_ZN3icu11StringPieceC1EPKc) lr=806ab0192b95ebc(ures_getByKeyWithFallback) main=0 inv=1 pid=69405 up=577796687 mem=42",
+    "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=1 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) main=0 inv=1 pid=69405 up=577796688 mem=42",
+    "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=2 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) main=0 inv=1 pid=69405 up=577796688 mem=42",
+    "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=3 main=0 pc=1c8f6fc84(mach_msg2_trap) lr=1c8f82b54(mach_msg2_internal) main=0 inv=1 pid=69405 up=577796688 mem=42",
+    "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=4 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) main=0 inv=1 pid=69405 up=577796689 mem=42",
+    "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=5 main=0 pc=1c8f70c88(__psynch_mutexwait) lr=1e9dba114(<redacted>) main=0 inv=1 pid=69405 up=577796689 mem=42",
+    "2026-07-19 09:58:37 | hypothesis_AC al_thr_pc i=6 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) main=0 inv=1 pid=69405 up=577796689 mem=42",
+    "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=0 main=1 pc=192b2e4f0(_ZN3icu11StringPieceC1EPKc) lr=806ab0192b95ebc(ures_getByKeyWithFallback) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=1 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=2 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=3 main=0 pc=1c8f6fc84(mach_msg2_trap) lr=1c8f82b54(mach_msg2_internal) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=4 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=5 main=0 pc=1c8f70c88(__psynch_mutexwait) lr=1e9dba114(<redacted>) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 01:58:37 +0000 | hypothesis_AC al_thr_pc i=6 main=0 pc=1c8f70144(__semwait_signal) lr=19151b888(nanosleep) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "crash_stack": [],
+  "tmp_fatal_head": "{'exitCode': 0, 'output': ''}",
+  "al_qf_uikit_real_n": 0,
+  "al_icu_busy": true,
+  "kill_window": "post_cb <40ms",
+  "sigsegv_note": "本刀 capture 未命中 SIGSEGV 行；pid 仍变；AK 先验为 SIGSEGV(11)"
+}
