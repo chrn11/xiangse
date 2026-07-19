@@ -325,6 +325,14 @@ def main() -> int:
         report["chapter_probe"] = {"ok": resp.status == 200, "code": resp.status}
 
     c = McpClient(base_url=MCP, bundle_id=BUNDLE)
+    # AN：同版号覆盖安装可能留下旧 dylib；先卸再装，硬保证 build_manifest=HEAD
+    try:
+        report["uninstall"] = c.call(
+            "uninstall_app", {"bundle_id": BUNDLE}, timeout=120
+        )
+    except Exception as exc:
+        report["uninstall_err"] = str(exc)
+    time.sleep(1.5)
     up = c.upload_file(ipa, filename=ipa.name)
     dp = up.get("path") if isinstance(up, dict) else str(up)
     report["upload"] = {k: up.get(k) for k in ("path", "filename", "size") if isinstance(up, dict)}

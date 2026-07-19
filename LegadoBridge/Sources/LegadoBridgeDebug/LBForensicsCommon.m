@@ -1,21 +1,35 @@
 #import "LBForensics.h"
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
+#import <string.h>
+#import <time.h>
 
 const NSInteger LBForensicsDumpSchemaVersion = 2;
 
+/// AN：禁热路径 NSDateFormatter（会进 ICU DateFormatSymbols，post-cb 窗与 SIGSEGV/mem 陡升同源）
+/// 取证时间戳改用 strftime/UTC，避免 Debug 钩子每事件 alloc formatter
 static NSString *LBForensicsUTCNow(void) {
-    NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
-    fmt.dateFormat = @"yyyy-MM-dd'T'HH:mm:ss'Z'";
-    fmt.timeZone = [NSTimeZone timeZoneWithAbbreviation:@"UTC"];
-    return [fmt stringFromDate:[NSDate date]];
+    time_t t = time(NULL);
+    struct tm tm;
+    memset(&tm, 0, sizeof(tm));
+    gmtime_r(&t, &tm);
+    char buf[40];
+    if (strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm) == 0) {
+        return @"1970-01-01T00:00:00Z";
+    }
+    return [NSString stringWithUTF8String:buf];
 }
 
 static NSString *LBForensicsFileStamp(void) {
-    NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
-    fmt.dateFormat = @"yyyyMMdd_HHmmss";
-    fmt.timeZone = [NSTimeZone timeZoneWithAbbreviation:@"UTC"];
-    return [fmt stringFromDate:[NSDate date]];
+    time_t t = time(NULL);
+    struct tm tm;
+    memset(&tm, 0, sizeof(tm));
+    gmtime_r(&t, &tm);
+    char buf[32];
+    if (strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", &tm) == 0) {
+        return @"19700101_000000";
+    }
+    return [NSString stringWithUTF8String:buf];
 }
 
 NSString *LBForensicsPointer(id obj) {
