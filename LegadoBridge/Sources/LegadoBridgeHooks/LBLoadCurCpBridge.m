@@ -70,6 +70,8 @@ static void LBAKStartPostIdleMainBlockForensics(void);
 static void LBALInstallQFUIKitHooks(void);
 static void LBALStartPostCbThreadSample(void);
 static void LBALInstallExceptionProbe(void);
+static void LBAMStartPostCbHeartbeat(void);
+static void LBAMInstallICUCallerHooks(void);
 
 /// AL：QF/死后窗标志（供 UIKit 钩与 fatal 栈标注）
 static atomic_int sALInQF = 0;
@@ -790,6 +792,183 @@ static void LBALStartPostCbThreadSample(void) {
     });
 }
 
+/// AM：cb_exit 后 0–200ms 轻量心跳（POSIX write+fsync；禁全线程 suspend）
+/// 钉死窗终点；与 AL 全线程 suspend 采样解耦，避免取证副作用遮盖 exit reason
+static void LBAMRawHb(int i, long ms) {
+    char mark[192];
+    int n = snprintf(mark, sizeof(mark),
+                     "hypothesis_AC am_post_cb_hb i=%d ms=%ld pid=%d up=%ld mem=%ld main=%d\n",
+                     i, ms, (int)getpid(), LBAGUptimeMs(), LBAGFootprintMB(),
+                     pthread_main_np() ? 1 : 0);
+    if (n <= 0) return;
+    const char *home = getenv("HOME");
+    char path[512];
+    if (home && home[0]) {
+        snprintf(path, sizeof(path), "%s/Documents/legado_ab_probe.txt", home);
+    } else {
+        snprintf(path, sizeof(path), "/tmp/legado_ab_probe.txt");
+    }
+    int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        (void)write(fd, mark, (size_t)n);
+        (void)fsync(fd);
+        close(fd);
+    }
+    fd = open("/tmp/legado_am_hb.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        (void)write(fd, mark, (size_t)n);
+        (void)fsync(fd);
+        close(fd);
+    }
+}
+
+static void LBAMStartPostCbHeartbeat(void) {
+    static atomic_int sOnce = 0;
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&sOnce, &expected, 1)) return;
+    atomic_store(&sALPostQF, 1);
+    LBAMRawHb(0, 0);
+    LBABSyncProbe(@"am_post_cb_hb_start");
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        // 0–200ms，步长 5ms；首拍已在调用线程写出
+        for (int i = 1; i <= 40; i++) {
+            usleep(5000);
+            LBAMRawHb(i, (long)i * 5L);
+        }
+        LBABSyncProbe(@"am_post_cb_hb_done");
+        LBAMRawHb(41, 200);
+    });
+}
+
+/// AM：Date/Currency ICU 上游——钩 NSDateFormatter / NSNumberFormatter / NSLocale（类+SEL+短栈）
+static atomic_int sAMICUCallerHit = 0;
+static atomic_int sAMICUHooked = 0;
+static id (*sAMNextDFInit)(id, SEL) = NULL;
+static id (*sAMNextDFStringFromDate)(id, SEL, id) = NULL;
+static void (*sAMNextDFSetDateFormat)(id, SEL, id) = NULL;
+static id (*sAMNextNFInit)(id, SEL) = NULL;
+static id (*sAMNextNFStringFromNumber)(id, SEL, id) = NULL;
+static void (*sAMNextNFSetNumberStyle)(id, SEL, NSUInteger) = NULL;
+static id (*sAMNextLocaleCurrent)(id, SEL) = NULL;
+
+static void LBAMLogICUCaller(NSString *cls, SEL sel, NSString *extra) {
+    if (!atomic_load(&sALInQF) && !atomic_load(&sALPostQF)) return;
+    int n = atomic_fetch_add(&sAMICUCallerHit, 1) + 1;
+    if (n > 32) return;
+    NSString *stack = (n <= 12) ? LBAICompactStack(10) : @"-";
+    LBABSyncProbe([NSString stringWithFormat:
+                   @"am_icu_caller cls=%@ sel=%@ main=%d hit=%d inQF=%d postQF=%d%@",
+                   cls ?: @"?",
+                   NSStringFromSelector(sel) ?: @"?",
+                   [NSThread isMainThread] ? 1 : 0,
+                   n,
+                   atomic_load(&sALInQF),
+                   atomic_load(&sALPostQF),
+                   extra.length ? [NSString stringWithFormat:@" %@", extra] : @""]);
+    if (n <= 12) {
+        LBAIWriteLong([NSString stringWithFormat:
+                       @"am_icu_caller cls=%@ sel=%@ main=%d hit=%d stack=%@",
+                       cls ?: @"?",
+                       NSStringFromSelector(sel) ?: @"?",
+                       [NSThread isMainThread] ? 1 : 0,
+                       n, stack]);
+    }
+}
+
+static id LBAM_DFInit(id self, SEL _cmd) {
+    LBAMLogICUCaller(@"NSDateFormatter", _cmd, nil);
+    return sAMNextDFInit ? sAMNextDFInit(self, _cmd) : nil;
+}
+
+static id LBAM_DFStringFromDate(id self, SEL _cmd, id date) {
+    LBAMLogICUCaller(@"NSDateFormatter", _cmd, nil);
+    return sAMNextDFStringFromDate ? sAMNextDFStringFromDate(self, _cmd, date) : nil;
+}
+
+static void LBAM_DFSetDateFormat(id self, SEL _cmd, id fmt) {
+    LBAMLogICUCaller(@"NSDateFormatter", _cmd, nil);
+    if (sAMNextDFSetDateFormat) sAMNextDFSetDateFormat(self, _cmd, fmt);
+}
+
+static id LBAM_NFInit(id self, SEL _cmd) {
+    LBAMLogICUCaller(@"NSNumberFormatter", _cmd, nil);
+    return sAMNextNFInit ? sAMNextNFInit(self, _cmd) : nil;
+}
+
+static id LBAM_NFStringFromNumber(id self, SEL _cmd, id num) {
+    LBAMLogICUCaller(@"NSNumberFormatter", _cmd, nil);
+    return sAMNextNFStringFromNumber ? sAMNextNFStringFromNumber(self, _cmd, num) : nil;
+}
+
+static void LBAM_NFSetNumberStyle(id self, SEL _cmd, NSUInteger style) {
+    LBAMLogICUCaller(@"NSNumberFormatter", _cmd,
+                     [NSString stringWithFormat:@"style=%lu", (unsigned long)style]);
+    if (sAMNextNFSetNumberStyle) sAMNextNFSetNumberStyle(self, _cmd, style);
+}
+
+static id LBAM_LocaleCurrent(id self, SEL _cmd) {
+    LBAMLogICUCaller(@"NSLocale", _cmd, @"kind=currentLocale");
+    return sAMNextLocaleCurrent ? sAMNextLocaleCurrent(self, _cmd) : nil;
+}
+
+static void LBAMInstallICUCallerHooks(void) {
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&sAMICUHooked, &expected, 1)) return;
+    int ok = 0;
+    Class df = [NSDateFormatter class];
+    if (df) {
+        Method m = class_getInstanceMethod(df, @selector(init));
+        if (m && !sAMNextDFInit) {
+            sAMNextDFInit = (id (*)(id, SEL))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LBAM_DFInit);
+            ok++;
+        }
+        m = class_getInstanceMethod(df, @selector(stringFromDate:));
+        if (m && !sAMNextDFStringFromDate) {
+            sAMNextDFStringFromDate = (id (*)(id, SEL, id))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LBAM_DFStringFromDate);
+            ok++;
+        }
+        m = class_getInstanceMethod(df, @selector(setDateFormat:));
+        if (m && !sAMNextDFSetDateFormat) {
+            sAMNextDFSetDateFormat = (void (*)(id, SEL, id))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LBAM_DFSetDateFormat);
+            ok++;
+        }
+    }
+    Class nf = [NSNumberFormatter class];
+    if (nf) {
+        Method m = class_getInstanceMethod(nf, @selector(init));
+        if (m && !sAMNextNFInit) {
+            sAMNextNFInit = (id (*)(id, SEL))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LBAM_NFInit);
+            ok++;
+        }
+        m = class_getInstanceMethod(nf, @selector(stringFromNumber:));
+        if (m && !sAMNextNFStringFromNumber) {
+            sAMNextNFStringFromNumber = (id (*)(id, SEL, id))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LBAM_NFStringFromNumber);
+            ok++;
+        }
+        m = class_getInstanceMethod(nf, @selector(setNumberStyle:));
+        if (m && !sAMNextNFSetNumberStyle) {
+            sAMNextNFSetNumberStyle = (void (*)(id, SEL, NSUInteger))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LBAM_NFSetNumberStyle);
+            ok++;
+        }
+    }
+    Class loc = [NSLocale class];
+    if (loc) {
+        Method m = class_getClassMethod(loc, @selector(currentLocale));
+        if (m && !sAMNextLocaleCurrent) {
+            sAMNextLocaleCurrent = (id (*)(id, SEL))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LBAM_LocaleCurrent);
+            ok++;
+        }
+    }
+    LBABSyncProbe([NSString stringWithFormat:@"am_icu_hook_ok n=%d", ok]);
+}
+
 /// AI：尽早挂 UIWindowScene.windows，覆盖 invoke 前窗口
 __attribute__((constructor))
 static void LBAIConstructor(void) {
@@ -994,8 +1173,8 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
         LBABSyncProbe(@"cb_precheck_gate_check_seen");
     }
     LBABSyncProbe(@"cb_exit");
-    // AL：QF/CB 均已返回后仍可能 SIGSEGV——采全线程 PC
-    LBALStartPostCbThreadSample();
+    // AM：轻量心跳钉 0–200ms 死窗（禁全线程 suspend）；AL 全线程采样副作用大，本刀不叠
+    LBAMStartPostCbHeartbeat();
 }
 
 static id LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id userInfo) {
@@ -1103,6 +1282,7 @@ static void LBABInstallProbes(void) {
     LBAGInstallAtExit();
     LBAIInstallWindowSceneHook();
     LBALInstallQFUIKitHooks();
+    LBAMInstallICUCallerHooks();
     // 只装一次：invoke 前反复 setImplementation 会把 next 指到 forensics 桩并成环
     if (sABHooksInstalled) return;
 
@@ -1216,6 +1396,7 @@ static void LBABInstallProbes(void) {
     LBABSyncProbe(@"ai_keep_inThread=1");
     LBABSyncProbe(@"ak_keep_inThread=1");
     LBABSyncProbe(@"al_keep_inThread=1");
+    LBABSyncProbe(@"am_keep_inThread=1");
 }
 
 static void LBSetState(LBLoadCurCpState next, NSString *why) {
