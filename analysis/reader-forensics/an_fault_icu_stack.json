@@ -1,0 +1,16 @@
+{
+  "sha": "d308e1b",
+  "pattern": "NSDateFormatter init→setDateFormat:→stringFromDate:→NSLocale.currentLocale",
+  "upstream": "LegadoBridgeDebug!LBForensicsUTCNowString → LBFRecordEvent → LBFHook_*",
+  "during_qf_bg": {
+    "main": 0,
+    "stack_head": "LegadoBridge!LBAM_DF* < LegadoBridgeDebug!LBForensicsUTCNowString < LBFRecordEvent < LBFHook_v_at_id_id_q < StandarReader+0xd8714 < LegadoBridge!LBAE_QueryFinish"
+  },
+  "during_post_qf_main": {
+    "main": 1,
+    "stack_head": "LegadoBridge!LBAM_DF* < LegadoBridgeDebug!LBForensicsUTCNowString < LBFRecordEvent < LBFHook_v_at_B < UIKitCore"
+  },
+  "not_bridge_business_format": true,
+  "not_TextRPageContainer_direct": true,
+  "note": "AM 数字栈实为 +offset；AN 符号化后钉为 Debug 取证时间戳热路径，非原生分页业务主动 format"
+}

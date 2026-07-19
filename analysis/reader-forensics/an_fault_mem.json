@@ -1,0 +1,23 @@
+{
+  "sha_forensics": "d308e1b",
+  "hb_mem0": 46,
+  "hb_mem1": 153,
+  "hb_mem_delta_mb": 107,
+  "window_ms": 200,
+  "path_class_counts": {"icu": 12, "other": 8, "page": 0},
+  "verdict": "icu_path",
+  "page_path_hits": 0,
+  "samples": [
+    "i=5 mem=59 class=icu DateFormatSymbols::assignArray / UnicodeString::copyFrom",
+    "i=15 mem=85 class=icu res_countArrayItems / ures_getVersionByKey",
+    "i=20 mem=99 class=icu LocaleD2 / DateFormatSymbols::createForLocale",
+    "i=41 mem=153 class=icu LocalizedNumberFormatter::getDecimalFormatSymbols"
+  ],
+  "conclusion": "post-cb mem≈46→153 与 ICU 资源/日期符号表同源；未见 CoreText/TextR 分页标签占优",
+  "after_fix_8984070": {
+    "am_icu_caller_n": 0,
+    "hb_mem_delta_mb": 0,
+    "hb_ms_max": 0,
+    "note": "strftime 后 DateFormatter 风暴消失、mem 陡升消失；pid 仍变且本跑未捞到 an_fault/exit reason"
+  }
+}

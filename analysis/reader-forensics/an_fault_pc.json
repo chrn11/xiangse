@@ -1,0 +1,22 @@
+{
+  "sha_forensics": "d308e1b",
+  "sha_fix": "8984070",
+  "ci_forensics": "29670061930",
+  "ci_fix": "29670275937",
+  "pid": 69754,
+  "signal": 11,
+  "si_code": 2,
+  "si_code_meaning": "SEGV_ACCERR",
+  "fault_addr": "16ed83ff8",
+  "fault_addr_note": "紧邻 fp=16ed84050，栈邻域非法访问",
+  "pc": "192b6e084",
+  "lr": "385bde8192b6e050",
+  "lr_stripped_hint": "192b6e050（PAC 高位剥离后与 pc 同属 libicucore 邻域）",
+  "fp": "16ed84050",
+  "tid": 259,
+  "inQF": 0,
+  "postQF": 1,
+  "image_guess": "libicucore.A.dylib",
+  "symbol_guess": "icu hash/UnicodeString 邻域（对照同窗 ak/mem：uhash_find@192b6e748 / UnicodeString::copyFrom）",
+  "raw": "hypothesis_AC an_fault_signal SIG=11 si_code=2 fault=16ed83ff8 pc=192b6e084 lr=385bde8192b6e050 fp=16ed84050 tid=259 pid=69754 inQF=0 postQF=1"
+}

@@ -1,0 +1,334 @@
+{
+  "sha": "8984070",
+  "probe_last_line": "2026-07-19 10:33:21 | hypothesis_AC am_keep_inThread=1 main=1 inv=0 pid=69980 up=579879908 mem=6",
+  "am_last_runtime": "No such file or directory: /var/mobile/Containers/Data/Application/E89B2E20-31A3-4253-9176-15AFF1D015A2/Documents/legado_an_fault.txt",
+  "am_runtime": [
+    "2026-07-19 02:32:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-19 02:32:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBAllAppWindows cached=1",
+    "2026-07-19 10:32:18 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy main=0 inv=0 pid=69882 up=579817394 mem=38",
+    "2026-07-19 02:32:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-19 02:32:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-19 02:32:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBAllAppWindows cached=1",
+    "2026-07-19 10:32:19 | hypothesis_AC pre_invoke_orig target=TextRPageContainer main=1 inv=1 pid=69882 up=579818030 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC invoke_orig_returned target=TextRPageContainer main=1 inv=1 pid=69882 up=579818031 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC swcf_enter leaf=0 main=0 inv=1 pid=69882 up=579818031 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC ai_main_rl_observer_ok main=1 inv=1 pid=69882 up=579818032 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC swcf_exit leaf=0 len=111 nil=0 main=0 inv=1 pid=69882 up=579818032 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC cb_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 self=BookQueryManager main=0 inv=1 pid=69882 up=579818032 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC cb_precheck_gate_resp nil=0 len=111 self=BookQueryManager main=0 next=0x1008261d4 main=0 inv=1 pid=69882 up=579818032 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC post_invoke_gates_done main=1 inv=1 pid=69882 up=579818032 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC qf_dispatch_inject_inThread action=chapterContent main=0 inv=1 pid=69882 up=579818032 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC check_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 cfg=1 ui=1 self=BookQueryManager qsrc=localSourceText respCls=__NSCFString main=0 inv=1 pid=69882 up=579818033 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC post_invoke_z_probe_done main=1 inv=1 pid=69882 up=579818033 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC check_exit ok=1 main=0 inv=1 pid=69882 up=579818033 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC format_enter respLen=111 action=chapterContent dontFormat=0 main=0 inv=1 pid=69882 up=579818033 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC await_native_chain main=1 inv=1 pid=69882 up=579818033 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread main=0 inv=1 pid=69882 up=579818033 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC invoke_reentry_cleared main=1 inv=1 pid=69882 up=579818034 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC format_exit outNil=0 outLen=107 outCls=__NSCFString main=0 inv=1 pid=69882 up=579818034 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC qf_enter self=TextRPageContainer respLen=107 action=chapterContent respCls=__NSCFString main=0 inv=1 pid=69882 up=579818034 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC invoke_state_idle main=1 inv=1 pid=69882 up=579818034 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC ak_main_idle_seen main=1 inv=1 pid=69882 up=579818034 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC ag_bg_hb i=0 main=0 inv=1 pid=69882 up=579818034 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC ak_main_idle_forensics_start main=1 inv=1 pid=69882 up=579818034 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC an_qf_enter_stack main=0 stack=LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x8a5e0 < LegadoBridge!LBAB_CallBackResponse+0x484 < LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x618d0 < libdispatch.dylib!<redacted>+0x20 < libdispatch.dylib!<redacted>+0x14 < libdispatch.dylib!<redacted>+0x314 < libdispatch.dylib!<redacted>+0x18c < libdispatch.dylib!<redacted>+0xa4 < libsystem_pthread.dylib!_pthread_wqthread+0xe4 < libsystem_pthread.dylib!start_wqthread+0x8 main=0 inv=1 pid=69882 up=579818037 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC ak_main_block_nosym r=0 pc=18d792ba0(?) lr=18c224070(<redacted>) wait=0 src=0 drain=0 main=0 inv=1 pid=69882 up=579818039 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC ag_post_qf main=0 inv=1 pid=69882 up=579818040 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC al_qf_uikit_summary hit=0 main=0 inv=1 pid=69882 up=579818040 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC qf_exit main=0 inv=1 pid=69882 up=579818040 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread main=0 inv=1 pid=69882 up=579818041 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC cb_precheck_gate_check_seen main=0 inv=1 pid=69882 up=579818041 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC cb_exit main=0 inv=1 pid=69882 up=579818041 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC an_fault_claim why=post_cb_hb main=0 inv=1 pid=69882 up=579818042 mem=44",
+    "hypothesis_AC am_post_cb_hb i=0 ms=0 pid=69882 up=579818042 mem=44 main=0",
+    "2026-07-19 10:32:19 | hypothesis_AC an_mem_path i=0 ms=0 mem=44 class=other img=libsystem_malloc.dylib pc=198494c38(<redacted>) lr=73d(?) main=0 inv=1 pid=69882 up=579818042 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC ak_main_block_other r=1 pc=198494c38(<redacted>) lr=73d(?) wait=0 src=0 drain=0 main=0 inv=1 pid=69882 up=579818075 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC ai_main_watch i=0 drain=0 wait=0 src=0 bgWin=0 main=0 inv=1 pid=69882 up=579818137 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC ag_bg_hb i=1 main=0 inv=1 pid=69882 up=579818300 mem=44",
+    "2026-07-19 10:33:21 | hypothesis_AC ai_hook_windows_ok main=1 inv=0 pid=69980 up=579879897 mem=6",
+    "2026-07-19 10:33:21 | hypothesis_AC an_fault_claim why=install main=1 inv=0 pid=69980 up=579879905 mem=6",
+    "2026-07-19 10:33:21 | hypothesis_AC al_qf_uikit_hook_ok main=1 inv=0 pid=69980 up=579879905 mem=6",
+    "2026-07-19 10:33:21 | hypothesis_AC am_icu_hook_ok n=7 main=1 inv=0 pid=69980 up=579879906 mem=6",
+    "2026-07-19 10:33:21 | hypothesis_AC ag_keep_inThread=1 main=1 inv=0 pid=69980 up=579879907 mem=6",
+    "2026-07-19 10:33:21 | hypothesis_AC ai_keep_inThread=1 main=1 inv=0 pid=69980 up=579879907 mem=6",
+    "2026-07-19 10:33:21 | hypothesis_AC ak_keep_inThread=1 main=1 inv=0 pid=69980 up=579879908 mem=6",
+    "2026-07-19 10:33:21 | hypothesis_AC al_keep_inThread=1 main=1 inv=0 pid=69980 up=579879908 mem=6",
+    "2026-07-19 10:33:21 | hypothesis_AC am_keep_inThread=1 main=1 inv=0 pid=69980 up=579879908 mem=6",
+    "2026-07-19 02:32:18 +0000 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC pre_invoke_orig target=TextRPageContainer | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC invoke_orig_returned target=TextRPageContainer | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC swcf_enter leaf=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC ai_main_rl_observer_ok | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC swcf_exit leaf=0 len=111 nil=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC cb_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 self=BookQueryManager | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC cb_precheck_gate_resp nil=0 len=111 self=BookQueryManager main=0 next=0x1008261d4 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC post_invoke_gates_done | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC qf_dispatch_inject_inThread action=chapterContent | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC check_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 cfg=1 ui=1 self=BookQueryManager qsrc=localSourceText respCls=__NSCFString | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC post_invoke_z_probe_done | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC check_exit ok=1 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC format_enter respLen=111 action=chapterContent dontFormat=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC await_native_chain | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC invoke_reentry_cleared | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC format_exit outNil=0 outLen=107 outCls=__NSCFString | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC qf_enter self=TextRPageContainer respLen=107 action=chapterContent respCls=__NSCFString | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC invoke_state_idle | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC ak_main_idle_seen | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC ak_main_idle_forensics_start | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC ag_bg_hb i=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC an_qf_enter_stack main=0 stack=LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x8a5e0 < LegadoBridge!LBAB_CallBackResponse+0x484 < LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x618d0 < libdispatch.dylib!<redacted>+0x20 < libdispatch.dylib!<redacted>+0x14 < libdispatch.dylib!<redacted>+0x314 < libdispatch.dylib!<redacted>+0x18c < libdispatch.dylib!<redacted>+0xa4 < libsystem_pthread.dylib!_pthread_wqthread+0xe4 < libsystem_pthread.dylib!start_wqthread+0x8 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC ak_main_block_nosym r=0 pc=18d792ba0(?) lr=18c224070(<redacted>) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC ag_post_qf | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC al_qf_uikit_summary hit=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC qf_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC cb_precheck_gate_check_seen | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC cb_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC an_fault_claim why=post_cb_hb | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:33:21 +0000 | hypothesis_AC ai_hook_windows_ok | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:33:21 +0000 | hypothesis_AC an_fault_claim why=install | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:33:21 +0000 | hypothesis_AC al_qf_uikit_hook_ok | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:33:21 +0000 | hypothesis_AC am_icu_hook_ok n=7 | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:33:21 +0000 | hypothesis_AC ag_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:33:21 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:33:21 +0000 | hypothesis_AC ak_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:33:21 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:33:21 +0000 | hypothesis_AC am_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:32:19 +0000 | al_qf_enter_stack main=0 stack=LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x8a5e0 < LegadoBridge!LBAB_CallBackResponse+0x484 < LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x618d0 < libdispatch.dylib!<redacted>+0x20 < libdispatch.dylib!<redacted>+0x14 < libdispatch.dylib!<redacted>+0x314 < libdispatch.dylib!<redacted>+0x18c < libdispatch.dylib!<redacted>+0xa4 < libsystem_pthread.dylib!_pthread_wqthread+0xe4 < libsystem_pthread.dylib!start_wqthread+0x8",
+    "2026-07-19 02:32:19 +0000 | ak_main_block_pc r=0 class=ak_main_block_nosym pc=18d792ba0(?) lr=18c224070(<redacted>) fp=16f6622d0 wait=0 src=0 drain=0",
+    "No such file or directory: /var/mobile/Containers/Data/Application/E89B2E20-31A3-4253-9176-15AFF1D015A2/Documents/legado_an_fault.txt"
+  ],
+  "am_post_cb_hb": [
+    "hypothesis_AC am_post_cb_hb i=0 ms=0 pid=69882 up=579818042 mem=44 main=0"
+  ],
+  "am_hb_ms_max": 0,
+  "am_hb_done": false,
+  "am_icu_caller": [],
+  "am_icu_hook": [
+    "2026-07-19 10:33:21 | hypothesis_AC am_icu_hook_ok n=7 main=1 inv=0 pid=69980 up=579879906 mem=6",
+    "2026-07-19 02:33:21 +0000 | hypothesis_AC am_icu_hook_ok n=7 | state=idle token=- ch=- inv=0"
+  ],
+  "al_icu": [],
+  "al_fatal": [],
+  "an_fault_signal": [],
+  "an_fault_claim": [
+    "2026-07-19 10:32:19 | hypothesis_AC an_fault_claim why=post_cb_hb main=0 inv=1 pid=69882 up=579818042 mem=44",
+    "2026-07-19 10:33:21 | hypothesis_AC an_fault_claim why=install main=1 inv=0 pid=69980 up=579879905 mem=6",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC an_fault_claim why=post_cb_hb | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:33:21 +0000 | hypothesis_AC an_fault_claim why=install | state=idle token=- ch=- inv=0"
+  ],
+  "an_icu_stack": [],
+  "an_mem_path": [
+    "2026-07-19 10:32:19 | hypothesis_AC an_mem_path i=0 ms=0 mem=44 class=other img=libsystem_malloc.dylib pc=198494c38(<redacted>) lr=73d(?) main=0 inv=1 pid=69882 up=579818042 mem=44"
+  ],
+  "an_qf_enter_stack": [
+    "2026-07-19 10:32:19 | hypothesis_AC an_qf_enter_stack main=0 stack=LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x8a5e0 < LegadoBridge!LBAB_CallBackResponse+0x484 < LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x618d0 < libdispatch.dylib!<redacted>+0x20 < libdispatch.dylib!<redacted>+0x14 < libdispatch.dylib!<redacted>+0x314 < libdispatch.dylib!<redacted>+0x18c < libdispatch.dylib!<redacted>+0xa4 < libsystem_pthread.dylib!_pthread_wqthread+0xe4 < libsystem_pthread.dylib!start_wqthread+0x8 main=0 inv=1 pid=69882 up=579818037 mem=44",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC an_qf_enter_stack main=0 stack=LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x8a5e0 < LegadoBridge!LBAB_CallBackResponse+0x484 < LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x618d0 < libdispatch.dylib!<redacted>+0x20 < libdispatch.dylib!<redacted>+0x14 < libdispatch.dylib!<redacted>+0x314 < libdispatch.dylib!<redacted>+0x18c < libdispatch.dylib!<redacted>+0xa4 < libsystem_pthread.dylib!_pthread_wqthread+0xe4 < libsystem_pthread.dylib!start_wqthread+0x8 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "an_fault_pc": null,
+  "an_fault_lr": null,
+  "an_fault_addr": null,
+  "mem_vs_icu": {
+    "hb_mem0": 44,
+    "hb_mem1": 44,
+    "hb_mem_delta": 0,
+    "path_class_counts": {
+      "other": 1
+    },
+    "icu_dominant": false,
+    "page_dominant": false,
+    "verdict": "mixed_or_other"
+  },
+  "ak_bg_skip": [
+    "2026-07-19 02:32:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-19 02:32:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBAllAppWindows cached=1",
+    "2026-07-19 10:32:18 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy main=0 inv=0 pid=69882 up=579817394 mem=38",
+    "2026-07-19 02:32:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-19 02:32:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-19 02:32:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBAllAppWindows cached=1",
+    "2026-07-19 02:32:18 +0000 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0"
+  ],
+  "ak_main_block": [
+    "2026-07-19 10:32:19 | hypothesis_AC ak_main_block_nosym r=0 pc=18d792ba0(?) lr=18c224070(<redacted>) wait=0 src=0 drain=0 main=0 inv=1 pid=69882 up=579818039 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC ak_main_block_other r=1 pc=198494c38(<redacted>) lr=73d(?) wait=0 src=0 drain=0 main=0 inv=1 pid=69882 up=579818075 mem=44",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC ak_main_block_nosym r=0 pc=18d792ba0(?) lr=18c224070(<redacted>) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | ak_main_block_pc r=0 class=ak_main_block_nosym pc=18d792ba0(?) lr=18c224070(<redacted>) fp=16f6622d0 wait=0 src=0 drain=0"
+  ],
+  "qf_dispatch_gates": [
+    "2026-07-19 10:32:19 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread main=0 inv=1 pid=69882 up=579818033 mem=44",
+    "2026-07-19 10:32:19 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread main=0 inv=1 pid=69882 up=579818041 mem=44",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "has_qf": true,
+  "qf_n": 4,
+  "has_qf_enter": true,
+  "has_qf_exit": true,
+  "qf_main": false,
+  "has_ak_skip": true,
+  "pids": [
+    "69882",
+    "69980"
+  ],
+  "pid0": 69882,
+  "pid1": null,
+  "pid_stable": false,
+  "probe_pid_stable": false,
+  "os_pid_stable": false,
+  "relaunch_after_chain": true,
+  "mid_chain_launch_app": false,
+  "has_format_enter": true,
+  "has_format_exit": true,
+  "has_cb_enter": true,
+  "has_cb_exit": true,
+  "has_inject_inThread": true,
+  "has_ak_keep_inThread": true,
+  "has_am_keep_inThread": true,
+  "path_sync_inThread": true,
+  "has_fatal": false,
+  "am_hb_n": 1,
+  "am_icu_caller_n": 0,
+  "an_fault_n": 0,
+  "an_icu_stack_n": 0,
+  "an_mem_path_n": 1,
+  "scene_syslog_n": 0,
+  "sigsegv_n": 0,
+  "corpse_n": 0,
+  "exit_class": {
+    "sigsegv": 0,
+    "jetsam": 6,
+    "watchdog": 0,
+    "termination": 0,
+    "exit_reason": 0,
+    "corpse": 0,
+    "runningboard": 160
+  },
+  "reader_foreground": true,
+  "frontmost_final": {
+    "pid": 69980,
+    "contextId": 1966949726,
+    "bundleId": "com.appbox.StandarReader",
+    "sceneIdentifier": "com.appbox.StandarReader",
+    "processName": "StandarReader",
+    "displayId": 1,
+    "name": "StandarReader"
+  },
+  "xiaoyan": {
+    "passed": false,
+    "text": "萧炎",
+    "elements": [
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 396,
+          "x": 76,
+          "width": 238,
+          "height": 20
+        },
+        "text": "缺少 src 或 keyword 参数"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 437,
+          "x": 60,
+          "width": 270,
+          "height": 44
+        },
+        "text": "好"
+      },
+      {
+        "type": "element",
+        "clickable": true,
+        "rect": {
+          "y": 437,
+          "x": 60,
+          "width": 270,
+          "height": 44
+        }
+      },
+      {
+        "type": "element",
+        "clickable": true,
+        "rect": {
+          "y": 376,
+          "x": 60,
+          "width": 270,
+          "height": 60
+        }
+      },
+      {
+        "type": "element",
+        "clickable": true,
+        "rect": {
+          "y": 0,
+          "x": 0,
+          "width": 390,
+          "height": 844
+        }
+      }
+    ],
+    "error": null
+  },
+  "ui_texts": [
+    "缺少 src 或 keyword 参数",
+    "好"
+  ],
+  "decision": {
+    "branch": "an_forensics_ok_fix_partial",
+    "action": "故障PC+ICU栈已钉；strftime消除DateFormatter/mem陡升但pid仍变；KEEP修+AK/AM",
+    "commit": false
+  },
+  "first_chapter_approved": false,
+  "syslog_kill_hits_n": 160,
+  "crash_stack_n": 0,
+  "forensics_d308e1b": {
+    "an_fault_pc": "192b6e084",
+    "an_fault_lr": "385bde8192b6e050",
+    "an_fault_addr": "16ed83ff8",
+    "an_fault_raw": "hypothesis_AC an_fault_signal SIG=11 si_code=2 fault=16ed83ff8 pc=192b6e084 lr=385bde8192b6e050 fp=16ed84050 tid=259 pid=69754 inQF=0 postQF=1",
+    "mem_vs_icu": {
+      "sha_forensics": "d308e1b",
+      "hb_mem0": 46,
+      "hb_mem1": 153,
+      "hb_mem_delta_mb": 107,
+      "window_ms": 200,
+      "path_class_counts": {
+        "icu": 12,
+        "other": 8,
+        "page": 0
+      },
+      "verdict": "icu_path",
+      "page_path_hits": 0,
+      "samples": [
+        "i=5 mem=59 class=icu DateFormatSymbols::assignArray / UnicodeString::copyFrom",
+        "i=15 mem=85 class=icu res_countArrayItems / ures_getVersionByKey",
+        "i=20 mem=99 class=icu LocaleD2 / DateFormatSymbols::createForLocale",
+        "i=41 mem=153 class=icu LocalizedNumberFormatter::getDecimalFormatSymbols"
+      ],
+      "conclusion": "post-cb mem≈46→153 与 ICU 资源/日期符号表同源；未见 CoreText/TextR 分页标签占优",
+      "after_fix_8984070": {
+        "am_icu_caller_n": 0,
+        "hb_mem_delta_mb": 0,
+        "hb_ms_max": 0,
+        "note": "strftime 后 DateFormatter 风暴消失、mem 陡升消失；pid 仍变且本跑未捞到 an_fault/exit reason"
+      }
+    },
+    "icu_upstream": "LegadoBridgeDebug!LBForensicsUTCNowString → LBFRecordEvent → LBFHook_*",
+    "pid": 69754
+  },
+  "post_fix_8984070": {
+    "am_icu_caller_n": 0,
+    "an_fault_n": 0,
+    "am_hb_ms_max": 0,
+    "pids": [
+      "69882",
+      "69980"
+    ],
+    "pid_stable": false,
+    "mem_delta": 0
+  }
+}

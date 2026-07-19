@@ -1,0 +1,29 @@
+{
+  "sha": "8984070",
+  "fault_pc": null,
+  "fault_lr": null,
+  "fault_addr": null,
+  "an_fault_signal": [],
+  "an_fault_claim": [
+    "2026-07-19 10:32:19 | hypothesis_AC an_fault_claim why=post_cb_hb main=0 inv=1 pid=69882 up=579818042 mem=44",
+    "2026-07-19 10:33:21 | hypothesis_AC an_fault_claim why=install main=1 inv=0 pid=69980 up=579879905 mem=6",
+    "2026-07-19 02:32:19 +0000 | hypothesis_AC an_fault_claim why=post_cb_hb | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:33:21 +0000 | hypothesis_AC an_fault_claim why=install | state=idle token=- ch=- inv=0"
+  ],
+  "an_icu_stack": [],
+  "an_mem_path": [
+    "2026-07-19 10:32:19 | hypothesis_AC an_mem_path i=0 ms=0 mem=44 class=other img=libsystem_malloc.dylib pc=198494c38(<redacted>) lr=73d(?) main=0 inv=1 pid=69882 up=579818042 mem=44"
+  ],
+  "mem_vs_icu": {
+    "hb_mem0": 44,
+    "hb_mem1": 44,
+    "hb_mem_delta": 0,
+    "path_class_counts": {
+      "other": 1
+    },
+    "icu_dominant": false,
+    "page_dominant": false,
+    "verdict": "mixed_or_other"
+  },
+  "am_icu_caller_sample": []
+}
