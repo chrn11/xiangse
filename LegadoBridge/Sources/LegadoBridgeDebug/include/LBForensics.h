@@ -39,4 +39,13 @@ FOUNDATION_EXPORT void LBForensicsSetPendingDumpPhase(NSString *phase);
 /// 取 pending phase 并清空
 FOUNDATION_EXPORT NSString *LBForensicsConsumePendingDumpPhase(void);
 
+/// AO：Hooks 经 dlsym 标记 QF/postQF 窗（供 LBFHook 命中/重入统计）
+FOUNDATION_EXPORT void LBForensicsSetQFWindow(int inQF, int postQF);
+
+/// AO：临时降噪——quiet≠0 时 LBFRecordEvent 跳过写事件（仅真机证 pid 稳后才开）
+FOUNDATION_EXPORT void LBForensicsSetRecordQuiet(int quiet);
+
+/// AO：落盘/探针输出 LBFHook 命中与重入摘要
+FOUNDATION_EXPORT void LBForensicsEmitHookStats(const char *why);
+
 #endif /* LBForensics_h */

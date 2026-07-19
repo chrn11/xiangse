@@ -9,6 +9,8 @@
 #import <unistd.h>
 #import <stdio.h>
 #import <time.h>
+#import <stdatomic.h>
+#import <string.h>
 
 extern NSString *LBForensicsPointer(id obj);
 extern NSString *LBForensicsUTCNowString(void);
@@ -33,6 +35,16 @@ static NSMutableDictionary<NSString *, NSValue *> *g_earlyOrigIMPs = nil;
 static IMP (*g_orig_method_setImplementation)(Method, IMP) = NULL;
 static BOOL g_installingEarlyWrap = NO;
 static _Thread_local int g_earlyWrapDepth = 0;
+
+/// AO：LBFHook / early-wrap 在 QF→postQF 窗的命中与重入
+static atomic_int g_aoLBFHit = 0;
+static atomic_int g_aoLBFMaxDepth = 0;
+static atomic_int g_aoLBFReenter = 0;
+static atomic_int g_aoLBFQuietSkip = 0;
+static atomic_int g_aoInQF = 0;
+static atomic_int g_aoPostQF = 0;
+static atomic_int g_aoRecordQuiet = 0;
+static _Thread_local int g_aoLBFDepth = 0;
 
 static void LBFEarlyWrap_viewDidLoad(id self, SEL _cmd);
 static void LBFEarlyWrap_loadCurCp(id self, SEL _cmd);
@@ -508,8 +520,68 @@ static NSString *LBFPhaseHintForSelector(NSString *selName, NSString *when) {
     return [NSString stringWithFormat:@"%@_%@", when, selName];
 }
 
+static void LBFRawAOHookMark(const char *line) {
+    if (!line || !line[0]) return;
+    size_t n = strlen(line);
+    int fd = open("/tmp/legado_ao_lbf.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        (void)write(fd, line, n);
+        (void)write(fd, "\n", 1);
+        (void)fsync(fd);
+        close(fd);
+    }
+    const char *home = getenv("HOME");
+    if (home && home[0]) {
+        char path[512];
+        snprintf(path, sizeof(path), "%s/Documents/legado_ao_lbf.txt", home);
+        fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd >= 0) {
+            (void)write(fd, line, n);
+            (void)write(fd, "\n", 1);
+            (void)fsync(fd);
+            close(fd);
+        }
+    }
+}
+
 static void LBFRecordEvent(NSString *when, id selfObj, SEL sel, NSArray<NSString *> *argShapes,
                            NSString *returnShape, NSString *ownerClassName) {
+    BOOL isBefore = [when isEqualToString:@"before"];
+    BOOL isAfter = [when isEqualToString:@"after"];
+    int inWin = atomic_load(&g_aoInQF) || atomic_load(&g_aoPostQF);
+    if (isBefore) {
+        int d = ++g_aoLBFDepth;
+        if (inWin) {
+            int hit = atomic_fetch_add(&g_aoLBFHit, 1) + 1;
+            if (d > 1) atomic_fetch_add(&g_aoLBFReenter, 1);
+            int curMax = atomic_load(&g_aoLBFMaxDepth);
+            while (d > curMax &&
+                   !atomic_compare_exchange_weak(&g_aoLBFMaxDepth, &curMax, d)) {
+            }
+            // 每 64 次 before 打一拍，避免刷屏
+            if ((hit & 63) == 0) {
+                char mark[192];
+                snprintf(mark, sizeof(mark),
+                         "ao_lbf_hook hit=%d depth=%d maxDepth=%d reenter=%d "
+                         "inQF=%d postQF=%d quiet=%d",
+                         hit, d, atomic_load(&g_aoLBFMaxDepth),
+                         atomic_load(&g_aoLBFReenter),
+                         atomic_load(&g_aoInQF), atomic_load(&g_aoPostQF),
+                         atomic_load(&g_aoRecordQuiet));
+                char raw[220];
+                snprintf(raw, sizeof(raw), "hypothesis_AC %s", mark);
+                LBFRawAOHookMark(raw);
+                LBFAISyncProbe([NSString stringWithUTF8String:mark]);
+            }
+        }
+    }
+
+    if (atomic_load(&g_aoRecordQuiet) && inWin) {
+        atomic_fetch_add(&g_aoLBFQuietSkip, 1);
+        if (isAfter && g_aoLBFDepth > 0) g_aoLBFDepth--;
+        return;
+    }
+
     pthread_mutex_lock(&g_forensicsLock);
     if (!g_observerEvents) g_observerEvents = [NSMutableArray array];
     g_eventSeq++;
@@ -539,6 +611,37 @@ static void LBFRecordEvent(NSString *when, id selfObj, SEL sel, NSArray<NSString
         }
     }
     pthread_mutex_unlock(&g_forensicsLock);
+
+    if (isAfter && g_aoLBFDepth > 0) g_aoLBFDepth--;
+}
+
+void LBForensicsSetQFWindow(int inQF, int postQF) {
+    atomic_store(&g_aoInQF, inQF ? 1 : 0);
+    atomic_store(&g_aoPostQF, postQF ? 1 : 0);
+}
+
+void LBForensicsSetRecordQuiet(int quiet) {
+    atomic_store(&g_aoRecordQuiet, quiet ? 1 : 0);
+}
+
+void LBForensicsEmitHookStats(const char *why) {
+    char mark[256];
+    snprintf(mark, sizeof(mark),
+             "ao_lbf_stats why=%s hit=%d maxDepth=%d reenter=%d quietSkip=%d "
+             "inQF=%d postQF=%d quiet=%d events=%llu",
+             why && why[0] ? why : "?",
+             atomic_load(&g_aoLBFHit),
+             atomic_load(&g_aoLBFMaxDepth),
+             atomic_load(&g_aoLBFReenter),
+             atomic_load(&g_aoLBFQuietSkip),
+             atomic_load(&g_aoInQF),
+             atomic_load(&g_aoPostQF),
+             atomic_load(&g_aoRecordQuiet),
+             (unsigned long long)g_eventSeq);
+    char raw[280];
+    snprintf(raw, sizeof(raw), "hypothesis_AC %s", mark);
+    LBFRawAOHookMark(raw);
+    LBFAISyncProbe([NSString stringWithUTF8String:mark]);
 }
 
 static IMP LBFGetOrigIMP(NSString *owner, SEL sel) {

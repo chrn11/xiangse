@@ -73,6 +73,9 @@ static void LBALInstallExceptionProbe(void);
 static void LBAMStartPostCbHeartbeat(void);
 static void LBAMInstallICUCallerHooks(void);
 static void LBANClaimFaultHandlers(const char *why);
+static void LBAOProbeFaultHandler(const char *why);
+static void LBAONotifyForensicsWindow(int inQF, int postQF);
+static void LBAOEmitLBFStats(const char *why);
 static NSString *LBANSymbolStack(NSUInteger maxFrames);
 static void LBANSampleMemPath(int i, long ms, long mem);
 
@@ -618,6 +621,21 @@ static void LBALFatalSignalHandler(int sig, siginfo_t *info, void *ctx) {
                        (int)getpid(),
                        qf,
                        post);
+    // AO：独立标签，避免仅扫 an_ 时漏；与 an/al 同内容
+    char markAo[384];
+    int nAo = snprintf(markAo, sizeof(markAo),
+                       "hypothesis_AC ao_fault_signal SIG=%d si_code=%d fault=%llx "
+                       "pc=%llx lr=%llx fp=%llx tid=%lu pid=%d inQF=%d postQF=%d\n",
+                       sig,
+                       info ? info->si_code : -1,
+                       (unsigned long long)fault,
+                       (unsigned long long)pc,
+                       (unsigned long long)lr,
+                       (unsigned long long)fp,
+                       (unsigned long)pthread_mach_thread_np(pthread_self()),
+                       (int)getpid(),
+                       qf,
+                       post);
     const char *home = getenv("HOME");
     char path[512];
     if (home && home[0]) {
@@ -629,6 +647,7 @@ static void LBALFatalSignalHandler(int sig, siginfo_t *info, void *ctx) {
     if (fd >= 0) {
         if (n > 0) (void)write(fd, mark, (size_t)n);
         if (nAl > 0) (void)write(fd, markAl, (size_t)nAl);
+        if (nAo > 0) (void)write(fd, markAo, (size_t)nAo);
         (void)fsync(fd);
         close(fd);
     }
@@ -637,11 +656,20 @@ static void LBALFatalSignalHandler(int sig, siginfo_t *info, void *ctx) {
     if (fd >= 0) {
         if (nAl > 0) (void)write(fd, markAl, (size_t)nAl);
         if (n > 0) (void)write(fd, mark, (size_t)n);
+        if (nAo > 0) (void)write(fd, markAo, (size_t)nAo);
         (void)fsync(fd);
         close(fd);
     }
     fd = open("/tmp/legado_an_fault.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd >= 0) {
+        if (n > 0) (void)write(fd, mark, (size_t)n);
+        if (nAo > 0) (void)write(fd, markAo, (size_t)nAo);
+        (void)fsync(fd);
+        close(fd);
+    }
+    fd = open("/tmp/legado_ao_fault.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        if (nAo > 0) (void)write(fd, markAo, (size_t)nAo);
         if (n > 0) (void)write(fd, mark, (size_t)n);
         (void)fsync(fd);
         close(fd);
@@ -651,6 +679,14 @@ static void LBALFatalSignalHandler(int sig, siginfo_t *info, void *ctx) {
         fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
         if (fd >= 0) {
             if (n > 0) (void)write(fd, mark, (size_t)n);
+            if (nAo > 0) (void)write(fd, markAo, (size_t)nAo);
+            (void)fsync(fd);
+            close(fd);
+        }
+        snprintf(path, sizeof(path), "%s/Documents/legado_ao_fault.txt", home);
+        fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd >= 0) {
+            if (nAo > 0) (void)write(fd, markAo, (size_t)nAo);
             (void)fsync(fd);
             close(fd);
         }
@@ -685,6 +721,48 @@ static void LBANClaimFaultHandlers(const char *why) {
     LBALInstallExceptionProbe();
     LBABSyncProbe([NSString stringWithFormat:@"an_fault_claim why=%s",
                    why && why[0] ? why : "?"]);
+    LBABSyncProbe([NSString stringWithFormat:@"ao_fault_claim why=%s",
+                   why && why[0] ? why : "?"]);
+}
+
+/// AO：查 SIGSEGV handler 是否仍是我们的；被盖则立刻夺回
+static void LBAOProbeFaultHandler(const char *why) {
+    struct sigaction cur;
+    memset(&cur, 0, sizeof(cur));
+    sigaction(SIGSEGV, NULL, &cur);
+    int ours = 0;
+    if ((cur.sa_flags & SA_SIGINFO) != 0 &&
+        cur.sa_sigaction == LBALFatalSignalHandler) {
+        ours = 1;
+    }
+    LBABSyncProbe([NSString stringWithFormat:
+                   @"ao_fault_handler ours=%d sa_flags=0x%x why=%s",
+                   ours, (unsigned)cur.sa_flags,
+                   why && why[0] ? why : "?"]);
+    if (!ours) {
+        LBANClaimFaultHandlers(why && why[0] ? why : "stolen");
+    }
+}
+
+typedef void (*LBAOSetQFWindowFn)(int, int);
+typedef void (*LBAOEmitHookStatsFn)(const char *);
+
+static void LBAONotifyForensicsWindow(int inQF, int postQF) {
+    static LBAOSetQFWindowFn fn = NULL;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        fn = (LBAOSetQFWindowFn)dlsym(RTLD_DEFAULT, "LBForensicsSetQFWindow");
+    });
+    if (fn) fn(inQF, postQF);
+}
+
+static void LBAOEmitLBFStats(const char *why) {
+    static LBAOEmitHookStatsFn fn = NULL;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        fn = (LBAOEmitHookStatsFn)dlsym(RTLD_DEFAULT, "LBForensicsEmitHookStats");
+    });
+    if (fn) fn(why && why[0] ? why : "?");
 }
 
 static void LBABInstallSignalProbes(void) {
@@ -1001,8 +1079,11 @@ static void LBAMStartPostCbHeartbeat(void) {
     int expected = 0;
     if (!atomic_compare_exchange_strong(&sOnce, &expected, 1)) return;
     atomic_store(&sALPostQF, 1);
-    // AN：cb 后立刻夺回 fatal handler（nativeOpen signal() 可能已覆盖）
+    LBAONotifyForensicsWindow(0, 1);
+    // AN/AO：cb 后立刻夺回 fatal handler（nativeOpen signal() 可能已覆盖）
     LBANClaimFaultHandlers("post_cb_hb");
+    LBAOProbeFaultHandler("post_cb_hb");
+    LBAOEmitLBFStats("post_cb_hb");
     LBAMRawHb(0, 0);
     LBANSampleMemPath(0, 0, LBAGFootprintMB());
     LBABSyncProbe(@"am_post_cb_hb_start");
@@ -1016,12 +1097,30 @@ static void LBAMStartPostCbHeartbeat(void) {
             if ((i % 5) == 0) {
                 LBANSampleMemPath(i, ms, LBAGFootprintMB());
             }
+            // AO：每 50ms 探针 handler，防 nativeOpen/DebugPanel 中途盖掉
+            if ((i % 10) == 0) {
+                LBAOProbeFaultHandler("hb_tick");
+            }
         }
         LBABSyncProbe(@"am_post_cb_hb_done");
         LBAMRawHb(41, 200);
         LBANSampleMemPath(41, 200, LBAGFootprintMB());
         // 死窗末再夺一次，防中途被其它模块盖掉
         LBANClaimFaultHandlers("post_cb_hb_done");
+        LBAOProbeFaultHandler("post_cb_hb_done");
+        LBAOEmitLBFStats("post_cb_hb_done");
+        // AO：hb 后再盯 2s（100ms×20），覆盖 AN 漏采的晚杀窗
+        for (int j = 1; j <= 20; j++) {
+            usleep(100000);
+            LBAOProbeFaultHandler("post_hb_watch");
+            if ((j % 5) == 0) {
+                LBAMRawHb(41 + j, 200 + (long)j * 100L);
+                LBAOEmitLBFStats("post_hb_watch");
+            }
+        }
+        LBABSyncProbe(@"ao_post_hb_watch_done");
+        LBANClaimFaultHandlers("post_hb_watch_done");
+        LBAOEmitLBFStats("post_hb_watch_done");
     });
 }
 
@@ -1248,6 +1347,10 @@ static void LBAE_QueryFinish(id self, SEL _cmd, id response, id config, id userI
     }
     id action = ([config isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)config)[@"actionID"] : nil);
     atomic_store(&sALInQF, 1);
+    LBAONotifyForensicsWindow(1, 0);
+    // AO：QF 入口先夺 handler（open 路径可能已用 signal() 盖掉）
+    LBANClaimFaultHandlers("qf_enter");
+    LBAOProbeFaultHandler("qf_enter");
     LBABSyncProbe([NSString stringWithFormat:
                    @"qf_enter self=%@ respLen=%lu action=%@ respCls=%@",
                    self ? NSStringFromClass(object_getClass(self)) : @"nil",
@@ -1277,6 +1380,9 @@ static void LBAE_QueryFinish(id self, SEL _cmd, id response, id config, id userI
     } @finally {
         atomic_store(&sALInQF, 0);
         atomic_store(&sALPostQF, 1);
+        LBAONotifyForensicsWindow(0, 1);
+        LBAOEmitLBFStats("qf_exit");
+        LBAOProbeFaultHandler("qf_exit");
     }
     LBABSyncProbe(@"ag_post_qf");
     LBABSyncProbe([NSString stringWithFormat:
