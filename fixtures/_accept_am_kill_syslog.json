@@ -1,0 +1,535 @@
+{
+  "sha": "fda300c",
+  "pid0": 69545,
+  "pid1": 69605,
+  "conclusion": "exit reason namespace=2 code=11 (SIGSEGV) + Corpse；am_hb 完整跑满 0-200ms 后 pid 69545→69605；ICU caller=NSDateFormatter(init/setDateFormat:/stringFromDate:)+NSLocale.currentLocale（QF 内 main+bg，postQF 主线程继续）；scene_syslog=0 KEEP AK；无最小修",
+  "mid_chain_launch_app": false,
+  "am_hb_ms_max": 200,
+  "am_hb_done": true,
+  "am_icu_caller": [
+    "2026-07-19 02:13:21 +0000 | hypothesis_AC am_icu_caller cls=NSDateFormatter sel=init main=1 hit=29 inQF=0 postQF=1 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:13:21 +0000 | hypothesis_AC am_icu_caller cls=NSDateFormatter sel=setDateFormat: main=1 hit=30 inQF=0 postQF=1 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:13:21 +0000 | hypothesis_AC am_icu_caller cls=NSDateFormatter sel=stringFromDate: main=1 hit=31 inQF=0 postQF=1 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:13:21 +0000 | hypothesis_AC am_icu_caller cls=NSLocale sel=currentLocale main=1 hit=32 inQF=0 postQF=1 kind=currentLocale | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:13:21 +0000 | am_icu_caller cls=NSDateFormatter sel=init main=1 hit=1 stack=44 < 28 < 812 < 176 < 53792 < 713788 < 711832 < 707600 < 122752 < 768",
+    "2026-07-19 02:13:21 +0000 | am_icu_caller cls=NSDateFormatter sel=setDateFormat: main=1 hit=2 stack=64 < 44 < 812 < 176 < 53792 < 713788 < 711832 < 707600 < 122752 < 768",
+    "2026-07-19 02:13:21 +0000 | am_icu_caller cls=NSDateFormatter sel=stringFromDate: main=1 hit=3 stack=64 < 132 < 812 < 176 < 53792 < 713788 < 711832 < 707600 < 122752 < 768",
+    "2026-07-19 02:13:21 +0000 | am_icu_caller cls=NSLocale sel=currentLocale main=1 hit=4 stack=48 < 92 < 132 < 812 < 176 < 53792 < 713788 < 711832 < 707600 < 122752",
+    "2026-07-19 02:13:21 +0000 | am_icu_caller cls=NSDateFormatter sel=init main=0 hit=5 stack=44 < 28 < 812 < 300 < 886548 < 716 < 340 < 566752 < 1160 < 340",
+    "2026-07-19 02:13:21 +0000 | am_icu_caller cls=NSDateFormatter sel=setDateFormat: main=0 hit=6 stack=64 < 44 < 812 < 300 < 886548 < 716 < 340 < 566752 < 1160 < 340",
+    "2026-07-19 02:13:21 +0000 | am_icu_caller cls=NSDateFormatter sel=stringFromDate: main=0 hit=7 stack=64 < 132 < 812 < 300 < 886548 < 716 < 340 < 566752 < 1160 < 340",
+    "2026-07-19 02:13:21 +0000 | am_icu_caller cls=NSLocale sel=currentLocale main=0 hit=8 stack=48 < 92 < 132 < 812 < 300 < 886548 < 716 < 340 < 566752 < 1160",
+    "2026-07-19 02:13:21 +0000 | am_icu_caller cls=NSDateFormatter sel=init main=0 hit=9 stack=44 < 28 < 812 < 372 < 886548 < 716 < 340 < 566752 < 1160 < 340",
+    "2026-07-19 02:13:21 +0000 | am_icu_caller cls=NSDateFormatter sel=setDateFormat: main=0 hit=10 stack=64 < 44 < 812 < 372 < 886548 < 716 < 340 < 566752 < 1160 < 340",
+    "2026-07-19 02:13:21 +0000 | am_icu_caller cls=NSDateFormatter sel=stringFromDate: main=0 hit=11 stack=64 < 132 < 812 < 372 < 886548 < 716 < 340 < 566752 < 1160 < 340",
+    "2026-07-19 02:13:21 +0000 | am_icu_caller cls=NSLocale sel=currentLocale main=0 hit=12 stack=48 < 92 < 132 < 812 < 372 < 886548 < 716 < 340 < 566752 < 1160"
+  ],
+  "hits": [
+    {
+      "date": "2026-07-19 02:13:21 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:21 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:21 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:21 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:21 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "StandarReader[69545] Corpse allowed 1 of 5"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "mediaserverd",
+      "level": "notice",
+      "message": "-MX_RunningBoardServices- MX_RunningBoardServices_StopMonitoringForPID: Removing process predicate for pid 69545"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "subscribeToProcessStateChangesWithConfiguration"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "XPC connection invalidated: [application<com.appbox.StandarReader>:69545]"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "subscribeToProcessStateChangesWithConfiguration"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "backboardd",
+      "level": "notice",
+      "message": "pid:69545 terminated"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "CM90 : [CrashReport].[initWithTask]~"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "Parsing corpse data for pid 69545"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "proc_name(0) = [11] <private>"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "XPC connection invalidated: [application<com.appbox.StandarReader>:69545]"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "unsubscribeFromProcessStateChangesWithIdentifier"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "7F2E3971-A7CC-4777-96A8-0781C28378E0 monitor: got an update with info exited, exit reason namespace=2 code=11"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:69545] termination reported by launchd (2, 11, 11)"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Removing process: [application<com.appbox.StandarReader>:69545]"
+    },
+    {
+      "date": "2026-07-19 02:13:26 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "578571591834916: <private>"
+    },
+    {
+      "date": "2026-07-19 02:13:26 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "578571591895958: <private>"
+    },
+    {
+      "date": "2026-07-19 02:13:26 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "578571592309125: <private>"
+    },
+    {
+      "date": "2026-07-19 02:13:26 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "578571592314583: <private>"
+    },
+    {
+      "date": "2026-07-19 02:13:26 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "578571592317000: <private>"
+    },
+    {
+      "date": "2026-07-19 02:13:26 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "578571592318791: <private>"
+    },
+    {
+      "date": "2026-07-19 02:13:26 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "578571592320416: <private>"
+    },
+    {
+      "date": "2026-07-19 02:13:26 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "578571592322250: <private>"
+    },
+    {
+      "date": "2026-07-19 02:13:26 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "578571592323708: <private>"
+    },
+    {
+      "date": "2026-07-19 02:13:26 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "578571592325125: <private>"
+    },
+    {
+      "date": "2026-07-19 02:13:26 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "578571592326541: <private>"
+    },
+    {
+      "date": "2026-07-19 02:13:27 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:27 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:31 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:31 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:37 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:37 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:41 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:42 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:47 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:47 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:51 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:52 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:57 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:13:57 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:14:01 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:14:01 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lookupHandleForPredicate"
+    }
+  ],
+  "exit_class": {
+    "sigsegv": [],
+    "jetsam": [],
+    "watchdog": [
+      {
+        "date": "2026-07-19 02:13:26 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "578571591834916: <private>"
+      },
+      {
+        "date": "2026-07-19 02:13:26 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "578571591895958: <private>"
+      },
+      {
+        "date": "2026-07-19 02:13:26 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "578571592309125: <private>"
+      },
+      {
+        "date": "2026-07-19 02:13:26 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "578571592314583: <private>"
+      },
+      {
+        "date": "2026-07-19 02:13:26 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "578571592317000: <private>"
+      },
+      {
+        "date": "2026-07-19 02:13:26 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "578571592318791: <private>"
+      },
+      {
+        "date": "2026-07-19 02:13:26 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "578571592320416: <private>"
+      },
+      {
+        "date": "2026-07-19 02:13:26 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "578571592322250: <private>"
+      },
+      {
+        "date": "2026-07-19 02:13:26 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "578571592323708: <private>"
+      },
+      {
+        "date": "2026-07-19 02:13:26 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "578571592325125: <private>"
+      },
+      {
+        "date": "2026-07-19 02:13:26 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "578571592326541: <private>"
+      }
+    ],
+    "termination": [
+      {
+        "date": "2026-07-19 02:13:22 +0000",
+        "process": "backboardd",
+        "level": "notice",
+        "message": "pid:69545 terminated"
+      },
+      {
+        "date": "2026-07-19 02:13:22 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[application<com.appbox.StandarReader>:69545] termination reported by launchd (2, 11, 11)"
+      }
+    ],
+    "exit_reason": [
+      {
+        "date": "2026-07-19 02:13:22 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "7F2E3971-A7CC-4777-96A8-0781C28378E0 monitor: got an update with info exited, exit reason namespace=2 code=11"
+      }
+    ],
+    "corpse": [
+      {
+        "date": "2026-07-19 02:13:22 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "StandarReader[69545] Corpse allowed 1 of 5"
+      },
+      {
+        "date": "2026-07-19 02:13:22 +0000",
+        "process": "ReportCrash",
+        "level": "notice",
+        "message": "Parsing corpse data for pid 69545"
+      }
+    ],
+    "runningboard": [
+      {
+        "date": "2026-07-19 02:13:21 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lookupHandleForPredicate"
+      },
+      {
+        "date": "2026-07-19 02:13:21 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lookupHandleForPredicate"
+      },
+      {
+        "date": "2026-07-19 02:13:21 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lookupHandleForPredicate"
+      },
+      {
+        "date": "2026-07-19 02:13:21 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lookupHandleForPredicate"
+      },
+      {
+        "date": "2026-07-19 02:13:21 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lookupHandleForPredicate"
+      },
+      {
+        "date": "2026-07-19 02:13:22 +0000",
+        "process": "mediaserverd",
+        "level": "notice",
+        "message": "-MX_RunningBoardServices- MX_RunningBoardServices_StopMonitoringForPID: Removing process predicate for pid 69545"
+      },
+      {
+        "date": "2026-07-19 02:13:22 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "subscribeToProcessStateChangesWithConfiguration"
+      },
+      {
+        "date": "2026-07-19 02:13:22 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "XPC connection invalidated: [application<com.appbox.StandarReader>:69545]"
+      },
+      {
+        "date": "2026-07-19 02:13:22 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "subscribeToProcessStateChangesWithConfiguration"
+      },
+      {
+        "date": "2026-07-19 02:13:22 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "XPC connection invalidated: [application<com.appbox.StandarReader>:69545]"
+      },
+      {
+        "date": "2026-07-19 02:13:22 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "unsubscribeFromProcessStateChangesWithIdentifier"
+      },
+      {
+        "date": "2026-07-19 02:13:22 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "7F2E3971-A7CC-4777-96A8-0781C28378E0 monitor: got an update with info exited, exit reason namespace=2 code=11"
+      }
+    ]
+  },
+  "scene_syslog": [],
+  "sigsegv": [],
+  "corpse": [
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "StandarReader[69545] Corpse allowed 1 of 5"
+    },
+    {
+      "date": "2026-07-19 02:13:22 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "Parsing corpse data for pid 69545"
+    }
+  ],
+  "tmp_hb_tail": "{'exitCode': 0, 'output': ''}",
+  "tmp_fatal_head": "{'exitCode': 0, 'output': ''}",
+  "crash_stack": [],
+  "exit_reason_summary": {
+    "namespace": 2,
+    "code": 11,
+    "meaning": "SIGNAL/SIGSEGV",
+    "raw": [
+      "exited, exit reason namespace=2 code=11",
+      "termination reported by launchd (2, 11, 11)",
+      "StandarReader[69545] Corpse allowed 1 of 5",
+      "pid:69545 terminated"
+    ]
+  },
+  "icu_caller_summary": {
+    "classes": [
+      "NSDateFormatter",
+      "NSLocale"
+    ],
+    "sels": [
+      "init",
+      "setDateFormat:",
+      "stringFromDate:",
+      "currentLocale"
+    ],
+    "pattern": "init→setDateFormat:→stringFromDate:→currentLocale",
+    "during_qf_main": true,
+    "during_qf_bg": true,
+    "during_post_qf_main": true,
+    "number_formatter_hit": false,
+    "hit_cap": 32
+  }
+}
