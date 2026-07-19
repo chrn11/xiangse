@@ -618,9 +618,6 @@ static void LBFRecordEvent(NSString *when, id selfObj, SEL sel, NSArray<NSString
 void LBForensicsSetQFWindow(int inQF, int postQF) {
     atomic_store(&g_aoInQF, inQF ? 1 : 0);
     atomic_store(&g_aoPostQF, postQF ? 1 : 0);
-    // AO：QF→postQF 窗跳过 LBFRecordEvent 写事件（仍计 hit/depth）；
-    // 真机证：postQF 窗 CF SIGSEGV 伴 LBFHook hit≈5k；降噪后若 pid 不稳须 revert
-    atomic_store(&g_aoRecordQuiet, (inQF || postQF) ? 1 : 0);
 }
 
 void LBForensicsSetRecordQuiet(int quiet) {
