@@ -1,0 +1,763 @@
+{
+  "sha": "8ec9f1a",
+  "pid0": 70016,
+  "pid1": 70086,
+  "conclusion": "故障 PC 已落；对照 LBFHook 统计与 syslog exit reason",
+  "mid_chain_launch_app": false,
+  "am_hb_ms_max": 15,
+  "am_hb_done": false,
+  "am_icu_caller": [],
+  "ao_fault_pc": "18a092c98",
+  "ao_fault_lr": "7f29d6018a08a168",
+  "ao_fault_addr": "16ce6bfa0",
+  "ao_lbf_hit": 4864,
+  "ao_lbf_max_depth": 4863,
+  "ao_lbf_reenter": 4863,
+  "an_icu_stack": [],
+  "mem_vs_icu": {
+    "hb_mem0": 43,
+    "hb_mem1": 45,
+    "hb_mem_delta": 2,
+    "path_class_counts": {
+      "other": 2
+    },
+    "icu_dominant": false,
+    "page_dominant": false,
+    "verdict": "mixed_or_other"
+  },
+  "hits": [
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "StandarReader[70016] Corpse allowed 1 of 5"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "subscribeToProcessStateChangesWithConfiguration"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "mediaserverd",
+      "level": "notice",
+      "message": "-MX_RunningBoardServices- MX_RunningBoardServices_StopMonitoringForPID: Removing process predicate for pid 70016"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "backboardd",
+      "level": "notice",
+      "message": "pid:70016 terminated"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "XPC connection invalidated: [application<com.appbox.StandarReader>:70016]"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "subscribeToProcessStateChangesWithConfiguration"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "XPC connection invalidated: [application<com.appbox.StandarReader>:70016]"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "CM90 : [CrashReport].[initWithTask]~"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "unsubscribeFromProcessStateChangesWithIdentifier"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "Parsing corpse data for pid 70016"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "proc_name(0) = [11] <private>"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "F16909C9-34C5-40F7-BEDF-465981538E74 monitor: got an update with info exited, wait4() status=11"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:70016] termination reported by launchd (0, 0, 11)"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Modern status reporting system failed (signal detected), translating $d into 2,11"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Removing process: [application<com.appbox.StandarReader>:70016]"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "RBSStateCapture remove item called for untracked item <RBConnectionClient| 70016 name:application<com.appbox.StandarReader> entitlements:<RBEntitlements| [\n\t\t\t\n\t\t\t]> inheritanceManager:<RBClientInheritanceManager|  inheritances:[\n\t<RBSInheritance| environment:UIScene:com.apple.frontboard.systemappservices::FBSceneManager:sceneID%3Acom.appbox.StandarReader-default name:com.apple.frontboard.visibility origID:47396-67871-147082 payload>,\n\t<RBSInheritance| environment:(none) name:com.apple.frontboar"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Removing launch job for: [application<com.appbox.StandarReader>:70016]"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "<OSLaunchdJob | handle=F16909C9-34C5-40F7-BEDF-465981538E74>: remove succeeded"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Removed job for [application<com.appbox.StandarReader>:70016]"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Removing assertions for terminated process: [application<com.appbox.StandarReader>:70016]"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Removed last relative-start-date-defining assertion for process application<com.appbox.StandarReader>"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state update"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state notification"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Calculated state for application<com.appbox.StandarReader>: none (role: None)"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Calculated state for application<com.appbox.StandarReader>: none (role: None)"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "Firing exit handlers for 70016 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:70016] Process exited: <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>."
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "statesForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "[com.appbox.StandarReader] com.appbox.StandarReader application state changed to Terminated"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "observedProcessStatesDidChange"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "Received state update for 70016"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "580424309620666: <private>"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "wifid",
+      "level": "notice",
+      "message": "-[WiFiUserInteractionMonitor setApplicationRunningState:foregroundState:andNetworkingState:forBundleId:]: com.appbox.StandarReader exited"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "ASI found [dyld] (sensitive) 'dyld config: DYLD_INSERT_LIBRARIES=/usr/lib/systemhook-E6876FE3F60FF5E1.dylib DYLD_IN_CACHE=0 '"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "statesForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "observedProcessStatesDidChange"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "Received state update for 70016"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "statesForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "locationd",
+      "level": "notice",
+      "message": "{\"msg\":\"Post Application State Change Notification\", \"notification\":\"Terminated\", \"pid\":70016, \"bundleId\":\"com.appbox.StandarReader\"}"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "locationd",
+      "level": "notice",
+      "message": "{\"msg\":\"#CLIUA AppMonitor notification\", \"notification\":\"Terminated\", \"pid\":70016, \"bundleId\":\"com.appbox.StandarReader\", \"ClientKey\":\"com.appbox.StandarReader\"}"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "locationd",
+      "level": "notice",
+      "message": "{\"msg\":\"#CLIUA Marking change\", \"clientKey\":\"com.appbox.StandarReader\", \"reason\":\"Process state from RunningBoard\", \"assertionLevel\":5, \"coming\":0}"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "executeLaunchRequest"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Acquiring assertion targeting application<com.appbox.StandarReader> from originator [osservice<com.apple.SpringBoard>:67871] with description <RBSAssertionDescriptor| \"FBApplicationProcess\" ID:47396-67871-147088 target:application<com.appbox.StandarReader> attributes:[\n\t<RBSDomainAttribute| domain:\"com.apple.frontboard\" name:\"Bootstrap-Foreground\" sourceEnvironment:\"(null)\">,\n\t<RBSDomainAttribute| domain:\"com.apple.frontboard\" name:\"Visibility\" sourceEnvironment:\"(null)\">\n\t]>"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Assertion 47396-67871-147088 (target:application<com.appbox.StandarReader>) will be created as active"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state update"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Executing launch request for application<com.appbox.StandarReader> (FBApplicationProcess)"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Checking PreventLaunch: global:0 exPath:(null) predicates:(null) allow:(null)"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "preflightManager for <RBSLaunchRequest| application<com.appbox.StandarReader>; \"FBApplicationProcess\"> -> ALLOWED"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Creating and launching job for: application<com.appbox.StandarReader>"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "_mutateContextIfNeeded called for com.appbox.StandarReader"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "_mutateContextIfNeeded using proxy"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "_mutateContextIfNeeded bundleType System SBMachServices (null)"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "Process exited: <FBApplicationProcess: 0xafee311b0; application<com.appbox.StandarReader>:70016(v2EA49)> -> <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "application<com.appbox.StandarReader>: -[RBPersonaManager personaForIdentity:context:personaUID:personaUniqueString:] required 2.912045 ms (wallclock); resolved to {1000, 1F4A46D4-FEC0-4CE9-9D2D-283A2C06200D}"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "'application<com.appbox.StandarReader>' Skipping container path lookup because containerization was prevented (<RBSLaunchContext: 0x828a22270>)"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "'application<com.appbox.StandarReader>' Constructed job description (context <RBSLaunchContext: 0x828a22270>):\n<dictionary: 0x82889aec0> { count = 18, transaction: 0, voucher = 0x0, contents =\n\t\"ProcessType\" => <string: 0x8288ce7b0> { length = 9, contents = \"SystemApp\" }\n\t\"EnableTransactions\" => <bool: 0x21fae95d0>: false\n\t\"_ManagedBy\" => <string: 0x828842980> { length = 22, contents = \"com.apple.runningboard\" }\n\t\"CFBundleIdentifier\" => <string: 0x82886c890> { length = 24, contents = \"com.appbox"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update(enter): pid 70086, priority 30, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "<OSLaunchdJob | handle=03ECE3A5-959F-4B25-A6D4-8A3485B39075>: submitAndStart completed, info=running, pid=70086"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update: init: limit on pid 70086 (-1MB F ) targeting priority(30) dirty?=0x0"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Full encoding handle <private>, with data ec986f9e000111c6, and pid 70086"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:70086] Memory Limits: active 2098 inactive 2098\n <private>"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:70086] This process will be managed."
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Now tracking process: [application<com.appbox.StandarReader>:70086]"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "<private>: applying persistent assertion '<private>'"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state update"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state notification"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Calculated state for application<com.appbox.StandarReader>: running-active (role: UserInteractiveFocal)"
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Using default underlying assertion for app: [application<com.appbox.StandarReader>:70086]"
+    }
+  ],
+  "exit_class": {
+    "sigsegv": [
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "Firing exit handlers for 70016 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "[application<com.appbox.StandarReader>:70016] Process exited: <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>."
+      },
+      {
+        "date": "2026-07-19 02:44:19 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "Process exited: <FBApplicationProcess: 0xafee311b0; application<com.appbox.StandarReader>:70016(v2EA49)> -> <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+      }
+    ],
+    "jetsam": [
+      {
+        "date": "2026-07-19 02:44:19 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update(enter): pid 70086, priority 30, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+      },
+      {
+        "date": "2026-07-19 02:44:19 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update: init: limit on pid 70086 (-1MB F ) targeting priority(30) dirty?=0x0"
+      }
+    ],
+    "watchdog": [
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "observedProcessStatesDidChange"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "Received state update for 70016"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "580424309620666: <private>"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "observedProcessStatesDidChange"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "Received state update for 70016"
+      }
+    ],
+    "termination": [
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "backboardd",
+        "level": "notice",
+        "message": "pid:70016 terminated"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[application<com.appbox.StandarReader>:70016] termination reported by launchd (0, 0, 11)"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing assertions for terminated process: [application<com.appbox.StandarReader>:70016]"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "[com.appbox.StandarReader] com.appbox.StandarReader application state changed to Terminated"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "locationd",
+        "level": "notice",
+        "message": "{\"msg\":\"Post Application State Change Notification\", \"notification\":\"Terminated\", \"pid\":70016, \"bundleId\":\"com.appbox.StandarReader\"}"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "locationd",
+        "level": "notice",
+        "message": "{\"msg\":\"#CLIUA AppMonitor notification\", \"notification\":\"Terminated\", \"pid\":70016, \"bundleId\":\"com.appbox.StandarReader\", \"ClientKey\":\"com.appbox.StandarReader\"}"
+      }
+    ],
+    "exit_reason": [
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "Firing exit handlers for 70016 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "[application<com.appbox.StandarReader>:70016] Process exited: <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>."
+      },
+      {
+        "date": "2026-07-19 02:44:19 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "Process exited: <FBApplicationProcess: 0xafee311b0; application<com.appbox.StandarReader>:70016(v2EA49)> -> <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+      }
+    ],
+    "corpse": [
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "StandarReader[70016] Corpse allowed 1 of 5"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "ReportCrash",
+        "level": "notice",
+        "message": "Parsing corpse data for pid 70016"
+      }
+    ],
+    "runningboard": [
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "subscribeToProcessStateChangesWithConfiguration"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "mediaserverd",
+        "level": "notice",
+        "message": "-MX_RunningBoardServices- MX_RunningBoardServices_StopMonitoringForPID: Removing process predicate for pid 70016"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "XPC connection invalidated: [application<com.appbox.StandarReader>:70016]"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "subscribeToProcessStateChangesWithConfiguration"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "XPC connection invalidated: [application<com.appbox.StandarReader>:70016]"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "unsubscribeFromProcessStateChangesWithIdentifier"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "F16909C9-34C5-40F7-BEDF-465981538E74 monitor: got an update with info exited, wait4() status=11"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[application<com.appbox.StandarReader>:70016] termination reported by launchd (0, 0, 11)"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Modern status reporting system failed (signal detected), translating $d into 2,11"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing process: [application<com.appbox.StandarReader>:70016]"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "RBSStateCapture remove item called for untracked item <RBConnectionClient| 70016 name:application<com.appbox.StandarReader> entitlements:<RBEntitlements| [\n\t\t\t\n\t\t\t]> inheritanceManager:<RBClientInheritanceManager|  inheritances:[\n\t<RBSInheritance| environment:UIScene:com.apple.frontboard.systemappservices::FBSceneManager:sceneID%3Acom.appbox.StandarReader-default name:com.apple.frontboard.visibility origID:47396-67871-147082 payload>,\n\t<RBSInheritance| environment:(none) name:com.apple.frontboar"
+      },
+      {
+        "date": "2026-07-19 02:44:18 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing launch job for: [application<com.appbox.StandarReader>:70016]"
+      }
+    ]
+  },
+  "scene_syslog": [],
+  "sigsegv": [
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "Firing exit handlers for 70016 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "[application<com.appbox.StandarReader>:70016] Process exited: <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>."
+    },
+    {
+      "date": "2026-07-19 02:44:19 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "Process exited: <FBApplicationProcess: 0xafee311b0; application<com.appbox.StandarReader>:70016(v2EA49)> -> <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:signal(2) code:SIGSEGV(11)>>"
+    }
+  ],
+  "corpse": [
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "StandarReader[70016] Corpse allowed 1 of 5"
+    },
+    {
+      "date": "2026-07-19 02:44:18 +0000",
+      "process": "ReportCrash",
+      "level": "notice",
+      "message": "Parsing corpse data for pid 70016"
+    }
+  ],
+  "tmp_hb_tail": "{'exitCode': 0, 'output': ''}",
+  "tmp_fatal_head": "{'exitCode': 0, 'output': ''}",
+  "tmp_an_fault": "---\n---\n---\nhypothesis_AC ao_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1\n---\n",
+  "crash_stack": []
+}

@@ -1,0 +1,418 @@
+{
+  "sha": "8ec9f1a",
+  "probe_last_line": "2026-07-19 10:44:19 | hypothesis_AC am_keep_inThread=1 main=1 inv=0 pid=70086 up=580538610 mem=6",
+  "am_last_runtime": "hypothesis_AC ao_lbf_hook hit=4864 depth=4863 maxDepth=4863 reenter=4863 inQF=0 postQF=1 quiet=0",
+  "am_runtime": [
+    "2026-07-19 10:44:19 | hypothesis_AC ak_keep_inThread=1 main=1 inv=0 pid=70086 up=580538610 mem=6",
+    "2026-07-19 10:44:19 | hypothesis_AC al_keep_inThread=1 main=1 inv=0 pid=70086 up=580538610 mem=6",
+    "2026-07-19 10:44:19 | hypothesis_AC am_keep_inThread=1 main=1 inv=0 pid=70086 up=580538610 mem=6",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC pre_invoke_orig target=TextRPageContainer | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ag_bg_hb i=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC swcf_enter leaf=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ai_main_rl_observer_ok | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC swcf_exit leaf=0 len=111 nil=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC cb_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 self=BookQueryManager | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC cb_precheck_gate_resp nil=0 len=111 self=BookQueryManager main=0 next=0x102f221d4 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC qf_dispatch_inject_inThread action=chapterContent | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC post_invoke_gates_done | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC check_enter respLen=111 action=chapterContent target=TextRPageContainer dontFormat=0 cfg=1 ui=1 self=BookQueryManager qsrc=localSourceText respCls=__NSCFString | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC check_exit ok=1 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC post_invoke_z_probe_done | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC format_enter respLen=111 action=chapterContent dontFormat=0 | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC await_native_chain | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC format_exit outNil=0 outLen=107 outCls=__NSCFString | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC invoke_reentry_cleared | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC an_fault_claim why=qf_enter | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_claim why=qf_enter | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC invoke_state_idle | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=qf_enter | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ak_main_idle_seen | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC qf_enter self=TextRPageContainer respLen=107 action=chapterContent respCls=__NSCFString | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ak_main_idle_forensics_start | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ak_main_block_other r=0 pc=1830a4414(<redacted>) lr=f80da0018309ecc4(<redacted>) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC an_qf_enter_stack main=0 stack=LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x8a5e0 < LegadoBridge!LBAB_CallBackResponse+0x484 < LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x618d0 < libdispatch.dylib!<redacted>+0x20 < libdispatch.dylib!<redacted>+0x14 < libdispatch.dylib!<redacted>+0x314 < libdispatch.dylib!<redacted>+0x18c < libdispatch.dylib!<redacted>+0xa4 < libsystem_pthread.dylib!_pthread_wqthread+0xe4 < libsystem_pthread.dylib!start_wqthread+0x8 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=qf_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ag_post_qf | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC al_qf_uikit_summary hit=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC qf_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC cb_precheck_gate_check_seen | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC cb_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC an_fault_claim why=post_cb_hb | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_claim why=post_cb_hb | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=post_cb_hb | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC an_mem_path i=0 ms=0 mem=43 class=other img=CoreFoundation pc=18a07e37c(<redacted>) lr=682eb7018a086188(<redacted>) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC am_post_cb_hb_start | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:19 +0000 | hypothesis_AC ai_hook_windows_ok | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:44:19 +0000 | hypothesis_AC an_fault_claim why=install | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:44:19 +0000 | hypothesis_AC ao_fault_claim why=install | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:44:19 +0000 | hypothesis_AC al_qf_uikit_hook_ok | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:44:19 +0000 | hypothesis_AC am_icu_hook_ok n=7 | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:44:19 +0000 | hypothesis_AC ag_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:44:19 +0000 | hypothesis_AC ai_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:44:19 +0000 | hypothesis_AC ak_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:44:19 +0000 | hypothesis_AC al_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:44:19 +0000 | hypothesis_AC am_keep_inThread=1 | state=idle token=- ch=- inv=0",
+    "2026-07-19 02:44:18 +0000 | ak_main_block_pc r=0 class=ak_main_block_other pc=1830a4414(<redacted>) lr=f80da0018309ecc4(<redacted>) fp=16cf66160 wait=0 src=0 drain=0",
+    "2026-07-19 02:44:18 +0000 | al_qf_enter_stack main=0 stack=LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x8a5e0 < LegadoBridge!LBAB_CallBackResponse+0x484 < LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x618d0 < libdispatch.dylib!<redacted>+0x20 < libdispatch.dylib!<redacted>+0x14 < libdispatch.dylib!<redacted>+0x314 < libdispatch.dylib!<redacted>+0x18c < libdispatch.dylib!<redacted>+0xa4 < libsystem_pthread.dylib!_pthread_wqthread+0xe4 < libsystem_pthread.dylib!start_wqthread+0x8",
+    "hypothesis_AC ao_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1",
+    "hypothesis_AC an_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1",
+    "hypothesis_AC ao_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1",
+    "hypothesis_AC ao_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1",
+    "_AC ao_lbf_hook hit=960 depth=959 maxDepth=959 reenter=959 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1024 depth=1023 maxDepth=1023 reenter=1023 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1088 depth=1087 maxDepth=1087 reenter=1087 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1152 depth=1151 maxDepth=1151 reenter=1151 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1216 depth=1215 maxDepth=1215 reenter=1215 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1280 depth=1279 maxDepth=1279 reenter=1279 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1344 depth=1343 maxDepth=1343 reenter=1343 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1408 depth=1407 maxDepth=1407 reenter=1407 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1472 depth=1471 maxDepth=1471 reenter=1471 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1536 depth=1535 maxDepth=1535 reenter=1535 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1600 depth=1599 maxDepth=1599 reenter=1599 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1664 depth=1663 maxDepth=1663 reenter=1663 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1728 depth=1727 maxDepth=1727 reenter=1727 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1792 depth=1791 maxDepth=1791 reenter=1791 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1856 depth=1855 maxDepth=1855 reenter=1855 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1920 depth=1919 maxDepth=1919 reenter=1919 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=1984 depth=1983 maxDepth=1983 reenter=1983 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2048 depth=2047 maxDepth=2047 reenter=2047 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2112 depth=2111 maxDepth=2111 reenter=2111 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2176 depth=2175 maxDepth=2175 reenter=2175 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2240 depth=2239 maxDepth=2239 reenter=2239 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2304 depth=2303 maxDepth=2303 reenter=2303 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2368 depth=2367 maxDepth=2367 reenter=2367 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2432 depth=2431 maxDepth=2431 reenter=2431 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2496 depth=2495 maxDepth=2495 reenter=2495 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2560 depth=2559 maxDepth=2559 reenter=2559 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2624 depth=2623 maxDepth=2623 reenter=2623 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2688 depth=2687 maxDepth=2687 reenter=2687 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2752 depth=2751 maxDepth=2751 reenter=2751 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2816 depth=2815 maxDepth=2815 reenter=2815 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2880 depth=2879 maxDepth=2879 reenter=2879 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=2944 depth=2943 maxDepth=2943 reenter=2943 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3008 depth=3007 maxDepth=3007 reenter=3007 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3072 depth=3071 maxDepth=3071 reenter=3071 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3136 depth=3135 maxDepth=3135 reenter=3135 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3200 depth=3199 maxDepth=3199 reenter=3199 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3264 depth=3263 maxDepth=3263 reenter=3263 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3328 depth=3327 maxDepth=3327 reenter=3327 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3392 depth=3391 maxDepth=3391 reenter=3391 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3456 depth=3455 maxDepth=3455 reenter=3455 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3520 depth=3519 maxDepth=3519 reenter=3519 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3584 depth=3583 maxDepth=3583 reenter=3583 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3648 depth=3647 maxDepth=3647 reenter=3647 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3712 depth=3711 maxDepth=3711 reenter=3711 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3776 depth=3775 maxDepth=3775 reenter=3775 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3840 depth=3839 maxDepth=3839 reenter=3839 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3904 depth=3903 maxDepth=3903 reenter=3903 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3968 depth=3967 maxDepth=3967 reenter=3967 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4032 depth=4031 maxDepth=4031 reenter=4031 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4096 depth=4095 maxDepth=4095 reenter=4095 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4160 depth=4159 maxDepth=4159 reenter=4159 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4224 depth=4223 maxDepth=4223 reenter=4223 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4288 depth=4287 maxDepth=4287 reenter=4287 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4352 depth=4351 maxDepth=4351 reenter=4351 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4416 depth=4415 maxDepth=4415 reenter=4415 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4480 depth=4479 maxDepth=4479 reenter=4479 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4544 depth=4543 maxDepth=4543 reenter=4543 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4608 depth=4607 maxDepth=4607 reenter=4607 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4672 depth=4671 maxDepth=4671 reenter=4671 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4736 depth=4735 maxDepth=4735 reenter=4735 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4800 depth=4799 maxDepth=4799 reenter=4799 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4864 depth=4863 maxDepth=4863 reenter=4863 inQF=0 postQF=1 quiet=0"
+  ],
+  "am_post_cb_hb": [
+    "hypothesis_AC am_post_cb_hb i=0 ms=0 pid=70016 up=580537615 mem=43 main=0",
+    "2026-07-19 10:44:18 | hypothesis_AC am_post_cb_hb_start main=0 inv=1 pid=70016 up=580537615 mem=43",
+    "hypothesis_AC am_post_cb_hb i=1 ms=5 pid=70016 up=580537622 mem=44 main=0",
+    "hypothesis_AC am_post_cb_hb i=2 ms=10 pid=70016 up=580537628 mem=45 main=0",
+    "hypothesis_AC am_post_cb_hb i=3 ms=15 pid=70016 up=580537635 mem=45 main=0",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC am_post_cb_hb_start | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "am_hb_ms_max": 15,
+  "am_hb_done": false,
+  "am_icu_caller": [],
+  "am_icu_hook": [
+    "2026-07-19 10:44:19 | hypothesis_AC am_icu_hook_ok n=7 main=1 inv=0 pid=70086 up=580538608 mem=6",
+    "2026-07-19 02:44:19 +0000 | hypothesis_AC am_icu_hook_ok n=7 | state=idle token=- ch=- inv=0"
+  ],
+  "al_icu": [],
+  "al_fatal": [
+    "hypothesis_AC al_fatal_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1"
+  ],
+  "an_fault_signal": [
+    "hypothesis_AC an_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1",
+    "hypothesis_AC an_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1"
+  ],
+  "ao_fault_signal": [
+    "hypothesis_AC ao_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1",
+    "hypothesis_AC ao_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1",
+    "hypothesis_AC ao_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1",
+    "hypothesis_AC ao_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1"
+  ],
+  "an_fault_claim": [
+    "2026-07-19 10:44:18 | hypothesis_AC an_fault_claim why=qf_enter main=0 inv=1 pid=70016 up=580537608 mem=43",
+    "2026-07-19 10:44:18 | hypothesis_AC an_fault_claim why=post_cb_hb main=0 inv=1 pid=70016 up=580537614 mem=43",
+    "2026-07-19 10:44:19 | hypothesis_AC an_fault_claim why=install main=1 inv=0 pid=70086 up=580538608 mem=6",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC an_fault_claim why=qf_enter | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC an_fault_claim why=post_cb_hb | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:19 +0000 | hypothesis_AC an_fault_claim why=install | state=idle token=- ch=- inv=0"
+  ],
+  "ao_fault_claim": [
+    "2026-07-19 10:44:18 | hypothesis_AC ao_fault_claim why=qf_enter main=0 inv=1 pid=70016 up=580537608 mem=43",
+    "2026-07-19 10:44:18 | hypothesis_AC ao_fault_claim why=post_cb_hb main=0 inv=1 pid=70016 up=580537615 mem=43",
+    "2026-07-19 10:44:19 | hypothesis_AC ao_fault_claim why=install main=1 inv=0 pid=70086 up=580538608 mem=6",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_claim why=qf_enter | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_claim why=post_cb_hb | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:19 +0000 | hypothesis_AC ao_fault_claim why=install | state=idle token=- ch=- inv=0"
+  ],
+  "ao_fault_handler": [
+    "2026-07-19 10:44:18 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=qf_enter main=0 inv=1 pid=70016 up=580537608 mem=43",
+    "2026-07-19 10:44:18 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=qf_exit main=0 inv=1 pid=70016 up=580537613 mem=43",
+    "2026-07-19 10:44:18 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=post_cb_hb main=0 inv=1 pid=70016 up=580537615 mem=43",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=qf_enter | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=qf_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=post_cb_hb | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "ao_fault_handler_stolen": [],
+  "ao_lbf": [
+    "hypothesis_AC ao_lbf_hook hit=3392 depth=3391 maxDepth=3391 reenter=3391 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3456 depth=3455 maxDepth=3455 reenter=3455 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3520 depth=3519 maxDepth=3519 reenter=3519 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3584 depth=3583 maxDepth=3583 reenter=3583 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3648 depth=3647 maxDepth=3647 reenter=3647 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3712 depth=3711 maxDepth=3711 reenter=3711 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3776 depth=3775 maxDepth=3775 reenter=3775 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3840 depth=3839 maxDepth=3839 reenter=3839 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3904 depth=3903 maxDepth=3903 reenter=3903 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3968 depth=3967 maxDepth=3967 reenter=3967 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4032 depth=4031 maxDepth=4031 reenter=4031 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4096 depth=4095 maxDepth=4095 reenter=4095 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4160 depth=4159 maxDepth=4159 reenter=4159 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4224 depth=4223 maxDepth=4223 reenter=4223 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4288 depth=4287 maxDepth=4287 reenter=4287 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4352 depth=4351 maxDepth=4351 reenter=4351 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4416 depth=4415 maxDepth=4415 reenter=4415 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4480 depth=4479 maxDepth=4479 reenter=4479 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4544 depth=4543 maxDepth=4543 reenter=4543 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4608 depth=4607 maxDepth=4607 reenter=4607 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4672 depth=4671 maxDepth=4671 reenter=4671 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4736 depth=4735 maxDepth=4735 reenter=4735 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4800 depth=4799 maxDepth=4799 reenter=4799 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4864 depth=4863 maxDepth=4863 reenter=4863 inQF=0 postQF=1 quiet=0"
+  ],
+  "ao_lbf_hit": 4864,
+  "ao_lbf_max_depth": 4863,
+  "ao_lbf_reenter": 4863,
+  "an_icu_stack": [],
+  "an_mem_path": [
+    "2026-07-19 10:44:18 | hypothesis_AC an_mem_path i=0 ms=0 mem=43 class=other img=CoreFoundation pc=18a07e37c(<redacted>) lr=682eb7018a086188(<redacted>) main=0 inv=1 pid=70016 up=580537615 mem=43",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC an_mem_path i=0 ms=0 mem=43 class=other img=CoreFoundation pc=18a07e37c(<redacted>) lr=682eb7018a086188(<redacted>) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "an_qf_enter_stack": [
+    "2026-07-19 10:44:18 | hypothesis_AC an_qf_enter_stack main=0 stack=LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x8a5e0 < LegadoBridge!LBAB_CallBackResponse+0x484 < LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x618d0 < libdispatch.dylib!<redacted>+0x20 < libdispatch.dylib!<redacted>+0x14 < libdispatch.dylib!<redacted>+0x314 < libdispatch.dylib!<redacted>+0x18c < libdispatch.dylib!<redacted>+0xa4 < libsystem_pthread.dylib!_pthread_wqthread+0xe4 < libsystem_pthread.dylib!start_wqthread+0x8 main=0 inv=1 pid=70016 up=580537612 mem=43",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC an_qf_enter_stack main=0 stack=LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x8a5e0 < LegadoBridge!LBAB_CallBackResponse+0x484 < LegadoBridgeDebug!LBFHook_v_at_id_id_id+0x154 < StandarReader+0x618d0 < libdispatch.dylib!<redacted>+0x20 < libdispatch.dylib!<redacted>+0x14 < libdispatch.dylib!<redacted>+0x314 < libdispatch.dylib!<redacted>+0x18c < libdispatch.dylib!<redacted>+0xa4 < libsystem_pthread.dylib!_pthread_wqthread+0xe4 < libsystem_pthread.dylib!start_wqthread+0x8 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "ao_fault_pc": "18a092c98",
+  "ao_fault_lr": "7f29d6018a08a168",
+  "ao_fault_addr": "16ce6bfa0",
+  "an_fault_pc": "18a092c98",
+  "an_fault_lr": "7f29d6018a08a168",
+  "an_fault_addr": "16ce6bfa0",
+  "mem_vs_icu": {
+    "hb_mem0": 43,
+    "hb_mem1": 45,
+    "hb_mem_delta": 2,
+    "path_class_counts": {
+      "other": 2
+    },
+    "icu_dominant": false,
+    "page_dominant": false,
+    "verdict": "mixed_or_other"
+  },
+  "ak_bg_skip": [
+    "2026-07-19 02:44:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBAllAppWindows cached=1",
+    "2026-07-19 10:44:18 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy main=0 inv=0 pid=70016 up=580536955 mem=37",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoKeyWindow cached=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AK ak_bg_windows_api_skip caller=LBAllAppWindows cached=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC hypothesis_AK ak_bg_windows_api_skip caller=LBFindTextReaderVCInHierarchy | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=0"
+  ],
+  "ak_main_block": [
+    "2026-07-19 10:44:18 | hypothesis_AC ak_main_block_other r=0 pc=1830a4414(<redacted>) lr=f80da0018309ecc4(<redacted>) wait=0 src=0 drain=0 main=0 inv=1 pid=70016 up=580537609 mem=43",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ak_main_block_other r=0 pc=1830a4414(<redacted>) lr=f80da0018309ecc4(<redacted>) wait=0 src=0 drain=0 | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | ak_main_block_pc r=0 class=ak_main_block_other pc=1830a4414(<redacted>) lr=f80da0018309ecc4(<redacted>) fp=16cf66160 wait=0 src=0 drain=0"
+  ],
+  "qf_dispatch_gates": [
+    "2026-07-19 10:44:18 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread main=0 inv=1 pid=70016 up=580537607 mem=43",
+    "2026-07-19 10:44:18 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread main=0 inv=1 pid=70016 up=580537614 mem=43",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=107 path=sync_inThread | state=invokingOriginal token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=1 dont=0 respNil=0 respLen=111 path=sync_inThread | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "has_qf": true,
+  "qf_n": 10,
+  "has_qf_enter": true,
+  "has_qf_exit": true,
+  "qf_main": false,
+  "has_ak_skip": true,
+  "pids": [
+    "70016",
+    "70086"
+  ],
+  "pid0": 70016,
+  "pid1": 70086,
+  "pid_stable": false,
+  "probe_pid_stable": false,
+  "os_pid_stable": false,
+  "relaunch_after_chain": false,
+  "mid_chain_launch_app": false,
+  "has_format_enter": true,
+  "has_format_exit": true,
+  "has_cb_enter": true,
+  "has_cb_exit": true,
+  "has_inject_inThread": true,
+  "has_ak_keep_inThread": true,
+  "has_am_keep_inThread": true,
+  "path_sync_inThread": true,
+  "has_fatal": true,
+  "am_hb_n": 6,
+  "am_icu_caller_n": 0,
+  "an_fault_n": 2,
+  "ao_fault_n": 4,
+  "ao_lbf_n": 140,
+  "ao_handler_stolen_n": 0,
+  "an_icu_stack_n": 0,
+  "an_mem_path_n": 2,
+  "ao_post_hb_watch_done": false,
+  "scene_syslog_n": 0,
+  "sigsegv_n": 3,
+  "corpse_n": 2,
+  "exit_class": {
+    "sigsegv": 3,
+    "jetsam": 2,
+    "watchdog": 5,
+    "termination": 6,
+    "exit_reason": 3,
+    "corpse": 2,
+    "runningboard": 62
+  },
+  "reader_foreground": true,
+  "frontmost_final": {
+    "pid": 70086,
+    "contextId": 1966949726,
+    "bundleId": "com.appbox.StandarReader",
+    "sceneIdentifier": "com.appbox.StandarReader",
+    "processName": "StandarReader",
+    "displayId": 1,
+    "name": "StandarReader"
+  },
+  "xiaoyan": {
+    "passed": false,
+    "text": "萧炎",
+    "elements": [
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 77,
+          "x": 76,
+          "width": 238,
+          "height": 20
+        },
+        "text": "免责声明"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 98,
+          "x": 76,
+          "width": 238,
+          "height": 736
+        },
+        "text": "香色闺阁提醒您：在使用香色闺阁前，请您务必仔细阅读并充分理解本声明全部内容。您可以选择不使用香色闺阁，但如果您使用香色闺阁，你的使用行为即表示您知悉、理解并同意接受本声明的全部内容。 香色闺阁是一款可编程的网络浏览器(Web Browser)，可通过编程浏览网络内容，包括但不限于文字、图片、音频和视频等。香色闺阁本身不提供任何数字内容，也不会对网络内容自动转码阅读，亦不会在服务端缓存任何数据。请您明确：香色闺阁仅仅是一个浏览器，不提供内容服务！ 您可以通过本地导入或通过访问网络的方式来使用香色闺阁。香色闺阁对其概不负责，亦不承担任何法律责任！任何通过使用香色闺阁而链接到第三方网页均系他人制作或提供，您可能从该第三方网页上获得其他服务，香色闺阁对其合法性概不负责，亦不承担任何法律责任。第三方搜索引擎结果根据您提交的信息自动搜索获得并根据一定规则获取相应数据，不代表香色闺阁赞成被搜索链接到的第三方网页上的内容和立场。您应该对使用搜索引擎的结果自行承担风险！香色闺阁不做任何形式的保证：不保证第三方搜索引擎的搜索结果满足您的要求，不保证搜索服务不中断，不保证搜索结果的安全性、正确性、及时性、合法性。因网络状况、通讯线路、第三方网站等任何原因而导致您不能正确使用香色闺阁，香色闺阁不承担任何法律责任。香色闺阁尊重并保护所有使用香色闺阁用户的个人隐私权，您注册的用户名、电子邮件地址等个人资料，非经您亲自许可或根据相关法律、法规的强制性规定，香色闺阁不会主动泄露给第三方。 任何单位或个人认为通过香色闺阁搜索链接到的第三方网页内容可能涉嫌侵犯其信息网络传播权，应该及时向香色闺阁提出书面权力通知，并提供身份证明、权属证明及详细侵权情况证明。香色闺阁在收到上述法律文件后，将会依法尽快断开相关链接内容。"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 743,
+          "x": 60,
+          "width": 135,
+          "height": 44
+        },
+        "text": "不同意"
+      },
+      {
+        "clickable": true,
+        "type": "control",
+        "rect": {
+          "y": 743,
+          "x": 195,
+          "width": 135,
+          "height": 44
+        },
+        "text": "知晓并同意"
+      },
+      {
+        "type": "element",
+        "clickable": true,
+        "rect": {
+          "y": 743,
+          "x": 60,
+          "width": 135,
+          "height": 44
+        }
+      },
+      {
+        "type": "element",
+        "clickable": true,
+        "rect": {
+          "y": 743,
+          "x": 195,
+          "width": 135,
+          "height": 44
+        }
+      },
+      {
+        "type": "element",
+        "clickable": true,
+        "rect": {
+          "y": 0,
+          "x": 0,
+          "width": 390,
+          "height": 844
+        }
+      },
+      {
+        "type": "element",
+        "clickable": true,
+        "rect": {
+          "y": 743,
+          "x": 195,
+          "width": 0,
+          "height": 44
+        }
+      }
+    ],
+    "error": null
+  },
+  "ui_texts": [
+    "免责声明",
+    "香色闺阁提醒您：在使用香色闺阁前，请您务必仔细阅读并充分理解本声明全部内容。您可以选择不使用香色闺阁，但如果您使用香色闺阁，你的使用行为即表示您知悉、理解并同意接受本声明的全部内容。 香色闺阁是一款可编程的网络浏览器(Web Browser)，可通过编程浏览网络内容，包括但不限于文字、图片、音频和视频等。香色闺阁本身不提供任何数字内容，也不会对网络内容自动转码阅读，亦不会在服务端缓存任何数据。请您明确：香色闺阁仅仅是一个浏览器，不提供内容服务！ 您可以通过本地导入或通过访问网络的方式来使用香色闺阁。香色闺阁对其概不负责，亦不承担任何法律责任！任何通过使用香色闺阁而链接到第三方网页均系他人制作或提供，您可能从该第三方网页上获得其他服务，香色闺阁对其合法性概不负责，亦不承担任何法律责任。第三方搜索引擎结果根据您提交的信息自动搜索获得并根据一定规则获取相应数据，不代表香色闺阁赞成被搜索链接到的第三方网页上的内容和立场。您应该对使用搜索引擎的结果自行承担风险！香色闺阁不做任何形式的保证：不保证第三方搜索引擎的搜索结果满足您的要求，不保证搜索服务不中断，不保证搜索结果的安全性、正确性、及时性、合法性。因网络状况、通讯线路、第三方网站等任何原因而导致您不能正确使用香色闺阁，香色闺阁不承担任何法律责任。香色闺阁尊重并保护所有使用香色闺阁用户的个人隐私权，您注册的用户名、电子邮件地址等个人资料，非经您亲自许可或根据相关法律、法规的强制性规定，香色闺阁不会主动泄露给第三方。 任何单位或个人认为通过香色闺阁搜索链接到的第三方网页内容可能涉嫌侵犯其信息网络传播权，应该及时向香色闺阁提出书面权力通知，并提供身份证明、权属证明及详细侵权情况证明。香色闺阁在收到上述法律文件后，将会依法尽快断开相关链接内容。",
+    "不同意",
+    "知晓并同意"
+  ],
+  "decision": {
+    "branch": "ao_fault_pc",
+    "action": "故障 PC 已落；对照 LBFHook 统计与 syslog exit reason",
+    "commit": false
+  },
+  "first_chapter_approved": false,
+  "syslog_kill_hits_n": 82,
+  "crash_stack_n": 0
+}

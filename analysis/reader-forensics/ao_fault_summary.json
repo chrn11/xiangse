@@ -1,0 +1,79 @@
+{
+  "sha": "8ec9f1a",
+  "fault_pc": "18a092c98",
+  "fault_lr": "7f29d6018a08a168",
+  "fault_addr": "16ce6bfa0",
+  "ao_fault_signal": [
+    "hypothesis_AC ao_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1",
+    "hypothesis_AC ao_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1",
+    "hypothesis_AC ao_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1",
+    "hypothesis_AC ao_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1"
+  ],
+  "an_fault_signal": [
+    "hypothesis_AC an_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1",
+    "hypothesis_AC an_fault_signal SIG=11 si_code=2 fault=16ce6bfa0 pc=18a092c98 lr=7f29d6018a08a168 fp=16ce6c190 tid=259 pid=70016 inQF=0 postQF=1"
+  ],
+  "ao_fault_claim": [
+    "2026-07-19 10:44:18 | hypothesis_AC ao_fault_claim why=qf_enter main=0 inv=1 pid=70016 up=580537608 mem=43",
+    "2026-07-19 10:44:18 | hypothesis_AC ao_fault_claim why=post_cb_hb main=0 inv=1 pid=70016 up=580537615 mem=43",
+    "2026-07-19 10:44:19 | hypothesis_AC ao_fault_claim why=install main=1 inv=0 pid=70086 up=580538608 mem=6",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_claim why=qf_enter | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_claim why=post_cb_hb | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:19 +0000 | hypothesis_AC ao_fault_claim why=install | state=idle token=- ch=- inv=0"
+  ],
+  "ao_fault_handler": [
+    "2026-07-19 10:44:18 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=qf_enter main=0 inv=1 pid=70016 up=580537608 mem=43",
+    "2026-07-19 10:44:18 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=qf_exit main=0 inv=1 pid=70016 up=580537613 mem=43",
+    "2026-07-19 10:44:18 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=post_cb_hb main=0 inv=1 pid=70016 up=580537615 mem=43",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=qf_enter | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=qf_exit | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC ao_fault_handler ours=1 sa_flags=0x41 why=post_cb_hb | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "ao_lbf_hit": 4864,
+  "ao_lbf_max_depth": 4863,
+  "ao_lbf_reenter": 4863,
+  "ao_lbf": [
+    "hypothesis_AC ao_lbf_hook hit=3392 depth=3391 maxDepth=3391 reenter=3391 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3456 depth=3455 maxDepth=3455 reenter=3455 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3520 depth=3519 maxDepth=3519 reenter=3519 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3584 depth=3583 maxDepth=3583 reenter=3583 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3648 depth=3647 maxDepth=3647 reenter=3647 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3712 depth=3711 maxDepth=3711 reenter=3711 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3776 depth=3775 maxDepth=3775 reenter=3775 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3840 depth=3839 maxDepth=3839 reenter=3839 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3904 depth=3903 maxDepth=3903 reenter=3903 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=3968 depth=3967 maxDepth=3967 reenter=3967 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4032 depth=4031 maxDepth=4031 reenter=4031 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4096 depth=4095 maxDepth=4095 reenter=4095 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4160 depth=4159 maxDepth=4159 reenter=4159 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4224 depth=4223 maxDepth=4223 reenter=4223 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4288 depth=4287 maxDepth=4287 reenter=4287 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4352 depth=4351 maxDepth=4351 reenter=4351 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4416 depth=4415 maxDepth=4415 reenter=4415 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4480 depth=4479 maxDepth=4479 reenter=4479 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4544 depth=4543 maxDepth=4543 reenter=4543 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4608 depth=4607 maxDepth=4607 reenter=4607 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4672 depth=4671 maxDepth=4671 reenter=4671 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4736 depth=4735 maxDepth=4735 reenter=4735 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4800 depth=4799 maxDepth=4799 reenter=4799 inQF=0 postQF=1 quiet=0",
+    "hypothesis_AC ao_lbf_hook hit=4864 depth=4863 maxDepth=4863 reenter=4863 inQF=0 postQF=1 quiet=0"
+  ],
+  "an_icu_stack": [],
+  "an_mem_path": [
+    "2026-07-19 10:44:18 | hypothesis_AC an_mem_path i=0 ms=0 mem=43 class=other img=CoreFoundation pc=18a07e37c(<redacted>) lr=682eb7018a086188(<redacted>) main=0 inv=1 pid=70016 up=580537615 mem=43",
+    "2026-07-19 02:44:18 +0000 | hypothesis_AC an_mem_path i=0 ms=0 mem=43 class=other img=CoreFoundation pc=18a07e37c(<redacted>) lr=682eb7018a086188(<redacted>) | state=idle token=http://192.168.1.4:8765/chapter/doupo_1.html ch=http://192.168.1.4:8765/chapter/doupo_1.html inv=1"
+  ],
+  "mem_vs_icu": {
+    "hb_mem0": 43,
+    "hb_mem1": 45,
+    "hb_mem_delta": 2,
+    "path_class_counts": {
+      "other": 2
+    },
+    "icu_dominant": false,
+    "page_dominant": false,
+    "verdict": "mixed_or_other"
+  },
+  "am_icu_caller_sample": [],
+  "verdict_no_sigsegv_pid_only": false
+}

@@ -1,0 +1,624 @@
+{
+  "sha": "b6218c4",
+  "pid0": 70149,
+  "pid1": 70236,
+  "conclusion": "故障 PC 已落；对照 LBFHook 统计与 syslog exit reason",
+  "mid_chain_launch_app": false,
+  "am_hb_ms_max": 10,
+  "am_hb_done": false,
+  "am_icu_caller": [],
+  "ao_fault_pc": "18a089fdc",
+  "ao_fault_lr": "6d4c70018a08457c",
+  "ao_fault_addr": "16dc3fff8",
+  "ao_lbf_hit": 4864,
+  "ao_lbf_max_depth": 4863,
+  "ao_lbf_reenter": 4863,
+  "an_icu_stack": [],
+  "mem_vs_icu": {
+    "hb_mem0": 45,
+    "hb_mem1": 46,
+    "hb_mem_delta": 1,
+    "path_class_counts": {
+      "other": 2
+    },
+    "icu_dominant": false,
+    "page_dominant": false,
+    "verdict": "mixed_or_other"
+  },
+  "hits": [
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state update"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state notification"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Calculated state for xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>: running-suspended (role: None)"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119] set Memory Limits to Hard Inactive (30)"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Calculated state for xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>: running-suspended (role: None)"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118] set Memory Limits to Hard Inactive (30)"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "powerd",
+      "level": "notice",
+      "message": "Process runningboardd.47396 Released SystemIsActive \"xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>47396-64901-149242:[app.ChinaMobileLiveActivityWidget-A5E5D2A17A09]\" age:00:00:00  id:51539647966 [System: SysAct]"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Released power assertion with ID 40414"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Released power assertion with ID 40413"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "powerd",
+      "level": "notice",
+      "message": "Process runningboardd.47396 Released SystemIsActive \"xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>47396-64901-149240:[app.ChinaMobileWidget-21FBF41DB78A]\" age:00:00:00  id:51539647965 [System: SysAct]"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "statesForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "statesForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "statesForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "statesForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "executeLaunchRequest"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Executing launch request for xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])> (Launching extension cn.10086.app.ChinaMobileWidget(01EEEF19-F145-42DA-9BFE-8293229867B2) for host 64901)"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Checking PreventLaunch: global:0 exPath:(null) predicates:(null) allow:(null)"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Failed to get LSApplicationRecord for <RBSLaunchRequest| xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>; \"Launching extension cn.10086.app.ChinaMobileWidget(01EEEF19-F145-42DA-9BFE-8293229867B2) for host 64901\"> with error Error Domain=NSOSStatusErrorDomain Code=-10814 \"(null)\" UserInfo={_LSLine=1569, _LSFunction=runEvaluator}"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Creating and launching job for: xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "'498C55C6-2C0D-44D6-B38F-16300CB8386F' Submitting extension overlay (context <RBSLaunchContext: 0x828ac7a30>):\n<dictionary: 0x828a20d10> { count = 3, transaction: 0, voucher = 0x0, contents =\n\t\"_AdditionalProperties\" => <dictionary: 0x828a605f0> { count = 1, transaction: 0, voucher = 0x0, contents =\n\t\t\"RunningBoard\" => <dictionary: 0x828a9eae0> { count = 2, transaction: 0, voucher = 0x0, contents =\n\t\t\t\"RunningBoardLaunchedIdentity\" => <dictionary: 0x828abea30> { count = 4, transaction: 0, vouche"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "<OSLaunchdJob | handle=AE17F546-405D-4CF0-AFA0-382984100807>: submitExtension created a job"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "<OSLaunchdJob | handle=AE17F546-405D-4CF0-AFA0-382984100807>: createInstance created a job <OSLaunchdJob | handle=3E641194-9B5E-4EAC-897A-2A0086097887>"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "<OSLaunchdJob | handle=3E641194-9B5E-4EAC-897A-2A0086097887>: start succeeded, info=running, pid=70118"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "acquireAssertionWithDescriptor"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Acquiring assertion targeting [xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118] from originator [xpcservice<com.apple.extensionkitservice([osservice<com.apple.chronod>:64901])>:69536:69536] with description <RBSAssertionDescriptor| \"com.apple.extension.session\" ID:47396-69536-149243 target:70118 attributes:[\n\t<RBSLegacyAttribute| requestedReason:Extension reason:Extension flags:( AllowIdleSleep PreventTaskSuspend PreventTaskThrottleDown )>,\n\t<RBSAcquisition"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Assertion 47396-69536-149243 (target:[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118]) will be created as active"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state update"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Calculated state for xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>: running-active (role: NonUserInteractive)"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118] Set jetsam priority to 40 [0] flag[1]"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "acquireAssertionWithDescriptor"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118] Resuming task."
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118] Result 45 setting darwin role to NonUserInteractive: Operation not supported, falling back to setting priority"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Acquiring assertion targeting [xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118] from originator [osservice<com.apple.chronod>:64901] with description <RBSAssertionDescriptor| \"com.apple.extension.session\" ID:47396-64901-149244 target:70118 attributes:[\n\t<RBSLegacyAttribute| requestedReason:Extension reason:Extension flags:( AllowIdleSleep PreventTaskSuspend PreventTaskThrottleDown )>,\n\t<RBSAcquisitionCompletionAttribute| policy:AfterValidation>\n\t]>"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118] Set darwin priority to: PRIO_DEFAULT"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Assertion 47396-64901-149244 (target:[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118]) will be created as active"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state update"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118] set Memory Limits to Hard Inactive (30)"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "statesForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "invalidateAssertionWithIdentifier"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Invalidating assertion 47396-69536-149243 (target:[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118]) from originator [xpcservice<com.apple.extensionkitservice([osservice<com.apple.chronod>:64901])>:69536:69536]"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "acquireAssertionWithDescriptor"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Acquiring assertion targeting [xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118] from originator [osservice<com.apple.chronod>:64901] with description <RBSAssertionDescriptor| \"[app.ChinaMobileWidget-A998808F99A8]\" ID:47396-64901-149245 target:70118 attributes:[\n\t<RBSDomainAttribute| domain:\"com.apple.chronod\" name:\"WidgetExtensionRun\" sourceEnvironment:\"(null)\">\n\t]>"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Multiple RBSRunningReasonAttribute provided: 13 vs 20254. First one wins, but client should be fixed for assertion 47396-64901-149245 (target:[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118])"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Assertion 47396-64901-149245 (target:[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118]) will be created as active"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state update"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Calculated state for xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>: running-active (role: NonUserInteractive)"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118] set Memory Limits to Hard Inactive (30)"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Acquired process power assertion with ID 40415 for pid 70118"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "powerd",
+      "level": "notice",
+      "message": "Process runningboardd.47396 Created SystemIsActive \"xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>47396-64901-149245:[app.ChinaMobileWidget-A998808F99A8]\" age:00:00:00  id:51539647967 [System: SysAct]"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "executeLaunchRequest"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Executing launch request for xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])> (Launching extension cn.10086.app.ChinaMobileLiveActivityWidget(B17B14C0-F8A8-46F1-8EF1-353F013D8C97) for host 64901)"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Checking PreventLaunch: global:0 exPath:(null) predicates:(null) allow:(null)"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Failed to get LSApplicationRecord for <RBSLaunchRequest| xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>; \"Launching extension cn.10086.app.ChinaMobileLiveActivityWidget(B17B14C0-F8A8-46F1-8EF1-353F013D8C97) for host 64901\"> with error Error Domain=NSOSStatusErrorDomain Code=-10814 \"(null)\" UserInfo={_LSLine=1569, _LSFunction=runEvaluator}"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Creating and launching job for: xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "'498C55C6-2C0D-44D6-B38F-16300CB8386F' Submitting extension overlay (context <RBSLaunchContext: 0x828ac7a30>):\n<dictionary: 0x8288cb000> { count = 3, transaction: 0, voucher = 0x0, contents =\n\t\"_AdditionalProperties\" => <dictionary: 0x8288fdb90> { count = 1, transaction: 0, voucher = 0x0, contents =\n\t\t\"RunningBoard\" => <dictionary: 0x8288f8440> { count = 2, transaction: 0, voucher = 0x0, contents =\n\t\t\t\"RunningBoardLaunchedIdentity\" => <dictionary: 0x8288aa080> { count = 4, transaction: 0, vouche"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "<OSLaunchdJob | handle=5A491AA5-9DB5-4BD2-9AF9-8998B58FCA90>: submitExtension created a job"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "<OSLaunchdJob | handle=5A491AA5-9DB5-4BD2-9AF9-8998B58FCA90>: createInstance created a job <OSLaunchdJob | handle=47300DC5-454C-4016-AA49-E1B2CE32FEC7>"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "<OSLaunchdJob | handle=47300DC5-454C-4016-AA49-E1B2CE32FEC7>: start succeeded, info=running, pid=70119"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "statesForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "acquireAssertionWithDescriptor"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Acquiring assertion targeting [xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119] from originator [xpcservice<com.apple.extensionkitservice([osservice<com.apple.chronod>:64901])>:69536:69536] with description <RBSAssertionDescriptor| \"com.apple.extension.session\" ID:47396-69536-149246 target:70119 attributes:[\n\t<RBSLegacyAttribute| requestedReason:Extension reason:Extension flags:( AllowIdleSleep PreventTaskSuspend PreventTaskThrottleDown )>,\n\t<RB"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Assertion 47396-69536-149246 (target:[xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119]) will be created as active"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state update"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Calculated state for xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>: running-active (role: NonUserInteractive)"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119] Set jetsam priority to 40 [0] flag[1]"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119] Resuming task."
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119] Result 45 setting darwin role to NonUserInteractive: Operation not supported, falling back to setting priority"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "acquireAssertionWithDescriptor"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Acquiring assertion targeting [xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119] from originator [osservice<com.apple.chronod>:64901] with description <RBSAssertionDescriptor| \"com.apple.extension.session\" ID:47396-64901-149247 target:70119 attributes:[\n\t<RBSLegacyAttribute| requestedReason:Extension reason:Extension flags:( AllowIdleSleep PreventTaskSuspend PreventTaskThrottleDown )>,\n\t<RBSAcquisitionCompletionAttribute| policy:AfterValidation>\n"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Assertion 47396-64901-149247 (target:[xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119]) will be created as active"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state update"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119] Set darwin priority to: PRIO_DEFAULT"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "statesForPredicate"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119] set Memory Limits to Hard Inactive (30)"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "acquireAssertionWithDescriptor"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Acquiring assertion targeting [xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119] from originator [osservice<com.apple.chronod>:64901] with description <RBSAssertionDescriptor| \"[app.ChinaMobileLiveActivityWidget-1672679159EA]\" ID:47396-64901-149248 target:70119 attributes:[\n\t<RBSDomainAttribute| domain:\"com.apple.chronod\" name:\"WidgetExtensionRun\" sourceEnvironment:\"(null)\">\n\t]>"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Multiple RBSRunningReasonAttribute provided: 13 vs 20254. First one wins, but client should be fixed for assertion 47396-64901-149248 (target:[xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119])"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Assertion 47396-64901-149248 (target:[xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119]) will be created as active"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state update"
+    },
+    {
+      "date": "2026-07-19 02:48:20 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Calculated state for xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>: running-active (role: NonUserInteractive)"
+    }
+  ],
+  "exit_class": {
+    "sigsegv": [],
+    "jetsam": [
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118] Set jetsam priority to 40 [0] flag[1]"
+      },
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119] Set jetsam priority to 40 [0] flag[1]"
+      },
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119] Set jetsam priority to 0 [0] flag[1]"
+      },
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118] Set jetsam priority to 0 [0] flag[1]"
+      }
+    ],
+    "watchdog": [],
+    "termination": [],
+    "exit_reason": [],
+    "corpse": [],
+    "runningboard": [
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state update"
+      },
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state notification"
+      },
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Calculated state for xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>: running-suspended (role: None)"
+      },
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>:70119] set Memory Limits to Hard Inactive (30)"
+      },
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Calculated state for xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>: running-suspended (role: None)"
+      },
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>:70118] set Memory Limits to Hard Inactive (30)"
+      },
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "powerd",
+        "level": "notice",
+        "message": "Process runningboardd.47396 Released SystemIsActive \"xpcservice<cn.10086.app.ChinaMobileLiveActivityWidget([osservice<com.apple.chronod>:64901])>47396-64901-149242:[app.ChinaMobileLiveActivityWidget-A5E5D2A17A09]\" age:00:00:00  id:51539647966 [System: SysAct]"
+      },
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Released power assertion with ID 40414"
+      },
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Released power assertion with ID 40413"
+      },
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "powerd",
+        "level": "notice",
+        "message": "Process runningboardd.47396 Released SystemIsActive \"xpcservice<cn.10086.app.ChinaMobileWidget([osservice<com.apple.chronod>:64901])>47396-64901-149240:[app.ChinaMobileWidget-21FBF41DB78A]\" age:00:00:00  id:51539647965 [System: SysAct]"
+      },
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "statesForPredicate"
+      },
+      {
+        "date": "2026-07-19 02:48:20 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "statesForPredicate"
+      }
+    ]
+  },
+  "scene_syslog": [],
+  "sigsegv": [],
+  "corpse": [],
+  "tmp_hb_tail": "{'exitCode': 0, 'output': ''}",
+  "tmp_fatal_head": "{'exitCode': 0, 'output': ''}",
+  "tmp_an_fault": "---\n---\n---\nhypothesis_AC ao_fault_signal SIG=11 si_code=2 fault=16dc3fff8 pc=18a089fdc lr=6d4c70018a08457c fp=16dc40170 tid=259 pid=70149 inQF=0 postQF=1\n---\n",
+  "crash_stack": []
+}
