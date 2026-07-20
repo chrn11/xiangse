@@ -2,12 +2,13 @@
 
 **基线 tip（会话起）**：`27a417c`（AO docs）  
 **功能 KEEP**：`fe1c9eb`（AK）+ `8984070`（strftime）+ inThread + V+W+X+Y+Z + BQM  
-**本刀 forensics**：`ap_fault_sym` / `ap_postqf_stack` / `ap_fault_fpstack` / `ap_cf_anchor`（fbase+off，对抗 `<redacted>`）  
+**本刀 forensics commit**：`6ab194a`（`ap_fault_sym` / `ap_postqf_stack` / `ap_fault_fpstack` / CF 锚点；fbase+off 对抗 `<redacted>`）  
 **日期**：2026-07-20  
 **MCP**：`http://192.168.1.18:8090`（原 `.6` 已漂移）  
 **mock**：`http://192.168.1.4:8765`  
 **设备**：iPhone14,5 / iOS 16.5 (20F66) / roothide jbroot=`A5519C452FE06486`  
-**证据**：`fixtures/_accept_ap_*`、`analysis/reader-forensics/ap_fault_sym_*`、`ap_fault_summary.json`  
+**CI**：push `29710368658` 排队 25m 后取消；重派 `29710987509` fixture-gate 仍长期 queued（GitHub runner 枯竭）→ **未**装新 IPA / **未**跑 `_accept_ap_probe`  
+**证据**：`analysis/reader-forensics/ap_fault_sym_device.json`、`hypothesis-AP-postqf-cf-sym.md`；`fixtures/_accept_ap_*` 待 CI  
 **承接**：AO 钉 `pc=18a092c98` @ CF、`postQF=1`、LBFHook hit≈4864；静默写事件未稳 pid 已 revert；禁半截 passthrough
 
 ---

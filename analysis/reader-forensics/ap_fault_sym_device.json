@@ -34,5 +34,14 @@
     "size": 4096000,
     "note": "与 AO 绝对 PC 不同 slide，仅供 UUID/尺寸对照"
   },
-  "next": "装本刀 forensics IPA 后收 ap_fault_sym/ap_postqf_stack/ap_fault_fpstack，用 fbase+off 钉 CF 符号"
+  "commit": "6ab194a",
+  "ci": {
+    "push_run": 29710368658,
+    "dispatch_run": 29710987509,
+    "status": "fixture-gate_queued_stuck",
+    "note": "GitHub Actions ubuntu runner 长时间无接单；未产出 IPA"
+  },
+  "ao_postqf_stack_enter": "LBFHook_v_at_id_id_id+0x154 < StandarReader+0x8a5e0 < LBAB_CallBackResponse+0x484 < LBFHook_v_at_id_id_id+0x154 < StandarReader+0x618d0 < libdispatch wq",
+  "kill_path": "bg QF TextRPageContainer chapterContent sync_inThread → postQF → LBFHook depth≈4863 + CF SIGSEGV(pc=18a092c98) fault≈stack",
+  "next": "等 CI 出 IPA → 卸装重装 → 清 openOnce → nativeRead → 收 ap_fault_sym/ap_postqf_stack/ap_fault_fpstack → DSC .symbols 钉 CF 符号名"
 }
