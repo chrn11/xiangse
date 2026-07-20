@@ -1,0 +1,1569 @@
+{
+  "timestamp": "20260720T042013Z",
+  "sha": "c90cafa",
+  "ipa": "D:\\soft\\xiangse\\dist-ci\\c90cafa\\dist\\StandarReader-legado-bridge-debug.ipa",
+  "hypothesis": "AQ",
+  "role": "AQ-revert-inThread-disable-earlywrap-recursion",
+  "model": "cursor-grok-4.5",
+  "mock": "http://192.168.1.4:8765",
+  "mcp": "http://192.168.1.18:8090",
+  "banned": [
+    "bounce",
+    "dontFormat",
+    "mid_chain_launch_app",
+    "dispatch_sync_main_QF",
+    "empty_WakeUp",
+    "full_thread_suspend_heartbeat",
+    "inject_callback_inThread",
+    "early_wrap_50ms_recursion"
+  ],
+  "keep": [
+    "revert_inThread_AE",
+    "disable_earlywrap_recursion",
+    "V+W+X+Y+Z",
+    "BQM check/format id return",
+    "ak_bg_windows_api_skip",
+    "strftime_LBForensicsUTCNow",
+    "fe1c9eb_AK",
+    "8984070_AN"
+  ],
+  "steps": [
+    "install",
+    "reset",
+    "nativeRead"
+  ],
+  "frontmost_log": [
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 7856,
+        "contextId": 1506852993,
+        "bundleId": "com.apple.springboard",
+        "sceneIdentifier": "com.apple.springboard",
+        "processName": "SpringBoard",
+        "displayId": 1,
+        "name": "SpringBoard"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 7856,
+        "contextId": 1506852993,
+        "bundleId": "com.apple.springboard",
+        "sceneIdentifier": "com.apple.springboard",
+        "processName": "SpringBoard",
+        "displayId": 1,
+        "name": "SpringBoard"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 7856,
+        "contextId": 1506852993,
+        "bundleId": "com.apple.springboard",
+        "sceneIdentifier": "com.apple.springboard",
+        "processName": "SpringBoard",
+        "displayId": 1,
+        "name": "SpringBoard"
+      }
+    },
+    {
+      "reason": "pre_nativeRead_observe",
+      "front": {
+        "pid": 7856,
+        "contextId": 1506852993,
+        "bundleId": "com.apple.springboard",
+        "sceneIdentifier": "com.apple.springboard",
+        "processName": "SpringBoard",
+        "displayId": 1,
+        "name": "SpringBoard"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 13040,
+        "contextId": 409654986,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 13040,
+        "contextId": 409654986,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 13040,
+        "contextId": 409654986,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 13040,
+        "contextId": 409654986,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 13040,
+        "contextId": 409654986,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 13040,
+        "contextId": 409654986,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    },
+    {
+      "reason": "dismiss_check",
+      "front": {
+        "pid": 13040,
+        "contextId": 409654986,
+        "bundleId": "com.appbox.StandarReader",
+        "sceneIdentifier": "com.appbox.StandarReader",
+        "processName": "StandarReader",
+        "displayId": 1,
+        "name": "StandarReader"
+      }
+    }
+  ],
+  "pid_log": [
+    {
+      "t": 0.0,
+      "phase": "pre_nativeRead",
+      "pid": 13040
+    },
+    {
+      "t": 5.8,
+      "phase": "poll_0",
+      "pid": 13040,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 10.95,
+      "phase": "poll_2",
+      "pid": 13040,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 16.59,
+      "phase": "poll_5",
+      "pid": 13040,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 23.83,
+      "phase": "poll_10",
+      "pid": 13040,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 34.89,
+      "phase": "poll_20",
+      "pid": 13040,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 46.04,
+      "phase": "poll_35",
+      "pid": 13040,
+      "front": "com.appbox.StandarReader"
+    },
+    {
+      "t": 57.24,
+      "phase": "post_poll",
+      "pid": 13040
+    }
+  ],
+  "launch_app_calls": [
+    {
+      "phase": "setup_kill",
+      "ok": true
+    },
+    {
+      "phase": "setup_launch",
+      "ok": true
+    },
+    {
+      "phase": "pre_nativeRead_recover",
+      "ok": true
+    }
+  ],
+  "chapter_probe": {
+    "ok": true,
+    "code": 200
+  },
+  "uninstall": "Uninstalled app/package com.appbox.StandarReader",
+  "upload": {
+    "path": "/var/mobile/Library/Caches/ios-mcp-uploads/518E19AD-4586-4A1C-BA13-CF5F02B04DD3-StandarReader-legado-bridge-debug.ipa",
+    "filename": "StandarReader-legado-bridge-debug.ipa",
+    "size": 3608021
+  },
+  "install": "Installed app package from /var/mobile/Library/Caches/ios-mcp-uploads/518E19AD-4586-4A1C-BA13-CF5F02B04DD3-StandarReader-legado-bridge-debug.ipa",
+  "build_manifest": {
+    "git_commit": "c90cafa4492fc1d3768702fad4714a7c81dd73f2",
+    "variant": "legado-debug",
+    "github_run_id": "29716225333",
+    "built_at_utc": "2026-07-20T04:11:33Z"
+  },
+  "doc": "/var/mobile/Containers/Data/Application/DEE1C289-64B9-4B41-BE33-41769E042C39/Documents",
+  "capture_start": {
+    "bundle_ids": [
+      "com.appbox.StandarReader"
+    ],
+    "crash_baseline_count": 0,
+    "capture_id": 1784521306,
+    "started": true
+  },
+  "mid_chain_launch_app": false,
+  "capture_stop": {
+    "capture_seconds": 61,
+    "new_crash_count": 0,
+    "new_crash_reports": [],
+    "syslog_count": 5000,
+    "syslog_kill_hits": [
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460668039750: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460680399833: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460682569333: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684505791: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684509250: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684510416: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684511500: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684512250: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684512916: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684513416: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684513916: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684514375: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "XPC connection invalidated: [xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967]"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "85461.035 memorystatus: killing_idle_process pid 12967 [NotificationService] (sustained-memory-pressure 0) 3168KB - memorystatus_available_pages: 34653 compressor_size:92022"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process NotificationService [12967] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "66D53D0F-489E-4C26-A6D4-7E9AFF7DA81E monitor: got an update with info exited, exit reason namespace=1 code=14"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967] termination reported by launchd (1, 14, 9)"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing process: [xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967]"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing assertions for terminated process: [xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967]"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state update"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state notification"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Calculated state for xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>: none (role: None)"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "statesForPredicate"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "[com.github.stormbreaker.prod.notification-service] com.github.stormbreaker.prod.notification-service application state changed to Terminated"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "wifid",
+        "level": "notice",
+        "message": "-[WiFiUserInteractionMonitor setApplicationRunningState:foregroundState:andNetworkingState:forBundleId:]: com.github.stormbreaker.prod.notification-service exited"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "locationd",
+        "level": "notice",
+        "message": "{\"msg\":\"Post Application State Change Notification\", \"notification\":\"Terminated\", \"pid\":12967, \"bundleId\":\"com.github.stormbreaker.prod.notification-service\"}"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "locationd",
+        "level": "notice",
+        "message": "{\"msg\":\"#CLIUA AppMonitor notification\", \"notification\":\"Terminated\", \"pid\":12967, \"bundleId\":\"com.github.stormbreaker.prod.notification-service\", \"ClientKey\":\"com.github.stormbreaker.prod\"}"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "XPC connection invalidated: [osservice<com.apple.pasteboard.pasted>:12924]"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "XPC connection invalidated: [osservice<com.apple.pasteboard.pasted>:12924]"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "RBSStateCapture remove item called for untracked item <RBConnectionClient| 12924 name:osservice<com.apple.pasteboard.pasted> entitlements:<RBEntitlements| [\n\t\t\tcom.apple.assertiond.app-state-monitor,\n\t\t\tcom.apple.frontboard.disable-watchdog\n\t\t\t]> inheritanceManager:<RBClientInheritanceManager| >>"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "85461.539 memorystatus: killing_idle_process pid 12924 [pasted] (sustained-memory-pressure 0) 3729KB - memorystatus_available_pages: 34787 compressor_size:91968"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process pasted [12924] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "D52C4420-3F25-436A-A4DE-AB7CBB610768 monitor: got an update with info exited, exit reason namespace=1 code=9"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.pasteboard.pasted>:12924] termination reported by launchd (1, 9, 9)"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing process: [osservice<com.apple.pasteboard.pasted>:12924]"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "removeJobWithInstance called for identity without existing job [osservice<com.apple.pasteboard.pasted>:12924]"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing assertions for terminated process: [osservice<com.apple.pasteboard.pasted>:12924]"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state update"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state notification"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "statesForPredicate"
+      },
+      {
+        "date": "2026-07-20 04:22:02 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "85470.116 memorystatus: killing_idle_process pid 12982 [amfid] (sustained-memory-pressure 0) 2816KB - memorystatus_available_pages: 38124 compressor_size:89068"
+      },
+      {
+        "date": "2026-07-20 04:22:02 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-20 04:22:02 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-20 04:22:02 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update(enter): pid 13120, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+      },
+      {
+        "date": "2026-07-20 04:22:02 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update: init: limit on pid 13120 (-1MB F ) targeting priority(210) dirty?=0x0"
+      },
+      {
+        "date": "2026-07-20 04:22:02 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process amfid [12982] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-20 04:22:02 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update(enter): pid 13120, priority 140, dirty=0x0, Active(379MB NF), Inactive(379MB, F )"
+      },
+      {
+        "date": "2026-07-20 04:22:02 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update: init: limit on pid 13120 (379MB NF) targeting priority(140) dirty?=0x0"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "85480.198 memorystatus: killing_idle_process pid 12797 [privacyaccountingd] (sustained-memory-pressure 0) 2416KB - memorystatus_available_pages: 38260 compressor_size:87675"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process privacyaccountingd [12797] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "1B58FF00-65FB-4ABA-8EAB-B47947A52CB7 monitor: got an update with info exited, exit reason namespace=1 code=9"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.privacyaccountingd>:12797] termination reported by launchd (1, 9, 9)"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing process: [osservice<com.apple.privacyaccountingd>:12797]"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "removeJobWithInstance called for identity without existing job [osservice<com.apple.privacyaccountingd>:12797]"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing assertions for terminated process: [osservice<com.apple.privacyaccountingd>:12797]"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state update"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state notification"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "XPC connection invalidated: [osservice<com.apple.privacyaccountingd>:12797]"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "XPC connection invalidated: [osservice<com.apple.privacyaccountingd>:12797]"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "statesForPredicate"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "RBSStateCapture remove item called for untracked item <RBConnectionClient| 12797 name:osservice<com.apple.privacyaccountingd> entitlements:<RBEntitlements| [\n\t\t\tcom.apple.assertiond.app-state-monitor,\n\t\t\tcom.apple.runningboard.process-state\n\t\t\t]> inheritanceManager:<RBClientInheritanceManager| >>"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85480668492458: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85480668564791: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85480668923333: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85480668929833: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85480668933125: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85480668935583: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85480668937458: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85480668939291: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85480668941083: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85480668942625: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85480668944416: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "XPC connection invalidated: [osservice<com.apple.contactsd>:13037]"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "85480.703 memorystatus: killing_idle_process pid 13037 [contactsd] (sustained-memory-pressure 0) 2192KB - memorystatus_available_pages: 38346 compressor_size:87632"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process contactsd [13037] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "67A430CF-72E4-4BA4-9B31-129E442C3FF5 monitor: got an update with info exited, exit reason namespace=1 code=9"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.contactsd>:13037] termination reported by launchd (1, 9, 9)"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing process: [osservice<com.apple.contactsd>:13037]"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "removeJobWithInstance called for identity without existing job [osservice<com.apple.contactsd>:13037]"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing assertions for terminated process: [osservice<com.apple.contactsd>:13037]"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state update"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state notification"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "statesForPredicate"
+      },
+      {
+        "date": "2026-07-20 04:22:13 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "85481.207 memorystatus: killing_idle_process pid 13038 [apfs_iosd] (sustained-memory-pressure 0) 1024KB - memorystatus_available_pages: 38393 compressor_size:87571"
+      },
+      {
+        "date": "2026-07-20 04:22:13 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-20 04:22:13 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-20 04:22:13 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process apfs_iosd [13038] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "85485.241 memorystatus: killing_idle_process pid 12862 [syncdefaultsd] (sustained-memory-pressure 0) 3824KB - memorystatus_available_pages: 39050 compressor_size:87172"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process syncdefaultsd [12862] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "85485.745 memorystatus: killing_idle_process pid 13039 [CMFSyncAgent] (sustained-memory-pressure 0) 1632KB - memorystatus_available_pages: 39165 compressor_size:87145"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process CMFSyncAgent [13039] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "EA5209ED-FF28-4A5C-9FE8-0377068AD47C monitor: got an update with info exited, exit reason namespace=1 code=9"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.cmfsyncagent>:13039] termination reported by launchd (1, 9, 9)"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing process: [osservice<com.apple.cmfsyncagent>:13039]"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "removeJobWithInstance called for identity without existing job [osservice<com.apple.cmfsyncagent>:13039]"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "XPC connection invalidated: [osservice<com.apple.cmfsyncagent>:13039]"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing assertions for terminated process: [osservice<com.apple.cmfsyncagent>:13039]"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state update"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state notification"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "statesForPredicate"
+      },
+      {
+        "date": "2026-07-20 04:22:22 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85490668746083: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:22 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85490668802375: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:22 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85490669162250: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:22 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85490669169000: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:22 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85490669171666: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:22 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85490669173541: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:22 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85490669175416: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:22 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85490669176958: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:22 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85490669178541: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:22 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85490669180083: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:22 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85490669181583: <private>"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "CPUDasherAtTodayExt",
+        "level": "notice",
+        "message": "Creating connection to com.apple.runningboard"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "incoming connection"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Incoming connection from 13126, user 501/501"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "handshakeWithRequest"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Setting client for [xpcservice<com.suwen.DeviceInfo.DeviceInfoAtTodayExt1([osservice<com.apple.SpringBoard>:7856])>:13126] as ready"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Received handshake request from 13126 with 0 assertion descriptors"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_set_process_is_freezable: disabling freeze for pid 13126 [CPUDasherAtTodayExt]"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Handshake successful with 13126; sending response"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "incoming connection"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Incoming connection from 13127, user 501/501"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "LoonWidget",
+        "level": "notice",
+        "message": "Creating connection to com.apple.runningboard"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "handshakeWithRequest"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Setting client for [xpcservice<com.ruikq.decar.LoonWidget([osservice<com.apple.SpringBoard>:7856])>:13127] as ready"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Received handshake request from 13127 with 0 assertion descriptors"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_set_process_is_freezable: disabling freeze for pid 13127 [LoonWidget]"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Handshake successful with 13127; sending response"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "statesForPredicate"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "subscribeToProcessDeath"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "statesForPredicate"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "subscribeToProcessDeath"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "acquireAssertionWithDescriptor"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Acquiring assertion targeting [xpcservice<com.ruikq.decar.LoonWidget([osservice<com.apple.SpringBoard>:7856])>:13127] from originator [xpcservice<com.ruikq.decar.LoonWidget([osservice<com.apple.SpringBoard>:7856])>:13127] with description <RBSAssertionDescriptor| \"Shared Background Assertion 0 for com.ruikq.decar.LoonWidget\" ID:7847-13127-51285 target:13127 attributes:[\n\t<RBSLegacyAttribute| requestedReason:FinishTask reason:FinishTask flags:( PreventTaskSuspend )>,\n\t<RBSAcquisitionCompletionAtt"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Assertion 7847-13127-51285 (target:[xpcservice<com.ruikq.decar.LoonWidget([osservice<com.apple.SpringBoard>:7856])>:13127]) will be created as inactive as start-time-defining assertions exist"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "acquireAssertionWithDescriptor"
+      },
+      {
+        "date": "2026-07-20 04:22:27 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state update"
+      }
+    ]
+  },
+  "crash_logs": {
+    "count": 0,
+    "reports": []
+  },
+  "crash_stack": [],
+  "tmp_hb": {
+    "exitCode": 0,
+    "output": ""
+  },
+  "tmp_fatal": {
+    "exitCode": 0,
+    "output": ""
+  },
+  "tmp_an_fault": {
+    "exitCode": 0,
+    "output": "---\n---\n---\n---\n"
+  },
+  "tmp_ao_fault": {
+    "exitCode": 0,
+    "output": "---\n---\n---\n---\n"
+  },
+  "an_fault_doc": "No such file or directory: /var/mobile/Containers/Data/Application/DEE1C289-64B9-4B41-BE33-41769E042C39/Documents/legado_an_fault.txt",
+  "ao_fault_doc": "No such file or directory: /var/mobile/Containers/Data/Application/DEE1C289-64B9-4B41-BE33-41769E042C39/Documents/legado_ao_fault.txt",
+  "ao_lbf_doc": "No such file or directory: /var/mobile/Containers/Data/Application/DEE1C289-64B9-4B41-BE33-41769E042C39/Documents/legado_ao_lbf.txt",
+  "polls": [
+    {
+      "t": 48.53,
+      "ac_runtime_n": 0,
+      "ac_last": null,
+      "front": "com.appbox.StandarReader",
+      "pid": 13040
+    },
+    {
+      "t": 49.36,
+      "ac_runtime_n": 0,
+      "ac_last": null,
+      "front": "com.appbox.StandarReader",
+      "pid": 13040
+    },
+    {
+      "t": 50.15,
+      "ac_runtime_n": 0,
+      "ac_last": null,
+      "front": "com.appbox.StandarReader",
+      "pid": 13040
+    },
+    {
+      "t": 50.97,
+      "ac_runtime_n": 0,
+      "ac_last": null,
+      "front": "com.appbox.StandarReader",
+      "pid": 13040
+    },
+    {
+      "t": 51.79,
+      "ac_runtime_n": 0,
+      "ac_last": null,
+      "front": "com.appbox.StandarReader",
+      "pid": 13040
+    },
+    {
+      "t": 52.65,
+      "ac_runtime_n": 0,
+      "ac_last": null,
+      "front": "com.appbox.StandarReader",
+      "pid": 13040
+    },
+    {
+      "t": 53.35,
+      "ac_runtime_n": 0,
+      "ac_last": null,
+      "front": "com.appbox.StandarReader",
+      "pid": 13040
+    },
+    {
+      "t": 54.14,
+      "ac_runtime_n": 0,
+      "ac_last": null,
+      "front": "com.appbox.StandarReader",
+      "pid": 13040
+    },
+    {
+      "t": 54.97,
+      "ac_runtime_n": 0,
+      "ac_last": null,
+      "front": "com.appbox.StandarReader",
+      "pid": 13040
+    },
+    {
+      "t": 55.73,
+      "ac_runtime_n": 0,
+      "ac_last": null,
+      "front": "com.appbox.StandarReader",
+      "pid": 13040
+    },
+    {
+      "t": 56.46,
+      "ac_runtime_n": 0,
+      "ac_last": null,
+      "front": "com.appbox.StandarReader",
+      "pid": 13040
+    },
+    {
+      "t": 57.19,
+      "ac_runtime_n": 0,
+      "ac_last": null,
+      "front": "com.appbox.StandarReader",
+      "pid": 13040
+    }
+  ],
+  "sync": {
+    "sha": "c90cafa",
+    "probe_last_line": "No such file or directory: /var/mobile/Containers/Data/Application/DEE1C289-64B9-4B41-BE33-41769E042C39/Documents/legado_ab_probe.txt",
+    "am_last_runtime": "No such file or directory: /var/mobile/Containers/Data/Application/DEE1C289-64B9-4B41-BE33-41769E042C39/Documents/legado_ao_lbf.txt",
+    "am_runtime": [
+      "No such file or directory: /var/mobile/Containers/Data/Application/DEE1C289-64B9-4B41-BE33-41769E042C39/Documents/legado_an_fault.txt",
+      "No such file or directory: /var/mobile/Containers/Data/Application/DEE1C289-64B9-4B41-BE33-41769E042C39/Documents/legado_ao_fault.txt",
+      "No such file or directory: /var/mobile/Containers/Data/Application/DEE1C289-64B9-4B41-BE33-41769E042C39/Documents/legado_ao_lbf.txt"
+    ],
+    "am_post_cb_hb": [],
+    "am_hb_ms_max": null,
+    "am_hb_done": false,
+    "am_icu_caller": [],
+    "am_icu_hook": [],
+    "al_icu": [],
+    "al_fatal": [],
+    "an_fault_signal": [],
+    "ao_fault_signal": [],
+    "ap_fault_sym": [],
+    "ap_postqf_stack": [],
+    "ap_fault_fpstack": [],
+    "an_fault_claim": [],
+    "ao_fault_claim": [],
+    "ao_fault_handler": [],
+    "ao_fault_handler_stolen": [],
+    "ao_lbf": [],
+    "ao_lbf_hit": null,
+    "ao_lbf_max_depth": null,
+    "ao_lbf_reenter": null,
+    "an_icu_stack": [],
+    "an_mem_path": [],
+    "an_qf_enter_stack": [],
+    "ao_fault_pc": null,
+    "ao_fault_lr": null,
+    "ao_fault_addr": null,
+    "an_fault_pc": null,
+    "an_fault_lr": null,
+    "an_fault_addr": null,
+    "mem_vs_icu": {
+      "hb_mem0": null,
+      "hb_mem1": null,
+      "hb_mem_delta": null,
+      "path_class_counts": {},
+      "icu_dominant": false,
+      "page_dominant": false,
+      "verdict": "no_mem_path_sample"
+    },
+    "ak_bg_skip": [],
+    "ak_main_block": [],
+    "qf_dispatch_gates": [],
+    "has_qf": false,
+    "qf_n": 0,
+    "has_qf_enter": false,
+    "has_qf_exit": false,
+    "qf_main": false,
+    "has_ak_skip": false,
+    "pids": [],
+    "pid0": 13040,
+    "pid1": 13040,
+    "pid_stable": true,
+    "probe_pid_stable": true,
+    "os_pid_stable": true,
+    "relaunch_after_chain": false,
+    "mid_chain_launch_app": false,
+    "has_format_enter": false,
+    "has_format_exit": false,
+    "has_cb_enter": false,
+    "has_cb_exit": false,
+    "has_inject_inThread": false,
+    "has_ak_keep_inThread": false,
+    "has_am_keep_inThread": false,
+    "path_sync_inThread": false,
+    "has_fatal": false,
+    "am_hb_n": 0,
+    "am_icu_caller_n": 0,
+    "an_fault_n": 0,
+    "ao_fault_n": 0,
+    "ao_lbf_n": 0,
+    "ao_handler_stolen_n": 0,
+    "an_icu_stack_n": 0,
+    "an_mem_path_n": 0,
+    "ao_post_hb_watch_done": false,
+    "scene_syslog_n": 0,
+    "sigsegv_n": 0,
+    "corpse_n": 0,
+    "exit_class": {
+      "sigsegv": 0,
+      "jetsam": 38,
+      "watchdog": 35,
+      "termination": 13,
+      "exit_reason": 5,
+      "corpse": 0,
+      "runningboard": 84
+    },
+    "reader_foreground": true,
+    "frontmost_final": {
+      "pid": 13040,
+      "contextId": 409654986,
+      "bundleId": "com.appbox.StandarReader",
+      "sceneIdentifier": "com.appbox.StandarReader",
+      "processName": "StandarReader",
+      "displayId": 1,
+      "name": "StandarReader"
+    },
+    "xiaoyan": {
+      "passed": false,
+      "text": "萧炎",
+      "elements": [
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 47,
+            "x": 8,
+            "width": 49,
+            "height": 44
+          },
+          "text": "整理"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 53,
+            "x": 135,
+            "width": 59,
+            "height": 32
+          },
+          "text": "书架"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 53,
+            "x": 195,
+            "width": 60,
+            "height": 32
+          },
+          "text": "发现"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 47,
+            "x": 284,
+            "width": 48,
+            "height": 44
+          },
+          "text": "搜索"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 47,
+            "x": 340,
+            "width": 42,
+            "height": 44
+          },
+          "text": "添加"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 37,
+            "x": 0,
+            "width": 390,
+            "height": 54
+          },
+          "text": "下拉可以刷新"
+        },
+        {
+          "clickable": true,
+          "type": "control",
+          "rect": {
+            "y": 91,
+            "x": 0,
+            "width": 390,
+            "height": 753
+          },
+          "text": "空列表"
+        },
+        {
+          "type": "element",
+          "clickable": true,
+          "rect": {
+            "y": 47,
+            "x": 0,
+            "width": 390,
+            "height": 44
+          }
+        }
+      ],
+      "error": null
+    },
+    "ui_texts": [
+      "整理",
+      "书架",
+      "发现",
+      "搜索",
+      "添加",
+      "下拉可以刷新",
+      "空列表"
+    ],
+    "decision": {
+      "branch": "main_blocked_no_qf",
+      "action": "main 未排空且无 QF；pre= post= attach=",
+      "commit": false
+    },
+    "first_chapter_approved": false,
+    "syslog_kill_hits_n": 160,
+    "crash_stack_n": 0,
+    "aq_pageStatus_pre": "",
+    "aq_pageStatus_post": "",
+    "aq_orig_imp_class": "",
+    "aq_container_attach": "",
+    "aq_main_drain_pulse": false,
+    "aq_main_drained": false,
+    "aq_main_drain_result": "",
+    "aq_qf_path_orig": "",
+    "aq_early_wrap_retry_disabled": false,
+    "aq_all_lines": []
+  },
+  "decision": {
+    "branch": "main_blocked_no_qf",
+    "action": "main 未排空且无 QF；pre= post= attach=",
+    "commit": false
+  },
+  "first_chapter_approved": false,
+  "reader_foreground": true
+}

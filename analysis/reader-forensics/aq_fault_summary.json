@@ -1,0 +1,27 @@
+{
+  "sha": "c90cafa",
+  "fault_pc": null,
+  "fault_lr": null,
+  "fault_addr": null,
+  "ao_fault_signal": [],
+  "an_fault_signal": [],
+  "ao_fault_claim": [],
+  "ao_fault_handler": [],
+  "ao_lbf_hit": null,
+  "ao_lbf_max_depth": null,
+  "ao_lbf_reenter": null,
+  "ao_lbf": [],
+  "an_icu_stack": [],
+  "an_mem_path": [],
+  "mem_vs_icu": {
+    "hb_mem0": null,
+    "hb_mem1": null,
+    "hb_mem_delta": null,
+    "path_class_counts": {},
+    "icu_dominant": false,
+    "page_dominant": false,
+    "verdict": "no_mem_path_sample"
+  },
+  "am_icu_caller_sample": [],
+  "verdict_no_sigsegv_pid_only": false
+}

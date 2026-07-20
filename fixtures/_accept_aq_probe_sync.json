@@ -1,0 +1,59 @@
+{
+  "sha": "c90cafa",
+  "timestamp": "20260720T042933Z",
+  "hypothesis": "AQ",
+  "probe_n": 163,
+  "probe_last_line": "2026-07-20 12:26:14 | hypothesis_AC am_keep_inThread=1 main=1 inv=0 pid=13210 up=85722326 mem=7",
+  "aq_pageStatus_pre": "2026-07-20 12:26:13 | hypothesis_AC aq_pageStatus_pre val=nil container=TextRPageContainer main=1 inv=1 pid=13200 up=85721368 mem=41",
+  "aq_pageStatus_post": "2026-07-20 12:26:13 | hypothesis_AC aq_pageStatus_post val=nil container=TextRPageContainer main=1 inv=1 pid=13200 up=85721369 mem=41",
+  "aq_orig_imp_class": "2026-07-20 12:26:13 | hypothesis_AC aq_orig_imp_class cls=? imp=0x10017fcf4 main=1 inv=1 pid=13200 up=85721367 mem=41",
+  "aq_container_attach": "2026-07-20 12:26:13 | hypothesis_AC aq_container_attach state=container_vc_orphan readerAttached=1 main=1 inv=1 pid=13200 up=85721367 mem=41",
+  "aq_main_drain_pulse": false,
+  "aq_main_drained": false,
+  "aq_main_drain_result": "",
+  "aq_qf_path_orig": "2026-07-20 12:26:13 | hypothesis_AC aq_qf_path_orig action=chapterContent inThread=0 dontFormat=0 main=0 inv=1 pid=13200 up=85721370 mem=41",
+  "aq_early_wrap_retry_disabled": true,
+  "aq_all_lines": [
+    "2026-07-20 12:26:13 | hypothesis_AC aq_orig_imp_class cls=? imp=0x10017fcf4 main=1 inv=1 pid=13200 up=85721367 mem=41",
+    "2026-07-20 12:26:13 | hypothesis_AC aq_container_attach state=container_vc_orphan readerAttached=1 main=1 inv=1 pid=13200 up=85721367 mem=41",
+    "2026-07-20 12:26:13 | hypothesis_AC aq_pageStatus_pre val=nil container=TextRPageContainer main=1 inv=1 pid=13200 up=85721368 mem=41",
+    "2026-07-20 12:26:13 | hypothesis_AC aq_pageStatus_post val=nil container=TextRPageContainer main=1 inv=1 pid=13200 up=85721369 mem=41",
+    "2026-07-20 12:26:13 | hypothesis_AC aq_qf_path_orig action=chapterContent inThread=0 dontFormat=0 main=0 inv=1 pid=13200 up=85721370 mem=41"
+  ],
+  "has_qf": false,
+  "qf_main": false,
+  "has_cb_enter": true,
+  "has_cb_exit": true,
+  "has_format_enter": true,
+  "has_format_exit": true,
+  "has_invoke_returned": true,
+  "qf_dispatch_gates": [
+    "2026-07-20 12:26:13 | hypothesis_AC qf_dispatch_gates phase=post_format action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=0 dont=0 respNil=0 respLen=107 path=async_main main=0 inv=1 pid=13200 up=85721371 mem=41",
+    "2026-07-20 12:26:13 | hypothesis_AC qf_dispatch_gates phase=after_cb action=chapterContent target=TextRPageContainer isClass=0 responds=1 notify=0 inThread=0 dont=0 respNil=0 respLen=111 path=async_main main=0 inv=1 pid=13200 up=85721372 mem=41"
+  ],
+  "lbf_hook_max_depth": 4864,
+  "lbf_hook_n": 76,
+  "fault_signal_n": 3,
+  "fault_pc": "1cc516c98",
+  "fault_lr": "8e3fac01cc50e168",
+  "fault_addr": "16fc5bfa0",
+  "pids": [
+    "13200",
+    "13210"
+  ],
+  "pid_stable": false,
+  "pid_final": 13210,
+  "front_final": "com.appbox.StandarReader",
+  "reader_foreground": true,
+  "xiaoyan": {
+    "passed": false,
+    "text": "萧炎",
+    "error": null
+  },
+  "decision": {
+    "branch": "sigsegv_postqf_lbf_storm",
+    "action": "postQF LBFHook 风暴（depth=4864）致 SIGSEGV；pre=2026-07-20 12:26:13 | hypothesis_AC aq_pageStatus_pre val=ni post=2026-07-20 12:26:13 | hypothesis_AC aq_pageStatus_post val=n attach=2026-07-20 12:26:13 | hypothesis_AC aq_container_attach stat",
+    "commit": false
+  },
+  "first_chapter_approved": false
+}

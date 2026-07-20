@@ -1,0 +1,847 @@
+{
+  "sha": "c90cafa",
+  "pid0": 13040,
+  "pid1": 13040,
+  "conclusion": "main 未排空且无 QF；pre= post= attach=",
+  "mid_chain_launch_app": false,
+  "am_hb_ms_max": null,
+  "am_hb_done": false,
+  "am_icu_caller": [],
+  "ao_fault_pc": null,
+  "ao_fault_lr": null,
+  "ao_fault_addr": null,
+  "ao_lbf_hit": null,
+  "ao_lbf_max_depth": null,
+  "ao_lbf_reenter": null,
+  "an_icu_stack": [],
+  "mem_vs_icu": {
+    "hb_mem0": null,
+    "hb_mem1": null,
+    "hb_mem_delta": null,
+    "path_class_counts": {},
+    "icu_dominant": false,
+    "page_dominant": false,
+    "verdict": "no_mem_path_sample"
+  },
+  "hits": [
+    {
+      "date": "2026-07-20 04:21:52 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "85460668039750: <private>"
+    },
+    {
+      "date": "2026-07-20 04:21:52 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "85460680399833: <private>"
+    },
+    {
+      "date": "2026-07-20 04:21:52 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "85460682569333: <private>"
+    },
+    {
+      "date": "2026-07-20 04:21:52 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "85460684505791: <private>"
+    },
+    {
+      "date": "2026-07-20 04:21:52 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "85460684509250: <private>"
+    },
+    {
+      "date": "2026-07-20 04:21:52 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "85460684510416: <private>"
+    },
+    {
+      "date": "2026-07-20 04:21:52 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "85460684511500: <private>"
+    },
+    {
+      "date": "2026-07-20 04:21:52 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "85460684512250: <private>"
+    },
+    {
+      "date": "2026-07-20 04:21:52 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "85460684512916: <private>"
+    },
+    {
+      "date": "2026-07-20 04:21:52 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "85460684513416: <private>"
+    },
+    {
+      "date": "2026-07-20 04:21:52 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "85460684513916: <private>"
+    },
+    {
+      "date": "2026-07-20 04:21:52 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "85460684514375: <private>"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "XPC connection invalidated: [xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967]"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "85461.035 memorystatus: killing_idle_process pid 12967 [NotificationService] (sustained-memory-pressure 0) 3168KB - memorystatus_available_pages: 34653 compressor_size:92022"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "UserEventAgent",
+      "level": "notice",
+      "message": "kernel jetsam snapshot note received"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Attempting to write jetsam report"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Process NotificationService [12967] killed by jetsam reason sustained-memory-pressure"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "66D53D0F-489E-4C26-A6D4-7E9AFF7DA81E monitor: got an update with info exited, exit reason namespace=1 code=14"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967] termination reported by launchd (1, 14, 9)"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Removing process: [xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967]"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Removing assertions for terminated process: [xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967]"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state update"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state notification"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Calculated state for xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>: none (role: None)"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "statesForPredicate"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "SpringBoard",
+      "level": "notice",
+      "message": "[com.github.stormbreaker.prod.notification-service] com.github.stormbreaker.prod.notification-service application state changed to Terminated"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "wifid",
+      "level": "notice",
+      "message": "-[WiFiUserInteractionMonitor setApplicationRunningState:foregroundState:andNetworkingState:forBundleId:]: com.github.stormbreaker.prod.notification-service exited"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "locationd",
+      "level": "notice",
+      "message": "{\"msg\":\"Post Application State Change Notification\", \"notification\":\"Terminated\", \"pid\":12967, \"bundleId\":\"com.github.stormbreaker.prod.notification-service\"}"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "lastExitContextForInstance"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "locationd",
+      "level": "notice",
+      "message": "{\"msg\":\"#CLIUA AppMonitor notification\", \"notification\":\"Terminated\", \"pid\":12967, \"bundleId\":\"com.github.stormbreaker.prod.notification-service\", \"ClientKey\":\"com.github.stormbreaker.prod\"}"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "XPC connection invalidated: [osservice<com.apple.pasteboard.pasted>:12924]"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "XPC connection invalidated: [osservice<com.apple.pasteboard.pasted>:12924]"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "RBSStateCapture remove item called for untracked item <RBConnectionClient| 12924 name:osservice<com.apple.pasteboard.pasted> entitlements:<RBEntitlements| [\n\t\t\tcom.apple.assertiond.app-state-monitor,\n\t\t\tcom.apple.frontboard.disable-watchdog\n\t\t\t]> inheritanceManager:<RBClientInheritanceManager| >>"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "85461.539 memorystatus: killing_idle_process pid 12924 [pasted] (sustained-memory-pressure 0) 3729KB - memorystatus_available_pages: 34787 compressor_size:91968"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "UserEventAgent",
+      "level": "notice",
+      "message": "kernel jetsam snapshot note received"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Attempting to write jetsam report"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Process pasted [12924] killed by jetsam reason sustained-memory-pressure"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "D52C4420-3F25-436A-A4DE-AB7CBB610768 monitor: got an update with info exited, exit reason namespace=1 code=9"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[osservice<com.apple.pasteboard.pasted>:12924] termination reported by launchd (1, 9, 9)"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Removing process: [osservice<com.apple.pasteboard.pasted>:12924]"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "removeJobWithInstance called for identity without existing job [osservice<com.apple.pasteboard.pasted>:12924]"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Removing assertions for terminated process: [osservice<com.apple.pasteboard.pasted>:12924]"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state update"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state notification"
+    },
+    {
+      "date": "2026-07-20 04:21:53 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "statesForPredicate"
+    },
+    {
+      "date": "2026-07-20 04:22:02 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "85470.116 memorystatus: killing_idle_process pid 12982 [amfid] (sustained-memory-pressure 0) 2816KB - memorystatus_available_pages: 38124 compressor_size:89068"
+    },
+    {
+      "date": "2026-07-20 04:22:02 +0000",
+      "process": "UserEventAgent",
+      "level": "notice",
+      "message": "kernel jetsam snapshot note received"
+    },
+    {
+      "date": "2026-07-20 04:22:02 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Attempting to write jetsam report"
+    },
+    {
+      "date": "2026-07-20 04:22:02 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update(enter): pid 13120, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+    },
+    {
+      "date": "2026-07-20 04:22:02 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update: init: limit on pid 13120 (-1MB F ) targeting priority(210) dirty?=0x0"
+    },
+    {
+      "date": "2026-07-20 04:22:02 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Process amfid [12982] killed by jetsam reason sustained-memory-pressure"
+    },
+    {
+      "date": "2026-07-20 04:22:02 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update(enter): pid 13120, priority 140, dirty=0x0, Active(379MB NF), Inactive(379MB, F )"
+    },
+    {
+      "date": "2026-07-20 04:22:02 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "memorystatus_update: init: limit on pid 13120 (379MB NF) targeting priority(140) dirty?=0x0"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "kernel",
+      "level": "notice",
+      "message": "85480.198 memorystatus: killing_idle_process pid 12797 [privacyaccountingd] (sustained-memory-pressure 0) 2416KB - memorystatus_available_pages: 38260 compressor_size:87675"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "UserEventAgent",
+      "level": "notice",
+      "message": "kernel jetsam snapshot note received"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Attempting to write jetsam report"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "osanalyticshelper",
+      "level": "notice",
+      "message": "Process privacyaccountingd [12797] killed by jetsam reason sustained-memory-pressure"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "1B58FF00-65FB-4ABA-8EAB-B47947A52CB7 monitor: got an update with info exited, exit reason namespace=1 code=9"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "[osservice<com.apple.privacyaccountingd>:12797] termination reported by launchd (1, 9, 9)"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Removing process: [osservice<com.apple.privacyaccountingd>:12797]"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "removeJobWithInstance called for identity without existing job [osservice<com.apple.privacyaccountingd>:12797]"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "Removing assertions for terminated process: [osservice<com.apple.privacyaccountingd>:12797]"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state update"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "state notification"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "XPC connection invalidated: [osservice<com.apple.privacyaccountingd>:12797]"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "XPC connection invalidated: [osservice<com.apple.privacyaccountingd>:12797]"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "statesForPredicate"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "runningboardd",
+      "level": "notice",
+      "message": "RBSStateCapture remove item called for untracked item <RBConnectionClient| 12797 name:osservice<com.apple.privacyaccountingd> entitlements:<RBEntitlements| [\n\t\t\tcom.apple.assertiond.app-state-monitor,\n\t\t\tcom.apple.runningboard.process-state\n\t\t\t]> inheritanceManager:<RBClientInheritanceManager| >>"
+    },
+    {
+      "date": "2026-07-20 04:22:12 +0000",
+      "process": "watchdogd",
+      "level": "notice",
+      "message": "85480668492458: <private>"
+    }
+  ],
+  "exit_class": {
+    "sigsegv": [],
+    "jetsam": [
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "85461.035 memorystatus: killing_idle_process pid 12967 [NotificationService] (sustained-memory-pressure 0) 3168KB - memorystatus_available_pages: 34653 compressor_size:92022"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process NotificationService [12967] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "85461.539 memorystatus: killing_idle_process pid 12924 [pasted] (sustained-memory-pressure 0) 3729KB - memorystatus_available_pages: 34787 compressor_size:91968"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Process pasted [12924] killed by jetsam reason sustained-memory-pressure"
+      },
+      {
+        "date": "2026-07-20 04:22:02 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "85470.116 memorystatus: killing_idle_process pid 12982 [amfid] (sustained-memory-pressure 0) 2816KB - memorystatus_available_pages: 38124 compressor_size:89068"
+      },
+      {
+        "date": "2026-07-20 04:22:02 +0000",
+        "process": "UserEventAgent",
+        "level": "notice",
+        "message": "kernel jetsam snapshot note received"
+      },
+      {
+        "date": "2026-07-20 04:22:02 +0000",
+        "process": "osanalyticshelper",
+        "level": "notice",
+        "message": "Attempting to write jetsam report"
+      },
+      {
+        "date": "2026-07-20 04:22:02 +0000",
+        "process": "kernel",
+        "level": "notice",
+        "message": "memorystatus_update(enter): pid 13120, priority 210, dirty=0x0, Active(-1MB NF), Inactive(-1MB, NF)"
+      }
+    ],
+    "watchdog": [
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460668039750: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460680399833: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460682569333: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684505791: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684509250: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684510416: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684511500: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684512250: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684512916: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684513416: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684513916: <private>"
+      },
+      {
+        "date": "2026-07-20 04:21:52 +0000",
+        "process": "watchdogd",
+        "level": "notice",
+        "message": "85460684514375: <private>"
+      }
+    ],
+    "termination": [
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967] termination reported by launchd (1, 14, 9)"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing assertions for terminated process: [xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967]"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "SpringBoard",
+        "level": "notice",
+        "message": "[com.github.stormbreaker.prod.notification-service] com.github.stormbreaker.prod.notification-service application state changed to Terminated"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "locationd",
+        "level": "notice",
+        "message": "{\"msg\":\"Post Application State Change Notification\", \"notification\":\"Terminated\", \"pid\":12967, \"bundleId\":\"com.github.stormbreaker.prod.notification-service\"}"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "locationd",
+        "level": "notice",
+        "message": "{\"msg\":\"#CLIUA AppMonitor notification\", \"notification\":\"Terminated\", \"pid\":12967, \"bundleId\":\"com.github.stormbreaker.prod.notification-service\", \"ClientKey\":\"com.github.stormbreaker.prod\"}"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.pasteboard.pasted>:12924] termination reported by launchd (1, 9, 9)"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing assertions for terminated process: [osservice<com.apple.pasteboard.pasted>:12924]"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.privacyaccountingd>:12797] termination reported by launchd (1, 9, 9)"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing assertions for terminated process: [osservice<com.apple.privacyaccountingd>:12797]"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.contactsd>:13037] termination reported by launchd (1, 9, 9)"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing assertions for terminated process: [osservice<com.apple.contactsd>:13037]"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[osservice<com.apple.cmfsyncagent>:13039] termination reported by launchd (1, 9, 9)"
+      }
+    ],
+    "exit_reason": [
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "66D53D0F-489E-4C26-A6D4-7E9AFF7DA81E monitor: got an update with info exited, exit reason namespace=1 code=14"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "D52C4420-3F25-436A-A4DE-AB7CBB610768 monitor: got an update with info exited, exit reason namespace=1 code=9"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "1B58FF00-65FB-4ABA-8EAB-B47947A52CB7 monitor: got an update with info exited, exit reason namespace=1 code=9"
+      },
+      {
+        "date": "2026-07-20 04:22:12 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "67A430CF-72E4-4BA4-9B31-129E442C3FF5 monitor: got an update with info exited, exit reason namespace=1 code=9"
+      },
+      {
+        "date": "2026-07-20 04:22:17 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "EA5209ED-FF28-4A5C-9FE8-0377068AD47C monitor: got an update with info exited, exit reason namespace=1 code=9"
+      }
+    ],
+    "corpse": [],
+    "runningboard": [
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "XPC connection invalidated: [xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967]"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "66D53D0F-489E-4C26-A6D4-7E9AFF7DA81E monitor: got an update with info exited, exit reason namespace=1 code=14"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "[xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967] termination reported by launchd (1, 14, 9)"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing process: [xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967]"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Removing assertions for terminated process: [xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967]"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state update"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "state notification"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "Calculated state for xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>: none (role: None)"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "statesForPredicate"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      },
+      {
+        "date": "2026-07-20 04:21:53 +0000",
+        "process": "runningboardd",
+        "level": "notice",
+        "message": "lastExitContextForInstance"
+      }
+    ]
+  },
+  "scene_syslog": [],
+  "sigsegv": [],
+  "corpse": [],
+  "tmp_hb_tail": "{'exitCode': 0, 'output': ''}",
+  "tmp_fatal_head": "{'exitCode': 0, 'output': ''}",
+  "tmp_an_fault": "---\n---\n---\n---\n",
+  "crash_stack": []
+}

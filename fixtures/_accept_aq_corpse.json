@@ -1,0 +1,40 @@
+{
+  "sha": "c90cafa",
+  "pid0": 13040,
+  "pid1": 13040,
+  "exit_reason": {
+    "raw": [
+      "66D53D0F-489E-4C26-A6D4-7E9AFF7DA81E monitor: got an update with info exited, exit reason namespace=1 code=14",
+      "D52C4420-3F25-436A-A4DE-AB7CBB610768 monitor: got an update with info exited, exit reason namespace=1 code=9",
+      "1B58FF00-65FB-4ABA-8EAB-B47947A52CB7 monitor: got an update with info exited, exit reason namespace=1 code=9",
+      "67A430CF-72E4-4BA4-9B31-129E442C3FF5 monitor: got an update with info exited, exit reason namespace=1 code=9",
+      "EA5209ED-FF28-4A5C-9FE8-0377068AD47C monitor: got an update with info exited, exit reason namespace=1 code=9"
+    ],
+    "termination": [
+      "[xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967] termination reported by launchd (1, 14, 9)",
+      "Removing assertions for terminated process: [xpcservice<com.github.stormbreaker.prod.notification-service([osservice<com.apple.SpringBoard>:7856])>:12967]",
+      "[com.github.stormbreaker.prod.notification-service] com.github.stormbreaker.prod.notification-service application state changed to Terminated",
+      "{\"msg\":\"Post Application State Change Notification\", \"notification\":\"Terminated\", \"pid\":12967, \"bundleId\":\"com.github.stormbreaker.prod.notification-service\"}",
+      "{\"msg\":\"#CLIUA AppMonitor notification\", \"notification\":\"Terminated\", \"pid\":12967, \"bundleId\":\"com.github.stormbreaker.prod.notification-service\", \"ClientKey\":\"com.github.stormbreaker.prod\"}",
+      "[osservice<com.apple.pasteboard.pasted>:12924] termination reported by launchd (1, 9, 9)"
+    ],
+    "corpse": []
+  },
+  "ao_fault_signal": [],
+  "an_fault_signal": [],
+  "ao_fault_claim": [],
+  "an_fault_claim": [],
+  "ao_fault_handler_stolen": [],
+  "ao_lbf": [],
+  "fault_pc": null,
+  "fault_lr": null,
+  "fault_addr": null,
+  "crash_logs": {
+    "count": 0,
+    "reports": []
+  },
+  "crash_stack": [],
+  "tmp_ao_fault": "---\n---\n---\n---\n",
+  "ao_fault_doc": "No such file or directory: /var/mobile/Containers/Data/Application/DEE1C289-64B9-4B41-BE33-41769E042C39/Documents/legado_ao_fault.txt",
+  "an_fault_doc": "No such file or directory: /var/mobile/Containers/Data/Application/DEE1C289-64B9-4B41-BE33-41769E042C39/Documents/legado_an_fault.txt"
+}
