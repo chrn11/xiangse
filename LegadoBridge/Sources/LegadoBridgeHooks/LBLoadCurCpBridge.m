@@ -2112,6 +2112,26 @@ static id LBFindReadPageContainerForReader(id readerVC) {
     return best;
 }
 
+/// 6A 门禁：按原版 loadCurCp 路径取值（container-attach §1.2 confirmed 指令序列：
+/// curPageVC -> pageModel -> pageStatus；diff §8.3 禁以 container KVC 捷径替代）。只读，不 swizzle。
+static id LBOrigPathMsgSendId(id obj, NSString *selName) {
+    if (!obj || !selName) return nil;
+    SEL sel = NSSelectorFromString(selName);
+    if (!sel || ![obj respondsToSelector:sel]) return nil;
+    @try { return ((id (*)(id, SEL))objc_msgSend)(obj, sel); }
+    @catch (__unused NSException *e) { return nil; }
+}
+
+static NSNumber *LBOrigPathPageStatus(id container) {
+    id curPageVC = LBOrigPathMsgSendId(container, @"curPageVC");
+    id pageModel = LBOrigPathMsgSendId(curPageVC, @"pageModel");
+    if (!pageModel) return nil;
+    SEL sel = NSSelectorFromString(@"pageStatus");
+    if (![pageModel respondsToSelector:sel]) return nil;
+    @try { return @(((long (*)(id, SEL))objc_msgSend)(pageModel, sel)); }
+    @catch (__unused NSException *e) { return nil; }
+}
+
 /// 路 B：解析 loadCurCp 的 receiver（优先 hook 捕获的 container，再 ivar pageContainerA）
 static id LBRouteBResolveContainer(id reader) {
     id container = nil;
@@ -3047,6 +3067,15 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
         LBABSyncProbe([NSString stringWithFormat:
                        @"ar_pageStatus_pre container=%@ val=%@ pmSrc=%@ pmVal=%@",
                        containerName, pageStatus ?: @"nil", pmStatusSrc, pmStatusPre ?: @"nil"]);
+        // 6A：原版路径 container->curPageVC->pageModel->pageStatus（diff §8.3；与上方 KVC 读数对照）
+        {
+            id opCurPageVCPre = LBOrigPathMsgSendId(container, @"curPageVC");
+            NSNumber *opStatusPre = LBOrigPathPageStatus(container);
+            LBABSyncProbe([NSString stringWithFormat:
+                           @"ar_origpath_pre curPageVC=%@ pageStatus=%@",
+                           opCurPageVCPre ? NSStringFromClass(object_getClass(opCurPageVCPre)) : @"nil",
+                           opStatusPre ?: @"nil"]);
+        }
     }
     @try {
         sOrigLoadCurCp(container, @selector(loadCurCp));
@@ -3067,6 +3096,15 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
             LBABSyncProbe([NSString stringWithFormat:
                            @"ar_pageStatus_post container=%@ val=%@ pmSrc=%@ pmVal=%@",
                            containerName, pageStatusPost ?: @"nil", pmStatusSrc, pmStatusPost ?: @"nil"]);
+            // 6A：原版路径对照（同 pre 块）
+            {
+                id opCurPageVCPost = LBOrigPathMsgSendId(container, @"curPageVC");
+                NSNumber *opStatusPost = LBOrigPathPageStatus(container);
+                LBABSyncProbe([NSString stringWithFormat:
+                               @"ar_origpath_post curPageVC=%@ pageStatus=%@",
+                               opCurPageVCPost ? NSStringFromClass(object_getClass(opCurPageVCPost)) : @"nil",
+                               opStatusPost ?: @"nil"]);
+            }
         }
         {
             static atomic_int sAQDrainSeen;
