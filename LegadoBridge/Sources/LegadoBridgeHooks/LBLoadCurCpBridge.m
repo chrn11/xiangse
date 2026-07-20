@@ -1600,27 +1600,19 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
         LBABSyncProbe(@"cb_early_return reason=null_next");
         return;
     }
-    // AQ revert：失败，恢复 AE 的 callback_inThread=@YES 注入。
-    // AQ 真机证据：撤 inThread 后 QF 走 async_main，但 postQF LBFHook 风暴（depth=4864）
-    // 在 main 线程递归致 SIGSEGV（CFRetain）。inThread 非根因，LBFHook 才是。
-    // 保留 AQ 探针 + early-wrap 禁递归作为诊断工具。
+    // AS：撤 AE inThread 注入，回原版 dispatch_async(main) QF 路径。
+    // AQ 真机证据：撤 inThread 后 postQF LBFHook 风暴 depth=4864 SIGSEGV@CFRetain。
+    // AR 真机证据：depth 守卫(maxDepth>8 short-circuit)成功消除风暴。
+    // AR 验收：inThread=YES 保留时，QF 在 bg 线程跑，原生 callBackResponse/format/division 链
+    //   跨线程操作 mutable CFString(__NSCFString)，__CFStringAppendBytes 子函数
+    //   pc=0x86fdc SEGV_ACCERR@栈附近(fault=16f3b3ff8)。根因=inThread 让 QF 跨线程访问 CFString。
+    // AS：撤 inThread + 保留 AR 守卫 + 保留 AQ 探针，QF 回 main 线程，CFString 天然线程安全。
     id userInfoForOrig = userInfo;
-    if ([action isKindOfClass:[NSString class]] &&
-        [(NSString *)action isEqualToString:@"chapterContent"] &&
-        [userInfo isKindOfClass:[NSDictionary class]] &&
-        ((NSDictionary *)userInfo)[@"callback_inThread"] == nil &&
-        ((NSDictionary *)userInfo)[@"callback_target"] != nil) {
-        NSMutableDictionary *ui = [((NSDictionary *)userInfo) mutableCopy] ?: [NSMutableDictionary dictionary];
-        ui[@"callback_inThread"] = @YES;
-        userInfoForOrig = ui;
-        LBABSyncProbe(@"qf_dispatch_inject_inThread action=chapterContent");
-    }
-    id aqInThread = ([userInfo isKindOfClass:[NSDictionary class]]
-                     ? ((NSDictionary *)userInfo)[@"callback_inThread"] : nil);
     LBABSyncProbe([NSString stringWithFormat:
-                   @"aq_qf_path_orig action=%@ inThread=%@ dontFormat=%@",
+                   @"as_qf_path_no_inject action=%@ inThread=%@ dontFormat=%@",
                    [action isKindOfClass:[NSString class]] ? action : @"-",
-                   (aqInThread ? @"1" : @"0"),
+                   ([userInfo isKindOfClass:[NSDictionary class]]
+                    && ((NSDictionary *)userInfo)[@"callback_inThread"]) ? @"1" : @"0",
                    (dont ? @"1" : @"0")]);
     sADCheckEntered = 0;
     sABInCallBack = 1;
@@ -1867,11 +1859,12 @@ static void LBABInstallProbes(void) {
     sABHooksInstalled = YES;
     LBABSyncProbe(@"install_done");
     LBAPLogCFAnchor();
-    LBABSyncProbe(@"ag_keep_inThread=1");
-    LBABSyncProbe(@"ai_keep_inThread=1");
-    LBABSyncProbe(@"ak_keep_inThread=1");
-    LBABSyncProbe(@"al_keep_inThread=1");
-    LBABSyncProbe(@"am_keep_inThread=1");
+    LBABSyncProbe(@"as_inThread_removed=1");
+    LBABSyncProbe(@"ag_keep_inThread=0_as_removed");
+    LBABSyncProbe(@"ai_keep_inThread=0_as_removed");
+    LBABSyncProbe(@"ak_keep_inThread=0_as_removed");
+    LBABSyncProbe(@"al_keep_inThread=0_as_removed");
+    LBABSyncProbe(@"am_keep_inThread=0_as_removed");
 }
 
 static void LBSetState(LBLoadCurCpState next, NSString *why) {
