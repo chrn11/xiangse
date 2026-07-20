@@ -1249,9 +1249,14 @@ static void LBAMStartPostCbHeartbeat(void) {
     LBAOProbeFaultHandler("post_cb_hb");
     LBAOEmitLBFStats("post_cb_hb");
     LBAMRawHb(0, 0);
-    LBANSampleMemPath(0, 0, LBAGFootprintMB());
-    // AP：postQF 入口立刻落符号化栈 + 各线程 PC 的 fbase/off（对齐 CF 杀路径）
-    LBAPDumpPostQFStacks("post_cb_hb");
+    // AT：禁用 postQF 窗 CFString 密集采样（LBANSampleMemPath/LBAPDumpPostQFStacks）。
+    // AS 真机证据：撤 inThread 后仍崩在 pc=0x86fdc lr=__CFStringAppendBytes postQF=1 main=0。
+    // 根因：post_cb_hb 在 bg 线程调用 LBANSymbolStack([NSThread callStackSymbols] + rangeOfString +
+    // stringWithFormat + componentsJoinedByString) + LBANSampleMemPath(thread_suspend + dladdr +
+    // NSString 拼接)，这些 CFString 操作与 main 线程 UIKit 的 CFString 操作跨线程冲突，
+    // 致 SEGV_ACCERR@__CFStringAppendBytes 子函数（fault=栈附近地址，写权限错误）。
+    // AT：postQF 窗只保留轻量探针（LBAMRawHb 纯数字 + LBAOEmitLBFStats），不做 NSString 拼接。
+    LBABSyncProbe(@"at_postqf_cfstring_sampling_disabled");
     LBABSyncProbe(@"am_post_cb_hb_start");
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         // 0–200ms，步长 5ms；首拍已在调用线程写出
@@ -1259,10 +1264,7 @@ static void LBAMStartPostCbHeartbeat(void) {
             usleep(5000);
             long ms = (long)i * 5L;
             LBAMRawHb(i, ms);
-            // 每 25ms 采一次 main 路径标签，对照 mem 斜率
-            if ((i % 5) == 0) {
-                LBANSampleMemPath(i, ms, LBAGFootprintMB());
-            }
+            // AT：禁 LBANSampleMemPath（CFString 密集）
             // AO：每 50ms 探针 handler，防 nativeOpen/DebugPanel 中途盖掉
             if ((i % 10) == 0) {
                 LBAOProbeFaultHandler("hb_tick");
@@ -1270,7 +1272,7 @@ static void LBAMStartPostCbHeartbeat(void) {
         }
         LBABSyncProbe(@"am_post_cb_hb_done");
         LBAMRawHb(41, 200);
-        LBANSampleMemPath(41, 200, LBAGFootprintMB());
+        // AT：禁 LBANSampleMemPath（CFString 密集）
         // 死窗末再夺一次，防中途被其它模块盖掉
         LBANClaimFaultHandlers("post_cb_hb_done");
         LBAOProbeFaultHandler("post_cb_hb_done");
