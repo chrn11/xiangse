@@ -223,6 +223,27 @@ static void LBLoadCurCp_IMP(id self, SEL _cmd);
 
 typedef IMP (*LBForensicsEarlyWrapIMPFn)(NSString *);
 typedef IMP (*LBForensicsResolveOrigIMPFn)(Class, SEL);
+typedef IMP (*LBForensicsResolveObserverOrigIMPFn)(Class, SEL);
+typedef IMP (*LBForensicsHookIMPForSelectorNameFn)(NSString *);
+
+/// AR：IMP 是否落在主二进制（StandarReader.app/StandarReader）--视为 native IMP
+static BOOL LBIsMainAppImageIMP(IMP imp) {
+    if (!imp) return NO;
+    Dl_info info;
+    if (!dladdr((void *)imp, &info) || !info.dli_fname) return NO;
+    const char *path = info.dli_fname;
+    if (strstr(path, "LegadoBridge") != NULL) return NO;
+    if (strstr(path, "StandarReader") != NULL) return YES;
+    return strstr(path, ".app/") != NULL && strstr(path, ".dylib") == NULL;
+}
+
+/// AR：IMP 是否为 _block_invoke 短桩（imp_implementationWithBlock 产生）
+static BOOL LBIsBlockInvokeIMP(IMP imp) {
+    if (!imp) return NO;
+    Dl_info info;
+    if (!dladdr((void *)imp, &info) || !info.dli_sname) return NO;
+    return strstr(info.dli_sname, "block_invoke") != NULL;
+}
 
 static BOOL LBIsKnownLoadCurCpHookIMP(IMP imp) {
     if (!imp) return NO;
@@ -237,33 +258,93 @@ static BOOL LBIsKnownLoadCurCpHookIMP(IMP imp) {
         IMP early = earlyWrapFn(@"loadCurCp");
         if (early && imp == early) return YES;
     }
+    // AR：forensics observer 短桩（LBFHook_v_at 等）也须识别，否则解包提前终止
+    static LBForensicsHookIMPForSelectorNameFn hookImpFn = NULL;
+    static dispatch_once_t onceHook;
+    dispatch_once(&onceHook, ^{
+        hookImpFn = (LBForensicsHookIMPForSelectorNameFn)dlsym(RTLD_DEFAULT,
+                                                                "LBForensicsHookIMPForSelectorName");
+    });
+    if (hookImpFn) {
+        IMP obs = hookImpFn(@"loadCurCp");
+        if (obs && imp == obs) return YES;
+        // loadCurCp 在 observer 用 LBFHook_v_at（0 参 hook）
+        IMP obs0 = hookImpFn(@"viewDidLoad");
+        if (obs0 && imp == obs0) return YES;
+    }
+    if (LBIsBlockInvokeIMP(imp)) return YES;
     return NO;
 }
 
-/// 沿 Bridge hook / EarlyWrap / ResolveOrig 解包到真 native IMP
+/// AR：沿 Bridge hook / EarlyWrap / Observer / block 解包到真 native IMP。
+/// 终止条件改为「IMP 落在主二进制且非已知钩子」--dladdr 比 LBIsKnown 更可靠，
+/// 修复 AQ 发现的 sOrigLoadCurCp 错位（imp=0x10017fcf4 cls=?）。
 static IMP LBUnwrapLoadCurCpOrigIMP(Class cls, IMP start) {
     SEL sel = @selector(loadCurCp);
     IMP imp = start;
     static LBForensicsResolveOrigIMPFn resolveOrig = NULL;
+    static LBForensicsResolveObserverOrigIMPFn resolveObs = NULL;
     static dispatch_once_t onceResolve;
     dispatch_once(&onceResolve, ^{
         resolveOrig = (LBForensicsResolveOrigIMPFn)dlsym(RTLD_DEFAULT, "LBForensicsResolveOrigIMP");
+        resolveObs = (LBForensicsResolveObserverOrigIMPFn)dlsym(RTLD_DEFAULT,
+                                                                 "LBForensicsResolveObserverOrigIMP");
     });
-    for (int hop = 0; hop < 12 && imp; hop++) {
-        if (!LBIsKnownLoadCurCpHookIMP(imp)) break;
+
+    NSMutableSet<NSValue *> *seen = [NSMutableSet set];
+    IMP best = NULL;
+    for (int hop = 0; hop < 16 && imp; hop++) {
+        NSValue *key = [NSValue valueWithPointer:imp];
+        if ([seen containsObject:key]) break;
+        [seen addObject:key];
+
+        // 主二进制 native IMP -- 终止
+        if (LBIsMainAppImageIMP(imp) && !LBIsKnownLoadCurCpHookIMP(imp)) {
+            best = imp;
+            break;
+        }
+        // 已知钩子 -- 继续解包
+        if (!LBIsKnownLoadCurCpHookIMP(imp)) {
+            // 非 main、非已知钩子（如 dyld 共享缓存 CF/UIKit）--保守保留
+            best = imp;
+            break;
+        }
+
         IMP next = NULL;
         if (resolveOrig) {
-            IMP forensics = resolveOrig(cls, sel);
-            if (forensics && !LBIsKnownLoadCurCpHookIMP(forensics)) {
-                imp = forensics;
-                break;
+            IMP early = resolveOrig(cls, sel);
+            if (early && early != imp && ![seen containsObject:[NSValue valueWithPointer:early]]) {
+                next = early;
             }
-            if (forensics && forensics != imp) next = forensics;
+        }
+        if ((!next || next == imp) && resolveObs) {
+            IMP obs = resolveObs(cls, sel);
+            if (obs && obs != imp && ![seen containsObject:[NSValue valueWithPointer:obs]]) {
+                next = obs;
+            }
         }
         if (!next || next == imp) break;
         imp = next;
     }
-    return imp;
+
+    // 最后兜底：若解包未命中主二进制，尝试 resolveOrig/resolveObs 直接给的 IMP
+    if (!best || !LBIsMainAppImageIMP(best)) {
+        if (resolveOrig) {
+            IMP early = resolveOrig(cls, sel);
+            if (early && LBIsMainAppImageIMP(early) && !LBIsKnownLoadCurCpHookIMP(early)) {
+                best = early;
+            }
+        }
+    }
+    if (!best || !LBIsMainAppImageIMP(best)) {
+        if (resolveObs) {
+            IMP obs = resolveObs(cls, sel);
+            if (obs && LBIsMainAppImageIMP(obs) && !LBIsKnownLoadCurCpHookIMP(obs)) {
+                best = obs;
+            }
+        }
+    }
+    return best ?: imp;
 }
 
 static void LBLoadCurCp_IMP(id self, SEL _cmd) {
@@ -384,9 +465,29 @@ void LBInstallReadingHooks(void) {
             LBOrig_loadCurCp = (void (*)(id, SEL))native;
             LBLoadCurCpBridgeRegisterOrig(LBOrig_loadCurCp);
             method_setImplementation(m, (IMP)LBLoadCurCp_IMP);
+            // AR 探针：记录解包前后 IMP 的 dladdr fname / 是否主二进制，便于真机核对 orig 是否修正
+            NSString *arRawFname = @"?";
+            NSString *arNatFname = @"?";
+            BOOL arRawMain = NO;
+            BOOL arNatMain = NO;
+            Dl_info arDi;
+            if (dladdr((void *)raw, &arDi) && arDi.dli_fname) {
+                arRawFname = [NSString stringWithUTF8String:arDi.dli_fname].lastPathComponent ?: @"?";
+                arRawMain = (strstr(arDi.dli_fname, "StandarReader") != NULL &&
+                             strstr(arDi.dli_fname, "LegadoBridge") == NULL);
+            }
+            if (dladdr((void *)native, &arDi) && arDi.dli_fname) {
+                arNatFname = [NSString stringWithUTF8String:arDi.dli_fname].lastPathComponent ?: @"?";
+                arNatMain = (strstr(arDi.dli_fname, "StandarReader") != NULL &&
+                             strstr(arDi.dli_fname, "LegadoBridge") == NULL);
+            }
             LBReadingDiagLog([NSString stringWithFormat:
-                             @"loadCurCp@%@ raw=%p native=%p",
-                             NSStringFromClass(curOwner), raw, native]);
+                             @"ar_loadCurCp_resolve owner=%@ raw=%p rawFname=%@ rawMain=%d "
+                             @"native=%p natFname=%@ natMain=%d knownHook_raw=%d knownHook_nat=%d",
+                             NSStringFromClass(curOwner), raw, arRawFname, arRawMain ? 1 : 0,
+                             native, arNatFname, arNatMain ? 1 : 0,
+                             LBIsKnownLoadCurCpHookIMP(raw) ? 1 : 0,
+                             LBIsKnownLoadCurCpHookIMP(native) ? 1 : 0]);
             [installed addObject:[NSString stringWithFormat:@"loadCurCp@%@", NSStringFromClass(curOwner)]];
         } else if (reason) {
             LBReadingDiagLog([NSString stringWithFormat:@"loadCurCp skip: %@", reason]);

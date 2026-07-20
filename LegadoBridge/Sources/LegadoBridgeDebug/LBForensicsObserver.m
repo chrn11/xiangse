@@ -549,31 +549,50 @@ static void LBFRecordEvent(NSString *when, id selfObj, SEL sel, NSArray<NSString
     BOOL isBefore = [when isEqualToString:@"before"];
     BOOL isAfter = [when isEqualToString:@"after"];
     int inWin = atomic_load(&g_aoInQF) || atomic_load(&g_aoPostQF);
+    // AR：QF/postQF 窗 depth 守卫 -- before 先增 depth（保证 after 能对称减），
+    // depth > 阈值则 short-circuit 不写事件/不记 hit，
+    // 避免深递归下 NSDictionary/LBForensicsUTCNowString 触发 CFRetain 风暴（AO depth=4864 SIGSEGV@CFRetain）。
+    // 这不是盲静默（AO quiet 已试过失败）：quiet 砍写事件但仍进 trampoline 记 hit；
+    // AR 砍的是 depth 增长后的 forensics 写事件开销，trampoline 仍调 orig 保留功能。
+    // after 始终减 depth（对称），depth > 阈值则不写事件。
+    int depthNow = g_aoLBFDepth;
     if (isBefore) {
-        int d = ++g_aoLBFDepth;
-        if (inWin) {
+        depthNow = ++g_aoLBFDepth;
+    }
+    BOOL depthGuard = inWin && depthNow > 8;
+    if (isBefore && inWin) {
+        if (!depthGuard) {
             int hit = atomic_fetch_add(&g_aoLBFHit, 1) + 1;
-            if (d > 1) atomic_fetch_add(&g_aoLBFReenter, 1);
+            if (depthNow > 1) atomic_fetch_add(&g_aoLBFReenter, 1);
             int curMax = atomic_load(&g_aoLBFMaxDepth);
-            while (d > curMax &&
-                   !atomic_compare_exchange_weak(&g_aoLBFMaxDepth, &curMax, d)) {
+            while (depthNow > curMax &&
+                   !atomic_compare_exchange_weak(&g_aoLBFMaxDepth, &curMax, depthNow)) {
             }
             // 每 64 次 before 打一拍，避免刷屏
             if ((hit & 63) == 0) {
-                char mark[192];
+                char mark[224];
                 snprintf(mark, sizeof(mark),
                          "ao_lbf_hook hit=%d depth=%d maxDepth=%d reenter=%d "
-                         "inQF=%d postQF=%d quiet=%d",
-                         hit, d, atomic_load(&g_aoLBFMaxDepth),
+                         "inQF=%d postQF=%d quiet=%d arDepthGuardSkip=%d",
+                         hit, depthNow, atomic_load(&g_aoLBFMaxDepth),
                          atomic_load(&g_aoLBFReenter),
                          atomic_load(&g_aoInQF), atomic_load(&g_aoPostQF),
-                         atomic_load(&g_aoRecordQuiet));
-                char raw[220];
+                         atomic_load(&g_aoRecordQuiet),
+                         atomic_load(&g_aoLBFQuietSkip));
+                char raw[244];
                 snprintf(raw, sizeof(raw), "hypothesis_AC %s", mark);
                 LBFRawAOHookMark(raw);
                 LBFAISyncProbe([NSString stringWithUTF8String:mark]);
             }
+        } else {
+            atomic_fetch_add(&g_aoLBFQuietSkip, 1);
         }
+    }
+
+    if (depthGuard) {
+        // depth 守卫：不写事件，但 after 仍减 depth 保持对称
+        if (isAfter && g_aoLBFDepth > 0) g_aoLBFDepth--;
+        return;
     }
 
     if (atomic_load(&g_aoRecordQuiet) && inWin) {

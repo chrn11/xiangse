@@ -2964,12 +2964,21 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     LBTraceLoadCurCp([NSString stringWithFormat:
                       @"sm=invokingOriginal ch=%@ target=%@ orig=%p",
                       sChapterUrl ?: @"-", containerName, sOrigLoadCurCp]);
-    // AQ 探针：invoke 前 pageStatus + orig IMP 类名/地址 + container 视图层级 attach
+    // AQ/AR 探针：invoke 前 pageStatus + orig IMP 类名/地址/dladdr fname/是否主二进制 + container 视图层级 attach
     {
         NSString *aqOrigCls = @"?";
+        NSString *aqOrigFname = @"?";
+        BOOL aqOrigMain = NO;
         Dl_info di;
-        if (dladdr((void *)sOrigLoadCurCp, &di) && di.dli_sname) {
-            aqOrigCls = [NSString stringWithUTF8String:di.dli_sname];
+        if (dladdr((void *)sOrigLoadCurCp, &di)) {
+            if (di.dli_sname) {
+                aqOrigCls = [NSString stringWithUTF8String:di.dli_sname];
+            }
+            if (di.dli_fname) {
+                aqOrigFname = [NSString stringWithUTF8String:di.dli_fname].lastPathComponent ?: @"?";
+                aqOrigMain = (strstr(di.dli_fname, "StandarReader") != NULL &&
+                              strstr(di.dli_fname, "LegadoBridge") == NULL);
+            }
         }
         for (NSString *cn in @[@"ReadPageContainer", @"TextRPageContainer", containerName]) {
             Class cls = NSClassFromString(cn);
@@ -2982,7 +2991,8 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
             }
         }
         LBABSyncProbe([NSString stringWithFormat:
-                       @"aq_orig_imp_class cls=%@ imp=%p", aqOrigCls, (void *)sOrigLoadCurCp]);
+                       @"ar_orig_imp_class cls=%@ imp=%p fname=%@ mainApp=%d",
+                       aqOrigCls, (void *)sOrigLoadCurCp, aqOrigFname, aqOrigMain ? 1 : 0]);
     }
     {
         NSString *aqContainerAttach = @"none";
@@ -3004,9 +3014,21 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
                        @"aq_container_attach state=%@ readerAttached=%d",
                        aqContainerAttach, attached ? 1 : 0]);
     }
-    LBABSyncProbe([NSString stringWithFormat:
-                   @"aq_pageStatus_pre val=%@ container=%@",
-                   pageStatus ?: @"nil", containerName]);
+    {
+        // AR：pageStatus 同时取 container.pageStatus 和 pageModel.pageStatus（V 假设 cmp #3 对照 pageModel）
+        id pmStatusPre = nil;
+        NSString *pmStatusSrc = @"none";
+        @try {
+            id pageModel = [container valueForKey:@"pageModel"];
+            if (pageModel) {
+                pmStatusPre = [pageModel valueForKey:@"pageStatus"];
+                pmStatusSrc = @"pageModel.pageStatus";
+            }
+        } @catch (__unused NSException *e) {}
+        LBABSyncProbe([NSString stringWithFormat:
+                       @"ar_pageStatus_pre container=%@ val=%@ pmSrc=%@ pmVal=%@",
+                       containerName, pageStatus ?: @"nil", pmStatusSrc, pmStatusPre ?: @"nil"]);
+    }
     @try {
         sOrigLoadCurCp(container, @selector(loadCurCp));
         LBABSyncProbe([NSString stringWithFormat:@"invoke_orig_returned target=%@", containerName]);
@@ -3014,9 +3036,18 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
         {
             id pageStatusPost = nil;
             @try { pageStatusPost = [container valueForKey:@"pageStatus"]; } @catch (__unused NSException *e) {}
+            id pmStatusPost = nil;
+            NSString *pmStatusSrc = @"none";
+            @try {
+                id pageModel = [container valueForKey:@"pageModel"];
+                if (pageModel) {
+                    pmStatusPost = [pageModel valueForKey:@"pageStatus"];
+                    pmStatusSrc = @"pageModel.pageStatus";
+                }
+            } @catch (__unused NSException *e) {}
             LBABSyncProbe([NSString stringWithFormat:
-                           @"aq_pageStatus_post val=%@ container=%@",
-                           pageStatusPost ?: @"nil", containerName]);
+                           @"ar_pageStatus_post container=%@ val=%@ pmSrc=%@ pmVal=%@",
+                           containerName, pageStatusPost ?: @"nil", pmStatusSrc, pmStatusPost ?: @"nil"]);
         }
         {
             static atomic_int sAQDrainSeen;
