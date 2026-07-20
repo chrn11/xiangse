@@ -850,8 +850,7 @@ static NSArray<NSString *> *LBFObserverSelectors(void) {
         @"divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:paibanInfo:",
         @"divisionResponse:cpTitle:cpIndex:", @"divisionResponse:cpTitle:cpIndex:heights:",
         @"onDivisionTextFinish:cpIndex:",
-        @"lpNetWorkDelegateQueryFinish:config:userInfo:",
-        @"callBackResponse:config:userInfo:",
+        // AV：CB/QF 两 selector 移出 Observer 清单——Observer tramp 与 Bridge LBAB/LBAE 钩在 CB→QF 链互套，postQF 窗 tid=259 栈溢出（depth 2495、fault=fp-0x178、pc-lr=0x7a80；diff §8.5）
         @"resetLoadCpTip:",
         @"drawRect:", @"resetContentPosByScreenSize:",
         @"showContent:", @"showContent:title:", @"setPageModel:",

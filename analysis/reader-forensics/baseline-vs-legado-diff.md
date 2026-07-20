@@ -195,3 +195,14 @@ AR 探针 `ar_pageStatus_pre/post` 取 `container.pageStatus` / `container.pageM
 
 §3 Q2 表「curPageVC 非 nil 时走当前页；nil 时仍可能 queryCpFile（静态）」**修正**：nil 时 `pageStatus` 链式为 0 ≠ 3，控制流在 `0x1000d7fd4` 直接返回，**不会**走到 `queryCpFileByBook`。置信度 probable → confirmed（指令级控制流唯一分支）。
 
+### 8.5 6A 单轮真机结果（2026-07-20，sha 47887ff）
+
+**报告**：`fixtures/_accept_6a_origpath.json`（单轮，ios-mcp 1.2.2 @192.168.1.18，pid 19704→19708 崩溃重启）
+
+1. **空操作假说证伪（§8.1 修正）**：`ar_origpath_pre curPageVC=TextRPageContainerPage pageStatus=3`（post 同）——invoke 时 §8.1 两条前置均满足，loadCurCp 主体**已执行**（过 `cmp #3` 分支，进入 queryCpFileByBook 路径）。
+2. **KVC 路径误报实证（§8.3 兑现）**：同帧 KVC 读数 `container=TextRPageContainer val=nil` vs 原版路径 `pageStatus=3`——历史 `pageStatus=-999/nil` 判读全部作废。
+3. **唯一杀点收敛**：invoke 完成（invoke_orig_OK / done_pending_render / state=idle）后，postQF 窗 tid=259 SIGSEGV：`fault=0x16f867ff8 = fp-0x178`（栈 guard page 写穿=栈溢出）；与 7/19 崩溃完全同构（`pc-lr=0x7a80` 恒定 = 同一函数体内递归）；`ao_lbf_hook depth=2495` 持续线性增长 = **Debug Observer tramp 与 Bridge LBAB/LBAE 钩在 CB→QF 链互套**。RecordQuiet（AU）只静默日志、不断调用链，无效。
+
+**修复方向（假设 AV，单假设）**：`LBForensicsObserver.m LBFObserverSelectors()` 移除 `callBackResponse:config:userInfo:` 与 `lpNetWorkDelegateQueryFinish:config:userInfo:` 两行，拆掉 Observer tramp 这一环（EarlyWrap 只管 viewDidLoad/loadCurCp，不涉及 CB/QF，已核）。拆后 CB/QF 链剩 Bridge 单层钩 = Z/AA 时期形态（无栈溢出史，hypothesis-AB §1）。代价：Debug 暂失 qf_enter 记录；6B 前由 Bridge 侧记录或原生绘制信号补。
+
+
