@@ -78,6 +78,10 @@ static void LBAONotifyForensicsWindow(int inQF, int postQF);
 static void LBAOEmitLBFStats(const char *why);
 static NSString *LBANSymbolStack(NSUInteger maxFrames);
 static void LBANSampleMemPath(int i, long ms, long mem);
+static void LBAPWriteFpStack(uint64_t fp, uint64_t pc, uint64_t lr);
+static void LBAPLogDladdrAddr(const char *tag, uint64_t addr);
+static void LBAPDumpPostQFStacks(const char *why);
+static void LBAPLogCFAnchor(void);
 
 /// AL：QF/死后窗标志（供 UIKit 钩与 fatal 栈标注）
 static atomic_int sALInQF = 0;
@@ -691,12 +695,158 @@ static void LBALFatalSignalHandler(int sig, siginfo_t *info, void *ctx) {
             close(fd);
         }
     }
+    // AP：async-signal-safe FP 栈（仅原始址；禁 dladdr/ObjC）
+    LBAPWriteFpStack(fp, pc, lr);
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = SIG_DFL;
     sigemptyset(&sa.sa_mask);
     sigaction(sig, &sa, NULL);
     raise(sig);
+}
+
+/// AP：故障线程 FP 链（arm64：*fp=prev，*(fp+8)=ret）
+static void LBAPWriteFpStack(uint64_t fp, uint64_t pc, uint64_t lr) {
+    char line[768];
+    int pos = snprintf(line, sizeof(line),
+                       "hypothesis_AC ap_fault_fpstack tid=%lu pc=%llx lr=%llx fp=%llx",
+                       (unsigned long)pthread_mach_thread_np(pthread_self()),
+                       (unsigned long long)pc,
+                       (unsigned long long)lr,
+                       (unsigned long long)fp);
+    if (pos < 0) pos = 0;
+    uint64_t cur = fp;
+    for (int i = 0; i < 20 && pos < (int)sizeof(line) - 24; i++) {
+        if (cur < 0x1000ULL || (cur & 0x7ULL) != 0) break;
+        uint64_t *frame = (uint64_t *)(uintptr_t)cur;
+        uint64_t next = frame[0];
+        uint64_t ret = frame[1];
+        int n = snprintf(line + pos, sizeof(line) - (size_t)pos,
+                         " | f%d=%llx", i, (unsigned long long)ret);
+        if (n <= 0) break;
+        pos += n;
+        if (next <= cur) break;
+        cur = next;
+    }
+    if (pos < (int)sizeof(line) - 2) {
+        line[pos++] = '\n';
+        line[pos] = 0;
+    }
+    const char *home = getenv("HOME");
+    char path[512];
+    int fd = open("/tmp/legado_ap_fault_fp.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        (void)write(fd, line, (size_t)pos);
+        (void)fsync(fd);
+        close(fd);
+    }
+    fd = open("/tmp/legado_ao_fault.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        (void)write(fd, line, (size_t)pos);
+        (void)fsync(fd);
+        close(fd);
+    }
+    if (home && home[0]) {
+        snprintf(path, sizeof(path), "%s/Documents/legado_ab_probe.txt", home);
+        fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd >= 0) {
+            (void)write(fd, line, (size_t)pos);
+            (void)fsync(fd);
+            close(fd);
+        }
+        snprintf(path, sizeof(path), "%s/Documents/legado_ap_fault_fp.txt", home);
+        fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd >= 0) {
+            (void)write(fd, line, (size_t)pos);
+            (void)fsync(fd);
+            close(fd);
+        }
+    }
+}
+
+/// AP：dladdr → img/fbase/off/sname（sname 可能为 `<redacted>`，off 可离线对照 DSC）
+static void LBAPLogDladdrAddr(const char *tag, uint64_t addr) {
+    Dl_info di;
+    memset(&di, 0, sizeof(di));
+    const char *img = "?";
+    const char *sname = "-";
+    uint64_t fbase = 0;
+    uint64_t off = 0;
+    if (addr && dladdr((void *)(uintptr_t)addr, &di)) {
+        if (di.dli_fname) {
+            const char *slash = strrchr(di.dli_fname, '/');
+            img = slash ? slash + 1 : di.dli_fname;
+        }
+        if (di.dli_sname) sname = di.dli_sname;
+        if (di.dli_fbase) {
+            fbase = (uint64_t)(uintptr_t)di.dli_fbase;
+            off = addr - fbase;
+        }
+    }
+    char sbuf[72];
+    snprintf(sbuf, sizeof(sbuf), "%.60s", sname);
+    LBABSyncProbe([NSString stringWithFormat:
+                   @"ap_fault_sym tag=%s addr=%llx img=%s fbase=%llx off=%llx sname=%s",
+                   tag && tag[0] ? tag : "?",
+                   (unsigned long long)addr, img,
+                   (unsigned long long)fbase, (unsigned long long)off, sbuf]);
+}
+
+static void LBAPLogCFAnchor(void) {
+    const char *names[] = {"CFRetain", "CFRelease", "CFArrayGetCount", "CFDictionaryGetValue", NULL};
+    for (int i = 0; names[i]; i++) {
+        void *p = dlsym(RTLD_DEFAULT, names[i]);
+        if (!p) continue;
+        LBAPLogDladdrAddr(names[i], (uint64_t)(uintptr_t)p);
+    }
+}
+
+/// AP：postQF 窗采样当前线程符号化栈 + 各线程 PC 的 fbase/off
+static void LBAPDumpPostQFStacks(const char *why) {
+    NSString *stack = LBANSymbolStack(16);
+    LBABSyncProbe([NSString stringWithFormat:
+                   @"ap_postqf_stack why=%s main=%d stack=%@",
+                   why && why[0] ? why : "?",
+                   [NSThread isMainThread] ? 1 : 0, stack]);
+    LBAIWriteLong([NSString stringWithFormat:
+                   @"ap_postqf_stack why=%s main=%d stack=%@",
+                   why && why[0] ? why : "?",
+                   [NSThread isMainThread] ? 1 : 0, stack]);
+#if defined(__aarch64__)
+    // 先采寄存器再 resume，再 dladdr/写日志，避免挂起时拿锁死锁
+    uint64_t pcs[10] = {0};
+    uint64_t lrs[10] = {0};
+    int got = 0;
+    thread_act_array_t threads = NULL;
+    mach_msg_type_number_t n = 0;
+    if (task_threads(mach_task_self(), &threads, &n) == KERN_SUCCESS) {
+        int lim = (int)n;
+        if (lim > 10) lim = 10;
+        for (int i = 0; i < lim; i++) {
+            if (thread_suspend(threads[i]) != KERN_SUCCESS) continue;
+            arm_thread_state64_t state;
+            mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
+            if (thread_get_state(threads[i], ARM_THREAD_STATE64,
+                                 (thread_state_t)&state, &count) == KERN_SUCCESS) {
+                pcs[got] = arm_thread_state64_get_pc(state);
+                lrs[got] = arm_thread_state64_get_lr(state);
+                got++;
+            }
+            (void)thread_resume(threads[i]);
+        }
+        for (mach_msg_type_number_t i = 0; i < n; i++) {
+            mach_port_deallocate(mach_task_self(), threads[i]);
+        }
+        vm_deallocate(mach_task_self(), (vm_address_t)threads, n * sizeof(thread_t));
+    }
+    for (int i = 0; i < got; i++) {
+        char tag[32];
+        snprintf(tag, sizeof(tag), "t%d_pc", i);
+        LBAPLogDladdrAddr(tag, pcs[i]);
+        snprintf(tag, sizeof(tag), "t%d_lr", i);
+        LBAPLogDladdrAddr(tag, lrs[i]);
+    }
+#endif
 }
 
 /// AN：夺回 SIGSEGV/BUS… handler（对抗 nativeOpen signal() / DebugPanel 覆盖）
@@ -871,24 +1021,38 @@ static void LBANSampleMemPath(int i, long ms, long mem) {
         const char *sym = "?";
         const char *sym2 = "?";
         const char *img = "?";
+        uint64_t fbase = 0, off = 0, fbase2 = 0, off2 = 0;
         if (dladdr((void *)(uintptr_t)pc, &di)) {
             if (di.dli_sname) sym = di.dli_sname;
             if (di.dli_fname) {
                 const char *slash = strrchr(di.dli_fname, '/');
                 img = slash ? slash + 1 : di.dli_fname;
             }
+            if (di.dli_fbase) {
+                fbase = (uint64_t)(uintptr_t)di.dli_fbase;
+                off = pc - fbase;
+            }
         }
-        if (dladdr((void *)(uintptr_t)lr, &di2) && di2.dli_sname) sym2 = di2.dli_sname;
+        if (dladdr((void *)(uintptr_t)lr, &di2)) {
+            if (di2.dli_sname) sym2 = di2.dli_sname;
+            if (di2.dli_fbase) {
+                fbase2 = (uint64_t)(uintptr_t)di2.dli_fbase;
+                off2 = lr - fbase2;
+            }
+        }
         const char *cls = LBANClassifySym(sym, img);
         char symBuf[72];
         char lrBuf[72];
         snprintf(symBuf, sizeof(symBuf), "%.60s", sym);
         snprintf(lrBuf, sizeof(lrBuf), "%.60s", sym2);
         LBABSyncProbe([NSString stringWithFormat:
-                       @"an_mem_path i=%d ms=%ld mem=%ld class=%s img=%s pc=%llx(%s) lr=%llx(%s)",
+                       @"an_mem_path i=%d ms=%ld mem=%ld class=%s img=%s pc=%llx(%s) lr=%llx(%s) "
+                       @"fbase=%llx off=%llx lr_fbase=%llx lr_off=%llx",
                        i, ms, mem, cls, img,
                        (unsigned long long)pc, symBuf,
-                       (unsigned long long)lr, lrBuf]);
+                       (unsigned long long)lr, lrBuf,
+                       (unsigned long long)fbase, (unsigned long long)off,
+                       (unsigned long long)fbase2, (unsigned long long)off2]);
     } else {
         LBABSyncProbe([NSString stringWithFormat:
                        @"an_mem_path i=%d ms=%ld mem=%ld class=state_fail pc=- lr=-",
@@ -1086,6 +1250,8 @@ static void LBAMStartPostCbHeartbeat(void) {
     LBAOEmitLBFStats("post_cb_hb");
     LBAMRawHb(0, 0);
     LBANSampleMemPath(0, 0, LBAGFootprintMB());
+    // AP：postQF 入口立刻落符号化栈 + 各线程 PC 的 fbase/off（对齐 CF 杀路径）
+    LBAPDumpPostQFStacks("post_cb_hb");
     LBABSyncProbe(@"am_post_cb_hb_start");
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         // 0–200ms，步长 5ms；首拍已在调用线程写出
@@ -1692,6 +1858,7 @@ static void LBABInstallProbes(void) {
 
     sABHooksInstalled = YES;
     LBABSyncProbe(@"install_done");
+    LBAPLogCFAnchor();
     LBABSyncProbe(@"ag_keep_inThread=1");
     LBABSyncProbe(@"ai_keep_inThread=1");
     LBABSyncProbe(@"ak_keep_inThread=1");

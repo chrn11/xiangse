@@ -1,0 +1,38 @@
+{
+  "tip_base": "27a417c",
+  "mcp": "http://192.168.1.18:8090",
+  "mcp_note": "原 192.168.1.6 不可达；真机现为 .18",
+  "device": {
+    "machine": "iPhone14,5",
+    "systemVersion": "16.5",
+    "build": "20F66",
+    "jailbreak": "roothide",
+    "jbroot": "/var/containers/Bundle/Application/.jbroot-A5519C452FE06486"
+  },
+  "ao_keep_targets": {
+    "ao_forensics_pc": "0x18a092c98",
+    "ao_forensics_lr": "0x18a08a168",
+    "ao_hb_pc": "0x18a07e37c",
+    "ao_hb_lr": "0x18a086188",
+    "note": "系统库 dladdr sname=<redacted>；需同进程 fbase+off 才能对照 DSC"
+  },
+  "dsc": {
+    "dir": "/private/preboot/Cryptexes/OS/System/Library/Caches/com.apple.dyld",
+    "main": "dyld_shared_cache_arm64e*",
+    "symbols": "dyld_shared_cache_arm64e.symbols"
+  },
+  "blockers": [
+    "mcp-root 白名单极窄：禁 vmmap/cat/find；maps 未取到",
+    "frida-server pid=727 僵死占 27042；killall/launchctl 受限，无法附着符号化",
+    "AO 杀未留 StandarReader .ips（自定义 handler）；CrashReporter 最新 Standar 为 07-16"
+  ],
+  "cf_from_old_ips": {
+    "path": "/var/mobile/Library/Logs/CrashReporter/StandarReader-2026-07-12-002153.ips",
+    "uuid": "4230c122-42e8-383b-beec-ee7b61f8bb61",
+    "base_dec": 7623634944,
+    "base_hex": "0x1c65a8000",
+    "size": 4096000,
+    "note": "与 AO 绝对 PC 不同 slide，仅供 UUID/尺寸对照"
+  },
+  "next": "装本刀 forensics IPA 后收 ap_fault_sym/ap_postqf_stack/ap_fault_fpstack，用 fbase+off 钉 CF 符号"
+}
