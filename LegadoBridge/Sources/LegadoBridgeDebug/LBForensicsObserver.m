@@ -469,13 +469,13 @@ static void LBFEarlyWrap_loadCurCp(id self, SEL _cmd) {
     g_earlyWrapDepth--;
 }
 
+/// AQ：撤 LBFScheduleEarlyWrapRetry 的 50ms 无限递归。
+/// 该递归每次跑 objc_getClassList 全表 + dispatch_sync(main) 隐患，是 main 阻塞最高候选。
+/// 本刀仅保留首次安装（DiscoverAndInstall + InstallObservers），不再 dispatch_after 自递归。
 static void LBFScheduleEarlyWrapRetry(void) {
     LBFEarlyWrapDiscoverAndInstall();
     LBForensicsInstallObservers();
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        LBFScheduleEarlyWrapRetry();
-    });
+    LBFWriteHookPing(@"aq_early_wrap_retry_disabled no_recursion");
 }
 
 static void LBFWriteHookPing(NSString *line) {

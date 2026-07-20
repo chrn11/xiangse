@@ -1600,20 +1600,15 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
         LBABSyncProbe(@"cb_early_return reason=null_next");
         return;
     }
-    // AE：format 后 original 在 !callback_inThread 时 dispatch_async(main) 派 QF；
-    // 真机主队列在 invoke 后不排空（pulse/async_plus/qf 均为 0）且约 +2s 进程重建。
-    // 对 chapterContent 写入 callback_inThread，走 original 同步 QF 分支（禁 bounce/dontFormat）。
+    // AQ：撤 AE 的 callback_inThread=@YES 注入，回原版 dispatch_async(main) QF 路径。
+    // AE 假设 inThread 强制同步 QF 是偏移点；AG-AP 全在处理它的副作用。
+    // 真根因是「invoke 后 main 不排空」--本刀回到原版路径并用探针定位。
     id userInfoForOrig = userInfo;
-    if ([action isKindOfClass:[NSString class]] &&
-        [(NSString *)action isEqualToString:@"chapterContent"] &&
-        [userInfo isKindOfClass:[NSDictionary class]] &&
-        ((NSDictionary *)userInfo)[@"callback_inThread"] == nil &&
-        ((NSDictionary *)userInfo)[@"callback_target"] != nil) {
-        NSMutableDictionary *ui = [((NSDictionary *)userInfo) mutableCopy] ?: [NSMutableDictionary dictionary];
-        ui[@"callback_inThread"] = @YES;
-        userInfoForOrig = ui;
-        LBABSyncProbe(@"qf_dispatch_inject_inThread action=chapterContent");
-    }
+    LBABSyncProbe([NSString stringWithFormat:
+                   @"aq_qf_path_orig action=%@ inThread=%@ dontFormat=%@",
+                   [action isKindOfClass:[NSString class]] ? action : @"-",
+                   (inThread ? @"1" : @"0"),
+                   (dont ? @"1" : @"0")]);
     sADCheckEntered = 0;
     sABInCallBack = 1;
     @try {
@@ -2956,9 +2951,74 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
     LBTraceLoadCurCp([NSString stringWithFormat:
                       @"sm=invokingOriginal ch=%@ target=%@ orig=%p",
                       sChapterUrl ?: @"-", containerName, sOrigLoadCurCp]);
+    // AQ 探针：invoke 前 pageStatus + orig IMP 类名/地址 + container 视图层级 attach
+    {
+        NSString *aqOrigCls = @"?";
+        Dl_info di;
+        if (dladdr((void *)sOrigLoadCurCp, &di) && di.dli_sname) {
+            aqOrigCls = [NSString stringWithUTF8String:di.dli_sname];
+        }
+        for (NSString *cn in @[@"ReadPageContainer", @"TextRPageContainer", containerName]) {
+            Class cls = NSClassFromString(cn);
+            if (!cls) continue;
+            Method m = class_getInstanceMethod(cls, @selector(loadCurCp));
+            if (!m) continue;
+            if (method_getImplementation(m) == (IMP)sOrigLoadCurCp) {
+                aqOrigCls = [NSString stringWithFormat:@"%@/loadCurCp", cn];
+                break;
+            }
+        }
+        LBABSyncProbe([NSString stringWithFormat:
+                       @"aq_orig_imp_class cls=%@ imp=%p", aqOrigCls, (void *)sOrigLoadCurCp]);
+    }
+    {
+        NSString *aqContainerAttach = @"none";
+        @try {
+            if ([container isKindOfClass:[UIView class]]) {
+                UIView *cv = (UIView *)container;
+                if (cv.window) aqContainerAttach = @"container_window";
+                else if (cv.superview) aqContainerAttach = @"container_superview";
+                else aqContainerAttach = @"container_orphan";
+            } else if ([container isKindOfClass:[UIViewController class]]) {
+                UIViewController *cvc = (UIViewController *)container;
+                if (cvc.viewIfLoaded.window) aqContainerAttach = @"container_vc_window";
+                else if (cvc.parentViewController) aqContainerAttach = @"container_vc_parent";
+                else if (cvc.navigationController) aqContainerAttach = @"container_vc_nav";
+                else aqContainerAttach = @"container_vc_orphan";
+            }
+        } @catch (__unused NSException *e) {}
+        LBABSyncProbe([NSString stringWithFormat:
+                       @"aq_container_attach state=%@ readerAttached=%d",
+                       aqContainerAttach, attached ? 1 : 0]);
+    }
+    LBABSyncProbe([NSString stringWithFormat:
+                   @"aq_pageStatus_pre val=%@ container=%@",
+                   pageStatus ?: @"nil", containerName]);
     @try {
         sOrigLoadCurCp(container, @selector(loadCurCp));
         LBABSyncProbe([NSString stringWithFormat:@"invoke_orig_returned target=%@", containerName]);
+        // AQ 探针：invoke 后 pageStatus + main drain 脉冲
+        {
+            id pageStatusPost = nil;
+            @try { pageStatusPost = [container valueForKey:@"pageStatus"]; } @catch (__unused NSException *e) {}
+            LBABSyncProbe([NSString stringWithFormat:
+                           @"aq_pageStatus_post val=%@ container=%@",
+                           pageStatusPost ?: @"nil", containerName]);
+        }
+        {
+            static atomic_int sAQDrainSeen;
+            atomic_store(&sAQDrainSeen, 0);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                atomic_store(&sAQDrainSeen, 1);
+                LBABSyncProbe(@"aq_main_drain_pulse fired=1");
+            });
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)),
+                           dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                int drained = atomic_load(&sAQDrainSeen);
+                LBABSyncProbe([NSString stringWithFormat:
+                               @"aq_main_drain_result drained=%d", drained]);
+            });
+        }
         // AI：invoke 返回后立刻采样主队列是否排空 / 主线程 PC
         LBAICaptureMainMachThread();
         LBAIStartMainBlockSampler();
