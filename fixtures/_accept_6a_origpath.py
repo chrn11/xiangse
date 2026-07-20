@@ -43,10 +43,10 @@ MOCK = os.environ.get("XIANGSE_MOCK", "http://192.168.1.4:8765")
 BUNDLE = "com.appbox.StandarReader"
 SRC = f"{MOCK}/legado-local-mock.runtime.json"
 BOOK = f"{MOCK}/book/doupo.html"
-IPA = ROOT / "dist" / "6a_47887ff" / "dist" / "StandarReader-legado-bridge-debug.ipa"
+IPA = ROOT / "dist" / "av_fe36416" / "dist" / "StandarReader-legado-bridge-debug.ipa"
 OUT = ROOT / "fixtures" / "_accept_6a_origpath.json"
 SHOT = ROOT / "fixtures" / "_accept_6a_origpath.png"
-SHA = "47887ff"
+SHA = "fe36416"
 
 
 def ts() -> str:
