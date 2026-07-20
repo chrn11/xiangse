@@ -1604,10 +1604,12 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
     // AE 假设 inThread 强制同步 QF 是偏移点；AG-AP 全在处理它的副作用。
     // 真根因是「invoke 后 main 不排空」--本刀回到原版路径并用探针定位。
     id userInfoForOrig = userInfo;
+    id aqInThread = ([userInfo isKindOfClass:[NSDictionary class]]
+                     ? ((NSDictionary *)userInfo)[@"callback_inThread"] : nil);
     LBABSyncProbe([NSString stringWithFormat:
                    @"aq_qf_path_orig action=%@ inThread=%@ dontFormat=%@",
                    [action isKindOfClass:[NSString class]] ? action : @"-",
-                   (inThread ? @"1" : @"0"),
+                   (aqInThread ? @"1" : @"0"),
                    (dont ? @"1" : @"0")]);
     sADCheckEntered = 0;
     sABInCallBack = 1;
