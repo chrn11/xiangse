@@ -896,6 +896,7 @@ static void LBAOProbeFaultHandler(const char *why) {
 
 typedef void (*LBAOSetQFWindowFn)(int, int);
 typedef void (*LBAOEmitHookStatsFn)(const char *);
+typedef void (*LBAOSetRecordQuietFn)(int);
 
 static void LBAONotifyForensicsWindow(int inQF, int postQF) {
     static LBAOSetQFWindowFn fn = NULL;
@@ -904,6 +905,22 @@ static void LBAONotifyForensicsWindow(int inQF, int postQF) {
         fn = (LBAOSetQFWindowFn)dlsym(RTLD_DEFAULT, "LBForensicsSetQFWindow");
     });
     if (fn) fn(inQF, postQF);
+}
+
+/// AU：postQF 窗静默 LBFRecordEvent 写事件（dlsym 查 LBForensicsSetRecordQuiet）。
+/// AT 真机证据：禁 post_cb_hb 内部采样后仍崩在 pc=__CFStringAppendBytes postQF=1 tid=bg。
+/// 根因：AR depth 守卫是 _Thread_local，只防单线程深递归；postQF 窗 main 线程每次
+/// UIView drawRect 都以 depth=1 进 LBFRecordEvent，守卫不触发，仍创建 NSDictionary/NSString
+/// 大量 CFString。这些与 post_cb_hb 后台线程的 CFString 操作跨线程冲突，致 SEGV_ACCERR。
+/// AU：postQF 窗开 RecordQuiet=1，LBFRecordEvent 直接 return 不做任何 CFString 操作，
+/// 彻底消除 main↔bg 跨线程 CFString 冲突。trampoline 仍调 orig 保留功能。
+static void LBAONotifyRecordQuiet(int quiet) {
+    static LBAOSetRecordQuietFn fn = NULL;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        fn = (LBAOSetRecordQuietFn)dlsym(RTLD_DEFAULT, "LBForensicsSetRecordQuiet");
+    });
+    if (fn) fn(quiet ? 1 : 0);
 }
 
 static void LBAOEmitLBFStats(const char *why) {
@@ -1244,6 +1261,12 @@ static void LBAMStartPostCbHeartbeat(void) {
     if (!atomic_compare_exchange_strong(&sOnce, &expected, 1)) return;
     atomic_store(&sALPostQF, 1);
     LBAONotifyForensicsWindow(0, 1);
+    // AU：postQF 窗开 RecordQuiet，静默 main 线程 LBFHook 写事件（NSDictionary/NSString/CFString）。
+    // AT 真机证据：禁 post_cb_hb 内部采样后仍崩在 pc=__CFStringAppendBytes postQF=1 tid=bg。
+    // 根因：AR depth 守卫 _Thread_local 只防单线程深递归；postQF 窗 main 每次 UIView drawRect
+    // 都以 depth=1 进 LBFRecordEvent 创建 NSDictionary（CFString 密集），与 post_cb_hb bg 线程
+    // CFString 跨线程冲突 -> SEGV_ACCERR@__CFStringAppendBytes。AU 静默写事件彻底消除冲突。
+    LBAONotifyRecordQuiet(1);
     // AN/AO：cb 后立刻夺回 fatal handler（nativeOpen signal() 可能已覆盖）
     LBANClaimFaultHandlers("post_cb_hb");
     LBAOProbeFaultHandler("post_cb_hb");
@@ -1257,6 +1280,7 @@ static void LBAMStartPostCbHeartbeat(void) {
     // 致 SEGV_ACCERR@__CFStringAppendBytes 子函数（fault=栈附近地址，写权限错误）。
     // AT：postQF 窗只保留轻量探针（LBAMRawHb 纯数字 + LBAOEmitLBFStats），不做 NSString 拼接。
     LBABSyncProbe(@"at_postqf_cfstring_sampling_disabled");
+    LBABSyncProbe(@"au_postqf_record_quiet_enabled");
     LBABSyncProbe(@"am_post_cb_hb_start");
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         // 0–200ms，步长 5ms；首拍已在调用线程写出
