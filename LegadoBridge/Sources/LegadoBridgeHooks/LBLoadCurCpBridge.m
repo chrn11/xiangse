@@ -1600,10 +1600,21 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
         LBABSyncProbe(@"cb_early_return reason=null_next");
         return;
     }
-    // AQ：撤 AE 的 callback_inThread=@YES 注入，回原版 dispatch_async(main) QF 路径。
-    // AE 假设 inThread 强制同步 QF 是偏移点；AG-AP 全在处理它的副作用。
-    // 真根因是「invoke 后 main 不排空」--本刀回到原版路径并用探针定位。
+    // AQ revert：失败，恢复 AE 的 callback_inThread=@YES 注入。
+    // AQ 真机证据：撤 inThread 后 QF 走 async_main，但 postQF LBFHook 风暴（depth=4864）
+    // 在 main 线程递归致 SIGSEGV（CFRetain）。inThread 非根因，LBFHook 才是。
+    // 保留 AQ 探针 + early-wrap 禁递归作为诊断工具。
     id userInfoForOrig = userInfo;
+    if ([action isKindOfClass:[NSString class]] &&
+        [(NSString *)action isEqualToString:@"chapterContent"] &&
+        [userInfo isKindOfClass:[NSDictionary class]] &&
+        ((NSDictionary *)userInfo)[@"callback_inThread"] == nil &&
+        ((NSDictionary *)userInfo)[@"callback_target"] != nil) {
+        NSMutableDictionary *ui = [((NSDictionary *)userInfo) mutableCopy] ?: [NSMutableDictionary dictionary];
+        ui[@"callback_inThread"] = @YES;
+        userInfoForOrig = ui;
+        LBABSyncProbe(@"qf_dispatch_inject_inThread action=chapterContent");
+    }
     id aqInThread = ([userInfo isKindOfClass:[NSDictionary class]]
                      ? ((NSDictionary *)userInfo)[@"callback_inThread"] : nil);
     LBABSyncProbe([NSString stringWithFormat:
