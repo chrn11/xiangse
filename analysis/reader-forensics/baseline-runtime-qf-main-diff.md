@@ -1,0 +1,321 @@
+# 原版正常 TXT 阅读 vs Legado：QF 线程 / main 排空 / invoke 后行为差分
+
+**HEAD（取证树）**：`57d80b8`
+**基线 IPA SHA256**：`ed35e2734ef9d75ab8700921ec2819bb329c679ea508ba88e6d9576ae7be1631`
+**可执行文件 SHA256**：`04f780eb59f86c9104f8c8c3c04fb24278f521d0a43e401b3773d2a47890dea7`
+**形式**：静态反汇编（lldb 21.1.6 disassemble arm64）+ 假设链真机结论回写。本回合 **不补** baseline-debug 真机 dump（计划阶段 3 缺口仍在），以静态证据闭合「原版 QF 线程判定 / main 排空」差分。
+**关联**：
+- [`baseline-vs-legado-diff.md`](baseline-vs-legado-diff.md)
+- [`hypothesis-AE-qf-dispatch-after-format.md`](hypothesis-AE-qf-dispatch-after-format.md)
+- [`hypothesis-AF-main-queue-drain.md`](hypothesis-AF-main-queue-drain.md)
+- [`hypothesis-AI-bg-uikit-main-block.md`](hypothesis-AI-bg-uikit-main-block.md)
+- [`hypothesis-AJ-ban-bg-uikit-main-drain.md`](hypothesis-AJ-ban-bg-uikit-main-drain.md)
+- [`reader-call-chain.md`](reader-call-chain.md)
+
+---
+
+## 0. 裁定速览
+
+| 维度 | 原版正常 TXT 阅读（静态判定） | Legado 路径（真机实测） | 差分性质 |
+|---|---|---|---|
+| loadCurCp 调用线程 | main（UIKit appear/onReset 链） | main（ResetContent 通知注册在 mainQueue，见 LBBridgeReaderVC.m:59） | 相同 |
+| loadCurCp 是否同步等待网络 | 否（异步；调 queryCpFileByBook:...cachePolicy:2 后直接 release 返回，无 dispatch_sync/锁/信号量） | 否（invoke orig 同样异步） | 相同 |
+| callBackResponse 执行线程 | 网络回调线程（bg，NSURLConnection delegate queue） | bg（Legado handleContentRequest 异步回调 -> CB） | 相同 |
+| callback_inThread 默认值 | nil（原版不写；callBackResponse 仅读） | 原本 nil；AE 起 Legado 注入 @YES 走同步分支 | Legado 偏离（workaround） |
+| QF 默认派发路径 | dispatch_async(main_queue) 块内同步调 QF（0x10008a868 block invoke） | 同（original IMP 未改） | 相同（静态） |
+| QF 实际执行线程 | main（main 队列正常排空，block 被调度） | bg（inThread 注入后）或 永不执行（撤 inThread 时 main 不排空） | 根因差分 |
+| invoke 后 main 队列排空 | 是（原版无杀点，RunLoop 正常回到 BeforeWaiting/BeforeSources） | 否（AF/AI/AJ 实测 drain=0 pulse=0 wait=0 src=0；约 +1~2s pid 变） | 根因差分 |
+| 结果 | QF 在 main 跑 -> divisionResponse -> textViewL lazy -> drawRect 上屏 | QF 跑不到 main（或 bg 跑后 SIGSEGV）-> 无上屏 -> 回书架 |  |
+
+**核心结论**：原版与 Legado 在 `callBackResponse` 的静态分支结构上 **完全相同**；`callback_inThread` 在原版正常 TXT 阅读时为 nil，QF 走 `dispatch_async(main)`。原版 main 能正常排空，QF 块被调度执行；Legado invoke 后 main 队列不排空，async_main QF 块永远不被调度。`callback_inThread=YES` 注入是 Legado 的 workaround（让 QF 在 bg 同步跑），**掩盖了 main 不排空这一真根因**，且 bg QF 会 SIGSEGV（AG/AI）。
+
+---
+## 1. 原版 `callBackResponse` 反汇编（LPNetWork2 @ 0x10008a1d4，全分支）
+
+反汇编工具：lldb 21.1.6 `disassemble --start-address --count`。覆盖范围 +0 ~ +1380（ret @ +1376）。
+
+### 1.1 分支结构（指令级）
+
+| 地址（VA） | 偏移 | 指令/语义 | 含义 |
+|---|---|---|---|
+| 0x10008a234 | +96 | `cbz x23, 0x10008a274` | **唯一 PRE-CHECK**：response==nil 跳过 check（与 AD 一致） |
+| 0x10008a238–250 | +100~124 | `msgSend checkCallBackResponse:config:userInfo:` | 进入 check |
+| 0x10008a254 | +128 | `cbz w0, 0x10008a26c` | check 返回 NO 跳过 format |
+| 0x10008a4cc/4f0 | +760/792 | 取 `callback_notify` / `callback_target` | 读 ivar |
+| 0x10008a50c | +824 | `cbz x24, 0x10008a52c` | notify==nil 跳过 notify_oriConfig |
+| 0x10008a52c | +856 | `cbz x25, 0x10008a558` | **target==nil 跳过 responds** |
+| 0x10008a530–548 | +860~884 | `respondsToSelector: lpNetWorkDelegateQueryFinish:`；`tbz w0, #0, +900` | NO -> 清 target（w20=0） |
+| 0x10008a54c | +888 | `mov w20, #1` | target 有效标记 |
+| 0x10008a570–594 | +924~956 | `callback_dontFormatResponse`；`cbz x19, +1052` | **nil 才 format** |
+| 0x10008a5f0–624 | +1052~1100 | `formatCallBackResponse`（返回 id，覆盖 x23） | format 改写 response |
+| 0x10008a624 | +1104 | `cbnz w20, +968` | format 后回查 inThread（w20=target 有效位） |
+| 0x10008a59c–5c0 | +968~1004 | 读 `callback_inThread`；`cbz x19, +1108` | **inThread==nil 落到异步** |
+| 0x10008a5c4–5ec | +1008~1048 | `msgSend lpNetWorkDelegateQueryFinish:config:userInfo:`（x0=x25 target） | **inThread!=nil：当前线程同步 QF**，release target，清 nil |
+| 0x10008a628 | +1108 | `orr x8, x24, x25`；`cbz x8, +1292` | notify 和 target 都 nil 则跳过 dispatch |
+| 0x10008a630–6ac | +1116~1240 | 构造 block（invoke=0x10008a868），`dispatch_async(main_queue, block)` | **async_main QF 派发** |
+| 0x10008a868 | block +32 | `ldr x1, [x8, #0xd28]`（QF selref）；`bl msgSend` | block 在 main 上同步调 QF |
+
+### 1.2 原版 QF 线程判定（静态）
+
+- `callback_inThread` 是 **只读 ivar**（getter），原版二进制无任何 `setCallback_inThread:` 或 KVC 写入路径（selrefs 扫描未发现 setter 调用）。
+- 原版正常 TXT 阅读时 `callback_inThread == nil`（默认未设置）。
+- -> 走 `dispatch_async(main_queue)` 分支（0x10008a630–6ac）。
+- block invoke（0x10008a868）在 main 队列上同步调 `lpNetWorkDelegateQueryFinish:config:userInfo:`。
+- **QF 在 main 线程执行**（原版正常路径）。
+
+### 1.3 原版 main 排空判定（静态推断）
+
+- `callBackResponse` 在 bg 网络回调线程执行，末尾 `dispatch_async(main, block)` 入队后立即返回（非阻塞）。
+- main 线程 RunLoop 在原版正常阅读时处于活跃状态（appear/触摸/绘制驱动），会在下次循环迭代调度该 block。
+- QF 在 main 跑 -> `divisionResponse` -> `textViewL` lazy -> `setAttString`/`resetFrameRef` -> `setNeedsDisplay` -> `drawRect:` 上屏。
+- **原版无任何在 main 上阻塞网络/锁的路径**（见 §2 loadCurCp 反汇编）。
+
+---
+## 2. 原版 `loadCurCp` 反汇编（ReadPageContainer @ 0x1000d7cf4，全函数 +0~+776）
+
+### 2.1 关键指令序列
+
+| 地址（VA） | 偏移 | 指令/语义 | 含义 |
+|---|---|---|---|
+| 0x1000d7d14–d30 | +32~60 | retain self -> x20；msgSend 取 ivar（curPageVC?）-> x19 | 取 receiver 状态 |
+| 0x1000d7d88 | +148 | `msgSend`（取 pageStatus?）；`cmp x0, #0x3` | pageStatus 判断 |
+| 0x1000d7d90 | +156 | `b.ne 0x1000d7fd4`（+736 返回路径） | pageStatus!=3 早退 |
+| 0x1000d7da4 | +176 | `objc_loadWeakRetained`（reader weak ref） | 取 weak reader |
+| 0x1000d7dbc–dd8 | +200~228 | msgSend arrCatalog / count | 目录计数 |
+| 0x1000d7df8 | +260 | `b.hs 0x1000d7fdc`（+744 返回） | count 边界 |
+| 0x1000d7eb0–ebc | +448~456 | `msgSend queryCpFileByBook:cpInfo:cpIndex:userInfo:target:cachePolicy:`（w7=2） | **异步发起章文请求** |
+| 0x1000d7ec0–ef8 | +460~516 | retainAutoreleasedReturnValue / release（5 次） | 清理临时 retain |
+| 0x1000d7efc | +520 | `cbz x23, 0x1000d7fd4`（+736 返回） | queryCpFile 返回 nil 早退 |
+| 0x1000d7f00–f50 | +524~604 | msgSend resetLoadCpTip / queryCpFileByBook 二次调用（w4=1, w6=0） | 失败重试或补取 |
+| 0x1000d7fd4–ffc | +736~776 | release / ldp / `b objc_release`（tail call） | 返回 |
+
+### 2.2 同步等待判定
+
+- **全函数无 `dispatch_sync` / `dispatch_barrier_sync` / `os_unfair_lock_lock` / `pthread_mutex_lock` / `semaphore_wait` / `mach_msg` 同步原语**。
+- `queryCpFileByBook:...cachePolicy:2` 是异步发起（网络/缓存回调走 `callBackResponse`）。
+- `loadCurCp` 调用后立即返回，**main 不阻塞**。
+- 原版正常阅读时 main 不会被 `loadCurCp` 阻塞 -> main RunLoop 持续排空 -> `dispatch_async(main)` 的 QF 块能被调度。
+
+### 2.3 原版 main 阻塞候选点列表（静态：无）
+
+反汇编确认原版 `loadCurCp` 与 `callBackResponse` 路径上 **不存在** main 同步阻塞点。main 排空的前提是 RunLoop 活跃（appear/绘制驱动），这在原版正常阅读时成立。
+
+---
+## 3. Legado invoke 路径：main 阻塞候选点列表
+
+### 3.1 invoke 调用链与线程
+
+```
+[main] ResetContent 通知（LBBridgeReaderVC.m:59 注册 mainQueue）
+  -> [main] LBNoteResetContentPosted (LegadoBridgeCExports.m:7443)
+  -> [main] LBLoadCurCpBridgeOnContentPosted (LBLoadCurCpBridge.m:3237)
+  -> [main] LBTryContentReadyAndInvoke (LBLoadCurCpBridge.m:3154)
+  -> [main] LBInvokeOriginalLoadCurCp (LBLoadCurCpBridge.m:2876)
+  -> [main] sOrigLoadCurCp(container, @selector(loadCurCp))  // 2960 行
+  -> [main] 原版 loadCurCp IMP -> queryCpFileByBook（异步）
+  -> [main] invoke_orig_returned -> post_invoke 探针
+  -> [bg]  网络回调 -> callBackResponse -> dispatch_async(main, QF block)
+  -> [main] QF block 应在此调度  <-- Legado 实测：永不执行
+```
+
+invoke 前后 **无 dispatch_sync(main)**（AG 已验证 dispatch_sync(main) QF 会死锁）。线程模型与原版相同。
+
+### 3.2 Legado invoke 后 main 阻塞候选点（待逐项排除/确认）
+
+以下为 invoke orig 返回后、main 队列应排空却未排空的候选原因，按可能性排序：
+
+| # | 候选点 | 证据状态 | 评估 |
+|---|---|---|---|
+| **C1** | invoke orig 触发原生 `pageContainer` 工厂 `addChildViewController:`（0x10006697c）在 Legado 父 VC 层级下不一致，引发 UIKit 内部状态机异常 -> main RunLoop 卡在 scene update | I/D confirmed 杀点；J defer 避同步杀但未 attach_OK | **高**：UIKit 容器层级操作在 main 同步执行，可能触发内部 assertion/scene 挂起 |
+| **C2** | Bridge bg 线程枚举 `UIWindowScene.windows` / `UIApplication.windows`（LBLegadoKeyWindow / LBAllAppWindows）在 invoke 前后命中 UIKit 内部锁，与 main 上的 scene update 互锁 | AI `ai_bg_uikit` 空（本刀未捕获）；AJ 禁 bg 枚举后 `bgWin=0` 但 main 仍 drain=0 | **中**：AJ 部分生效但未根除；现代 iOS scene.windows 内部可能仍触 UIKit 锁 |
+| **C3** | invoke 后 main 上排队的 forensics 探针块（`dispatch_async(main, qf_dispatch_main_pulse)`、`dispatch_after(main, 0.6s, async_plus)`）与原生 QF block 竞争，若 UIKit 已挂起则全部饿死 | AF `af_main_drain_TIMEOUT` 未落盘；AJ `aj_main_drain_enqueue` 有但执行体无 | **中**：探针本身不阻塞，但若 main 已挂起则探针也无法运行，故 drain=0 |
+| **C4** | Legado `LBSeedConfirmedCache` / `LBEnsureLoadCurCpPrereqs` 在 main 上做 KVC 写 ivar（`setDicBook:` / `arrCatalog` seed），若触发原生 KVO/通知在 main 上链式调用 UIKit -> 与 C1 叠加 | 静态：seed 为 scalar/数组非 UI；diff §4 允许 | **低**：seed 本身非 UI，但若触发原生 observer 回调到 UIKit 则可能叠加 |
+| **C5** | invoke orig 时 container 未 attach（R2 `findContainer miss` / `invoke_skip no_container`），原生 loadCurCp 在非预期状态下触发内部 early return 或异常路径 -> UIKit 状态不一致 | R2 confirmed no_container；但 AE 真机 `responds=1` 说明 container 存在 | **低**：AE 路径 container 存在，此候选主要适用于 R2 早期路径 |
+| **C6** | 进程级资源耗尽（phys_footprint 暴涨 / fd 泄漏 / mach port 满）导致 main 线程被 jetsam 预警挂起 | AG `mem(phys_footprint)` 探针；pid +1~2s 变 | **低-中**：AG 未证实 mem 暴涨；pid 变更更偏 SIGKILL 而非渐进资源耗尽 |
+
+### 3.3 候选点排除进度
+
+- **C1** 最可能：与 baseline-vs-legado-diff §5 「第一个确定偏离 = onReset->pageContainer 工厂路径」一致。原版正常阅读时父 VC 层级正确，`addChildViewController:` 不触发异常；Legado 父 VC 层级（nativeFull push 时序）可能使该调用进入 UIKit 内部不一致状态，进而 main RunLoop 无法回到 BeforeWaiting。
+- **C2** 次可能：AJ 禁 bg 枚举后 main 仍 drain=0，说明 C2 非唯一根因，但可能贡献。
+- **C3–C6** 为伴生现象或低概率，需后续真机逐项排除。
+
+---
+## 4. 原版 vs Legado：QF 线程 / main 排空 / invoke 后行为对照表
+
+| 相位 | 原版正常 TXT（静态判定） | Legado（真机实测 + 静态） | 偏离点 |
+|---|---|---|---|
+| **loadCurCp 调用** | main，appear/onReset 链 | main，ResetContent 通知（mainQueue 注册） | 无 |
+| **queryCpFileByBook** | 异步，cachePolicy=2 | 异步（invoke orig 后） | 无 |
+| **网络回调线程** | bg（NSURLConnection delegate） | bg（Legado handleContentRequest 回调） | 无 |
+| **callBackResponse 入口** | bg，response 非 nil | bg，response 非 nil（AD 真机 respLen=111） | 无 |
+| **checkCallBackResponse** | 进入，ok=1 | 进入，ok=1（AD 真机） | 无 |
+| **formatCallBackResponse** | 进入，返回非 nil | 进入，返回非 nil（AE 真机 outLen=107） | 无 |
+| **callback_inThread 读** | nil | 原本 nil；**AE 起注入 @YES** | **Legado workaround** |
+| **QF 派发分支** | dispatch_async(main) | 注入后：同步当前线程；未注入：dispatch_async(main) | 静态相同；运行时 Legado 选同步 |
+| **QF 执行线程** | **main**（block 被调度） | 注入：bg（同步）；未注入：**永不执行**（main 不排空） | **根因差分** |
+| **main 队列排空** | **是**（RunLoop 活跃，BeforeWaiting/BeforeSources 正常） | **否**（AF/AI/AJ：drain=0 pulse=0 wait=0 src=0） | **根因差分** |
+| **divisionResponse** | main 上执行 | 未到达（QF 没跑） | 级联 |
+| **textViewL lazy / drawRect** | 触发，上屏 | 未触发 | 级联 |
+| **进程结局** | 正常阅读 | +1~2s pid 变（SIGKILL/scene 静默杀；bg QF 后 SIGSEGV） | 杀点 |
+
+### 4.1 invoke 后 main 行为差异（核心）
+
+| 项 | 原版 | Legado | 差异原因 |
+|---|---|---|---|
+| invoke orig 返回 | 正常返回 | 正常返回（`invoke_orig_returned` / `invoke_state_idle` 有） | 无 |
+| main RunLoop 回到可排空边界 | 是（BeforeWaiting/BeforeSources 计数正常） | **否**（AI RunLoop observer 无 BeforeWaiting/BeforeSources 计数） | **C1/C2 候选** |
+| dispatch_async(main) 块调度 | 被调度（QF/pulse/drain 均执行） | **不被调度**（QF/pulse/drain 均为 0） | main RunLoop 未回到排空边界 |
+| main 线程 PC | UIKit 正常绘制/事件处理 | AI `ai_main_block_pc` 未落盘（进程濒死）；AJ 未采到 | 需更强采样 |
+
+---
+
+## 5. 静态证据完整性
+
+| 证据 | 来源 | 置信度 |
+|---|---|---|
+| callBackResponse 全分支反汇编 | 本回合 lldb disassemble 0x10008a1d4 +0~+1380 | confirmed |
+| loadCurCp 全函数反汇编 | 本回合 lldb disassemble 0x1000d7cf4 +0~+776 | confirmed |
+| lpNetWorkDelegateQueryFinish 入口 | 本回合 lldb disassemble 0x1000d8278 +0~+316 | confirmed（入口；完整 IMP 未全反汇编，但与 QF 线程判定无关） |
+| dispatch_async block invoke 调 QF | 本回合 lldb disassemble 0x10008a868 +0~+128 | confirmed |
+| callback_inThread 原版只读 | selrefs 扫描（setter 未发现）+ 反汇编仅 getter 读 | probable（全二进制 msgSend 扫描未覆盖 100%，但 callBackResponse 内确认仅读） |
+| Legado invoke 在 main | LBBridgeReaderVC.m:59 mainQueue 注册 + 调用链静态分析 | confirmed |
+| Legado main 不排空 | AF/AI/AJ 真机实测 | confirmed（多假设链交叉验证） |
+| 原版 main 排空 | **静态推断**（无 baseline-debug 真机 dump） | probable（计划阶段 3 缺口） |
+
+### 5.1 缺口
+
+- **原版正常 TXT 阅读的运行时 baseline dump 从未补齐**（baseline-vs-legado-diff §0 形式声明）。本回合以静态反汇编 + 假设链真机结论回写闭合差分，但 **原版 main 排空** 仍为静态推断（probable），非真机 confirmed。
+- 下一条取证（如需）：原版 IPA 真机安装 + forensics dylib 采 `main_drain_slot` / `qf_enter main=1` / `divisionResponse` phase，与 Legado 对照。
+
+---
+
+## 6. 对 baseline-vs-legado-diff 的补充条目
+
+以下条目建议追加至 `baseline-vs-legado-diff.md`（本回合不修改原文件，仅在此声明）：
+
+- **§1 路径分叉总览 / 正文加载行**：补充「原版 QF 在 main 执行（静态判定），Legado QF 跑不到 main（真机 confirmed）」。
+- **§3 五问 / Q1 下一条取证**：原「baseline-debug after_pagination dump」可具体化为「baseline-debug main_drain_slot + qf_enter main=1 + divisionResponse phase dump」。
+- **§5 大脑门禁**：`GATE-3-APPROVED` 条件中「运行时 baseline dump 可并行后补」维持；本回合静态差分填补 QF 线程判定空白，不阻塞路 B。
+
+---
+## 7. 交付摘要
+
+### 7.1 差分结论
+
+原版正常 TXT 阅读与 Legado 路径在 `callBackResponse` 静态分支结构上 **完全相同**；差分根因不在 CB 内部分支，而在 **invoke 后 main 队列是否排空**：
+
+- 原版：main 排空 -> `dispatch_async(main)` 的 QF 块被调度 -> QF 在 main 执行 -> 上屏。
+- Legado：main 不排空（AF/AI/AJ 真机 confirmed `drain=0 pulse=0`）-> QF 块永不执行 -> 无上屏 -> 进程被杀。
+- `callback_inThread=YES` 注入是 Legado workaround，让 QF 在 bg 同步跑，**掩盖了 main 不排空真根因**，且 bg QF 会 SIGSEGV（AG/AI）。
+
+### 7.2 原版 QF 线程判定
+
+**main**（静态 confirmed）。原版正常 TXT 阅读时 `callback_inThread == nil` -> `callBackResponse` 走 `dispatch_async(main_queue)` 分支（0x10008a630–6ac）-> block invoke（0x10008a868）在 main 上同步调 `lpNetWorkDelegateQueryFinish:config:userInfo:`。
+
+### 7.3 Legado invoke 后 main 阻塞候选点列表
+
+按可能性排序：
+
+1. **C1**（高）：invoke 触发原生 `pageContainer` 工厂 `addChildViewController:`（0x10006697c）在 Legado 父 VC 层级下 UIKit 状态机异常 -> main RunLoop 卡在 scene update。与 baseline-vs-legado-diff §5「第一个确定偏离 = onReset->pageContainer 工厂路径」一致。
+2. **C2**（中）：Bridge bg 线程枚举 `UIWindowScene.windows` 与 main 上 scene update 互锁。AJ 禁后部分缓解但未根除。
+3. **C3**（中）：main 上排队的 forensics 探针块与原生 QF block 竞争（伴生现象，非根因）。
+4. **C4**（低）：main 上 KVC seed 触发原生 KVO/通知链式调 UIKit。
+5. **C5**（低）：container 未 attach 时 invoke 触发原生异常路径（R2 早期路径）。
+6. **C6**（低-中）：进程级资源耗尽导致 main 被 jetsam 预警挂起。
+
+### 7.4 下一步建议（不在本回合执行）
+
+- 优先验证 C1：在 Legado 路径上禁用/替换原生 `addChildViewController:` 调用（或确保父 VC 层级与原版一致），观察 main 是否恢复排空。
+- 补原版 baseline-debug 真机 dump（`main_drain_slot` / `qf_enter main=1` / `divisionResponse` phase），将「原版 main 排空」从 probable 升级为 confirmed。
+
+---
+
+## 8. 反汇编证据原始片段（关键节选）
+
+### 8.1 callBackResponse callback_inThread 分支（0x10008a59c–5ec）
+
+```
+0x10008a59c  +968   adrp  x2, 473 ; @selector(callback_inThread)
+0x10008a5a0  +972   add   x2, x2, #0x430
+0x10008a5a4  +976   mov   x0, x22          ; config
+0x10008a5a8  +980   mov   x1, x27
+0x10008a5ac  +984   bl    objc_msgSend     ; 读 callback_inThread
+0x10008a5b0  +988   mov   x29, x29
+0x10008a5b4  +992   bl    objc_retainAutoreleasedReturnValue
+0x10008a5b8  +996   mov   x19, x0          ; inThread 值
+0x10008a5bc  +1000 bl    objc_release
+0x10008a5c0  +1004 cbz   x19, 0x10008a628  ; inThread==nil -> 落到异步 dispatch
+0x10008a5c4  +1008 adrp  x8, 593
+0x10008a5c8  +1012 ldr   x1, [x8, #0xd28]  ; lpNetWorkDelegateQueryFinish:config:userInfo:
+0x10008a5cc  +1016 mov   x0, x25           ; target
+0x10008a5d0  +1020 mov   x2, x23           ; response
+0x10008a5d4  +1024 mov   x3, x21           ; config
+0x10008a5d8  +1028 mov   x4, x22           ; userInfo
+0x10008a5dc  +1032 bl    objc_msgSend      ; 同步调 QF（当前线程）
+0x10008a5e0  +1036 mov   x0, x25
+0x10008a5e4  +1040 bl    objc_release
+0x10008a5e8  +1044 mov   x25, #0x0
+0x10008a5ec  +1048 b     0x10008a628       ; 跳过 dispatch_async
+```
+
+### 8.2 callBackResponse dispatch_async(main) QF 分支（0x10008a628–6ac）
+
+```
+0x10008a628  +1108 orr   x8, x24, x25      ; notify | target
+0x10008a62c  +1112 cbz   x8, 0x10008a6e0   ; 都 nil 跳过 dispatch
+0x10008a630  +1116 adrp  x8, 466           ; main_queue
+0x10008a634  +1120 ldr   x8, [x8, #0x2d8]
+0x10008a638  +1124 str   x8, [sp, #0x30]
+0x10008a63c  +1128 adrp  x8, 376
+0x10008a640  +1132 ldr   d0, [x8, #0xd40]
+0x10008a644  +1136 adr   x8, 0x10008a868   ; block invoke 函数
+0x10008a648  +1140 nop
+0x10008a64c  +1144 str   d0, [sp, #0x38]
+0x10008a650  +1148 adrp  x9, 468           ; block descriptor
+0x10008a654  +1152 add   x9, x9, #0x10
+0x10008a658  +1156 stp   x8, x9, [sp, #0x40]
+...
+0x10008a6a0  +1228 adrp  x0, 466
+0x10008a6a4  +1232 ldr   x0, [x0, #0x300]  ; dispatch_get_main_queue
+0x10008a6a8  +1236 add   x1, sp, #0x30     ; block
+0x10008a6ac  +1240 bl    dispatch_async    ; 入队 main
+```
+
+### 8.3 dispatch_async block invoke（0x10008a868，在 main 上执行）
+
+```
+0x10008a868  +0    stp   x20, x19, [sp, #-0x20]!
+0x10008a86c  +4    stp   x29, x30, [sp, #0x10]
+0x10008a870  +8    add   x29, sp, #0x10
+0x10008a874  +12   mov   x19, x0           ; block
+0x10008a878  +16   ldr   x0, [x0, #0x20]   ; target
+0x10008a87c  +20   cbz   x0, 0x10008a894   ; target==nil 跳过
+0x10008a880  +24   ldp   x2, x3, [x19, #0x28] ; response, config
+0x10008a884  +28   ldr   x4, [x19, #0x38]    ; userInfo
+0x10008a888  +32   adrp  x8, 593
+0x10008a88c  +36   ldr   x1, [x8, #0xd28]    ; lpNetWorkDelegateQueryFinish:config:userInfo:
+0x10008a890  +40   bl    objc_msgSend        ; 同步调 QF（main 线程）
+```
+
+### 8.4 loadCurCp 异步返回（0x1000d7efc，无同步等待）
+
+```
+0x1000d7eb0  +448 bl    objc_msgSend        ; queryCpFileByBook:...cachePolicy:2
+0x1000d7eb4  +452 mov   x29, x29
+0x1000d7eb8  +456 bl    objc_retainAutoreleasedReturnValue
+0x1000d7ebc  +460 mov   x23, x0
+0x1000d7ecc  +472 bl    objc_release
+...
+0x1000d7efc  +520 cbz   x23, 0x1000d7fd4    ; nil 早退 -> 返回
+0x1000d7fd4  +736 mov   x0, x23
+0x1000d7fd8  +740 bl    objc_release
+0x1000d7fdc  +744 ldp   x29, x30, [sp, #0x70] ; 返回
+...
+0x1000d7ffc  +776 b     objc_release        ; tail call 返回
+```
+
+全函数无 dispatch_sync / lock / semaphore / mach_msg 同步原语。
+
+---
+
+**报告结束**。本回合静态反汇编 + 差分文件写入完成，未修改代码、未 commit。

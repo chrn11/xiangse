@@ -8,6 +8,10 @@ DerivedData/
 LegadoBridge/.build/
 fixtures/*.runtime.json
 fixtures/_devkit/
+# 硬规则6（2026-07-20 修订）：fixtures/_ 前缀全部为临时证据，文件与目录同覆；
+# 仅 _accept 合同脚本豁免可提交（下方 ! 放行必须保持在本行之后）
+fixtures/_*
+
 fixtures/_accept_*/
 !fixtures/_accept_*.py
 fixtures/_diag_*/
@@ -27,3 +31,10 @@ artifacts/
 *.ipa
 !ipa/*.ipa
 !ipa/.gitkeep
+# 2026-07-20 修订补充：文件形态证据、原始 fault dump 与构建产物目录
+analysis/reader-forensics/_tmp_*
+analysis/reader-forensics/*_fault_*.json
+dist/
+dist-ci/
+__pycache__/
+

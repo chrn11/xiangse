@@ -140,3 +140,58 @@
 ## 6. 机器可读索引
 
 见同目录 [`baseline-vs-legado-diff.json`](baseline-vs-legado-diff.json)。
+
+---
+
+## 7. 补充：原版 QF 线程 / main 排空差分（2026-07-20 静态回合）
+
+**来源**：[`baseline-runtime-qf-main-diff.md`](baseline-runtime-qf-main-diff.md)（本回合新增，lldb 21.1.6 反汇编 + 假设链真机回写）
+
+### 7.1 原版 QF 线程判定（静态 confirmed）
+
+原版正常 TXT 阅读时 `callback_inThread == nil`（原版二进制不写该 ivar，`callBackResponse` 仅读）-> `LPNetWork2#callBackResponse` @ `0x10008a1d4` 走 `dispatch_async(main_queue)` 分支（`0x10008a630–6ac`）-> block invoke `0x10008a868` 在 main 上同步调 `lpNetWorkDelegateQueryFinish:config:userInfo:`。**QF 在 main 执行**。
+
+### 7.2 Legado invoke 后 main 阻塞候选点（按可能性排序）
+
+| # | 候选点 | 评估 |
+|---|---|---|
+| C1 | invoke 触发原生 `pageContainer` 工厂 `addChildViewController:`（`0x10006697c`）在 Legado 父 VC 层级下 UIKit 状态机异常 -> main RunLoop 卡 scene update | **高**（与 §5 首个偏离点一致） |
+| C2 | Bridge bg 枚举 `UIWindowScene.windows` 与 main scene update 互锁 | 中（AJ 禁后部分缓解未根除） |
+| C3 | main 探针块与原生 QF block 竞争（伴生） | 中 |
+| C4 | main KVC seed 触发原生 KVO/通知链 | 低 |
+| C5 | container 未 attach 时 invoke 触发原生异常路径 | 低（R2 早期） |
+| C6 | 进程级资源耗尽 jetsam 预警 | 低-中 |
+
+### 7.3 对 §1/§3/§5 的回写声明
+
+- **§1 正文加载行**：补充「原版 QF 在 main 执行（静态 confirmed）；Legado QF 跑不到 main（AF/AI/AJ 真机 confirmed `drain=0`）」。
+- **§3 Q1 下一条取证**：具体化为「baseline-debug `main_drain_slot` + `qf_enter main=1` + `divisionResponse` phase dump」。
+- **§5 GATE-3-APPROVED**：条件维持；本回合静态差分填补 QF 线程判定空白，原版 main 排空仍为 probable（待 baseline 真机 dump），不阻塞路 B。
+
+---
+
+## 8. 补充：loadCurCp 前置条件与 receiver 继承澄清（2026-07-20 复核回合）
+
+**来源**：[`container-attach-and-main-block-analysis.md`](container-attach-and-main-block-analysis.md) §1（指令级控制流）+ `method-map.json` 继承元数据 + 真机 `_diag_ipa_T5_2880c4c` / `_diag_ipa_S_cf54785` 日志交叉；Cline 静态复核，无真机/无 CI。
+
+### 8.1 Q2 必要输入：新增两条 confirmed 前置
+
+| 前置 | 说明 | 置信度 | 证据 |
+|---|---|---|---|
+| **curPageVC 非 nil** | `loadCurCp` 首指令 `[self curPageVC]`；nil 时后续 `pageModel`/`pageStatus` 全部链式归零 | confirmed（指令级） | container-attach §1.2 `0x1000d7d18` |
+| **curPageVC.pageModel.pageStatus == 3** | `cmp x0,#0x3; b.ne 0x1000d7fd4`：≠3 直接 release 返回（**空操作**） | confirmed（指令级） | container-attach §1.2 `0x1000d7d84` |
+
+**后果裁定**：Legado 场景 container 未 attach、无分页页 → `curPageVC=nil` → `pageStatus` 链式为 0 → **invoke orig 静默空操作**。这解释真机 `invoke_orig_OK target=TextRPageContainer` 后无崩溃、无 QF、无萧炎（T5/S 两轮日志一致）。`invoke_orig_OK` 只证明函数指针返回，**不证明 loadCurCp 主体执行**。
+
+### 8.2 receiver 继承澄清（证伪 container-attach §1.1 的 doesNotRecognizeSelector 担忧）
+
+`method-map.json`：`TextRPageContainer.superclass = ReadPageContainer`。子类实例继承 `loadCurCp` IMP，Bridge 以子类实例为 receiver 直接调函数指针**合法**，ivar 偏移前缀兼容；真机 invoke 后无崩溃佐证。container-attach §1.1「落到 doesNotRecognizeSelector」**证伪**；`LBReadPageContainerPriority` 将 `TextRPageContainer` 排在 `ReadPageContainer` 前与原版工厂产物一致（假设 J：`pageContainerA=TextRPageContainer`）。**receiver 路由不是当前杀因，当前杀因指向 §8.1 的空操作分支。**
+
+### 8.3 探针路径偏差警告
+
+AR 探针 `ar_pageStatus_pre/post` 取 `container.pageStatus` / `container.pageModel.pageStatus`（KVC），与原版读取路径 `curPageVC.pageModel.pageStatus` **不同**；历史 `pageStatus=-999` 类读数可能为路径误报（先例：`curCp@r/c=-999` 已证实误报，`LBLoadCurCpBridge.m:2555`）。后续相位 dump 必须按原版路径 `container→curPageVC→pageModel→pageStatus` 取值。
+
+### 8.4 对 §3 Q2 的回写
+
+§3 Q2 表「curPageVC 非 nil 时走当前页；nil 时仍可能 queryCpFile（静态）」**修正**：nil 时 `pageStatus` 链式为 0 ≠ 3，控制流在 `0x1000d7fd4` 直接返回，**不会**走到 `queryCpFileByBook`。置信度 probable → confirmed（指令级控制流唯一分支）。
+
