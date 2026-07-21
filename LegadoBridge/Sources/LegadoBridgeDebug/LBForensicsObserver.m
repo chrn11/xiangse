@@ -404,30 +404,21 @@ static BOOL LBFEnsureEarlyWrap(Class cls, NSString *selName) {
 
 static void LBFEarlyWrapDiscoverAndInstall(void) {
     LBFInitEarlyWrapGlobals();
-    /// BC：loadCurCp 实现在 ReadPageContainer（见 baseline-runtime-qf-main-diff §2），
-    /// 不在 TextReadVC* 上。early wrap 必须覆盖 ReadPageContainer 才能拦到 loadCurCp，
-    /// BC main drain 探针才能在 baseline 路径触发。
-    /// 注意：ReadPageContainer 不是 UIViewController，装 viewDidLoad 会触发 reenter 风暴，
-    /// 只装 loadCurCp。
-    NSArray<NSString *> *vcNames = @[
+    /// BC4：回退 BC2/BC3 对 ReadPageContainer/TextRPageContainer 的 early wrap。
+    /// BC2/BC3 真机：装 loadCurCp early wrap 后 baseline 点书即崩/退出，
+    /// 且 hook_ping 无 loadCurCp 记录（运行时无 ReadPageContainer 类，只有
+    /// TextRPageContainer，且其 loadCurCp 可能不在该类自身）。
+    /// BC4：main drain 探针改挂 viewDidLoad TextReadVC3 after（已确认能拦到），
+    /// 不依赖 loadCurCp。viewDidLoad 后 main 排空才能渲染，同样能对照差分。
+    NSArray<NSString *> *names = @[
         @"TextReadVC3", @"TextReadVC2", @"TextReadVC1",
         @"ReadVCBase2", @"ReadVCBase1", @"ReadVCBase",
     ];
-    for (NSString *cn in vcNames) {
+    for (NSString *cn in names) {
         Class cls = objc_getClass(cn.UTF8String);
         if (!cls) cls = NSClassFromString(cn);
         if (!cls) continue;
         LBFEnsureEarlyWrap(cls, @"viewDidLoad");
-        LBFEnsureEarlyWrap(cls, @"loadCurCp");
-    }
-    /// BC：ReadPageContainer/TextRPageContainerPage 只装 loadCurCp（非 VC，禁 viewDidLoad）
-    NSArray<NSString *> *containerNames = @[
-        @"ReadPageContainer", @"TextRPageContainer", @"TextRPageContainerPage",
-    ];
-    for (NSString *cn in containerNames) {
-        Class cls = objc_getClass(cn.UTF8String);
-        if (!cls) cls = NSClassFromString(cn);
-        if (!cls) continue;
         LBFEnsureEarlyWrap(cls, @"loadCurCp");
     }
     int n = objc_getClassList(NULL, 0);
@@ -438,15 +429,8 @@ static void LBFEarlyWrapDiscoverAndInstall(void) {
     for (int i = 0; i < n; i++) {
         const char *name = class_getName(buf[i]);
         if (!name) continue;
-        /// BC：补 ReadPageContainer/TextRPageContainer，匹配 loadCurCp 实现类。
-        /// 但 ReadPageContainer 非 VC，只装 loadCurCp，禁 viewDidLoad（防 reenter 风暴）。
-        BOOL isVC = (strstr(name, "TextReadVC") != NULL || strstr(name, "ReadVCBase") != NULL);
-        BOOL isContainer = (strstr(name, "ReadPageContainer") != NULL
-                            || strstr(name, "TextRPageContainer") != NULL);
-        if (!isVC && !isContainer) continue;
-        if (isVC) {
-            LBFEnsureEarlyWrap(buf[i], @"viewDidLoad");
-        }
+        if (strstr(name, "TextReadVC") == NULL && strstr(name, "ReadVCBase") == NULL) continue;
+        LBFEnsureEarlyWrap(buf[i], @"viewDidLoad");
         LBFEnsureEarlyWrap(buf[i], @"loadCurCp");
     }
     free(buf);
@@ -474,6 +458,18 @@ static void LBFEarlyWrap_viewDidLoad(id self, SEL _cmd) {
     }
     LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
     LBFMaybeScheduleAutoDump(self, _cmd, owner);
+    /// BC4：main drain 探针挂 viewDidLoad TextReadVC3 after。
+    /// viewDidLoad 后 main 排空才能渲染上屏。baseline 正常阅读：drain=1 wait>0 src>0；
+    /// Legado 路径：drain=0 wait=0 src=0（AF/AI/AJ confirmed）。
+    if ([owner containsString:@"TextReadVC"]) {
+        if ([NSThread isMainThread]) {
+            LBFBCStartMainDrainSampler();
+        } else {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                LBFBCStartMainDrainSampler();
+            });
+        }
+    }
     g_earlyWrapDepth--;
 }
 
@@ -499,18 +495,7 @@ static void LBFEarlyWrap_loadCurCp(id self, SEL _cmd) {
     }
     LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
     LBFMaybeScheduleAutoDump(self, _cmd, owner);
-    /// BC：loadCurCp 返回后启动 main drain 采样。
-    /// 原版正常阅读：loadCurCp 异步发起 queryCpFileByBook 后立即返回，main RunLoop 活跃，
-    /// dispatch_async(main) 的 QF 块会被调度 -> drain=1 wait>0 src>0。
-    /// Legado 路径：invoke orig 返回后 main 不排空 -> drain=0 wait=0 src=0（AF/AI/AJ confirmed）。
-    /// 本探针在 forensics 层，baseline 也能采，直接对照。
-    if ([NSThread isMainThread]) {
-        LBFBCStartMainDrainSampler();
-    } else {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            LBFBCStartMainDrainSampler();
-        });
-    }
+    /// BC4：main drain 探针改挂 viewDidLoad after，loadCurCp after 不再重复触发。
     g_earlyWrapDepth--;
 }
 
