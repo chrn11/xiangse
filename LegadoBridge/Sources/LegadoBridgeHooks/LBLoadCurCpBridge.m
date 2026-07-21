@@ -1295,6 +1295,16 @@ static void LBAMStartPostCbHeartbeat(void) {
     LBABSyncProbe(@"at_postqf_cfstring_sampling_disabled");
     LBABSyncProbe(@"au_postqf_record_quiet_enabled");
     LBABSyncProbe(@"am_post_cb_hb_start");
+    // AX：二分法验证--完全跳过 post_cb_hb 心跳循环。
+    // AW 真机证据：AW 禁 AK main PC 采样（aw_postqf_ak_main_pc_sampling_disabled 命中）后，
+    // 仍崩在同一点 pc=1cc50dfdc（CoreFoundation off=0x86fdc）postQF=1 tid=259 fault=fp-0x178。
+    // AT/AU/AV/AW 四层防护全生效（hit=0 maxDepth=0 quiet=1 aw_disabled=1），崩溃仍恒定。
+    // 崩溃恒定在 am_post_cb_hb i=3 ms=15 后（LBAMRawHb 纯 C 无 CFString），但 pc 在 CoreFoundation。
+    // AX 二分：若禁心跳循环后不崩 -> 崩溃源是 post_cb_hb 后台线程本身（GCD 线程栈复用/残留）；
+    // 若仍崩 -> 崩溃源是 main 线程 QF 块的 CFString 与其他线程冲突。
+    LBABSyncProbe(@"ax_postqf_hb_loop_disabled");
+    LBABSyncProbe(@"am_post_cb_hb_done");
+    return;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         // 0–200ms，步长 5ms；首拍已在调用线程写出
         for (int i = 1; i <= 40; i++) {
