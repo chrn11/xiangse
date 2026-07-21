@@ -404,9 +404,13 @@ static BOOL LBFEnsureEarlyWrap(Class cls, NSString *selName) {
 
 static void LBFEarlyWrapDiscoverAndInstall(void) {
     LBFInitEarlyWrapGlobals();
+    /// BC：loadCurCp 实现在 ReadPageContainer（见 baseline-runtime-qf-main-diff §2），
+    /// 不在 TextReadVC* 上。early wrap 必须覆盖 ReadPageContainer 才能拦到 loadCurCp，
+    /// BC main drain 探针才能在 baseline 路径触发。
     NSArray<NSString *> *names = @[
         @"TextReadVC3", @"TextReadVC2", @"TextReadVC1",
         @"ReadVCBase2", @"ReadVCBase1", @"ReadVCBase",
+        @"ReadPageContainer", @"TextRPageContainer", @"TextRPageContainerPage",
     ];
     for (NSString *cn in names) {
         Class cls = objc_getClass(cn.UTF8String);
@@ -423,7 +427,11 @@ static void LBFEarlyWrapDiscoverAndInstall(void) {
     for (int i = 0; i < n; i++) {
         const char *name = class_getName(buf[i]);
         if (!name) continue;
-        if (strstr(name, "TextReadVC") == NULL && strstr(name, "ReadVCBase") == NULL) continue;
+        /// BC：补 ReadPageContainer/TextRPageContainer，匹配 loadCurCp 实现类。
+        if (strstr(name, "TextReadVC") == NULL
+            && strstr(name, "ReadVCBase") == NULL
+            && strstr(name, "ReadPageContainer") == NULL
+            && strstr(name, "TextRPageContainer") == NULL) continue;
         LBFEnsureEarlyWrap(buf[i], @"viewDidLoad");
         LBFEnsureEarlyWrap(buf[i], @"loadCurCp");
     }
