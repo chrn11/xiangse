@@ -407,16 +407,27 @@ static void LBFEarlyWrapDiscoverAndInstall(void) {
     /// BC：loadCurCp 实现在 ReadPageContainer（见 baseline-runtime-qf-main-diff §2），
     /// 不在 TextReadVC* 上。early wrap 必须覆盖 ReadPageContainer 才能拦到 loadCurCp，
     /// BC main drain 探针才能在 baseline 路径触发。
-    NSArray<NSString *> *names = @[
+    /// 注意：ReadPageContainer 不是 UIViewController，装 viewDidLoad 会触发 reenter 风暴，
+    /// 只装 loadCurCp。
+    NSArray<NSString *> *vcNames = @[
         @"TextReadVC3", @"TextReadVC2", @"TextReadVC1",
         @"ReadVCBase2", @"ReadVCBase1", @"ReadVCBase",
-        @"ReadPageContainer", @"TextRPageContainer", @"TextRPageContainerPage",
     ];
-    for (NSString *cn in names) {
+    for (NSString *cn in vcNames) {
         Class cls = objc_getClass(cn.UTF8String);
         if (!cls) cls = NSClassFromString(cn);
         if (!cls) continue;
         LBFEnsureEarlyWrap(cls, @"viewDidLoad");
+        LBFEnsureEarlyWrap(cls, @"loadCurCp");
+    }
+    /// BC：ReadPageContainer/TextRPageContainerPage 只装 loadCurCp（非 VC，禁 viewDidLoad）
+    NSArray<NSString *> *containerNames = @[
+        @"ReadPageContainer", @"TextRPageContainer", @"TextRPageContainerPage",
+    ];
+    for (NSString *cn in containerNames) {
+        Class cls = objc_getClass(cn.UTF8String);
+        if (!cls) cls = NSClassFromString(cn);
+        if (!cls) continue;
         LBFEnsureEarlyWrap(cls, @"loadCurCp");
     }
     int n = objc_getClassList(NULL, 0);
@@ -428,11 +439,14 @@ static void LBFEarlyWrapDiscoverAndInstall(void) {
         const char *name = class_getName(buf[i]);
         if (!name) continue;
         /// BC：补 ReadPageContainer/TextRPageContainer，匹配 loadCurCp 实现类。
-        if (strstr(name, "TextReadVC") == NULL
-            && strstr(name, "ReadVCBase") == NULL
-            && strstr(name, "ReadPageContainer") == NULL
-            && strstr(name, "TextRPageContainer") == NULL) continue;
-        LBFEnsureEarlyWrap(buf[i], @"viewDidLoad");
+        /// 但 ReadPageContainer 非 VC，只装 loadCurCp，禁 viewDidLoad（防 reenter 风暴）。
+        BOOL isVC = (strstr(name, "TextReadVC") != NULL || strstr(name, "ReadVCBase") != NULL);
+        BOOL isContainer = (strstr(name, "ReadPageContainer") != NULL
+                            || strstr(name, "TextRPageContainer") != NULL);
+        if (!isVC && !isContainer) continue;
+        if (isVC) {
+            LBFEnsureEarlyWrap(buf[i], @"viewDidLoad");
+        }
         LBFEnsureEarlyWrap(buf[i], @"loadCurCp");
     }
     free(buf);
