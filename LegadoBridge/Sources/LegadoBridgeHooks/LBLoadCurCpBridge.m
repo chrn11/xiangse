@@ -1295,6 +1295,12 @@ static void LBAMStartPostCbHeartbeat(void) {
     LBABSyncProbe(@"at_postqf_cfstring_sampling_disabled");
     LBABSyncProbe(@"au_postqf_record_quiet_enabled");
     LBABSyncProbe(@"am_post_cb_hb_start");
+    // AY：postQF 窗所有 Observer trampoline 短路（直接调 orig，跳过 NSStringFromClass/LBFRecordEvent/LBFGetOrigIMP 的 CFString 操作）。
+    // AX 二分法证伪：禁所有后台 forensics 后仍崩在 pc=CoreFoundation postQF=1 tid=259。
+    // ao_lbf_stats hit=8 maxDepth=8 -- postQF 窗 main 线程 QF 块仍触发 8 次 trampoline（drawRect/showContent/divisionResponse）。
+    // trampoline 即使 LBFRecordEvent 被 quiet 跳过，仍做 NSStringFromClass + @[] + LBFGetOrigIMP（NSDictionary 查找）等 CFString 操作。
+    // AY：trampoline 开头检查 g_aoPostQF，若 postQF 则直接调 orig IMP 并 return，跳过所有 CFString。
+    LBABSyncProbe(@"ay_tramp_bypass_enabled");
     // AX：二分法验证--完全跳过 post_cb_hb 心跳循环。
     // AW 真机证据：AW 禁 AK main PC 采样（aw_postqf_ak_main_pc_sampling_disabled 命中）后，
     // 仍崩在同一点 pc=1cc50dfdc（CoreFoundation off=0x86fdc）postQF=1 tid=259 fault=fp-0x178。
