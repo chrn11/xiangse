@@ -1803,29 +1803,45 @@ static void LBABInstallProbes(void) {
     Class net = NSClassFromString(@"LPNetWork2");
     if (net) {
         SEL cbSel = NSSelectorFromString(@"callBackResponse:config:userInfo:");
-        Method cbm = class_getInstanceMethod(net, cbSel);
+        // BC5：BQM 覆盖 check/format（见 1831 注释），可能也覆盖 callBackResponse。
+        // 原 install_cb 只装 LPNetWork2，若 BQM 覆盖 CB 则 hook 拦不到。
+        // 优先装 BQM，fallback LPNetWork2（与 format/check 一致）。
+        Class cbOwner = NSClassFromString(@"BookQueryManager") ?: net;
+        Method cbmOnBqm = class_getInstanceMethod(cbOwner, cbSel);
+        Method cbmOnNet = class_getInstanceMethod(net, cbSel);
+        // 查 BQM 是否有自己的 CB 实现（IMP 不同于 LPNetWork2）
+        IMP bqmCbImp = cbmOnBqm ? method_getImplementation(cbmOnBqm) : NULL;
+        IMP netCbImp = cbmOnNet ? method_getImplementation(cbmOnNet) : NULL;
+        LBABSyncProbe([NSString stringWithFormat:
+                       @"bc5_cb_owner_probe bqm=%@ bqmImp=%p netImp=%p same=%d bqmOverrides=%d",
+                       cbOwner ? NSStringFromClass(cbOwner) : @"nil",
+                       bqmCbImp, netCbImp,
+                       (bqmCbImp == netCbImp) ? 1 : 0,
+                       (bqmCbImp && netCbImp && bqmCbImp != netCbImp) ? 1 : 0]);
+        Method cbm = cbmOnBqm ?: cbmOnNet;
+        Class cbInstallOwner = cbmOnBqm ? cbOwner : net;
         if (cbm) {
             IMP cur = method_getImplementation(cbm);
             if (cur == (IMP)LBAB_CallBackResponse) {
                 LBABSyncProbe(@"install_cb_skip already_self");
             } else if (!sABNextCallBackResponse) {
-                IMP next = LBACPeelObserverNext(net, cbSel, cur);
+                IMP next = LBACPeelObserverNext(cbInstallOwner, cbSel, cur);
                 if (!next) {
                     LBABSyncProbe([NSString stringWithFormat:
-                                   @"install_cb_pollute_blocked cur=%p", cur]);
+                                   @"install_cb_pollute_blocked cur=%p owner=%@", cur, NSStringFromClass(cbInstallOwner)]);
                 } else {
                     if (next != cur) {
                         LBABSyncProbe([NSString stringWithFormat:
-                                       @"install_cb_peeled cur=%p next=%p", cur, next]);
+                                       @"install_cb_peeled cur=%p next=%p owner=%@", cur, next, NSStringFromClass(cbInstallOwner)]);
                     }
                     sABNextCallBackResponse = (void (*)(id, SEL, id, id, id))next;
                     method_setImplementation(cbm, (IMP)LBAB_CallBackResponse);
                     LBABSyncProbe([NSString stringWithFormat:
-                                   @"install_cb next=%p", sABNextCallBackResponse]);
+                                   @"install_cb next=%p owner=%@", sABNextCallBackResponse, NSStringFromClass(cbInstallOwner)]);
                 }
             } else {
                 LBABSyncProbe([NSString stringWithFormat:
-                               @"install_cb_skip next_frozen cur=%p", cur]);
+                               @"install_cb_skip next_frozen cur=%p owner=%@", cur, NSStringFromClass(cbInstallOwner)]);
             }
         }
         // AD：chapterContent 路径 self=BookQueryManager，其覆盖 check/format；
