@@ -46,9 +46,20 @@ static atomic_int g_aoPostQF = 0;
 static atomic_int g_aoRecordQuiet = 0;
 static _Thread_local int g_aoLBFDepth = 0;
 
+/// BC：forensics 侧 main runloop drain 探针全局。
+/// baseline-debug 不带 LegadoBridge，main_drain/qf_enter 探针采不到。
+/// 本探针装在 forensics debug dylib，baseline 也能采 main 排空证据，
+/// 补齐 baseline-runtime-qf-main-diff §5.1 缺口（原版 main 排空 probable -> confirmed）。
+static atomic_int g_bcMainDrainSeen = 0;
+static atomic_int g_bcMainRlBeforeWaiting = 0;
+static atomic_int g_bcMainRlBeforeSources = 0;
+static atomic_int g_bcMainSamplerStarted = 0;
+static CFRunLoopObserverRef g_bcMainRlObserver = NULL;
+
 static void LBFEarlyWrap_viewDidLoad(id self, SEL _cmd);
 static void LBFEarlyWrap_loadCurCp(id self, SEL _cmd);
 static void LBFWriteHookPing(NSString *line);
+static void LBFBCStartMainDrainSampler(void);
 
 static void LBFInitObserverGlobals(void);
 static BOOL LBFInstallHookOnMethod(Class owner, NSString *ownerName, NSString *selName);
@@ -466,7 +477,94 @@ static void LBFEarlyWrap_loadCurCp(id self, SEL _cmd) {
     }
     LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner);
     LBFMaybeScheduleAutoDump(self, _cmd, owner);
+    /// BC：loadCurCp 返回后启动 main drain 采样。
+    /// 原版正常阅读：loadCurCp 异步发起 queryCpFileByBook 后立即返回，main RunLoop 活跃，
+    /// dispatch_async(main) 的 QF 块会被调度 -> drain=1 wait>0 src>0。
+    /// Legado 路径：invoke orig 返回后 main 不排空 -> drain=0 wait=0 src=0（AF/AI/AJ confirmed）。
+    /// 本探针在 forensics 层，baseline 也能采，直接对照。
+    if ([NSThread isMainThread]) {
+        LBFBCStartMainDrainSampler();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBFBCStartMainDrainSampler();
+        });
+    }
     g_earlyWrapDepth--;
+}
+
+/// BC：main runloop drain 采样器（forensics 层，baseline 也可用）。
+/// 设计：
+/// 1. CFRunLoopObserver 监听 main runloop BeforeWaiting/BeforeSources，计数 wait/src。
+/// 2. dispatch_async(main) 投 drain slot，若 main 排空则 slot 执行 -> drain=1。
+/// 3. bg 线程轮询 2.5s，每 100ms 写一次 watch 行；slot 执行后提前结束。
+/// 对照 baseline（原版正常阅读，drain=1 wait>0 src>0）vs legado（drain=0 wait=0 src=0）。
+static void LBFBCMainRlObserverCallback(CFRunLoopObserverRef observer,
+                                        CFRunLoopActivity activity, void *info) {
+    (void)observer; (void)info;
+    if (activity & kCFRunLoopBeforeWaiting) {
+        atomic_store(&g_bcMainRlBeforeWaiting, atomic_load(&g_bcMainRlBeforeWaiting) + 1);
+    }
+    if (activity & kCFRunLoopBeforeSources) {
+        atomic_store(&g_bcMainRlBeforeSources, atomic_load(&g_bcMainRlBeforeSources) + 1);
+    }
+}
+
+static void LBFBCEnsureMainRlObserver(void) {
+    if (g_bcMainRlObserver) return;
+    CFRunLoopObserverContext ctx = {0, NULL, NULL, NULL, NULL};
+    CFRunLoopObserverRef obs = CFRunLoopObserverCreate(
+        kCFAllocatorDefault,
+        kCFRunLoopBeforeSources | kCFRunLoopBeforeWaiting,
+        1, // repeats
+        0, // order
+        LBFBCMainRlObserverCallback,
+        &ctx);
+    if (!obs) return;
+    CFRunLoopAddObserver(CFRunLoopGetMain(), obs, kCFRunLoopCommonModes);
+    g_bcMainRlObserver = obs;
+}
+
+static void LBFBCStartMainDrainSampler(void) {
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&g_bcMainSamplerStarted, &expected, 1)) {
+        // 已在采样，不重复启动；但重置 drain slot 以便新一轮观察。
+        atomic_store(&g_bcMainDrainSeen, 0);
+        LBFAISyncProbe(@"bc_main_drain_restart");
+        return;
+    }
+    LBFBCEnsureMainRlObserver();
+    atomic_store(&g_bcMainDrainSeen, 0);
+    LBFAISyncProbe(@"bc_main_drain_start");
+    /// 投 drain slot：若 main runloop 排空则执行 -> drain=1。
+    dispatch_async(dispatch_get_main_queue(), ^{
+        atomic_store(&g_bcMainDrainSeen, 1);
+        LBFAISyncProbe([NSString stringWithFormat:
+                        @"bc_main_drain_slot wait=%d src=%d",
+                        atomic_load(&g_bcMainRlBeforeWaiting),
+                        atomic_load(&g_bcMainRlBeforeSources)]);
+    });
+    /// bg 轮询 2.5s，每 100ms 写 watch 行。
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        for (int i = 0; i < 25; i++) {
+            usleep(100000); // 100ms
+            int drained = atomic_load(&g_bcMainDrainSeen);
+            int waitN = atomic_load(&g_bcMainRlBeforeWaiting);
+            int srcN = atomic_load(&g_bcMainRlBeforeSources);
+            LBFAISyncProbe([NSString stringWithFormat:
+                            @"bc_main_drain_watch i=%d drain=%d wait=%d src=%d",
+                            i, drained, waitN, srcN]);
+            if (drained && waitN > 0) {
+                LBFAISyncProbe([NSString stringWithFormat:
+                                @"bc_main_drain_done i=%d", i]);
+                break;
+            }
+        }
+        LBFAISyncProbe([NSString stringWithFormat:
+                        @"bc_main_drain_end drain=%d wait=%d src=%d",
+                        atomic_load(&g_bcMainDrainSeen),
+                        atomic_load(&g_bcMainRlBeforeWaiting),
+                        atomic_load(&g_bcMainRlBeforeSources)]);
+    });
 }
 
 /// AQ：撤 LBFScheduleEarlyWrapRetry 的 50ms 无限递归。

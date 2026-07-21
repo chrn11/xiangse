@@ -84,7 +84,7 @@ def dismiss_disclaimer(c: McpClient) -> bool:
                 if not isinstance(e, dict):
                     continue
                 txt = str(e.get("text", ""))
-                if "知晓并同意" in txt or txt.strip() == "同意":
+                if "知晓并同意" in txt or txt.strip() in ("同意", "好", "确定"):
                     rect = e.get("rect", {})
                     if rect:
                         x = rect.get("x", 195) + rect.get("width", 135) / 2
@@ -99,8 +99,9 @@ def dismiss_disclaimer(c: McpClient) -> bool:
 
 
 def evaluate(blob: str, xiaoyan, openonce_left, frontmost_bundle) -> dict:
-    crash = ("SIGSEGV" in blob or "SIGABRT" in blob
-             or "an_fault_signal" in blob or "al_fatal_signal" in blob)
+    # 只认 fault 探针行/SIGNAL 报告；排除 avoid recursive SIGABRT 类静态文本
+    crash = bool(re.search(r"(an_fault_signal|al_fatal_signal|ao_fault_signal) SIG=", blob)
+                 or re.search(r"SIGNAL sig=\d", blob))
 
     pre = re.findall(r"ar_origpath_pre curPageVC=(\S+) pageStatus=(\S+)", blob)
     post = re.findall(r"ar_origpath_post curPageVC=(\S+) pageStatus=(\S+)", blob)
@@ -194,16 +195,31 @@ def main() -> int:
     c.call("kill_app", {"bundle_id": BUNDLE})
     time.sleep(1)
     c.call("launch_app", {"bundle_id": BUNDLE})
-    time.sleep(4)
+    time.sleep(6)
     report["steps"].append("launch")
     if dismiss_disclaimer(c):
         report["steps"].append("disclaimer_dismissed")
         time.sleep(1)
 
-    tstamp = int(time.time())
-    c.call("open_url", {"url": f"legado://import/bookSource?src={SRC}?t={tstamp}"})
-    report["steps"].append("import_source")
-    time.sleep(8)
+    # import 两轮（防启动早期 URL 被吞），每轮后点「好」；
+    # alert t+1s 即弹，目录请求依赖源已入库（catalog err 未找到 Legado 书源）
+    for rnd in (1, 2):
+        tstamp = int(time.time())
+        c.call("open_url", {"url": f"legado://import/bookSource?src={SRC}?t={tstamp}"})
+        report["steps"].append(f"import_source_{rnd}")
+        time.sleep(3)
+        if dismiss_disclaimer(c):
+            report["steps"].append(f"import_alert_dismissed_{rnd}")
+        time.sleep(3)
+
+    # nativeRead 前重启清 deferred 内存锁（awaitingCatalog 卡死后 sameBook 直接 return）
+    c.call("kill_app", {"bundle_id": BUNDLE})
+    time.sleep(1)
+    c.call("launch_app", {"bundle_id": BUNDLE})
+    time.sleep(5)
+    report["steps"].append("relaunch_fresh")
+    clear_markers(c)
+    report["steps"].append("clear_markers_2")
 
     c.call("open_url", {"url": f"legado://nativeRead?bookUrl={BOOK}&sourceUrl={MOCK}&idx=0"})
     report["steps"].append("nativeRead_1")
@@ -214,6 +230,11 @@ def main() -> int:
     except McpError:
         xy1 = {"passed": False}
     if not (isinstance(xy1, dict) and xy1.get("passed")):
+        # 重启清 deferred 锁再试（fresh 态 sameBook=false 才会重新请求目录）
+        c.call("kill_app", {"bundle_id": BUNDLE})
+        time.sleep(1)
+        c.call("launch_app", {"bundle_id": BUNDLE})
+        time.sleep(5)
         paths = c.app_paths()
         for p in c.open_once_candidates(paths):
             try:
@@ -221,7 +242,7 @@ def main() -> int:
             except Exception:
                 pass
         c.call("open_url", {"url": f"legado://nativeRead?bookUrl={BOOK}&sourceUrl={MOCK}&idx=0"})
-        report["steps"].append("nativeRead_2")
+        report["steps"].append("nativeRead_2_relaunch")
         time.sleep(12)
 
     try:
@@ -270,6 +291,9 @@ def main() -> int:
                 pass
     except Exception:
         pass
+
+    catalog_last = c.read_sandbox_text("legado_catalog_last.txt", max_bytes=4096)
+    report["catalog_last"] = catalog_last[-500:] if catalog_last else ""
 
     report.update(evaluate(blob, xiaoyan, openonce_left, frontmost_bundle))
     report["probe_hits"] = {
