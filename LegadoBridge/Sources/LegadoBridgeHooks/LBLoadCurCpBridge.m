@@ -1,4 +1,4 @@
-#import "LBLoadCurCpBridge.h"
+﻿#import "LBLoadCurCpBridge.h"
 #import "LBInternal.h"
 #import <objc/message.h>
 #import <objc/runtime.h>
@@ -1274,74 +1274,28 @@ static void LBAMStartPostCbHeartbeat(void) {
     if (!atomic_compare_exchange_strong(&sOnce, &expected, 1)) return;
     atomic_store(&sALPostQF, 1);
     LBAONotifyForensicsWindow(0, 1);
-    // AU：postQF 窗开 RecordQuiet，静默 main 线程 LBFHook 写事件（NSDictionary/NSString/CFString）。
-    // AT 真机证据：禁 post_cb_hb 内部采样后仍崩在 pc=__CFStringAppendBytes postQF=1 tid=bg。
-    // 根因：AR depth 守卫 _Thread_local 只防单线程深递归；postQF 窗 main 每次 UIView drawRect
-    // 都以 depth=1 进 LBFRecordEvent 创建 NSDictionary（CFString 密集），与 post_cb_hb bg 线程
-    // CFString 跨线程冲突 -> SEGV_ACCERR@__CFStringAppendBytes。AU 静默写事件彻底消除冲突。
-    LBAONotifyRecordQuiet(1);
-    // AN/AO：cb 后立刻夺回 fatal handler（nativeOpen signal() 可能已覆盖）
-    LBANClaimFaultHandlers("post_cb_hb");
-    LBAOProbeFaultHandler("post_cb_hb");
-    LBAOEmitLBFStats("post_cb_hb");
-    LBAMRawHb(0, 0);
-    // AT：禁用 postQF 窗 CFString 密集采样（LBANSampleMemPath/LBAPDumpPostQFStacks）。
-    // AS 真机证据：撤 inThread 后仍崩在 pc=0x86fdc lr=__CFStringAppendBytes postQF=1 main=0。
-    // 根因：post_cb_hb 在 bg 线程调用 LBANSymbolStack([NSThread callStackSymbols] + rangeOfString +
-    // stringWithFormat + componentsJoinedByString) + LBANSampleMemPath(thread_suspend + dladdr +
-    // NSString 拼接)，这些 CFString 操作与 main 线程 UIKit 的 CFString 操作跨线程冲突，
-    // 致 SEGV_ACCERR@__CFStringAppendBytes 子函数（fault=栈附近地址，写权限错误）。
-    // AT：postQF 窗只保留轻量探针（LBAMRawHb 纯数字 + LBAOEmitLBFStats），不做 NSString 拼接。
-    LBABSyncProbe(@"at_postqf_cfstring_sampling_disabled");
-    LBABSyncProbe(@"au_postqf_record_quiet_enabled");
-    LBABSyncProbe(@"am_post_cb_hb_start");
-    // AY：postQF 窗所有 Observer trampoline 短路（直接调 orig，跳过 NSStringFromClass/LBFRecordEvent/LBFGetOrigIMP 的 CFString 操作）。
-    // AX 二分法证伪：禁所有后台 forensics 后仍崩在 pc=CoreFoundation postQF=1 tid=259。
-    // ao_lbf_stats hit=8 maxDepth=8 -- postQF 窗 main 线程 QF 块仍触发 8 次 trampoline（drawRect/showContent/divisionResponse）。
-    // trampoline 即使 LBFRecordEvent 被 quiet 跳过，仍做 NSStringFromClass + @[] + LBFGetOrigIMP（NSDictionary 查找）等 CFString 操作。
-    // AY：trampoline 开头检查 g_aoPostQF，若 postQF 则直接调 orig IMP 并 return，跳过所有 CFString。
-    LBABSyncProbe(@"ay_tramp_bypass_enabled");
-    // AX：二分法验证--完全跳过 post_cb_hb 心跳循环。
-    // AW 真机证据：AW 禁 AK main PC 采样（aw_postqf_ak_main_pc_sampling_disabled 命中）后，
-    // 仍崩在同一点 pc=1cc50dfdc（CoreFoundation off=0x86fdc）postQF=1 tid=259 fault=fp-0x178。
-    // AT/AU/AV/AW 四层防护全生效（hit=0 maxDepth=0 quiet=1 aw_disabled=1），崩溃仍恒定。
-    // 崩溃恒定在 am_post_cb_hb i=3 ms=15 后（LBAMRawHb 纯 C 无 CFString），但 pc 在 CoreFoundation。
-    // AX 二分：若禁心跳循环后不崩 -> 崩溃源是 post_cb_hb 后台线程本身（GCD 线程栈复用/残留）；
-    // 若仍崩 -> 崩溃源是 main 线程 QF 块的 CFString 与其他线程冲突。
-    LBABSyncProbe(@"ax_postqf_hb_loop_disabled");
-    LBABSyncProbe(@"am_post_cb_hb_done");
-    return;
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        // 0–200ms，步长 5ms；首拍已在调用线程写出
-        for (int i = 1; i <= 40; i++) {
-            usleep(5000);
-            long ms = (long)i * 5L;
-            LBAMRawHb(i, ms);
-            // AT：禁 LBANSampleMemPath（CFString 密集）
-            // AO：每 50ms 探针 handler，防 nativeOpen/DebugPanel 中途盖掉
-            if ((i % 10) == 0) {
-                LBAOProbeFaultHandler("hb_tick");
-            }
-        }
+    // AZ：postQF 窗逻辑整体 dispatch_async 到独立队列，释放 cb 线程栈。
+    // AY 真机证据（决定性）：禁所有 forensics（trampoline hit=0 + 心跳循环禁 + AK 禁 + AT 采样禁）后，
+    // 仍崩在 cb 线程（tid=259）从 LBAB_QFCallback 返回 BookQueryManager 时：
+    //   [88] am_post_cb_hb_done -> [89] SIG=11 pc=CoreFoundation fault=fp-0x178 tid=259 postQF=1
+    // 崩溃时间线：cb 线程执行 format + QF dispatch + LBAMStartPostCbHeartbeat（多个 LBABSyncProbe 栈帧）
+    // 后返回 BookQueryManager，BookQueryManager 后续 CFString 操作触碰栈 guard page。
+    // 根因：cb 线程 callback 链栈深度 + Bridge 注入的探针栈帧 + BookQueryManager 后续操作 = 栈溢出。
+    // AZ：postQF 窗逻辑（RecordQuiet + fault handler 夺回 + 探针 + 心跳）整体 dispatch_async，
+    // cb 线程只设 sALPostQF=1 后立即返回，不增加 cb 线程栈深度。
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        LBAONotifyRecordQuiet(1);
+        LBANClaimFaultHandlers("post_cb_hb");
+        LBAOProbeFaultHandler("post_cb_hb");
+        LBAOEmitLBFStats("post_cb_hb");
+        LBAMRawHb(0, 0);
+        LBABSyncProbe(@"at_postqf_cfstring_sampling_disabled");
+        LBABSyncProbe(@"au_postqf_record_quiet_enabled");
+        LBABSyncProbe(@"am_post_cb_hb_start");
+        LBABSyncProbe(@"ay_tramp_bypass_enabled");
+        LBABSyncProbe(@"ax_postqf_hb_loop_disabled");
         LBABSyncProbe(@"am_post_cb_hb_done");
-        LBAMRawHb(41, 200);
-        // AT：禁 LBANSampleMemPath（CFString 密集）
-        // 死窗末再夺一次，防中途被其它模块盖掉
-        LBANClaimFaultHandlers("post_cb_hb_done");
-        LBAOProbeFaultHandler("post_cb_hb_done");
-        LBAOEmitLBFStats("post_cb_hb_done");
-        // AO：hb 后再盯 2s（100ms×20），覆盖 AN 漏采的晚杀窗
-        for (int j = 1; j <= 20; j++) {
-            usleep(100000);
-            LBAOProbeFaultHandler("post_hb_watch");
-            if ((j % 5) == 0) {
-                LBAMRawHb(41 + j, 200 + (long)j * 100L);
-                LBAOEmitLBFStats("post_hb_watch");
-            }
-        }
-        LBABSyncProbe(@"ao_post_hb_watch_done");
-        LBANClaimFaultHandlers("post_hb_watch_done");
-        LBAOEmitLBFStats("post_hb_watch_done");
+        LBABSyncProbe(@"az_postqf_offloaded_to_utility_queue");
     });
 }
 
