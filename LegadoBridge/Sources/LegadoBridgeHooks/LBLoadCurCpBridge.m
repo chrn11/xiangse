@@ -1590,13 +1590,35 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
     NSString *selfCls = self ? NSStringFromClass(object_getClass(self)) : @"nil";
     BOOL respNil = (response == nil);
     BOOL main = [NSThread isMainThread];
+    // BB：cb 线程栈低水位保护。
+    // BA 真机证据：cb_exit 时栈仅剩 596 字节（used=523KB/524KB），栈溢出确认。
+    // BB：cb_enter 时检查栈剩余空间，若低于 8KB 则跳过所有 LBABSyncProbe 探针（减少 ObjC
+    // stringWithFormat 栈帧），只保留 orig 调用 + 最小纯 C 标记。
+    pthread_t _bbT = pthread_self();
+    void *_bbBase = pthread_get_stackaddr_np(_bbT);
+    size_t _bbSize = pthread_get_stacksize_np(_bbT);
+    int _bbVar = 0;
+    long _bbRemaining = (long)((char *)_bbBase - (char *)&_bbVar);
+    BOOL _bbLowStack = (_bbRemaining < 8192);
+    if (_bbLowStack) {
+        // 低栈：只调 orig，跳过所有探针
+        sADCheckEntered = 0;
+        sABInCallBack = 1;
+        @try {
+            sABNextCallBackResponse(self, _cmd, response, config, userInfo);
+        } @finally {
+            sABInCallBack = 0;
+        }
+        return;
+    }
     LBABSyncProbe([NSString stringWithFormat:
-                   @"cb_enter respLen=%lu action=%@ target=%@ dontFormat=%d self=%@",
+                   @"cb_enter respLen=%lu action=%@ target=%@ dontFormat=%d self=%@ stackRem=%ld",
                    (unsigned long)respLen,
                    [action isKindOfClass:[NSString class]] ? action : @"-",
                    target ? NSStringFromClass(object_getClass(target)) : @"nil",
                    dont ? 1 : 0,
-                   selfCls]);
+                   selfCls,
+                   _bbRemaining]);
     // AD：original @0x10008a234 仅 cbz response→跳过 check；无 config/action/dontFormat/主线程门禁
     LBABSyncProbe([NSString stringWithFormat:
                    @"cb_precheck_gate_resp nil=%d len=%lu self=%@ main=%d next=%p",
