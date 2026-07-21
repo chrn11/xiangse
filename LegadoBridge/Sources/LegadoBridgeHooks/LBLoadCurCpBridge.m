@@ -552,6 +552,19 @@ static void LBAKSampleMainThreadPC(int round) {
 
 /// AK：idle 后立即密集采 PC（禁 WakeUp / 禁 drain enqueue）
 static void LBAKStartPostIdleMainBlockForensics(void) {
+    // AW：postQF 窗禁 AK main PC 采样。
+    // AV 真机证据：AV 拆 LBFHook↔LBAB 互套环 + AU RecordQuiet 后仍崩在同一点
+    // pc=1cc50dfdc（CoreFoundation）postQF=1 tid=259，fault=栈地址 si_code=2（栈 guard page 写穿）。
+    // 根因：AK 的 LBAKSampleMainThreadPC 在 postQF 窗后台线程调用 thread_suspend(mainTh) +
+    // thread_get_state + dladdr + LBABSyncProbe([NSString stringWithFormat:])（CFString），
+    // 与 post_cb_hb 后台线程并发；thread_suspend 挂起 main 时若 main 正持有 CFString 内部锁，
+    // 后台线程 CFString 操作访问被锁保护的内存 -> SEGV_ACCERR@__CFStringAppendBytes 子函数。
+    // 崩溃时间线印证：ak_main_idle_forensics_start 后 am_post_cb_hb i=1,2,3 即崩（两后台线程并发）。
+    // AW：postQF 窗（sALPostQF=1）直接 return，禁 AK 采样，消除并发 thread_suspend + CFString 冲突。
+    if (atomic_load(&sALPostQF)) {
+        LBABSyncProbe(@"aw_postqf_ak_main_pc_sampling_disabled");
+        return;
+    }
     int expected = 0;
     if (!atomic_compare_exchange_strong(&sAKIdleForensicsInFlight, &expected, 1)) {
         LBABSyncProbe(@"ak_main_idle_forensics_busy");
