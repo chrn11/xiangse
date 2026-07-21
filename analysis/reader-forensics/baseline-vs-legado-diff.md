@@ -205,4 +205,151 @@ AR 探针 `ar_pageStatus_pre/post` 取 `container.pageStatus` / `container.pageM
 
 **修复方向（假设 AV，单假设）**：`LBForensicsObserver.m LBFObserverSelectors()` 移除 `callBackResponse:config:userInfo:` 与 `lpNetWorkDelegateQueryFinish:config:userInfo:` 两行，拆掉 Observer tramp 这一环（EarlyWrap 只管 viewDidLoad/loadCurCp，不涉及 CB/QF，已核）。拆后 CB/QF 链剩 Bridge 单层钩 = Z/AA 时期形态（无栈溢出史，hypothesis-AB §1）。代价：Debug 暂失 qf_enter 记录；6B 前由 Bridge 侧记录或原生绘制信号补。
 
+### 8.6 AT–AX 真机迭代（2026-07-21，sha 3134c40→a8f544f）
+
+**迭代链**：AT（禁 post_cb_hb CFString 采样）→ AU（postQF 开 RecordQuiet）→ AV（拆 LBFHook↔LBAB 互套环）→ AW（禁 AK main PC 采样）→ AX（禁 post_cb_hb 心跳循环，二分法）。
+
+**每轮真机崩溃恒定点**（5 轮一致）：
+- `pc=1cc50dfdc`（CoreFoundation off=0x86fdc，`__CFStringAppendBytes` 子函数）
+- `fault=fp-0x178`（栈 guard page 写穿=栈溢出，每次 fp 不同但偏移恒定）
+- `tid=259`（后台线程，恒定）
+- `postQF=1`、`inQF=0`
+- `lr` 高位垃圾（栈破坏），fp stack f0-f5 异常、f6+ 恢复合法主二进制地址
+
+**各假设验收**：
+| 假设 | 改动 | 探针命中 | 崩溃 | 结论 |
+|---|---|---|---|---|
+| AT(3134c40) | 禁 LBANSampleMemPath/LBAPDumpPostQFStacks | at_postqf_cfstring_sampling_disabled ✓ | 仍崩 | post_cb_hb 内部采样非根因 |
+| AU(eabbc91) | postQF 开 RecordQuiet | au_postqf_record_quiet_enabled ✓ | 仍崩 | quiet=1 生效(hit=0)仍崩 |
+| AV(fe36416) | 移除 CB/QF 两 selector 拆环 | AV 拆环生效(hit=0 maxDepth=0) | 仍崩 | LBFHook↔LBAB 互套环非根因 |
+| AW(c2fcb86) | 禁 AK main PC 采样 | aw_postqf_ak_main_pc_sampling_disabled ✓ | 仍崩 | thread_suspend+CFString 非根因 |
+| AX(a8f544f) | 禁 post_cb_hb 心跳循环（二分法） | ax_postqf_hb_loop_disabled ✓ | 仍崩 | **崩溃源是 main 线程 QF 块** |
+
+**AX 决定性结论**：禁了所有后台线程 forensics（post_cb_hb 心跳 + AK 采样 + AT 采样）后仍崩。崩溃源不在后台 forensics 线程，而在 **main 线程的 QF 执行链**。
+
+**关键新证据（AX）**：`ao_lbf_stats hit=8 maxDepth=8 reenter=7 quietSkip=24` -- postQF 窗仍有 8 次 LBFHook 命中（depth 到 8 被 AR 守卫截断）。说明 main 线程 QF 块执行时仍触发 Observer trampoline（drawRect/showContent/divisionResponse 等 selector），trampoline 调用链本身（即使 LBFRecordEvent 被 quiet 跳过）仍有问题。
+
+**崩溃线程 tid=259 矛盾**：崩溃在后台线程 tid=259，但 AX 已禁所有后台 forensics。推测 tid=259 是 callback 后台线程（format + dispatch_async(main, QF) 调用者），cb_exit 后被 GCD 复用或在 postQF 窗残留。fp stack f6=主二进制地址（divisionResponse/showContent 区）暗示该线程栈曾深入 QF 执行链。
+
+**下一步方向**：
+1. 在 postQF 窗完全禁用 Observer 所有 selector 的 trampoline（不只是 CB/QF），验证是否消除崩溃
+2. 或符号化 pc=0x86fdc（off=552924）精确定位 CoreFoundation 函数
+3. 或验证 tid=259 线程的栈深度（callback 链 + GCD 复用是否导致栈接近 guard page）
+
+### 8.7 AZ/BA/BB 真机验收（2026-07-21，sha 155ad71/29239cf/6b6795a）-- 崩溃消除
+
+**BB 改动**：`LBAB_QFCallback` 开头检查 cb 线程栈剩余空间，若低于 8KB 则跳过所有 `LBABSyncProbe` 探针（减少 ObjC `stringWithFormat` 栈帧），只保留 orig 调用。
+
+**BB 真机证据（决定性突破）**：
+- **`crash=False`** -- **首次无崩溃！** AT-BB 九轮迭代中首次消除 SIGSEGV
+- **`invoke_ok=True`** -- invoke 成功
+- **`fault_lines=[]`** -- 无崩溃信号
+- **`foreground=com.appbox.StandarReader`** -- App 仍在前台（没崩溃退出）
+- ab_probe 无 `cb_enter`/`cb_exit`/`ba_cb_stack` 行 -- 低栈保护在 cb_enter 时生效（栈低于 8KB），跳过所有 callback 探针
+- `xiaoyan=False` -- 萧炎未上屏（PARTIAL_BB）
+
+**BB 决定性结论**：
+1. **崩溃根因最终确认**：cb 线程栈溢出（512KB GCD 栈 + Bridge 探针栈帧 + 原生 callback 链 = 接近满）。BB 跳过探针后 cb 线程栈消耗大幅减少，不再溢出。
+2. **崩溃消除**：低栈保护跳过探针后无崩溃。
+3. **原始问题回归**：萧炎未上屏（QF 块在 main 不执行/不排空）。这是 AE 之前的原始问题，被崩溃掩盖至今。
+
+**AT-BB 九轮迭代完整总结**：
+| 假设 | 改动 | 崩溃 | 结论 |
+|---|---|---|---|
+| AT | 禁 post_cb_hb CFString 采样 | 仍崩 | post_cb_hb 内部采样非根因 |
+| AU | postQF 开 RecordQuiet | 仍崩 | quiet 生效仍崩 |
+| AV | 移除 CB/QF 两 selector 拆环 | 仍崩 | LBFHook↔LBAB 互套环非根因 |
+| AW | 禁 AK main PC 采样 | 仍崩 | thread_suspend+CFString 非根因 |
+| AX | 禁 post_cb_hb 心跳循环 | 仍崩 | 崩溃源是 main 线程 QF 块 |
+| AY | 禁所有 Observer trampoline | 仍崩 | 崩溃源非 forensics |
+| AZ | postQF 逻辑异步化 | 仍崩 | cb 线程栈深度（postQF 部分）非根因 |
+| BA | 栈深度探针 | 仍崩 | **cb 线程栈仅剩 596 字节，栈溢出确认** |
+| BB | 低栈保护跳过探针 | **无崩** | **崩溃消除！根因=cb 线程栈溢出** |
+
+**下一步**：
+1. 优化 BB 低栈保护为精细方案（只跳过栈消耗大的探针，保留必要 hook 逻辑）
+2. 解决原始问题（main 队列排空/QF 执行/萧炎上屏）
+
+
+
+
+**AZ 改动**：`LBAMStartPostCbHeartbeat` 的 postQF 窗逻辑整体 `dispatch_async` 到 `QOS_CLASS_UTILITY` 独立队列，cb 线程只设 `sALPostQF=1` 后立即返回，不增加 cb 线程栈深度。
+
+**AZ 真机证据**：
+- `az_postqf_offloaded_to_utility_queue` 命中 ✓
+- 仍崩在同一点：`pc=1cc50dfdc`、`fault=fp-0x178`、`tid=259`、`postQF=1`
+- **AZ 决定性排除**：cb 线程零开销返回后仍崩，cb 线程栈深度（由 Bridge postQF 逻辑引入）非根因
+
+**BA 改动**：cb_exit 处加栈深度探针（`pthread_get_stackaddr_np`/`pthread_get_stacksize_np` + 局部变量地址近似 SP）。
+
+**BA 决定性证据**：
+```
+ba_cb_stack thread=0x16bbf7000 base=0x16bbf7000 size=536576 cur=0x16bbf6dac used=535980 remaining=596 main=0
+```
+- `stackSize=536576`（524KB = GCD 全局队列默认 512KB 栈）
+- `used=535980`（523KB）
+- **`remaining=596`（仅剩 596 字节！）**
+
+**根因确定**：cb 线程（tid=259，GCD 全局队列线程，512KB 栈）的 callback 链栈深度达 523KB，接近栈上限。cb_exit 时仅剩 596 字节栈空间。cb 线程返回 BookQueryManager 后，后续 CFString 操作需要 376+ 字节（`fault=fp-0x178`）栈帧，触碰 guard page -> SIGSEGV(11) si_code=2（栈 guard page 写穿）。
+
+**崩溃恒定点完全解释**：
+- `pc=CoreFoundation`：BookQueryManager 后续 CFString 操作（CFRetain/CFRelease/CFStringAppendBytes）
+- `fault=fp-0x178`：栈 guard page 写穿（376 字节栈帧超出剩余 596 字节... 实际是后续调用链累计）
+- `tid=259`：cb 线程（GCD 全局队列）
+- `postQF=1`：cb 线程在 postQF 窗返回后续处理时崩溃
+- `lr` 高位垃圾：栈破坏后返回地址被覆盖
+
+**AT-BA 八轮迭代总结**（forensics 路径全部排除 + 根因定位）：
+| 假设 | 改动 | 崩溃 | 结论 |
+|---|---|---|---|
+| AT | 禁 post_cb_hb CFString 采样 | 仍崩 | post_cb_hb 内部采样非根因 |
+| AU | postQF 开 RecordQuiet | 仍崩 | quiet 生效仍崩 |
+| AV | 移除 CB/QF 两 selector 拆环 | 仍崩 | LBFHook↔LBAB 互套环非根因 |
+| AW | 禁 AK main PC 采样 | 仍崩 | thread_suspend+CFString 非根因 |
+| AX | 禁 post_cb_hb 心跳循环 | 仍崩 | 崩溃源是 main 线程 QF 块 |
+| AY | 禁所有 Observer trampoline | 仍崩 | 崩溃源非 forensics |
+| AZ | postQF 逻辑异步化 | 仍崩 | cb 线程栈深度（postQF 部分）非根因 |
+| BA | 栈深度探针 | 仍崩 | **cb 线程栈仅剩 596 字节，栈溢出确认** |
+
+**修复方向**：
+1. 增大 cb 线程栈（自定义 NSThread 1MB+ 栈替代 GCD 全局队列）
+2. 减少 callback 链栈深度（Bridge hook 函数 tail call / 异步化探针）
+3. 把 format callback 的 hook 逻辑异步化（`LBAB_FormatCallBack` 探针改为 dispatch_async）
+
+
+
+
+**AY 改动**：所有 Observer trampoline（LBF_DEFINE_HOOK0/HOOK1 宏 + 10 个手写函数 + drawRect）开头检查 `g_aoPostQF`，若 postQF 则直接调 orig IMP 并 return，跳过所有 forensics CFString 操作（`NSStringFromClass`/`@[]`/`LBFGetOrigIMP`/`LBFRecordEvent`/`LBFMaybeScheduleAutoDump`）。
+
+**AY 真机证据**：
+- `ay_tramp_bypass_enabled` 命中 ✓
+- `ao_lbf_stats hit=0 maxDepth=0 quietSkip=0` -- postQF 窗 **0 次 trampoline 命中**（AX 是 hit=8，AY 完全消除）
+- 仍崩在同一点：`pc=1cc50dfdc`（CoreFoundation off=0x86fdc）、`fault=fp-0x178`（栈 guard page 写穿）、`tid=259`、`postQF=1`
+
+**AY 决定性排除结论**：禁了所有 Observer trampoline（hit=0）后仍崩。崩溃源**不是 forensics trampoline**，也**不是后台 forensics 线程**（AX 已排除）。
+
+**AT-AY 六轮迭代总结**（forensics 路径全部排除）：
+| 假设 | 改动 | 探针 | hit | 崩溃 | 结论 |
+|---|---|---|---|---|---|
+| AT(3134c40) | 禁 post_cb_hb CFString 采样 | ✓ | - | 仍崩 | post_cb_hb 内部采样非根因 |
+| AU(eabbc91) | postQF 开 RecordQuiet | ✓ | 0 | 仍崩 | quiet 生效仍崩 |
+| AV(fe36416) | 移除 CB/QF 两 selector 拆环 | ✓ | 0 | 仍崩 | LBFHook↔LBAB 互套环非根因 |
+| AW(c2fcb86) | 禁 AK main PC 采样 | ✓ | 0 | 仍崩 | thread_suspend+CFString 非根因 |
+| AX(a8f544f) | 禁 post_cb_hb 心跳循环 | ✓ | 8 | 仍崩 | 崩溃源是 main 线程 QF 块 |
+| AY(3def440) | 禁所有 Observer trampoline | ✓ | 0 | 仍崩 | **崩溃源非 forensics，在原生代码** |
+
+**崩溃恒定点（6 轮一致）**：
+- `pc=1cc50dfdc`（CoreFoundation off=0x86fdc，`__CFStringAppendBytes` 子函数）
+- `fault=fp-0x178`（栈 guard page 写穿=栈溢出）
+- `tid=259`（callback 后台线程，format + dispatch_async(main, QF) 调用者）
+- `postQF=1`、`inQF=0`
+- `lr` 高位垃圾（栈破坏），fp stack f0-f5 异常、f6+ 恢复合法主二进制地址
+
+**根因收敛**：崩溃源在**原生代码本身**，不在 forensics。tid=259 是 callback 后台线程，其 callback 链（format + BookQueryManager）栈深度 + postQF 窗的原生 CFString 操作（format 输出的 `__NSCFString` 被 main 线程 QF 块访问）导致 tid=259 栈溢出。`format_exit outCls=__NSCFString` 印证：format 在后台线程创建 mutable CFString，QF 块在 main 访问它，跨线程 CFString 冲突。
+
+**下一步方向**：
+1. 符号化 `pc=0x86fdc`（off=552924）精确定位 CoreFoundation 函数
+2. 验证 tid=259 的 callback 栈深度（format + BookQueryManager 链是否过深）
+3. 考虑 QF 块改回原版 dispatch_async(main) 但 format 输出改为不可变 NSString（消除跨线程 mutable CFString 冲突）
+
 
