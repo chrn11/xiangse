@@ -1590,19 +1590,80 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
     NSString *selfCls = self ? NSStringFromClass(object_getClass(self)) : @"nil";
     BOOL respNil = (response == nil);
     BOOL main = [NSThread isMainThread];
-    // BB：cb 线程栈低水位保护。
-    // BA 真机证据：cb_exit 时栈仅剩 596 字节（used=523KB/524KB），栈溢出确认。
-    // BB：cb_enter 时检查栈剩余空间，若低于 8KB 则跳过所有 LBABSyncProbe 探针（减少 ObjC
-    // stringWithFormat 栈帧），只保留 orig 调用 + 最小纯 C 标记。
+    // BB/BC8：cb 线程栈低水位保护。
+    // BA 真机：cb_exit 时栈仅剩 596 字节（used=523KB/524KB），栈溢出确认。
+    // BC7 真机：swcf_enter stackRem=596，栈在进入 swcf 前已耗尽。
+    // BC6b：rem<8KB 时 BB 跳过 ObjC 探针但仍在耗尽栈上调 orig → 进程仍被杀。
+    // BC8：rem<32KB 时 dispatch_sync 到专用串行队列跑 orig CB（新线程满栈）。
+    // 注意：历史 AA「bounce」禁的是弹到 main / 造成互套；本 bounce 只弹到私有串行队列，
+    // 不碰 main，并用 sBC8BounceDepth 防重入。
     pthread_t _bbT = pthread_self();
     void *_bbBase = pthread_get_stackaddr_np(_bbT);
     size_t _bbSize = pthread_get_stacksize_np(_bbT);
     int _bbVar = 0;
     long _bbRemaining = (long)((char *)_bbBase - (char *)&_bbVar);
+    (void)_bbSize;
+    static atomic_int sBC8BounceDepth = 0;
+    static dispatch_queue_t sBC8FreshQ = nil;
+    static dispatch_once_t sBC8Once;
+    dispatch_once(&sBC8Once, ^{
+        sBC8FreshQ = dispatch_queue_create("legado.bc8.cb.fresh", DISPATCH_QUEUE_SERIAL);
+    });
+    BOOL _bbNeedBounce = (_bbRemaining < 32768) && sABNextCallBackResponse
+                         && (atomic_load(&sBC8BounceDepth) == 0) && sBC8FreshQ;
+    if (_bbNeedBounce) {
+        {
+            char mark[192];
+            int n = snprintf(mark, sizeof(mark),
+                             "hypothesis_AC bc8_cb_bounce rem=%ld pid=%d inv=%lu\n",
+                             _bbRemaining, (int)getpid(), (unsigned long)sInvokeCount);
+            const char *home = getenv("HOME");
+            char path[512];
+            if (home && home[0]) {
+                snprintf(path, sizeof(path), "%s/Documents/legado_ab_probe.txt", home);
+            } else {
+                snprintf(path, sizeof(path), "/tmp/legado_ab_probe.txt");
+            }
+            int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            if (fd >= 0) {
+                if (n > 0) (void)write(fd, mark, (size_t)n);
+                (void)fsync(fd);
+                close(fd);
+            }
+        }
+        sADCheckEntered = 0;
+        id _bc8Self = self;
+        id _bc8Resp = response;
+        id _bc8Cfg = config;
+        id _bc8UI = userInfo;
+        SEL _bc8Cmd = _cmd;
+        atomic_fetch_add(&sBC8BounceDepth, 1);
+        dispatch_sync(sBC8FreshQ, ^{
+            // 新线程：满栈跑 orig CB（check/format/dispatch_async main QF）
+            sABInCallBack = 1;
+            @try {
+                sABNextCallBackResponse(_bc8Self, _bc8Cmd, _bc8Resp, _bc8Cfg, _bc8UI);
+            } @finally {
+                sABInCallBack = 0;
+            }
+            // 新线程上采 after 探针（栈充足）
+            pthread_t t = pthread_self();
+            void *base = pthread_get_stackaddr_np(t);
+            int v = 0;
+            long rem = (long)((char *)base - (char *)&v);
+            LBABSyncProbe([NSString stringWithFormat:
+                           @"bc8_cb_bounce_done rem=%ld", rem]);
+            LBAEProbeDispatchGates(_bc8Resp, _bc8Cfg, _bc8UI, @"after_cb_bounce");
+            dispatch_async(dispatch_get_main_queue(), ^{
+                LBABSyncProbe(@"qf_dispatch_main_pulse");
+            });
+        });
+        atomic_fetch_sub(&sBC8BounceDepth, 1);
+        return;
+    }
     BOOL _bbLowStack = (_bbRemaining < 8192);
     if (_bbLowStack) {
-        // 低栈：只调 orig，跳过 ObjC 探针；BC6b 用纯 C 写最小标记，
-        // 区分「CB 被绕过」vs「CB 进入但 BB 低栈跳过探针」。
+        // 兜底：已在 bounce 队列上仍低栈（不应发生），跳过 ObjC 探针直接调 orig。
         {
             char mark[160];
             int n = snprintf(mark, sizeof(mark),
