@@ -1590,20 +1590,25 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
     NSString *selfCls = self ? NSStringFromClass(object_getClass(self)) : @"nil";
     BOOL respNil = (response == nil);
     BOOL main = [NSThread isMainThread];
-    // BB/BC8：cb 线程栈低水位保护。
-    // BA 真机：cb_exit 时栈仅剩 596 字节（used=523KB/524KB），栈溢出确认。
-    // BC7 真机：swcf_enter stackRem=596，栈在进入 swcf 前已耗尽。
-    // BC6b：rem<8KB 时 BB 跳过 ObjC 探针但仍在耗尽栈上调 orig → 进程仍被杀。
-    // BC8：rem<32KB 时 dispatch_async+semaphore 到私有串行队列跑 orig CB（新线程满栈）。
-    // 注意：历史 AA「bounce」禁的是弹到 main / 造成互套；本 bounce 只弹到私有串行队列，
-    // 不碰 main，并用 sBC8BounceDepth 防重入。
-    // BC8b：禁止 dispatch_sync——GCD 会内联到调用线程（BC8 真机 bounce_done rem=1636 证实）。
+    // BC8c：Darwin 上 pthread_get_stackaddr_np 可能是 top 或 bottom。
+    // 同时算 used/rem/sz，避免把 used 误读成 remaining。
     pthread_t _bbT = pthread_self();
-    void *_bbBase = pthread_get_stackaddr_np(_bbT);
+    void *_bbAddr = pthread_get_stackaddr_np(_bbT);
     size_t _bbSize = pthread_get_stacksize_np(_bbT);
     int _bbVar = 0;
-    long _bbRemaining = (long)((char *)_bbBase - (char *)&_bbVar);
-    (void)_bbSize;
+    uintptr_t _bbSP = (uintptr_t)&_bbVar;
+    uintptr_t _bbLo, _bbHi;
+    if ((uintptr_t)_bbAddr > _bbSP) {
+        // addr = top (high)
+        _bbHi = (uintptr_t)_bbAddr;
+        _bbLo = _bbHi - (uintptr_t)_bbSize;
+    } else {
+        // addr = bottom (low)
+        _bbLo = (uintptr_t)_bbAddr;
+        _bbHi = _bbLo + (uintptr_t)_bbSize;
+    }
+    long _bbRemaining = (long)(_bbSP - _bbLo);
+    long _bbUsed = (long)(_bbHi - _bbSP);
     static atomic_int sBC8BounceDepth = 0;
     static dispatch_queue_t sBC8FreshQ = nil;
     static dispatch_once_t sBC8Once;
@@ -1614,10 +1619,11 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
                          && (atomic_load(&sBC8BounceDepth) == 0) && sBC8FreshQ;
     if (_bbNeedBounce) {
         {
-            char mark[192];
+            char mark[256];
             int n = snprintf(mark, sizeof(mark),
-                             "hypothesis_AC bc8_cb_bounce rem=%ld pid=%d inv=%lu\n",
-                             _bbRemaining, (int)getpid(), (unsigned long)sInvokeCount);
+                             "hypothesis_AC bc8_cb_bounce rem=%ld used=%ld sz=%zu tid=%p pid=%d inv=%lu\n",
+                             _bbRemaining, _bbUsed, _bbSize, (void *)_bbT,
+                             (int)getpid(), (unsigned long)sInvokeCount);
             const char *home = getenv("HOME");
             char path[512];
             if (home && home[0]) {
@@ -1651,11 +1657,23 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
                 sABInCallBack = 0;
             }
             pthread_t t = pthread_self();
-            void *base = pthread_get_stackaddr_np(t);
+            void *addr = pthread_get_stackaddr_np(t);
+            size_t sz = pthread_get_stacksize_np(t);
             int v = 0;
-            long rem = (long)((char *)base - (char *)&v);
+            uintptr_t sp = (uintptr_t)&v;
+            uintptr_t lo, hi;
+            if ((uintptr_t)addr > sp) {
+                hi = (uintptr_t)addr;
+                lo = hi - (uintptr_t)sz;
+            } else {
+                lo = (uintptr_t)addr;
+                hi = lo + (uintptr_t)sz;
+            }
+            long rem = (long)(sp - lo);
+            long used = (long)(hi - sp);
             LBABSyncProbe([NSString stringWithFormat:
-                           @"bc8_cb_bounce_done rem=%ld", rem]);
+                           @"bc8_cb_bounce_done rem=%ld used=%ld sz=%zu tid=%p",
+                           rem, used, sz, (void *)t]);
             LBAEProbeDispatchGates(_bc8Resp, _bc8Cfg, _bc8UI, @"after_cb_bounce");
             dispatch_async(dispatch_get_main_queue(), ^{
                 LBABSyncProbe(@"qf_dispatch_main_pulse");
