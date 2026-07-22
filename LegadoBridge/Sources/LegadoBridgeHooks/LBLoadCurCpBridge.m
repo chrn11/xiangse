@@ -1701,6 +1701,11 @@ static id LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id user
                    (unsigned long)respLen,
                    [action isKindOfClass:[NSString class]] ? action : @"-",
                    dont ? 1 : 0]);
+    /// BC6：采 format 调用栈，定位谁绕过 CB 直接调 format。
+    /// BC5 证实 inv=1 周期 CB 未被调用，但 format 被直接调用。
+    /// 本探针采前 12 帧符号，确认 format 的调用者。
+    NSString *bc6Stack = LBANSymbolStack(12);
+    LBABSyncProbe([NSString stringWithFormat:@"bc6_format_caller stack=%@", bc6Stack]);
     // AE：必须透传 id 返回值；void 钩会使 caller retain 到垃圾/nil，后续 QF 参数损坏
     id formatted = nil;
     if (sABNextFormatCallBack) {
@@ -1749,6 +1754,9 @@ static BOOL LBAB_CheckCallBack(id self, SEL _cmd, id response, id config, id use
                    selfCls,
                    [qsrc isKindOfClass:[NSString class]] ? qsrc : @"-",
                    response ? NSStringFromClass(object_getClass(response)) : @"nil"]);
+    /// BC6：采 check 调用栈，定位谁绕过 CB 直接调 check。
+    NSString *bc6CheckStack = LBANSymbolStack(12);
+    LBABSyncProbe([NSString stringWithFormat:@"bc6_check_caller stack=%@", bc6CheckStack]);
     if (!sABNextCheckCallBack) {
         LBABSyncProbe(@"check_early_return reason=null_next ok=1");
         return YES;
