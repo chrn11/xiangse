@@ -3,9 +3,13 @@
 **HEAD（取证树）**：`57d80b8`
 **基线 IPA SHA256**：`ed35e2734ef9d75ab8700921ec2819bb329c679ea508ba88e6d9576ae7be1631`
 **可执行文件 SHA256**：`04f780eb59f86c9104f8c8c3c04fb24278f521d0a43e401b3773d2a47890dea7`
-**形式**：静态反汇编（lldb 21.1.6 disassemble arm64）+ 假设链真机结论回写 + BC4/BC5 真机回写。
-**BC4 回写（2026-07-21）**：BC4 真机探针（commit `5f7535c`，legado-debug IPA）**推翻** AF/AI/AJ 的「main 不排空」结论。legado 路径 viewDidLoad after 投 `dispatch_async(main)` drain slot，100ms 内被调度执行（`bc_main_drain_slot main=1`），`bc_main_drain_end drain=1 wait=8 src=11`。**main runloop 正常排空**。
-**BC5 回写（2026-07-21）**：BC5 真机探针（commit `1f2d340`）**纠正** BC4 的「QF 块线程错配」误判。BC5 证实 `bqmOverrides=0`（BQM 未覆盖 CB，CB hook 装在 BQM 正确）。inv=1 周期（pid=34287）ab_probe **无 cb_enter/cb_exit/after_cb/qf_dispatch_main_pulse/qf_enter**，但有 `format_enter/exit`（format 被直接调用）。真根因：**legado invoke orig 路径绕过 callBackResponse，直接调 check/format**，QF 投递点（CB 内 dispatch_async(main) @0x10008a630）未到达，QF 块从未投递 -> 无上屏。`qf_dispatch_gates path=async_main main=0` 里的 main=0 是 `LBAEProbeDispatchGates` 探针自己在 bg（post_format 阶段），非 QF 执行线程。详见 §5.5 BC4/BC5 真机回写。
+**形式**：静态反汇编（lldb 21.1.6 disassemble arm64）+ 假设链真机结论回写 + BC4/BC5/BC6 真机回写。
+**BC4 回写（2026-07-21）**：BC4 真机探针（commit `5f7535c`）**推翻** AF/AI/AJ 的「main 不排空」结论。`bc_main_drain_end drain=1 wait=8 src=11`。**main runloop 正常排空**。
+**BC5 回写（2026-07-21）**：BC5 见 inv=1 无 `cb_enter` 但有 `format_enter`，误判为「CB 被绕过」。`bqmOverrides=0`（BQM 未覆盖 CB）仍成立。
+**BC6b 回写（2026-07-22）**：BC6b 真机（commit `ca80ea4`）**纠正** BC5「CB 被绕过」误判。关键证据：
+- `bc6_cb_lowstack rem=1284`：CB **被调用**，但进入时栈仅剩 1284 字节（< 8KB 阈值），BB 低栈保护跳过所有 ObjC 探针（故无 `cb_enter`）
+- `check_enter/format_enter inCB=1 stackRem≈2000`：check/format 在 CB hook 内被调（`sABInCallBack=1`），非绕过
+真根因转向：**CB 线程栈耗尽**（进入 CB 时已用约 523KB/524KB）。BB 低栈保护掩盖了 CB 进入；栈耗尽导致进程在 QF 上屏前被杀。详见 §5.5.5。
 **关联**：
 - [`baseline-vs-legado-diff.md`](baseline-vs-legado-diff.md)
 - [`hypothesis-AE-qf-dispatch-after-format.md`](hypothesis-AE-qf-dispatch-after-format.md)
@@ -25,11 +29,11 @@
 | callBackResponse 执行线程 | 网络回调线程（bg，NSURLConnection delegate queue） | bg（Legado handleContentRequest 异步回调 -> CB） | 相同 |
 | callback_inThread 默认值 | nil（原版不写；callBackResponse 仅读） | 原本 nil；AE 起 Legado 注入 @YES 走同步分支 | Legado 偏离（workaround） |
 | QF 默认派发路径 | dispatch_async(main_queue) 块内同步调 QF（0x10008a868 block invoke） | 同（original IMP 未改） | 相同（静态） |
-| QF 实际执行线程 | main（main 队列正常排空，block 被调度） | **未执行**（BC5：CB 被绕过，QF 投递点 @0x10008a630 未到达） | 根因差分（BC5 修正） |
-| invoke 后 main 队列排空 | 是（原版无杀点，RunLoop 正常回到 BeforeWaiting/BeforeSources） | **是**（BC4 真机：`bc_main_drain_end drain=1 wait=8 src=11`；AF/AI/AJ drain=0 为 QF 块在 bg 自测误导） | BC4 推翻 AF/AI/AJ |
-| 结果 | QF 在 main 跑 -> divisionResponse -> textViewL lazy -> drawRect 上屏 | CB 被绕过 -> QF 未投递 -> 无 divisionResponse -> 无 drawRect -> 无上屏 -> 回书架 |  |
+| QF 实际执行线程 | main（main 队列正常排空，block 被调度） | **未执行/未完成**（BC6b：CB 进入时栈仅剩 1284B，进程在 QF 上屏前被杀） | 根因差分（BC6b 修正） |
+| invoke 后 main 队列排空 | 是（原版无杀点，RunLoop 正常回到 BeforeWaiting/BeforeSources） | **是**（BC4 真机：`bc_main_drain_end drain=1 wait=8 src=11`；AF/AI/AJ drain=0 为误导） | BC4 推翻 AF/AI/AJ |
+| 结果 | QF 在 main 跑 -> divisionResponse -> textViewL lazy -> drawRect 上屏 | CB 进入时栈耗尽（rem≈1–2KB）-> 进程被杀 -> 无上屏 -> 回书架 |  |
 
-**核心结论（BC5 修正）**：原版与 Legado 在 `callBackResponse` 的静态分支结构上 **完全相同**；`callback_inThread` 在原版正常 TXT 阅读时为 nil，QF 走 `dispatch_async(main)`。**BC4 真机证实 main runloop 排空正常**（`bc_main_drain_end drain=1 wait=8 src=11`），推翻 AF/AI/AJ 的「main 不排空」结论。**BC5 真机证实真根因是 CB 被绕过**：inv=1 周期 ab_probe 无 `cb_enter/cb_exit/after_cb/qf_dispatch_main_pulse/qf_enter`，但有 `format_enter/exit`（format 被直接调用）。legado invoke orig 路径绕过 `callBackResponse`，直接调 check/format，QF 投递点（CB 内 `dispatch_async(main)` @0x10008a630）未到达，QF 块从未投递 -> 无上屏。`callback_inThread=YES` 注入是 Legado 的 workaround（让 QF 在 bg 同步跑），且 bg QF 会 SIGSEGV（AG/AI）。
+**核心结论（BC6b 修正）**：原版与 Legado 在 `callBackResponse` 的静态分支结构上 **完全相同**；`callback_inThread` 在原版正常 TXT 阅读时为 nil，QF 走 `dispatch_async(main)`。**BC4 真机证实 main runloop 排空正常**。**BC6b 真机证实真根因是 CB 线程栈耗尽**：CB 进入时栈仅剩 1284 字节（`bc6_cb_lowstack rem=1284`），BB 低栈保护跳过 ObjC 探针（故 BC5 误判「CB 被绕过」），但 `inCB=1` 证实 check/format 在 CB hook 内执行。栈耗尽导致进程在 QF 上屏前被杀。BC5 的「CB 被绕过」与 BC4 的「QF 线程错配」均为误判。
 
 ---
 ## 1. 原版 `callBackResponse` 反汇编（LPNetWork2 @ 0x10008a1d4，全分支）
@@ -187,7 +191,7 @@ invoke 前后 **无 dispatch_sync(main)**（AG 已验证 dispatch_sync(main) QF 
 ### 5.1 缺口（BC4 后状态）
 
 - ~~原版正常 TXT 阅读的运行时 baseline dump 从未补齐~~ **BC4 已闭合**：BC4 真机在 legado-debug IPA 采到 `bc_main_drain_end drain=1 wait=8 src=11`，证实 main runloop 排空正常。baseline-debug 因 forensics early wrap 副作用点书即退出，无法真机采集，但 legado 路径已足够证明 main 排空正常，原版同理 confirmed。
-- **新缺口**：CB 被绕过的根因未定位。BC5 证实 inv=1 周期 CB（callBackResponse）未被调用，但 format 被直接调用。需追查 legado invoke orig 路径为何绕过 CB 直接调 format（候选：invoke orig 内部调用链不同/原生 queryCpFileByBook 回调路径差异/BQM 覆盖了 CB 调用点）。
+- **新缺口**：CB 线程栈耗尽根因未定位。BC6b 证实进入 CB 时栈仅剩 1284 字节（已用约 523KB/524KB）。需追查 CB 进入前谁耗尽栈（候选：LegadoBridge 探针链/forensics trampoline 深度递归/原生 queryCpFileByBook 回调链过深）。
 
 ---
 
@@ -262,13 +266,42 @@ invoke 前后 **无 dispatch_sync(main)**（AG 已验证 dispatch_sync(main) QF 
 - `qf_dispatch_main_pulse`（CB hook 投的 main pulse）
 - `qf_enter`（QF hook 入口）
 
-#### BC5 结论
+#### BC5 结论（BC6b 推翻）
 
-- **CB（callBackResponse）未被调用**：inv=1 周期无任何 CB 相关探针行。CB hook 装在 BQM（bqmOverrides=0 确认装对类），但 CB 没被触发。
-- **format 被直接调用**：inv=1 有 `format_enter/exit`，self=BookQueryManager，说明 format 被调了。但 format 不是 CB 调的（CB 没被调）。
-- **QF 投递点未到达**：原版 QF 投递在 CB 内（`dispatch_async(main)` @0x10008a630）。CB 没被调 -> QF 未投递 -> 无 qf_enter -> 无 divisionResponse -> 无 drawRect -> 无上屏。
-- **纠正 BC4 线程错配误判**：`qf_dispatch_gates path=async_main main=0` 里的 main=0 是 `LBAEProbeDispatchGates` 探针自己在 bg（post_format 阶段），非 QF 执行线程。QF 压根没被投递，不是线程错配。
-- **真根因**：legado invoke orig 路径绕过 callBackResponse，直接调 check/format。需追查为何绕过 CB（BC6）。
+- ~~CB（callBackResponse）未被调用~~ **BC6b 推翻**：CB 被调用，但 BB 低栈保护跳过了探针。
+- ~~format 被直接调用~~ **BC6b 推翻**：`inCB=1` 证实 format 在 CB hook 内。
+- ~~QF 投递点未到达~~ 待 BC7 确认：CB 进入时栈已耗尽，进程可能在 QF 投递后、上屏前被杀。
+- **纠正 BC4 线程错配误判**：仍成立（`path=async_main main=0` 的 main=0 是探针自己在 bg）。
+
+### 5.5.5 BC6b 真机回写：CB 进入但栈耗尽（纠正 BC5 绕过误判）
+
+**commit**：`ca80ea4`（BC6b：区分 CB 绕过 vs BB 低栈跳过探针）
+**IPA**：`dist-ci/bc6b_ca80ea4/dist/StandarReader-legado-debug.ipa`
+**采集时间**：2026-07-22 10:38:00（inv=1 pid=38609）
+
+#### BC6b 探针设计
+
+- `bc6_cb_lowstack`：BB 低栈路径（rem<8KB）纯 C 写盘，不走 ObjC
+- `format_enter/check_enter` 追加 `inCB=sABInCallBack` + `stackRem`
+- 调用栈仅在 `stackRem>=16KB` 时采集
+
+#### BC6b 实测结果（`legado_ab_probe.txt` 原文）
+
+```
+bc6_cb_lowstack rem=1284 pid=38609 inv=1
+check_enter ... inCB=1 stackRem=2012 main=0 inv=1 pid=38609
+bc6_check_caller inCB=1 stack=skipped_low rem=2012
+format_enter ... inCB=1 stackRem=2004 main=0 inv=1 pid=38609
+bc6_format_caller inCB=1 stack=skipped_low rem=2004
+```
+
+#### BC6b 结论
+
+- **CB 被调用**：`bc6_cb_lowstack rem=1284` 证实 CB hook 入口被命中。
+- **BB 低栈保护掩盖了 CB 进入**：rem=1284 < 8192，跳过所有 ObjC 探针（故无 `cb_enter/cb_exit/after_cb`），BC5 因此误判「CB 被绕过」。
+- **check/format 在 CB 内**：`inCB=1`（`_Thread_local sABInCallBack`），非绕过。
+- **栈耗尽**：进入 CB 时仅剩 1284 字节，format 时约 2000 字节。与 BA 真机（cb_exit 时 rem=596，栈溢出确认）一致。
+- **真根因**：CB 线程栈在进入 `callBackResponse` 前已耗尽约 523KB/524KB。进程在 QF 上屏前被杀（栈 guard page）。需 BC7 追查谁耗尽栈。
 
 ---
 
@@ -285,13 +318,13 @@ invoke 前后 **无 dispatch_sync(main)**（AG 已验证 dispatch_sync(main) QF 
 
 ### 7.1 差分结论
 
-原版正常 TXT 阅读与 Legado 路径在 `callBackResponse` 静态分支结构上 **完全相同**；差分根因是 **CB 被绕过**（BC5 修正，推翻 BC4 线程错配误判，推翻 AF/AI/AJ main 不排空结论）：
+原版正常 TXT 阅读与 Legado 路径在 `callBackResponse` 静态分支结构上 **完全相同**；差分根因是 **CB 线程栈耗尽**（BC6b 修正）：
 
-- 原版：main 排空（BC4 confirmed）-> CB 执行 -> CB 内 `dispatch_async(main)` 投 QF -> QF 在 main 执行 -> 上屏。
-- Legado：main 排空正常（BC4 `bc_main_drain_end drain=1 wait=8 src=11`），但 **CB 被绕过**（BC5：inv=1 无 cb_enter/exit/after_cb/qf_enter，有 format_enter/exit）-> QF 投递点（CB 内 @0x10008a630）未到达 -> QF 未投递 -> 无上屏 -> 进程被杀。
-- `callback_inThread=YES` 注入是 Legado workaround，让 QF 在 bg 同步跑，且 bg QF 会 SIGSEGV（AG/AI）。
-- AF/AI/AJ 的 `drain=0` 是 QF 块在 bg 自测「main 是否正在执行本 block」的结果，非 main runloop 排空状态，属误判。
-- BC4 的「QF 线程错配」是误判：`path=async_main main=0` 的 main=0 是探针自己在 bg，非 QF 执行线程。QF 压根没被投递。
+- 原版：main 排空（BC4 confirmed）-> CB 执行（栈充足）-> CB 内 `dispatch_async(main)` 投 QF -> QF 在 main 执行 -> 上屏。
+- Legado：main 排空正常（BC4），CB **被调用**（BC6b `bc6_cb_lowstack rem=1284`），但进入时栈仅剩 1284 字节 -> 进程在 QF 上屏前被杀（栈 guard page）-> 无上屏。
+- BC5「CB 被绕过」是误判：BB 低栈保护跳过 ObjC 探针，但 `inCB=1` 证实 check/format 在 CB 内。
+- BC4「QF 线程错配」是误判：`path=async_main main=0` 的 main=0 是探针自己在 bg。
+- AF/AI/AJ「main 不排空」是误判：BC4 `drain=1` 推翻。
 
 ### 7.2 原版 QF 线程判定
 
@@ -308,11 +341,14 @@ invoke 前后 **无 dispatch_sync(main)**（AG 已验证 dispatch_sync(main) QF 
 5. **C5**（低）：container 未 attach 时 invoke 触发原生异常路径（R2 早期路径）。
 6. **C6**（低-中）：进程级资源耗尽导致 main 被 jetsam 预警挂起。
 
-### 7.4 下一步建议（BC5 后修正）
+### 7.4 下一步建议（BC6b 后修正）
 
-- ~~优先验证 C1：在 Legado 路径上禁用/替换原生 `addChildViewController:` 调用~~ C1–C6 候选基于「main 不排空」假设，BC4 推翻该假设后失效。
-- ~~追查 QF 块线程错配根因~~ BC5 推翻线程错配误判，真根因是 CB 被绕过。
-- **新优先（BC6）**：追查 legado invoke orig 为何绕过 callBackResponse 直接调 check/format。验证 format 的调用者（在 format hook 内打印调用栈），定位绕过 CB 的代码路径。
+- ~~优先验证 C1~~ / ~~追查 QF 线程错配~~ / ~~追查 CB 绕过~~：均已推翻或失效。
+- **新优先（BC7）**：追查 CB 进入前谁耗尽约 523KB 栈。候选：
+  1. LegadoBridge 探针链（AK/AI/AG/forensics trampoline）在 CB 前的深度调用
+  2. forensics `LBForensicsMethodOwnerClass` → `class_copyMethodList` 递归
+  3. 原生 `queryCpFileByBook` / `stringWithContentsOfFile` 回调链过深
+  4. 验证手段：CB 入口采最小栈帧数（纯 C backtrace_symbols），或临时抬高线程栈 / 将 CB 后处理迁到新线程
 
 ---
 
