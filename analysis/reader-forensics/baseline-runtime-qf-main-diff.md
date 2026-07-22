@@ -1,15 +1,19 @@
 # 原版正常 TXT 阅读 vs Legado：QF 线程 / main 排空 / invoke 后行为差分
 
-**HEAD（取证树）**：`57d80b8`
+**HEAD（取证树）**：见 git main 最新
 **基线 IPA SHA256**：`ed35e2734ef9d75ab8700921ec2819bb329c679ea508ba88e6d9576ae7be1631`
 **可执行文件 SHA256**：`04f780eb59f86c9104f8c8c3c04fb24278f521d0a43e401b3773d2a47890dea7`
-**形式**：静态反汇编（lldb 21.1.6 disassemble arm64）+ 假设链真机结论回写 + BC4/BC5/BC6 真机回写。
-**BC4 回写（2026-07-21）**：BC4 真机探针（commit `5f7535c`）**推翻** AF/AI/AJ 的「main 不排空」结论。`bc_main_drain_end drain=1 wait=8 src=11`。**main runloop 正常排空**。
-**BC5 回写（2026-07-21）**：BC5 见 inv=1 无 `cb_enter` 但有 `format_enter`，误判为「CB 被绕过」。`bqmOverrides=0`（BQM 未覆盖 CB）仍成立。
-**BC6b 回写（2026-07-22）**：BC6b 真机（commit `ca80ea4`）**纠正** BC5「CB 被绕过」误判。关键证据：
-- `bc6_cb_lowstack rem=1284`：CB **被调用**，但进入时栈仅剩 1284 字节（< 8KB 阈值），BB 低栈保护跳过所有 ObjC 探针（故无 `cb_enter`）
-- `check_enter/format_enter inCB=1 stackRem≈2000`：check/format 在 CB hook 内被调（`sABInCallBack=1`），非绕过
-真根因转向：**CB 线程栈耗尽**（进入 CB 时已用约 523KB/524KB）。BB 低栈保护掩盖了 CB 进入；栈耗尽导致进程在 QF 上屏前被杀。详见 §5.5.5。
+**形式**：静态反汇编（lldb 21.1.6 disassemble arm64）+ 假设链真机结论回写 + BC4–BC10 真机回写。
+**BC4 回写（2026-07-21）**：`bc_main_drain_end drain=1` → **推翻** AF/AI/AJ「main 不排空」。
+**BC5/BC6 误判链（已推翻）**：无 `cb_enter` ≠ CB 绕过；旧 `stackRem` 公式把 used/remaining 标反，**「栈耗尽」不成立**（BC8c：`cb_enter stackRem=535196`）。
+**BC8c（2026-07-22）**：CB 完成并声明 `path=async_main`；随后 post-CB 取证窗 SIGSEGV。
+**BC9（2026-07-22，`0b46cfe`）**：禁 `LBAMStartPostCbHeartbeat` / `LBAKStartPostIdleMainBlockForensics`。真机：见 `bc9_*_skipped`，**无探针内 SIGSEGV 字样**，但仍无 `qf_enter`；进程约 1s 后换 pid。
+**BC10（2026-07-22）**：BC9 IPS `StandarReader-2026-07-22-111639.ips`（pid=39121）裁定真杀点：
+- faultingThread = **main**（`com.apple.main-thread`）
+- `EXC_BAD_ACCESS` / `SIGSEGV` @ `__CFStringChangeSizeMultiple` ← `LBFRecordEvent` ← `LBFHook_v_at_B`
+- 栈 **511 帧**：`LBFHook_v_at_B` ↔ `-[UIPageViewController viewWillAppear:]` 各约 250 次
+- 根因：forensics Observer 对 **UIKit 父类** `method_setImplementation(viewWillAppear:)`，触发递归风暴，**抢在 QF 之前**杀进程
+- 修复：钩子改为 **probe 子类 `class_addMethod`**（不改 UIKit IMP）；并从 Observer 清单 **移除 `viewWillAppear:`**
 **关联**：
 - [`baseline-vs-legado-diff.md`](baseline-vs-legado-diff.md)
 - [`hypothesis-AE-qf-dispatch-after-format.md`](hypothesis-AE-qf-dispatch-after-format.md)
@@ -24,16 +28,15 @@
 
 | 维度 | 原版正常 TXT 阅读（静态判定） | Legado 路径（真机实测） | 差分性质 |
 |---|---|---|---|
-| loadCurCp 调用线程 | main（UIKit appear/onReset 链） | main（ResetContent 通知注册在 mainQueue，见 LBBridgeReaderVC.m:59） | 相同 |
-| loadCurCp 是否同步等待网络 | 否（异步；调 queryCpFileByBook:...cachePolicy:2 后直接 release 返回，无 dispatch_sync/锁/信号量） | 否（invoke orig 同样异步） | 相同 |
-| callBackResponse 执行线程 | 网络回调线程（bg，NSURLConnection delegate queue） | bg（Legado handleContentRequest 异步回调 -> CB） | 相同 |
-| callback_inThread 默认值 | nil（原版不写；callBackResponse 仅读） | 原本 nil；AE 起 Legado 注入 @YES 走同步分支 | Legado 偏离（workaround） |
-| QF 默认派发路径 | dispatch_async(main_queue) 块内同步调 QF（0x10008a868 block invoke） | 同（original IMP 未改） | 相同（静态） |
-| QF 实际执行线程 | main（main 队列正常排空，block 被调度） | **未执行/未完成**（BC6b：CB 进入时栈仅剩 1284B，进程在 QF 上屏前被杀） | 根因差分（BC6b 修正） |
-| invoke 后 main 队列排空 | 是（原版无杀点，RunLoop 正常回到 BeforeWaiting/BeforeSources） | **是**（BC4 真机：`bc_main_drain_end drain=1 wait=8 src=11`；AF/AI/AJ drain=0 为误导） | BC4 推翻 AF/AI/AJ |
-| 结果 | QF 在 main 跑 -> divisionResponse -> textViewL lazy -> drawRect 上屏 | CB 进入时栈耗尽（rem≈1–2KB）-> 进程被杀 -> 无上屏 -> 回书架 |  |
+| loadCurCp 调用线程 | main（UIKit appear/onReset 链） | main | 相同 |
+| callBackResponse 执行线程 | bg 网络回调 | bg（Legado CB） | 相同 |
+| QF 默认派发路径 | `dispatch_async(main)` | 同（`after_cb path=async_main`） | 相同 |
+| main runloop 排空 | 是 | **是**（BC4/BC9：`drain=1`） | 非根因 |
+| CB 栈 | 正常 | **正常**（BC8c：`stackRem≈535KB`；旧 rem 公式误标） | 非根因 |
+| QF 是否进入 | 是 | BC9 前被杀；BC9 仍无 `qf_enter`（main 上 VWA 风暴） | **取证钩副作用** |
+| 结果 | QF→division→drawRect 上屏 | forensics `viewWillAppear` 递归风暴杀进程 → 回空书架 | 根因差分（BC10） |
 
-**核心结论（BC6b 修正）**：原版与 Legado 在 `callBackResponse` 的静态分支结构上 **完全相同**；`callback_inThread` 在原版正常 TXT 阅读时为 nil，QF 走 `dispatch_async(main)`。**BC4 真机证实 main runloop 排空正常**。**BC6b 真机证实真根因是 CB 线程栈耗尽**：CB 进入时栈仅剩 1284 字节（`bc6_cb_lowstack rem=1284`），BB 低栈保护跳过 ObjC 探针（故 BC5 误判「CB 被绕过」），但 `inCB=1` 证实 check/format 在 CB hook 内执行。栈耗尽导致进程在 QF 上屏前被杀。BC5 的「CB 被绕过」与 BC4 的「QF 线程错配」均为误判。
+**核心结论（BC10）**：业务路径（CB→format→`dispatch_async(main)` QF）与原版一致，main 也排空。进程死在 **LegadoBridgeDebug forensics** 错误地把 `viewWillAppear:` 装到 `UIPageViewController` 上，main 递归风暴 + `LBFRecordEvent` CFString 崩，**QF 块未及执行**。BC6「栈耗尽」、BC5「CB 绕过」、AF「main 不排空」均为误判。
 
 ---
 ## 1. 原版 `callBackResponse` 反汇编（LPNetWork2 @ 0x10008a1d4，全分支）

@@ -66,6 +66,7 @@ static BOOL LBFInstallHookOnMethod(Class owner, NSString *ownerName, NSString *s
 static void LBFRecordEvent(NSString *when, id selfObj, SEL sel, NSArray<NSString *> *argShapes,
                            NSString *returnShape, NSString *ownerClassName);
 static IMP LBFGetOrigIMP(NSString *owner, SEL sel);
+static IMP LBFGetOrigIMPForClass(Class cls, SEL sel);
 
 static NSString *LBFOrigKey(NSString *owner, NSString *sel) {
     return [NSString stringWithFormat:@"%@|%@", owner, sel];
@@ -774,6 +775,19 @@ static IMP LBFGetOrigIMP(NSString *owner, SEL sel) {
     return v ? (IMP)v.pointerValue : NULL;
 }
 
+/// BC10：orig 按 probe 类名存储；从实例类沿继承链查找，避免 MethodOwnerClass 指到 UIKit 父类时 miss。
+static IMP LBFGetOrigIMPForClass(Class cls, SEL sel) {
+    Class walk = cls;
+    while (walk) {
+        IMP imp = LBFGetOrigIMP(NSStringFromClass(walk), sel);
+        if (imp) return imp;
+        walk = class_getSuperclass(walk);
+    }
+    Class owner = LBForensicsMethodOwnerClass(cls, sel);
+    if (owner) return LBFGetOrigIMP(NSStringFromClass(owner), sel);
+    return NULL;
+}
+
 #pragma mark - Hook trampolines (只记录 + 调原 IMP)
 
 /// AY：postQF 窗短路标志--trampoline 开头检查，若 postQF 窗则直接调 orig 不做任何 forensics 逻辑。
@@ -791,7 +805,7 @@ static inline BOOL LBForensicsShouldBypassInPostQF(void) {
 static BOOL LBForensicsBypassTrampolineIfPostQF(id self, SEL _cmd) {
     if (!LBForensicsShouldBypassInPostQF()) return NO;
     NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
-    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    IMP imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
     if (imp) ((void (*)(id, SEL))imp)(self, _cmd);
     return YES;
 }
@@ -800,14 +814,14 @@ static BOOL LBForensicsBypassTrampolineIfPostQF(id self, SEL _cmd) {
 static void LBFHook_##NAME(id self, SEL _cmd) { \
     if (LBForensicsShouldBypassInPostQF()) { \
         NSString *_owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd)); \
-        IMP _imp = LBFGetOrigIMP(_owner, _cmd); \
+        IMP _imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd); \
         if (_imp) ((void (*)(id, SEL))_imp)(self, _cmd); \
         return; \
     } \
     NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd)); \
     LBFRecordEvent(@"before", self, _cmd, @[], @"void", owner); \
     @try { \
-        IMP imp = LBFGetOrigIMP(owner, _cmd); \
+        IMP imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd); \
         if (imp) ((void (*)(id, SEL))imp)(self, _cmd); \
     } @catch (NSException *ex) { \
         LBFRecordEvent(@"after", self, _cmd, @[], @"void", owner); \
@@ -822,13 +836,13 @@ static void LBFHook_##NAME(id self, SEL _cmd) { \
 static void LBFHook_##NAME(id self, SEL _cmd, T1 a1) { \
     if (LBForensicsShouldBypassInPostQF()) { \
         NSString *_owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd)); \
-        IMP _imp = LBFGetOrigIMP(_owner, _cmd); \
+        IMP _imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd); \
         if (_imp) ((void (*)(id, SEL, T1))_imp)(self, _cmd, a1); \
         return; \
     } \
     NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd)); \
     LBFRecordEvent(@"before", self, _cmd, @[A1(a1)], @"void", owner); \
-    IMP imp = LBFGetOrigIMP(owner, _cmd); \
+    IMP imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd); \
     if (imp) ((void (*)(id, SEL, T1))imp)(self, _cmd, a1); \
     LBFRecordEvent(@"after", self, _cmd, @[A1(a1)], @"void", owner); \
 }
@@ -845,14 +859,14 @@ LBF_DEFINE_HOOK1(v_at_CGSize, CGSize, LBF_SHAPE_SIZE)
 static void LBFHook_v_at_id_id(id self, SEL _cmd, id a1, id a2) {
     if (LBForensicsShouldBypassInPostQF()) {
         NSString *_owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
-        IMP _imp = LBFGetOrigIMP(_owner, _cmd);
+        IMP _imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
         if (_imp) ((void (*)(id, SEL, id, id))_imp)(self, _cmd, a1, a2);
         return;
     }
     NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
     NSArray *args = @[LBF_SHAPE_OBJ(a1), LBF_SHAPE_OBJ(a2)];
     LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
-    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    IMP imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
     if (imp) ((void (*)(id, SEL, id, id))imp)(self, _cmd, a1, a2);
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
 }
@@ -860,7 +874,7 @@ static void LBFHook_v_at_id_id(id self, SEL _cmd, id a1, id a2) {
 static void LBFHook_v_at_id_q(id self, SEL _cmd, id a1, NSInteger a2) {
     if (LBForensicsShouldBypassInPostQF()) {
         NSString *_owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
-        IMP _imp = LBFGetOrigIMP(_owner, _cmd);
+        IMP _imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
         if (_imp) ((void (*)(id, SEL, id, NSInteger))_imp)(self, _cmd, a1, a2);
         return;
     }
@@ -868,7 +882,7 @@ static void LBFHook_v_at_id_q(id self, SEL _cmd, id a1, NSInteger a2) {
     NSArray *args = @[LBF_SHAPE_OBJ(a1),
                       [NSString stringWithFormat:@"NSInteger:%ld", (long)a2]];
     LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
-    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    IMP imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
     if (imp) ((void (*)(id, SEL, id, NSInteger))imp)(self, _cmd, a1, a2);
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
 }
@@ -876,7 +890,7 @@ static void LBFHook_v_at_id_q(id self, SEL _cmd, id a1, NSInteger a2) {
 static void LBFHook_v_at_id_id_q(id self, SEL _cmd, id a1, id a2, NSInteger a3) {
     if (LBForensicsShouldBypassInPostQF()) {
         NSString *_owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
-        IMP _imp = LBFGetOrigIMP(_owner, _cmd);
+        IMP _imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
         if (_imp) ((void (*)(id, SEL, id, id, NSInteger))_imp)(self, _cmd, a1, a2, a3);
         return;
     }
@@ -884,7 +898,7 @@ static void LBFHook_v_at_id_id_q(id self, SEL _cmd, id a1, id a2, NSInteger a3) 
     NSArray *args = @[LBF_SHAPE_OBJ(a1), LBF_SHAPE_OBJ(a2),
                       [NSString stringWithFormat:@"NSInteger:%ld", (long)a3]];
     LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
-    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    IMP imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
     if (imp) ((void (*)(id, SEL, id, id, NSInteger))imp)(self, _cmd, a1, a2, a3);
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
 }
@@ -892,7 +906,7 @@ static void LBFHook_v_at_id_id_q(id self, SEL _cmd, id a1, id a2, NSInteger a3) 
 static void LBFHook_v_at_id_id_q_id(id self, SEL _cmd, id a1, id a2, NSInteger a3, id a4) {
     if (LBForensicsShouldBypassInPostQF()) {
         NSString *_owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
-        IMP _imp = LBFGetOrigIMP(_owner, _cmd);
+        IMP _imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
         if (_imp) ((void (*)(id, SEL, id, id, NSInteger, id))_imp)(self, _cmd, a1, a2, a3, a4);
         return;
     }
@@ -901,7 +915,7 @@ static void LBFHook_v_at_id_id_q_id(id self, SEL _cmd, id a1, id a2, NSInteger a
                       [NSString stringWithFormat:@"NSInteger:%ld", (long)a3],
                       LBF_SHAPE_OBJ(a4)];
     LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
-    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    IMP imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
     if (imp) ((void (*)(id, SEL, id, id, NSInteger, id))imp)(self, _cmd, a1, a2, a3, a4);
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
 }
@@ -909,14 +923,14 @@ static void LBFHook_v_at_id_id_q_id(id self, SEL _cmd, id a1, id a2, NSInteger a
 static void LBFHook_v_at_id_id_id(id self, SEL _cmd, id a1, id a2, id a3) {
     if (LBForensicsShouldBypassInPostQF()) {
         NSString *_owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
-        IMP _imp = LBFGetOrigIMP(_owner, _cmd);
+        IMP _imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
         if (_imp) ((void (*)(id, SEL, id, id, id))_imp)(self, _cmd, a1, a2, a3);
         return;
     }
     NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
     NSArray *args = @[LBF_SHAPE_OBJ(a1), LBF_SHAPE_OBJ(a2), LBF_SHAPE_OBJ(a3)];
     LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
-    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    IMP imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
     if (imp) ((void (*)(id, SEL, id, id, id))imp)(self, _cmd, a1, a2, a3);
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
 }
@@ -924,14 +938,14 @@ static void LBFHook_v_at_id_id_id(id self, SEL _cmd, id a1, id a2, id a3) {
 static void LBFHook_v_at_id_id_id_id(id self, SEL _cmd, id a1, id a2, id a3, id a4) {
     if (LBForensicsShouldBypassInPostQF()) {
         NSString *_owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
-        IMP _imp = LBFGetOrigIMP(_owner, _cmd);
+        IMP _imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
         if (_imp) ((void (*)(id, SEL, id, id, id, id))_imp)(self, _cmd, a1, a2, a3, a4);
         return;
     }
     NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
     NSArray *args = @[LBF_SHAPE_OBJ(a1), LBF_SHAPE_OBJ(a2), LBF_SHAPE_OBJ(a3), LBF_SHAPE_OBJ(a4)];
     LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
-    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    IMP imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
     if (imp) ((void (*)(id, SEL, id, id, id, id))imp)(self, _cmd, a1, a2, a3, a4);
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
 }
@@ -939,7 +953,7 @@ static void LBFHook_v_at_id_id_id_id(id self, SEL _cmd, id a1, id a2, id a3, id 
 static void LBFHook_v_at_id_id_id_id_id(id self, SEL _cmd, id a1, id a2, id a3, id a4, id a5) {
     if (LBForensicsShouldBypassInPostQF()) {
         NSString *_owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
-        IMP _imp = LBFGetOrigIMP(_owner, _cmd);
+        IMP _imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
         if (_imp) ((void (*)(id, SEL, id, id, id, id, id))_imp)(self, _cmd, a1, a2, a3, a4, a5);
         return;
     }
@@ -947,7 +961,7 @@ static void LBFHook_v_at_id_id_id_id_id(id self, SEL _cmd, id a1, id a2, id a3, 
     NSArray *args = @[LBF_SHAPE_OBJ(a1), LBF_SHAPE_OBJ(a2), LBF_SHAPE_OBJ(a3),
                       LBF_SHAPE_OBJ(a4), LBF_SHAPE_OBJ(a5)];
     LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
-    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    IMP imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
     if (imp) ((void (*)(id, SEL, id, id, id, id, id))imp)(self, _cmd, a1, a2, a3, a4, a5);
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
 }
@@ -955,7 +969,7 @@ static void LBFHook_v_at_id_id_id_id_id(id self, SEL _cmd, id a1, id a2, id a3, 
 static void LBFHook_v_at_id_id_id_id_id_id(id self, SEL _cmd, id a1, id a2, id a3, id a4, id a5, id a6) {
     if (LBForensicsShouldBypassInPostQF()) {
         NSString *_owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
-        IMP _imp = LBFGetOrigIMP(_owner, _cmd);
+        IMP _imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
         if (_imp) ((void (*)(id, SEL, id, id, id, id, id, id))_imp)(self, _cmd, a1, a2, a3, a4, a5, a6);
         return;
     }
@@ -963,7 +977,7 @@ static void LBFHook_v_at_id_id_id_id_id_id(id self, SEL _cmd, id a1, id a2, id a
     NSArray *args = @[LBF_SHAPE_OBJ(a1), LBF_SHAPE_OBJ(a2), LBF_SHAPE_OBJ(a3),
                       LBF_SHAPE_OBJ(a4), LBF_SHAPE_OBJ(a5), LBF_SHAPE_OBJ(a6)];
     LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
-    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    IMP imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
     if (imp) ((void (*)(id, SEL, id, id, id, id, id, id))imp)(self, _cmd, a1, a2, a3, a4, a5, a6);
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
 }
@@ -971,7 +985,7 @@ static void LBFHook_v_at_id_id_id_id_id_id(id self, SEL _cmd, id a1, id a2, id a
 static void LBFHook_v_at_id_id_id_id_id_id_id(id self, SEL _cmd, id a1, id a2, id a3, id a4, id a5, id a6, id a7) {
     if (LBForensicsShouldBypassInPostQF()) {
         NSString *_owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
-        IMP _imp = LBFGetOrigIMP(_owner, _cmd);
+        IMP _imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
         if (_imp) ((void (*)(id, SEL, id, id, id, id, id, id, id))_imp)(self, _cmd, a1, a2, a3, a4, a5, a6, a7);
         return;
     }
@@ -979,7 +993,7 @@ static void LBFHook_v_at_id_id_id_id_id_id_id(id self, SEL _cmd, id a1, id a2, i
     NSArray *args = @[LBF_SHAPE_OBJ(a1), LBF_SHAPE_OBJ(a2), LBF_SHAPE_OBJ(a3),
                       LBF_SHAPE_OBJ(a4), LBF_SHAPE_OBJ(a5), LBF_SHAPE_OBJ(a6), LBF_SHAPE_OBJ(a7)];
     LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
-    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    IMP imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
     if (imp) ((void (*)(id, SEL, id, id, id, id, id, id, id))imp)(self, _cmd, a1, a2, a3, a4, a5, a6, a7);
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
 }
@@ -987,14 +1001,14 @@ static void LBFHook_v_at_id_id_id_id_id_id_id(id self, SEL _cmd, id a1, id a2, i
 static void LBFHook_drawRect(id self, SEL _cmd, CGRect rect) {
     if (LBForensicsShouldBypassInPostQF()) {
         NSString *_owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
-        IMP _imp = LBFGetOrigIMP(_owner, _cmd);
+        IMP _imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
         if (_imp) ((void (*)(id, SEL, CGRect))_imp)(self, _cmd, rect);
         return;
     }
     NSString *owner = NSStringFromClass(LBForensicsMethodOwnerClass(object_getClass(self), _cmd));
     NSArray *args = @[[NSString stringWithFormat:@"CGRect:%@", NSStringFromCGRect(rect)]];
     LBFRecordEvent(@"before", self, _cmd, args, @"void", owner);
-    IMP imp = LBFGetOrigIMP(owner, _cmd);
+    IMP imp = LBFGetOrigIMPForClass(object_getClass(self), _cmd);
     if (imp) ((void (*)(id, SEL, CGRect))imp)(self, _cmd, rect);
     if (!g_firstDrawSeen) g_firstDrawSeen = YES;
     LBFRecordEvent(@"after", self, _cmd, args, @"void", owner);
@@ -1040,7 +1054,10 @@ static IMP LBFHookIMPForSelector(NSString *selName) {
 
 static NSArray<NSString *> *LBFObserverSelectors(void) {
     return @[
-        @"viewDidLoad", @"viewWillAppear:", @"loadCurCp",
+        @"viewDidLoad", @"loadCurCp",
+        // BC10：移除 viewWillAppear:。即使改为 probe-local addMethod，appear 链仍易与
+        // UIPageViewController 子 VC 嵌套叠加；BC9 IPS 已证其为 QF 前主杀点。
+        // 生命周期改看 viewDidLoad（early wrap）/ drawRect / showContent。
         @"onResetContentNotify", @"onResetContentNotify:", @"onResetContent:",
         @"resetContentNotify:", @"handleResetContent:",
         @"divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:",
@@ -1078,24 +1095,67 @@ static void LBFInitObserverGlobals(void) {
     });
 }
 
-static BOOL LBFInstallHookOnMethod(Class owner, NSString *ownerName, NSString *selName) {
-    SEL sel = NSSelectorFromString(selName);
-    Method m = class_getInstanceMethod(owner, sel);
-    if (!m) return NO;
-    IMP hook = LBFHookIMPForSelector(selName);
-    if (!hook) return NO;
+/// BC10：只改 probe 自身 method list，禁止 method_setImplementation 打到 UIKit 父类。
+/// BC9 IPS：对 UIPageViewController viewWillAppear: setImplementation 后，
+/// LBFHook ↔ UIPageViewController.viewWillAppear 互递归 511 帧，main SIGSEGV@CFString，QF 未上屏。
+static Method LBFOwnedInstanceMethod(Class cls, SEL sel) {
+    if (!cls || !sel) return NULL;
+    unsigned int n = 0;
+    Method *list = class_copyMethodList(cls, &n);
+    if (!list) return NULL;
+    Method found = NULL;
+    for (unsigned int i = 0; i < n; i++) {
+        if (method_getName(list[i]) == sel) {
+            found = list[i];
+            break;
+        }
+    }
+    free(list);
+    return found;
+}
 
-    NSString *key = LBFOrigKey(ownerName, selName);
-    IMP current = method_getImplementation(m);
+static BOOL LBFInstallHookOnMethod(Class probe, Class owner, NSString *selName) {
+    if (!probe || !selName.length) return NO;
+    SEL sel = NSSelectorFromString(selName);
+    IMP hook = LBFHookIMPForSelector(selName);
+    if (!hook || !sel) return NO;
+
+    NSString *probeName = NSStringFromClass(probe);
+    NSString *key = LBFOrigKey(probeName, selName);
     if ([g_installedKeys containsObject:key]) {
         // 已装过则不再抢回：50ms retry 若把 Bridge AC/AB 钩写进 g_orig 再盖回 forensics，
         // 会形成 forensics→AB→forensics 环（真机 cb_enter 风暴、无 check/format）。
         return YES;
     }
 
+    Method inherited = class_getInstanceMethod(probe, sel);
+    if (!inherited) return NO;
+    const char *types = method_getTypeEncoding(inherited);
+    IMP current = method_getImplementation(inherited);
+
+    Method owned = LBFOwnedInstanceMethod(probe, sel);
+    if (owned) {
+        // probe 自己实现：只改 probe
+        g_origIMPs[key] = [NSValue valueWithPointer:current];
+        method_setImplementation(owned, hook);
+        [g_installedKeys addObject:key];
+        return YES;
+    }
+
+    // 继承自父类：在 probe 上 addMethod 覆盖，父类（含 UIKit）IMP 保持原样
+    if (!class_addMethod(probe, sel, hook, types)) {
+        LBFAISyncProbe([NSString stringWithFormat:
+                        @"bc10_hook_add_fail probe=%@ sel=%@ owner=%@",
+                        probeName, selName,
+                        owner ? NSStringFromClass(owner) : @"nil"]);
+        return NO;
+    }
     g_origIMPs[key] = [NSValue valueWithPointer:current];
-    method_setImplementation(m, hook);
     [g_installedKeys addObject:key];
+    LBFAISyncProbe([NSString stringWithFormat:
+                    @"bc10_hook_add probe=%@ sel=%@ owner=%@",
+                    probeName, selName,
+                    owner ? NSStringFromClass(owner) : @"nil"]);
     return YES;
 }
 
@@ -1111,10 +1171,11 @@ static void LBFInstallObserverHooks(void) {
             SEL sel = NSSelectorFromString(selName);
             Class owner = LBForensicsMethodOwnerClass(probe, sel);
             if (!owner) continue;
-            LBFInstallHookOnMethod(owner, NSStringFromClass(owner), selName);
+            LBFInstallHookOnMethod(probe, owner, selName);
         }
     }
     // viewDidLoad/loadCurCp 由 LBFEarlyWrap 专责，observer 不再重复挂钩
+    LBFAISyncProbe(@"bc10_observer_probe_local_hooks");
 }
 
 IMP LBForensicsResolveOrigIMP(Class cls, SEL sel) {
@@ -1135,11 +1196,7 @@ IMP LBForensicsResolveOrigIMP(Class cls, SEL sel) {
 IMP LBForensicsResolveObserverOrigIMP(Class cls, SEL sel) {
     if (!cls) return NULL;
     LBFInitObserverGlobals();
-    Class owner = LBForensicsMethodOwnerClass(cls, sel);
-    if (!owner) owner = cls;
-    NSString *key = LBFOrigKey(NSStringFromClass(owner), NSStringFromSelector(sel));
-    NSValue *v = g_origIMPs[key];
-    return v ? (IMP)v.pointerValue : NULL;
+    return LBFGetOrigIMPForClass(cls, sel);
 }
 
 IMP LBForensicsHookIMPForSelectorName(NSString *selName) {
