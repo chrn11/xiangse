@@ -1601,7 +1601,27 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
     long _bbRemaining = (long)((char *)_bbBase - (char *)&_bbVar);
     BOOL _bbLowStack = (_bbRemaining < 8192);
     if (_bbLowStack) {
-        // 低栈：只调 orig，跳过所有探针
+        // 低栈：只调 orig，跳过 ObjC 探针；BC6b 用纯 C 写最小标记，
+        // 区分「CB 被绕过」vs「CB 进入但 BB 低栈跳过探针」。
+        {
+            char mark[160];
+            int n = snprintf(mark, sizeof(mark),
+                             "hypothesis_AC bc6_cb_lowstack rem=%ld pid=%d inv=%lu\n",
+                             _bbRemaining, (int)getpid(), (unsigned long)sInvokeCount);
+            const char *home = getenv("HOME");
+            char path[512];
+            if (home && home[0]) {
+                snprintf(path, sizeof(path), "%s/Documents/legado_ab_probe.txt", home);
+            } else {
+                snprintf(path, sizeof(path), "/tmp/legado_ab_probe.txt");
+            }
+            int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            if (fd >= 0) {
+                if (n > 0) (void)write(fd, mark, (size_t)n);
+                (void)fsync(fd);
+                close(fd);
+            }
+        }
         sADCheckEntered = 0;
         sABInCallBack = 1;
         @try {
@@ -1696,16 +1716,27 @@ static id LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id user
     id action = ([config isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)config)[@"actionID"] : nil);
     id dont = ([userInfo isKindOfClass:[NSDictionary class]]
                ? ((NSDictionary *)userInfo)[@"callback_dontFormatResponse"] : nil);
+    // BC6b：inCB=sABInCallBack（_Thread_local）。
+    // inCB=1 → format 在 CB hook 内被调（BB 低栈跳过探针，或正常 CB 路径）；
+    // inCB=0 → format 绕过 CB hook 被直接调（真绕过）。
+    pthread_t _fT = pthread_self();
+    void *_fBase = pthread_get_stackaddr_np(_fT);
+    int _fVar = 0;
+    long _fRem = (long)((char *)_fBase - (char *)&_fVar);
+    int inCB = sABInCallBack;
     LBABSyncProbe([NSString stringWithFormat:
-                   @"format_enter respLen=%lu action=%@ dontFormat=%d",
+                   @"format_enter respLen=%lu action=%@ dontFormat=%d inCB=%d stackRem=%ld",
                    (unsigned long)respLen,
                    [action isKindOfClass:[NSString class]] ? action : @"-",
-                   dont ? 1 : 0]);
+                   dont ? 1 : 0, inCB, _fRem]);
     /// BC6：采 format 调用栈，定位谁绕过 CB 直接调 format。
-    /// BC5 证实 inv=1 周期 CB 未被调用，但 format 被直接调用。
-    /// 本探针采前 12 帧符号，确认 format 的调用者。
-    NSString *bc6Stack = LBANSymbolStack(12);
-    LBABSyncProbe([NSString stringWithFormat:@"bc6_format_caller stack=%@", bc6Stack]);
+    /// 栈不足 16KB 时跳过（避免低栈再采栈触发溢出）。
+    if (_fRem >= 16384) {
+        NSString *bc6Stack = LBANSymbolStack(12);
+        LBABSyncProbe([NSString stringWithFormat:@"bc6_format_caller inCB=%d stack=%@", inCB, bc6Stack]);
+    } else {
+        LBABSyncProbe([NSString stringWithFormat:@"bc6_format_caller inCB=%d stack=skipped_low rem=%ld", inCB, _fRem]);
+    }
     // AE：必须透传 id 返回值；void 钩会使 caller retain 到垃圾/nil，后续 QF 参数损坏
     id formatted = nil;
     if (sABNextFormatCallBack) {
@@ -1745,18 +1776,29 @@ static BOOL LBAB_CheckCallBack(id self, SEL _cmd, id response, id config, id use
     BOOL hasCfg = [config isKindOfClass:[NSDictionary class]];
     BOOL hasUI = [userInfo isKindOfClass:[NSDictionary class]];
     NSString *selfCls = self ? NSStringFromClass(object_getClass(self)) : @"nil";
+    // BC6b：inCB + stackRem，与 format_enter 对照。
+    pthread_t _cT = pthread_self();
+    void *_cBase = pthread_get_stackaddr_np(_cT);
+    int _cVar = 0;
+    long _cRem = (long)((char *)_cBase - (char *)&_cVar);
+    int inCB = sABInCallBack;
     LBABSyncProbe([NSString stringWithFormat:
-                   @"check_enter respLen=%lu action=%@ target=%@ dontFormat=%d cfg=%d ui=%d self=%@ qsrc=%@ respCls=%@",
+                   @"check_enter respLen=%lu action=%@ target=%@ dontFormat=%d cfg=%d ui=%d self=%@ qsrc=%@ respCls=%@ inCB=%d stackRem=%ld",
                    (unsigned long)respLen,
                    [action isKindOfClass:[NSString class]] ? action : @"-",
                    target ? NSStringFromClass(object_getClass(target)) : @"nil",
                    dont ? 1 : 0, hasCfg ? 1 : 0, hasUI ? 1 : 0,
                    selfCls,
                    [qsrc isKindOfClass:[NSString class]] ? qsrc : @"-",
-                   response ? NSStringFromClass(object_getClass(response)) : @"nil"]);
-    /// BC6：采 check 调用栈，定位谁绕过 CB 直接调 check。
-    NSString *bc6CheckStack = LBANSymbolStack(12);
-    LBABSyncProbe([NSString stringWithFormat:@"bc6_check_caller stack=%@", bc6CheckStack]);
+                   response ? NSStringFromClass(object_getClass(response)) : @"nil",
+                   inCB, _cRem]);
+    /// BC6：采 check 调用栈；栈不足 16KB 时跳过。
+    if (_cRem >= 16384) {
+        NSString *bc6CheckStack = LBANSymbolStack(12);
+        LBABSyncProbe([NSString stringWithFormat:@"bc6_check_caller inCB=%d stack=%@", inCB, bc6CheckStack]);
+    } else {
+        LBABSyncProbe([NSString stringWithFormat:@"bc6_check_caller inCB=%d stack=skipped_low rem=%ld", inCB, _cRem]);
+    }
     if (!sABNextCheckCallBack) {
         LBABSyncProbe(@"check_early_return reason=null_next ok=1");
         return YES;
