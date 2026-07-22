@@ -1774,25 +1774,34 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
         LBABSyncProbe(@"cb_precheck_gate_check_seen");
     }
     LBABSyncProbe(@"cb_exit");
-    // BA：cb 线程栈深度探针。
-    // AZ 真机证据（决定性）：postQF 逻辑整体 dispatch_async 到 utility 队列（cb 线程零开销返回）后，
-    // 仍崩在 cb 线程（tid=259）返回 BookQueryManager 时。崩溃源在原生 callback 链后续处理。
-    // BA：记录 cb 线程栈剩余空间，验证是否栈溢出（fault=fp-0x178 恒定=栈 guard page 写穿）。
+    // BA：cb 线程栈深度探针（公式与 BC8c 对齐：兼容 top/bottom）。
     {
         pthread_t t = pthread_self();
-        void *stackBase = pthread_get_stackaddr_np(t);
+        void *addr = pthread_get_stackaddr_np(t);
         size_t stackSize = pthread_get_stacksize_np(t);
         int stackVar = 0;
-        void *curSP = (void *)&stackVar;
-        long remaining = (long)((char *)stackBase - (char *)curSP);
-        long used = (long)stackSize - remaining;
+        uintptr_t sp = (uintptr_t)&stackVar;
+        uintptr_t lo, hi;
+        if ((uintptr_t)addr > sp) {
+            hi = (uintptr_t)addr;
+            lo = hi - (uintptr_t)stackSize;
+        } else {
+            lo = (uintptr_t)addr;
+            hi = lo + (uintptr_t)stackSize;
+        }
+        long remaining = (long)(sp - lo);
+        long used = (long)(hi - sp);
         LBABSyncProbe([NSString stringWithFormat:
                        @"ba_cb_stack thread=%p base=%p size=%zu cur=%p used=%ld remaining=%ld main=%d",
-                       (void *)t, stackBase, stackSize, curSP, used, remaining,
+                       (void *)t, addr, stackSize, (void *)(uintptr_t)sp, used, remaining,
                        [NSThread isMainThread] ? 1 : 0]);
     }
-    // AM：轻量心跳钉 0–200ms 死窗（禁全线程 suspend）；AL 全线程采样副作用大，本刀不叠
-    LBAMStartPostCbHeartbeat();
+    // BC9：禁 post-CB 心跳/取证。
+    // BC8c 真机：cb_exit + after_cb path=async_main 后，LBAMStartPostCbHeartbeat
+    // 触发 postQF 窗，随即 SIGSEGV@CFRetain（tid=259 postQF=1），进程死在 QF 上屏前。
+    // 本刀跳过 post-CB 心跳，让 main 上的 QF 块有机会执行。
+    LBABSyncProbe(@"bc9_post_cb_hb_skipped");
+    // LBAMStartPostCbHeartbeat(); // BC9 disabled
 }
 
 static id LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id userInfo) {
@@ -3357,7 +3366,9 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
         LBABSyncProbe(@"invoke_state_idle");
         // AK：idle 后立即采 main PC（禁 WakeUp / 禁 drain enqueue；KEEP inThread）
         LBABSyncProbe(@"ak_main_idle_seen");
-        LBAKStartPostIdleMainBlockForensics();
+        // BC9：禁 AK post-idle 取证（与 post_cb_hb 同属 postQF 崩溃链）。
+        LBABSyncProbe(@"bc9_ak_idle_forensics_skipped");
+        // LBAKStartPostIdleMainBlockForensics(); // BC9 disabled
     }
 }
 
