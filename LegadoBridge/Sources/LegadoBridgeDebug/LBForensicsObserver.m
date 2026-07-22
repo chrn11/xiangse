@@ -62,7 +62,7 @@ static void LBFWriteHookPing(NSString *line);
 static void LBFBCStartMainDrainSampler(void);
 
 static void LBFInitObserverGlobals(void);
-static BOOL LBFInstallHookOnMethod(Class owner, NSString *ownerName, NSString *selName);
+static BOOL LBFInstallHookOnMethod(Class probe, Class owner, NSString *selName);
 static void LBFRecordEvent(NSString *when, id selfObj, SEL sel, NSArray<NSString *> *argShapes,
                            NSString *returnShape, NSString *ownerClassName);
 static IMP LBFGetOrigIMP(NSString *owner, SEL sel);
