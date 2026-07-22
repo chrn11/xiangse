@@ -1594,9 +1594,10 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
     // BA 真机：cb_exit 时栈仅剩 596 字节（used=523KB/524KB），栈溢出确认。
     // BC7 真机：swcf_enter stackRem=596，栈在进入 swcf 前已耗尽。
     // BC6b：rem<8KB 时 BB 跳过 ObjC 探针但仍在耗尽栈上调 orig → 进程仍被杀。
-    // BC8：rem<32KB 时 dispatch_sync 到专用串行队列跑 orig CB（新线程满栈）。
+    // BC8：rem<32KB 时 dispatch_async+semaphore 到私有串行队列跑 orig CB（新线程满栈）。
     // 注意：历史 AA「bounce」禁的是弹到 main / 造成互套；本 bounce 只弹到私有串行队列，
     // 不碰 main，并用 sBC8BounceDepth 防重入。
+    // BC8b：禁止 dispatch_sync——GCD 会内联到调用线程（BC8 真机 bounce_done rem=1636 证实）。
     pthread_t _bbT = pthread_self();
     void *_bbBase = pthread_get_stackaddr_np(_bbT);
     size_t _bbSize = pthread_get_stacksize_np(_bbT);
@@ -1638,7 +1639,10 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
         id _bc8UI = userInfo;
         SEL _bc8Cmd = _cmd;
         atomic_fetch_add(&sBC8BounceDepth, 1);
-        dispatch_sync(sBC8FreshQ, ^{
+        // 关键：dispatch_sync 会被 GCD 内联到调用线程（BC8 真机 bounce_done rem=1636 仍低）。
+        // 必须 dispatch_async + semaphore，强制换到队列线程（满栈）。
+        dispatch_semaphore_t _bc8Sem = dispatch_semaphore_create(0);
+        dispatch_async(sBC8FreshQ, ^{
             // 新线程：满栈跑 orig CB（check/format/dispatch_async main QF）
             sABInCallBack = 1;
             @try {
@@ -1646,7 +1650,6 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
             } @finally {
                 sABInCallBack = 0;
             }
-            // 新线程上采 after 探针（栈充足）
             pthread_t t = pthread_self();
             void *base = pthread_get_stackaddr_np(t);
             int v = 0;
@@ -1657,7 +1660,9 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
             dispatch_async(dispatch_get_main_queue(), ^{
                 LBABSyncProbe(@"qf_dispatch_main_pulse");
             });
+            dispatch_semaphore_signal(_bc8Sem);
         });
+        dispatch_semaphore_wait(_bc8Sem, DISPATCH_TIME_FOREVER);
         atomic_fetch_sub(&sBC8BounceDepth, 1);
         return;
     }
