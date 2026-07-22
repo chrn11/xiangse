@@ -1824,19 +1824,30 @@ static id LBAB_StringWithContents(id self, SEL _cmd, id path, NSUInteger enc, NS
     NSString *p = [path isKindOfClass:[NSString class]] ? (NSString *)path : nil;
     BOOL interesting = p.length > 0 &&
                        ([p containsString:@"xsfolder"] || [p containsString:@"/book/"]);
+    // BC7：CB 前关键点采样 stackRem，定位栈耗尽发生在 swcf 前还是 swcf→CB 之间。
+    pthread_t _sT = pthread_self();
+    void *_sBase = pthread_get_stackaddr_np(_sT);
+    int _sVar = 0;
+    long _sRem = (long)((char *)_sBase - (char *)&_sVar);
     if (interesting) {
-        LBABSyncProbe([NSString stringWithFormat:@"swcf_enter leaf=%@", p.lastPathComponent ?: @"-"]);
+        LBABSyncProbe([NSString stringWithFormat:
+                       @"swcf_enter leaf=%@ stackRem=%ld",
+                       p.lastPathComponent ?: @"-", _sRem]);
     }
     id ret = sABNextStringWithContents
                  ? sABNextStringWithContents(self, _cmd, path, enc, err)
                  : nil;
     if (interesting) {
         NSUInteger len = [ret isKindOfClass:[NSString class]] ? [(NSString *)ret length] : 0;
+        pthread_t _sT2 = pthread_self();
+        void *_sBase2 = pthread_get_stackaddr_np(_sT2);
+        int _sVar2 = 0;
+        long _sRem2 = (long)((char *)_sBase2 - (char *)&_sVar2);
         LBABSyncProbe([NSString stringWithFormat:
-                       @"swcf_exit leaf=%@ len=%lu nil=%d",
+                       @"swcf_exit leaf=%@ len=%lu nil=%d stackRem=%ld",
                        p.lastPathComponent ?: @"-",
                        (unsigned long)len,
-                       ret ? 0 : 1]);
+                       ret ? 0 : 1, _sRem2]);
     }
     return ret;
 }
