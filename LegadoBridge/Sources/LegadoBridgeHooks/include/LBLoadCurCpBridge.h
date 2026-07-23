@@ -38,6 +38,9 @@ void LBLoadCurCpBridgeOnContentPosted(NSDictionary *payload, id _Nullable reader
 /// 原生绘制证据置位（forensics / 验收探针）
 void LBLoadCurCpBridgeMarkRendered(void);
 
+/// 8.5：从当前阅读页快照 nCpIndex/nPageIndex 落盘（杀进程前由 dump/resign 调用）
+void LBLoadCurCpBridgePersistPageProgress(void);
+
 /// 重置状态机（换章 / 失败 fail-open）
 void LBLoadCurCpBridgeReset(NSString * _Nullable reason);
 

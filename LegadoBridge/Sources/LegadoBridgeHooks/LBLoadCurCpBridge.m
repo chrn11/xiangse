@@ -53,6 +53,7 @@ typedef IMP (*LBACForensicsHookIMPForSelectorNameFn)(NSString *);
 
 static void LBABSyncProbe(NSString *tag);
 static void LBABInstallProbes(void);
+static void LBInstallPageProgressHooks(void);
 static IMP LBACPeelObserverNext(Class cls, SEL sel, IMP cur);
 static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id userInfo);
 static id LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id userInfo);
@@ -2134,6 +2135,7 @@ void LBLoadCurCpBridgeRegisterOrig(void (*orig)(id, SEL)) {
     sOrigLoadCurCp = orig;
     LBStateLog([NSString stringWithFormat:@"register_orig imp=%p", orig]);
     LBABInstallProbes();
+    LBInstallPageProgressHooks();
 }
 
 void LBLoadCurCpBridgeRegisterLoadCpOrig(id (*orig)(id, SEL, long long)) {
@@ -2829,18 +2831,343 @@ static NSInteger LBReadIntegerKey(id target, NSString *key, NSInteger fallback) 
     return fallback;
 }
 
+/// 8.5 页位：杀进程后 cold reopen 需从盘恢复。goRecord 挂在 ReadScrollContainer，不在 TextReadVC。
+static NSString *LBPageProgressPath(void) {
+    return [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_page_progress.json"];
+}
+
+static NSDictionary *LBLoadSavedPageProgress(void) {
+    NSData *data = [NSData dataWithContentsOfFile:LBPageProgressPath()];
+    if (data.length == 0) return nil;
+    id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+    return [obj isKindOfClass:[NSDictionary class]] ? (NSDictionary *)obj : nil;
+}
+
+static void LBWriteSavedPageProgress(NSString *bookUrl, NSString *bookKey,
+                                     NSInteger cpIndex, NSInteger pageIndex) {
+    if (pageIndex < 0) return;
+    NSMutableDictionary *m = [NSMutableDictionary dictionary];
+    if (bookUrl.length > 0) m[@"bookUrl"] = bookUrl;
+    if (bookKey.length > 0) m[@"bookKey"] = bookKey;
+    m[@"nCpIndex"] = @(cpIndex);
+    m[@"cpIndex"] = @(cpIndex);
+    m[@"nPageIndex"] = @(pageIndex);
+    m[@"pageIndex"] = @(pageIndex);
+    m[@"ts"] = @([[NSDate date] timeIntervalSince1970]);
+    NSData *data = [NSJSONSerialization dataWithJSONObject:m options:0 error:NULL];
+    if (data) {
+        [data writeToFile:LBPageProgressPath() atomically:YES];
+        LBStateLog([NSString stringWithFormat:
+                    @"phase85 save pageProgress cp=%ld page=%ld bookLen=%lu",
+                    (long)cpIndex, (long)pageIndex, (unsigned long)bookUrl.length]);
+    }
+}
+
+static id LBFindTextReaderVCInHierarchy(void);
+
+static NSDictionary *LBGoRecordFromSources(id reader, id container, NSDictionary *payload,
+                                           NSInteger cpIndex) {
+    id go = nil;
+    @try {
+        if (container) go = [container valueForKey:@"goRecordAfterLoadCp"];
+    } @catch (__unused NSException *e) {}
+    if (![go isKindOfClass:[NSDictionary class]]) {
+        @try {
+            if (reader) go = [reader valueForKey:@"goRecordAfterLoadCp"];
+        } @catch (__unused NSException *e) {}
+    }
+    if ([go isKindOfClass:[NSDictionary class]]) {
+        id gCp = ((NSDictionary *)go)[@"nCpIndex"] ?: ((NSDictionary *)go)[@"cpIndex"];
+        id gPg = ((NSDictionary *)go)[@"nPageIndex"] ?: ((NSDictionary *)go)[@"pageIndex"];
+        if ([gCp respondsToSelector:@selector(integerValue)] &&
+            [gCp integerValue] == cpIndex &&
+            [gPg respondsToSelector:@selector(integerValue)] &&
+            [gPg integerValue] >= 0) {
+            return (NSDictionary *)go;
+        }
+    }
+    id payloadPage = payload[@"nPageIndex"] ?: payload[@"pageIndex"];
+    if ([payloadPage respondsToSelector:@selector(integerValue)] &&
+        [payloadPage integerValue] >= 0) {
+        return @{
+            @"nCpIndex": @(cpIndex),
+            @"cpIndex": @(cpIndex),
+            @"nPageIndex": payloadPage,
+            @"pageIndex": payloadPage,
+        };
+    }
+    NSDictionary *saved = LBLoadSavedPageProgress();
+    if (![saved isKindOfClass:[NSDictionary class]]) return nil;
+    NSString *wantBook = nil;
+    if ([payload[@"bookUrl"] isKindOfClass:[NSString class]]) wantBook = payload[@"bookUrl"];
+    else if (sBookUrl.length > 0) wantBook = sBookUrl;
+    NSString *savedBook = [saved[@"bookUrl"] isKindOfClass:[NSString class]] ? saved[@"bookUrl"] : nil;
+    NSString *wantKey = [payload[@"bookKey"] isKindOfClass:[NSString class]] ? payload[@"bookKey"] : nil;
+    NSString *savedKey = [saved[@"bookKey"] isKindOfClass:[NSString class]] ? saved[@"bookKey"] : nil;
+    BOOL bookOk = YES;
+    if (wantBook.length > 0 && savedBook.length > 0) {
+        bookOk = [wantBook isEqualToString:savedBook];
+    } else if (wantKey.length > 0 && savedKey.length > 0) {
+        bookOk = [wantKey isEqualToString:savedKey];
+    }
+    if (!bookOk) return nil;
+    id sCp = saved[@"nCpIndex"] ?: saved[@"cpIndex"];
+    id sPg = saved[@"nPageIndex"] ?: saved[@"pageIndex"];
+    if (![sCp respondsToSelector:@selector(integerValue)] ||
+        ![sPg respondsToSelector:@selector(integerValue)]) return nil;
+    if ([sCp integerValue] != cpIndex) return nil;
+    if ([sPg integerValue] < 0) return nil;
+    return @{
+        @"nCpIndex": @(cpIndex),
+        @"cpIndex": @(cpIndex),
+        @"nPageIndex": @([sPg integerValue]),
+        @"pageIndex": @([sPg integerValue]),
+    };
+}
+
+static void LBSetGoRecordAfterLoadCp(id reader, id container, NSDictionary *go) {
+    if (![go isKindOfClass:[NSDictionary class]]) return;
+    for (id tgt in @[container ?: [NSNull null], reader ?: [NSNull null]]) {
+        if (tgt == (id)[NSNull null]) continue;
+        @try {
+            SEL sel = NSSelectorFromString(@"setGoRecordAfterLoadCp:");
+            if ([tgt respondsToSelector:sel]) {
+                ((void (*)(id, SEL, id))objc_msgSend)(tgt, sel, go);
+            } else {
+                [tgt setValue:go forKey:@"goRecordAfterLoadCp"];
+            }
+        } @catch (__unused NSException *e) {}
+    }
+}
+
+static void LBApplyRestoredPageToContainer(id container, NSInteger cpIndex, NSInteger pageIndex) {
+    if (!container || pageIndex <= 0) return;
+    @try {
+        NSIndexPath *ip = [NSIndexPath indexPathForRow:pageIndex inSection:0];
+        // 部分实现用 section=章
+        NSIndexPath *ip2 = [NSIndexPath indexPathForRow:pageIndex inSection:cpIndex];
+        for (NSIndexPath *cand in @[ip, ip2]) {
+            @try { [container setValue:cand forKey:@"lastIndexPath"]; } @catch (__unused NSException *e) {}
+        }
+        id tv = nil;
+        @try { tv = [container valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
+        if ([tv isKindOfClass:[UITableView class]]) {
+            UITableView *table = (UITableView *)tv;
+            for (NSIndexPath *cand in @[ip2, ip]) {
+                @try {
+                    if (cand.section < table.numberOfSections &&
+                        cand.row < [table numberOfRowsInSection:cand.section]) {
+                        [table scrollToRowAtIndexPath:cand
+                                     atScrollPosition:UITableViewScrollPositionTop
+                                             animated:NO];
+                        LBStateLog([NSString stringWithFormat:
+                                    @"phase85 scrollToRow section=%ld row=%ld",
+                                    (long)cand.section, (long)cand.row]);
+                        break;
+                    }
+                } @catch (__unused NSException *e) {}
+            }
+        }
+        SEL gotoPage = NSSelectorFromString(@"gotoNextPage:");
+        if (pageIndex > 0 && [container respondsToSelector:gotoPage]) {
+            // 仅当仍停在页首时步进（避免重复）
+            NSInteger cur = -1;
+            id lip = nil;
+            @try { lip = [container valueForKey:@"lastIndexPath"]; } @catch (__unused NSException *e) {}
+            if ([lip isKindOfClass:[NSIndexPath class]]) cur = [(NSIndexPath *)lip row];
+            if (cur < pageIndex) {
+                for (NSInteger i = MAX(cur, 0); i < pageIndex; i++) {
+                    @try {
+                        ((void (*)(id, SEL, id))objc_msgSend)(container, gotoPage, nil);
+                    } @catch (__unused NSException *e) { break; }
+                }
+                LBStateLog([NSString stringWithFormat:
+                            @"phase85 gotoNextPage x%ld", (long)pageIndex]);
+            }
+        }
+    } @catch (__unused NSException *e) {}
+}
+
+static void LBScheduleApplySavedPage(id reader, id container, NSInteger cpIndex, NSInteger pageIndex) {
+    if (pageIndex <= 0 || !container) return;
+    __weak id wReader = reader;
+    __weak id wContainer = container;
+    void (^apply)(void) = ^{
+        id c = wContainer;
+        if (!c) return;
+        LBApplyRestoredPageToContainer(c, cpIndex, pageIndex);
+        id r = wReader;
+        if (r) {
+            LBSetGoRecordAfterLoadCp(r, c, @{
+                @"nCpIndex": @(cpIndex),
+                @"cpIndex": @(cpIndex),
+                @"nPageIndex": @(pageIndex),
+                @"pageIndex": @(pageIndex),
+            });
+        }
+    };
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), apply);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), apply);
+}
+
+static BOOL LBReadCurrentPageProgress(NSInteger *outCp, NSInteger *outPage,
+                                      NSString **outBookUrl, NSString **outBookKey) {
+    if (outCp) *outCp = 0;
+    if (outPage) *outPage = 0;
+    if (outBookUrl) *outBookUrl = nil;
+    if (outBookKey) *outBookKey = nil;
+    id reader = sWeakReader ?: LBFindTextReaderVCInHierarchy();
+    if (!reader) return NO;
+    NSString *bu = sBookUrl;
+    NSString *bk = nil;
+    @try {
+        id db = [reader valueForKey:@"dicBook"];
+        if (![db isKindOfClass:[NSDictionary class]]) db = [reader valueForKey:@"dicFatBook"];
+        if ([db isKindOfClass:[NSDictionary class]]) {
+            if (bu.length == 0 && [db[@"bookUrl"] isKindOfClass:[NSString class]]) bu = db[@"bookUrl"];
+            if ([db[@"bookKey"] isKindOfClass:[NSString class]]) bk = db[@"bookKey"];
+        }
+        id k = [reader valueForKey:@"bookKey"];
+        if ([k isKindOfClass:[NSString class]] && [(NSString *)k length] > 0) bk = k;
+    } @catch (__unused NSException *e) {}
+    if (outBookUrl) *outBookUrl = bu;
+    if (outBookKey) *outBookKey = bk;
+
+    id container = LBRouteBResolveContainer(reader);
+    NSInteger cp = 0;
+    NSInteger page = -1;
+    id curPage = LBContainerCurPageVC(container);
+    id pageModel = nil;
+    if (curPage) {
+        @try { pageModel = [curPage valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
+    }
+    if (pageModel) {
+        cp = LBReadIntegerKey(pageModel, @"nCpIndex", 0);
+        page = LBReadIntegerKey(pageModel, @"nPageIndex", -1);
+    }
+    if (page < 0 && container) {
+        id lip = nil;
+        @try { lip = [container valueForKey:@"lastIndexPath"]; } @catch (__unused NSException *e) {}
+        if ([lip isKindOfClass:[NSIndexPath class]]) {
+            page = [(NSIndexPath *)lip row];
+            NSInteger sec = [(NSIndexPath *)lip section];
+            if (sec >= 0) cp = sec;
+        }
+    }
+    if (page < 0 && container) {
+        // 滚动：取视口中心行
+        id tv = nil;
+        @try { tv = [container valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
+        if ([tv isKindOfClass:[UITableView class]]) {
+            UITableView *table = (UITableView *)tv;
+            CGPoint mid = CGPointMake(CGRectGetMidX(table.bounds),
+                                      CGRectGetMinY(table.bounds) + 80.0);
+            NSIndexPath *ip = [table indexPathForRowAtPoint:mid];
+            if (!ip) {
+                NSArray *vis = [table indexPathsForVisibleRows];
+                if (vis.count > 0) ip = vis.firstObject;
+            }
+            // 优先：面积最大的可见 TextReadTV 所在 cell
+            if (!ip) {
+                CGFloat bestArea = 0;
+                UITableViewCell *bestCell = nil;
+                for (UITableViewCell *cell in table.visibleCells) {
+                    for (UIView *v in cell.contentView.subviews) {
+                        NSString *cn = NSStringFromClass(object_getClass(v));
+                        if (![cn containsString:@"TextReadTV"]) continue;
+                        CGFloat a = CGRectGetWidth(v.bounds) * CGRectGetHeight(v.bounds);
+                        if (a > bestArea) {
+                            bestArea = a;
+                            bestCell = cell;
+                        }
+                    }
+                }
+                if (bestCell) ip = [table indexPathForCell:bestCell];
+            }
+            if (ip) {
+                page = ip.row;
+                if (ip.section >= 0) cp = ip.section;
+            }
+        }
+    }
+    if (page < 0) return NO;
+    if (outCp) *outCp = cp;
+    if (outPage) *outPage = page;
+    return YES;
+}
+
+void LBLoadCurCpBridgePersistPageProgress(void) {
+    NSInteger cp = 0, page = 0;
+    NSString *bu = nil, *bk = nil;
+    if (!LBReadCurrentPageProgress(&cp, &page, &bu, &bk)) return;
+    LBWriteSavedPageProgress(bu, bk, cp, page);
+}
+
+static void LBPageProgressOnResign(NSNotification *note) {
+    (void)note;
+    LBLoadCurCpBridgePersistPageProgress();
+    // 顺带走原生书架进度（若 fatBook 可用）
+    id reader = sWeakReader ?: LBFindTextReaderVCInHierarchy();
+    if (!reader) return;
+    id fat = nil;
+    @try { fat = [reader valueForKey:@"dicFatBook"]; } @catch (__unused NSException *e) {}
+    if (![fat isKindOfClass:[NSDictionary class]]) return;
+    SEL addRec = NSSelectorFromString(@"addLastReadRecord:fatBook:saveInterval:");
+    id appDel = [UIApplication sharedApplication].delegate;
+    if (appDel && [appDel respondsToSelector:addRec]) {
+        @try {
+            ((void (*)(id, SEL, id, id, double))objc_msgSend)(
+                appDel, addRec, fat, fat, 0.0);
+            LBStateLog(@"phase85 addLastReadRecord ok");
+        } @catch (__unused NSException *e) {}
+    }
+}
+
+static void LBInstallPageProgressHooks(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+        [nc addObserverForName:UIApplicationWillResignActiveNotification
+                        object:nil queue:nil
+                    usingBlock:^(NSNotification *note) { LBPageProgressOnResign(note); }];
+        [nc addObserverForName:UIApplicationDidEnterBackgroundNotification
+                        object:nil queue:nil
+                    usingBlock:^(NSNotification *note) { LBPageProgressOnResign(note); }];
+        // Debug dump 完成时快照（kill_app 常无 willResignActive）
+        [nc addObserverForName:@"LBForensicsDumpDidFinish"
+                        object:nil queue:nil
+                    usingBlock:^(__unused NSNotification *note) {
+                        LBLoadCurCpBridgePersistPageProgress();
+                    }];
+        LBStateLog(@"phase85 pageProgress hooks installed");
+    });
+}
+
 /// 假设 Q：loadCurCp callee 还含 arrCatalog/count；缺目录会跳过 query
 /// 假设 R/R2：分页模式 index 在 ReadPageModel._nCpIndex（method-map confirmed）；
 /// TextReadVC3/ReadPageContainer **无** _curCpIndex（gates 的 curCp@r/c=-999 是误报）。
 /// ReadScrollContainer 才有 curCpIndex，滚动模式再写。
 static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payload) {
     if (!reader || ![payload isKindOfClass:[NSDictionary class]]) return;
+    LBInstallPageProgressHooks();
     NSInteger cpIndex = LBCpIndexFromPayload(payload, reader);
     NSString *title = payload[@"cpTitle"] ?: payload[@"title"] ?: @"章节";
     if (![title isKindOfClass:[NSString class]] || title.length == 0) title = @"章节";
     NSString *chUrl = payload[@"chapterUrl"] ?: payload[@"cpUrl"];
     if (![chUrl isKindOfClass:[NSString class]] || chUrl.length == 0) {
         chUrl = [@(cpIndex) stringValue];
+    }
+
+    // 8.5：冷开前把盘上页位写入容器 goRecord（滚动模式原生读此字段）
+    NSDictionary *goRestore = LBGoRecordFromSources(reader, container, payload, cpIndex);
+    if (goRestore) {
+        LBSetGoRecordAfterLoadCp(reader, container, goRestore);
+        id gPg = goRestore[@"nPageIndex"] ?: goRestore[@"pageIndex"];
+        if ([gPg respondsToSelector:@selector(integerValue)] && [gPg integerValue] > 0) {
+            LBScheduleApplySavedPage(reader, container, cpIndex, [gPg integerValue]);
+        }
     }
 
     id curPage = LBContainerCurPageVC(container);
@@ -2876,19 +3203,17 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
                 LBSetIntegerKey(pageModel, @"nPageIndex", [payloadPage integerValue]);
             } else {
                 BOOL keepPage = NO;
-                @try {
-                    id go = [reader valueForKey:@"goRecordAfterLoadCp"];
-                    if ([go isKindOfClass:[NSDictionary class]]) {
-                        id gCp = ((NSDictionary *)go)[@"nCpIndex"] ?: ((NSDictionary *)go)[@"cpIndex"];
-                        id gPg = ((NSDictionary *)go)[@"nPageIndex"] ?: ((NSDictionary *)go)[@"pageIndex"];
-                        if ([gCp respondsToSelector:@selector(integerValue)] &&
-                            [gCp integerValue] == cpIndex &&
-                            [gPg respondsToSelector:@selector(integerValue)]) {
-                            LBSetIntegerKey(pageModel, @"nPageIndex", [gPg integerValue]);
-                            keepPage = YES;
-                        }
+                NSDictionary *go = goRestore ?: LBGoRecordFromSources(reader, container, payload, cpIndex);
+                if ([go isKindOfClass:[NSDictionary class]]) {
+                    id gCp = go[@"nCpIndex"] ?: go[@"cpIndex"];
+                    id gPg = go[@"nPageIndex"] ?: go[@"pageIndex"];
+                    if ([gCp respondsToSelector:@selector(integerValue)] &&
+                        [gCp integerValue] == cpIndex &&
+                        [gPg respondsToSelector:@selector(integerValue)]) {
+                        LBSetIntegerKey(pageModel, @"nPageIndex", [gPg integerValue]);
+                        keepPage = YES;
                     }
-                } @catch (__unused NSException *e) {}
+                }
                 if (!keepPage) {
                     if (existingPage > 0 && existingCp == cpIndex) {
                         // 同章重入：保留翻页后的页码

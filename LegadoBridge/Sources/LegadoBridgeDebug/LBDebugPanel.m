@@ -573,6 +573,9 @@ static void LBInstallDebugOpenURLHook(void) {
             NSDictionary<NSString *, NSString *> *paths = LBForensicsWriteDumpFiles(dump);
             jsonPath = paths[@"json"] ?: @"";
             LBWriteDebugFile(@"legado_debug_dump_ready.txt", jsonPath);
+            // 8.5：dump 时通知 Hooks 落盘页位（杀进程前必经）
+            [[NSNotificationCenter defaultCenter]
+                postNotificationName:@"LBForensicsDumpDidFinish" object:nil];
         } @catch (NSException *ex) {
             NSString *err = [NSString stringWithFormat:@"forensics dump EX: %@", ex.reason ?: @""];
             LBWriteDebugFile(@"legado_debug_dump.txt", err);
