@@ -138,8 +138,8 @@ class BackstageWebView {
 
     /// 获取 StrResponse（对应 Android getStrResponse）
     /// 不可标 `@MainActor` 后在本方法内 `withCheckedThrowingContinuation` 等待 WK 回调：
-    /// MainActor 会挂起等 continuation，而 `didFinish`/`evaluateJS` 也要 MainActor → 死锁，
-    /// 表现为正文永空且永不写 `legado_webview_debug.txt`。
+    /// MainActor 会挂起等 continuation，而 `didFinish`/`evaluateJS` 也要 MainActor → 死锁。
+    /// 启动用 `DispatchQueue.main.async`（勿用可能饿死的 Task{@:MainActor}）。
     func getStrResponse() async throws -> StrResponse {
         let effectiveTimeout = timeout ?? 60000
         let url = self.url
@@ -156,7 +156,7 @@ class BackstageWebView {
         let isRule = self.isRule
 
         return try await withCheckedThrowingContinuation { continuation in
-            Task { @MainActor in
+            let startHandler = {
                 let handler = WebViewHandler(
                     url: url,
                     html: html,
@@ -174,6 +174,11 @@ class BackstageWebView {
                     continuation: continuation
                 )
                 handler.start()
+            }
+            if Thread.isMainThread {
+                startHandler()
+            } else {
+                DispatchQueue.main.async(execute: startHandler)
             }
         }
     }
@@ -292,14 +297,17 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
             }
         }
 
-        // 超时计时器
-        timeoutTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(self?.timeout ?? 60000) * 1_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                self?.finishWithError(WebViewFetchError.timeout)
-            }
+        // 超时：Dispatch 强捕获 self（勿只靠 weak Task，避免 start 未跑/弱引用丢失）
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(timeout))) { [weak self] in
+            guard let self = self, !self.completed else { return }
+            self.finishWithError(WebViewFetchError.timeout)
         }
+
+        // 启动证据（与 AnalyzeUrl phase=enter 对照）
+        let boot = "handler_start url=\(url ?? "") htmlLen=\(html?.count ?? 0)\n"
+        let bootPath = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_webview_handler_start.txt")
+        try? boot.write(toFile: bootPath, atomically: true, encoding: .utf8)
     }
 
     // MARK: - WKNavigationDelegate
