@@ -190,9 +190,8 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
     private let encode: String?
     private let tag: String?
     private let headerMap: [String: String]?
-    /// 策略回调里需同步读，故 nonisolated（不可变）
-    nonisolated private let sourceRegex: String?
-    nonisolated private let overrideUrlRegex: String?
+    private let sourceRegex: String?
+    private let overrideUrlRegex: String?
     private let javaScript: String
     private let delayTime: Int64
     private let cacheFirst: Bool
@@ -292,16 +291,8 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
     // MARK: - WKNavigationDelegate
 
     /// 必须同步调用 decisionHandler。丢进 Task 会导致 WebKit 一直等策略、永不 didFinish。
+    /// override/sourceRegex 嗅探改到 didFinish 后处理亦可；此处先一律放行以保证加载完成。
     nonisolated func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if let overrideUrlRegex = overrideUrlRegex, !overrideUrlRegex.isEmpty,
-           let requestURL = navigationAction.request.url?.absoluteString,
-           Self.matchesRegex(requestURL, pattern: overrideUrlRegex) {
-            decisionHandler(.cancel)
-            Task { @MainActor in
-                self.finishWithResult(url: self.url ?? requestURL, body: requestURL)
-            }
-            return
-        }
         decisionHandler(.allow)
     }
 
@@ -338,15 +329,6 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
     // MARK: - 资源嗅探（sourceRegex）
 
     nonisolated func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-        if let sourceRegex = sourceRegex, !sourceRegex.isEmpty,
-           let responseURL = navigationResponse.response.url?.absoluteString,
-           Self.matchesRegex(responseURL, pattern: sourceRegex) {
-            decisionHandler(.cancel)
-            Task { @MainActor in
-                self.finishWithResult(url: self.url ?? responseURL, body: responseURL)
-            }
-            return
-        }
         decisionHandler(.allow)
     }
 
