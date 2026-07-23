@@ -3,12 +3,14 @@
 **HEAD（取证树）**：见 git main 最新
 **基线 IPA SHA256**：`ed35e2734ef9d75ab8700921ec2819bb329c679ea508ba88e6d9576ae7be1631`
 **可执行文件 SHA256**：`04f780eb59f86c9104f8c8c3c04fb24278f521d0a43e401b3773d2a47890dea7`
-**形式**：静态反汇编 + 假设链真机结论回写 + BC4–BC13。
+**形式**：静态反汇编 + 假设链真机结论回写 + BC4–BC15。
 **BC4**：`drain=1` → 推翻「main 不排空」。
 **BC5/BC6/BC8 误判（已证伪）**：CB 绕过 / 栈耗尽 / bounce——见下方「证伪联动清单」。
 **BC9–BC11**：取证钩风暴（VWA→drawRect）→ **BC11 后 `qf_enter`/`qf_exit` main=1 已通**。
 **BC12**：撤 division forensics；仍 **post-QF `SIG=6`（SIGABRT）**，回空书架，无萧炎。
 **BC13（计划规则 12）**：默认禁用 BC8 bounce（`_bbNeedBounce=NO`）；uncaught exception POSIX 直写 reason。
+**BC14**：`_sourceIL` 站点条目改 `NSMutableDictionary` → **消 post-QF `__NSDictionaryI` 下标写崩**；真机正文「萧炎」可见。
+**BC15**：forensics dump 输出 attString/NSString preview + scalar 实值（门禁自动化）。
 **关联**：
 - [`baseline-vs-legado-diff.md`](baseline-vs-legado-diff.md)
 - [`hypothesis-AE-qf-dispatch-after-format.md`](hypothesis-AE-qf-dispatch-after-format.md)
@@ -25,6 +27,7 @@
 | CB 栈耗尽 | BC8c `stackRem=535196` | BC8/BC8b bounce + `semaphore_wait(FOREVER)` | **BC13：`_bbNeedBounce=NO` 默认禁用** |
 | main 不排空 / QF 饿死 | BC4 `drain=1`；BC11 `qf_enter`+脉冲 | AF/AI/AJ；计划 2026-07-22「QF 死锁」段 | 文档/计划已改写；禁止再按饿死改 CB/QF |
 | post-CB 取证为唯一杀点 | BC9 后仍死；IPS VWA/drawRect | 仅禁 heartbeat 不够 | BC10/BC11 已处理 forensics 钩 |
+| post-QF `__NSDictionaryI` 下标写 | BC13 `bc13_uncaught` reason | BC14 可变 `_sourceIL` 条目 | **已消 SIGABRT**；正文已上屏 |
 
 ---
 
@@ -37,9 +40,9 @@
 | QF 默认派发 / 实际进入 | `dispatch_async(main)` / 进入 | **BC11+：`qf_enter` main=1 且 `qf_exit`** | 已对齐 |
 | main 排空 | 是 | 是（脉冲可见） | 非根因 |
 | CB 栈 | 正常 | 正常 | 非根因 |
-| 上屏 | 有 | **无**：post-QF `SIGABRT` → 回空书架 | **当前断点（BC12/BC13）** |
+| 上屏 | 有 | **BC14+：有**（截图「萧炎」+ post-render dump：pageContainerA/TextReadTV/CTFrame/attString） | **当前断点：6B 门禁自动化（OCR 假阴性 / dump 缺 preview）** |
 
-**核心结论（BC13）**：6A 的 QF 到达条件已满足。当前卡在 **QF 之后 SIGABRT**（历史上 IPS 指向 unrecognized selector / `UIPageViewController setViewControllers` 链）。禁止再按「栈耗尽」「main 饿死」改生产时序。
+**核心结论（BC14）**：6A（QF 到达、无 SIGABRT）与正文可见渲染已满足。禁止再按「栈耗尽」「main 饿死」「未上屏」改生产时序。后续只做 dump/OCR/合同自动化与 Release 复验。
 
 ---
 

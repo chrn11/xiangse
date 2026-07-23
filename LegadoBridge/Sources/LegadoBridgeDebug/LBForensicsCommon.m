@@ -68,15 +68,38 @@ static NSString *LBForensicsSafeClassName(id obj) {
     return NSStringFromClass(object_getClass(obj)) ?: @"?";
 }
 
+/// 正文/标题预览：供 6B dump 针判定（MCP OCR 对 CT 绘制中文常假阴性）。
+static NSString *LBForensicsPreviewText(NSString *s, NSUInteger maxLen) {
+    if (![s isKindOfClass:[NSString class]] || s.length == 0) return @"";
+    NSString *flat = [[s stringByReplacingOccurrencesOfString:@"\r" withString:@""]
+                      stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
+    if (flat.length > maxLen) {
+        flat = [[flat substringToIndex:maxLen] stringByAppendingString:@"…"];
+    }
+    return flat;
+}
+
 static NSString *LBForensicsDescribeValueShape(id val) {
     if (!val) return @"null";
     if ([val isKindOfClass:[NSNull class]]) return @"null";
     if ([val isKindOfClass:[NSString class]]) {
-        return [NSString stringWithFormat:@"NSString len=%lu", (unsigned long)[(NSString *)val length]];
+        NSString *s = (NSString *)val;
+        NSString *prev = LBForensicsPreviewText(s, 64);
+        if (prev.length > 0) {
+            return [NSString stringWithFormat:@"NSString len=%lu preview=%@",
+                    (unsigned long)s.length, prev];
+        }
+        return [NSString stringWithFormat:@"NSString len=%lu", (unsigned long)s.length];
     }
     if ([val isKindOfClass:[NSAttributedString class]]) {
+        NSString *s = [(NSAttributedString *)val string] ?: @"";
+        NSString *prev = LBForensicsPreviewText(s, 96);
+        if (prev.length > 0) {
+            return [NSString stringWithFormat:@"NSAttributedString len=%lu preview=%@",
+                    (unsigned long)s.length, prev];
+        }
         return [NSString stringWithFormat:@"NSAttributedString len=%lu",
-                (unsigned long)[(NSAttributedString *)val length]];
+                (unsigned long)s.length];
     }
     if ([val isKindOfClass:[NSArray class]]) {
         return [NSString stringWithFormat:@"NSArray count=%lu", (unsigned long)[(NSArray *)val count]];
@@ -114,10 +137,52 @@ static id LBForensicsSafeObjectIvar(id obj, Ivar iv) {
     }
 }
 
+static NSString *LBForensicsDescribeScalarIvar(id model, Ivar iv) {
+    const char *itype = ivar_getTypeEncoding(iv);
+    if (!model || !iv || !itype || !itype[0]) {
+        return [NSString stringWithFormat:@"scalar:%s", itype ? itype : "?"];
+    }
+    @try {
+        ptrdiff_t off = ivar_getOffset(iv);
+        char *base = (char *)(__bridge void *)model + off;
+        switch (itype[0]) {
+            case 'B':
+                return [NSString stringWithFormat:@"scalar:B=%d", (int)(*(BOOL *)base)];
+            case 'c':
+                return [NSString stringWithFormat:@"scalar:c=%d", (int)(*(char *)base)];
+            case 'C':
+                return [NSString stringWithFormat:@"scalar:C=%u", (unsigned)(*(unsigned char *)base)];
+            case 's':
+                return [NSString stringWithFormat:@"scalar:s=%d", (int)(*(short *)base)];
+            case 'S':
+                return [NSString stringWithFormat:@"scalar:S=%u", (unsigned)(*(unsigned short *)base)];
+            case 'i':
+                return [NSString stringWithFormat:@"scalar:i=%d", *(int *)base];
+            case 'I':
+                return [NSString stringWithFormat:@"scalar:I=%u", *(unsigned int *)base];
+            case 'l':
+                return [NSString stringWithFormat:@"scalar:l=%ld", *(long *)base];
+            case 'L':
+                return [NSString stringWithFormat:@"scalar:L=%lu", *(unsigned long *)base];
+            case 'q':
+                return [NSString stringWithFormat:@"scalar:q=%lld", *(long long *)base];
+            case 'Q':
+                return [NSString stringWithFormat:@"scalar:Q=%llu", *(unsigned long long *)base];
+            case 'f':
+                return [NSString stringWithFormat:@"scalar:f=%g", *(float *)base];
+            case 'd':
+                return [NSString stringWithFormat:@"scalar:d=%g", *(double *)base];
+            default:
+                return [NSString stringWithFormat:@"scalar:%s", itype];
+        }
+    } @catch (__unused NSException *e) {
+        return [NSString stringWithFormat:@"scalar:%s", itype];
+    }
+}
+
 static NSString *LBForensicsDescribeIvarValue(id model, Ivar iv) {
     if (!LBForensicsIvarIsObjectPointer(iv)) {
-        const char *itype = ivar_getTypeEncoding(iv);
-        return [NSString stringWithFormat:@"scalar:%s", itype ? itype : "?"];
+        return LBForensicsDescribeScalarIvar(model, iv);
     }
     @try {
         id val = LBForensicsSafeObjectIvar(model, iv);
@@ -205,7 +270,7 @@ NSDictionary *LBForensicsDumpIvars(id obj) {
                             ctInfo = LBForensicsDescribeCTFrameIvar(obj, ivars[i]);
                         }
                     } else {
-                        valueSummary = [NSString stringWithFormat:@"scalar:%s", typeEnc.UTF8String];
+                        valueSummary = LBForensicsDescribeIvarValue(obj, ivars[i]);
                     }
                 } @catch (NSException *ex) {
                     valueSummary = [NSString stringWithFormat:@"err:%@", ex.reason ?: @""];
