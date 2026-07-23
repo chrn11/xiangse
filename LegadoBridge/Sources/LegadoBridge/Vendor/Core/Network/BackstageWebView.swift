@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import UIKit
 import WebKit
 
 // MARK: - WebView 池
@@ -135,12 +136,9 @@ class BackstageWebView {
     }
 
     /// 获取 StrResponse（对应 Android getStrResponse）
-    /// 不可在 MainActor 上 await「只能在主队列完成」的 WK 回调。
-    /// 真机证据：phase=enter 后永无 `legado_webview_handler_start.txt`。
-    /// 原因：`handleContentRequest` 在主线程 `Task {}` 会继承 MainActor；
-    /// 若在此直接 `withCheckedThrowingContinuation` + `DispatchQueue.main.async { start }`，
-    /// MainActor 挂起等 resume，而 start/WK 也排在同一主执行器 → 饿死。
-    /// 修复：先 `Task.detached` 离开 MainActor，再在主队列启动 Handler。
+    /// 真机：`main.async` + continuation 在 hop 之后仍不进 `start()`（主队列块不执行或卡在 WK 前）。
+    /// 做法：`Task.detached` 离开调用方执行器 → `DispatchQueue.main.sync` 在主线程启动 WK，
+    /// 并用 `RunLoop` 泵送直到完成，使 didFinish/evaluateJS/超时定时器能在同一段 sync 内跑完。
     func getStrResponse() async throws -> StrResponse {
         let effectiveTimeout = timeout ?? 60000
         let url = self.url
@@ -159,7 +157,7 @@ class BackstageWebView {
         return try await Task.detached(priority: .userInitiated) {
             let hop = [
                 "ts=\(ISO8601DateFormatter().string(from: Date()))",
-                "hop=detached",
+                "hop=detached_sync",
                 "url=\(url ?? "")",
                 "htmlLen=\(html?.count ?? 0)",
             ].joined(separator: "\n")
@@ -167,29 +165,75 @@ class BackstageWebView {
                 .appendingPathComponent("Documents/legado_webview_hop.txt")
             try? hop.write(toFile: hopPath, atomically: true, encoding: .utf8)
 
-            return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<StrResponse, Error>) in
-                DispatchQueue.main.async {
-                    let handler = WebViewHandler(
-                        url: url,
-                        html: html,
-                        encode: encode,
-                        tag: tag,
-                        headerMap: headerMap,
-                        sourceRegex: sourceRegex,
-                        overrideUrlRegex: overrideUrlRegex,
-                        javaScript: javaScript,
-                        delayTime: delayTime,
-                        cacheFirst: cacheFirst,
-                        result: result,
-                        isRule: isRule,
-                        timeout: effectiveTimeout,
-                        continuation: continuation
-                    )
-                    WebViewHandlerBag.retain(handler)
-                    handler.start()
+            // 禁止在主线程调此路径（会 main.sync 自死锁）
+            if Thread.isMainThread {
+                throw WebViewFetchError.invalidState
+            }
+
+            var boxResult: Result<StrResponse, Error>?
+            DispatchQueue.main.sync {
+                let syncMark = [
+                    "ts=\(ISO8601DateFormatter().string(from: Date()))",
+                    "phase=main_sync",
+                    "url=\(url ?? "")",
+                    "htmlLen=\(html?.count ?? 0)",
+                ].joined(separator: "\n")
+                let syncPath = (NSHomeDirectory() as NSString)
+                    .appendingPathComponent("Documents/legado_webview_main_sync.txt")
+                try? syncMark.write(toFile: syncPath, atomically: true, encoding: .utf8)
+
+                let box = WebViewResultBox()
+                let handler = WebViewHandler(
+                    url: url,
+                    html: html,
+                    encode: encode,
+                    tag: tag,
+                    headerMap: headerMap,
+                    sourceRegex: sourceRegex,
+                    overrideUrlRegex: overrideUrlRegex,
+                    javaScript: javaScript,
+                    delayTime: delayTime,
+                    cacheFirst: cacheFirst,
+                    result: result,
+                    isRule: isRule,
+                    timeout: effectiveTimeout,
+                    onComplete: { box.finish($0) }
+                )
+                WebViewHandlerBag.retain(handler)
+                handler.start()
+
+                let deadline = Date().addingTimeInterval(Double(effectiveTimeout) / 1000.0 + 2.0)
+                while !box.isFinished && Date() < deadline {
+                    RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
                 }
+                if !box.isFinished {
+                    handler.forceTimeoutFromPump()
+                    let extra = Date().addingTimeInterval(1.0)
+                    while !box.isFinished && Date() < extra {
+                        RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+                    }
+                }
+                boxResult = box.result ?? .failure(WebViewFetchError.timeout)
+            }
+            switch boxResult! {
+            case .success(let response):
+                return response
+            case .failure(let error):
+                throw error
             }
         }.value
+    }
+}
+
+/// 主线程 RunLoop 泵送用的完成盒（非 Sendable，仅 main.sync 内读写）
+private final class WebViewResultBox {
+    private(set) var isFinished = false
+    private(set) var result: Result<StrResponse, Error>?
+
+    func finish(_ value: Result<StrResponse, Error>) {
+        guard !isFinished else { return }
+        result = value
+        isFinished = true
     }
 }
 
@@ -231,7 +275,7 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
     private let timeout: Int64
 
     private var webView: WKWebView?
-    private var continuation: CheckedContinuation<StrResponse, Error>?
+    private var onComplete: ((Result<StrResponse, Error>) -> Void)?
     private var retryCount: Int = 0
     private var isRedirect: Bool = false
     private var timeoutTask: Task<Void, Never>?
@@ -256,7 +300,7 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
         result: String?,
         isRule: Bool,
         timeout: Int64,
-        continuation: CheckedContinuation<StrResponse, Error>
+        onComplete: @escaping (Result<StrResponse, Error>) -> Void
     ) {
         self.url = url
         self.html = html
@@ -271,11 +315,21 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
         self.result = result
         self.isRule = isRule
         self.timeout = timeout
-        self.continuation = continuation
+        self.onComplete = onComplete
         super.init()
     }
 
+    func forceTimeoutFromPump() {
+        finishWithError(WebViewFetchError.timeout)
+    }
+
     func start() {
+        // 启动证据必须在 WK 之前写入（曾卡在 acquire/UIWindow 导致永远无标记）
+        let boot = "handler_start url=\(url ?? "") htmlLen=\(html?.count ?? 0)\n"
+        let bootPath = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_webview_handler_start.txt")
+        try? boot.write(toFile: bootPath, atomically: true, encoding: .utf8)
+
         retainSelf = self
         let webView = WebViewPool.shared.acquire()
         self.webView = webView
@@ -328,12 +382,6 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
             guard let self = self, !self.completed else { return }
             self.finishWithError(WebViewFetchError.timeout)
         }
-
-        // 启动证据（与 AnalyzeUrl phase=enter 对照）
-        let boot = "handler_start url=\(url ?? "") htmlLen=\(html?.count ?? 0)\n"
-        let bootPath = (NSHomeDirectory() as NSString)
-            .appendingPathComponent("Documents/legado_webview_handler_start.txt")
-        try? boot.write(toFile: bootPath, atomically: true, encoding: .utf8)
     }
 
     // MARK: - WKNavigationDelegate
@@ -434,8 +482,9 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
         cleanupWebView()
 
         let response = StrResponse(url: url, body: body)
-        continuation?.resume(returning: response)
-        continuation = nil
+        let cb = onComplete
+        onComplete = nil
+        cb?(.success(response))
     }
 
     private func finishWithError(_ error: Error) {
@@ -446,8 +495,9 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
 
         cleanupWebView()
 
-        continuation?.resume(throwing: error)
-        continuation = nil
+        let cb = onComplete
+        onComplete = nil
+        cb?(.failure(error))
     }
 
     private func cleanupWebView() {
