@@ -624,35 +624,43 @@ public enum RuleWebBook {
     /// 供测试与调试：源级 replaceRegex（`pattern##replacement`）
     public static func applyReplaceRegex(_ content: String, regex: String) -> String {
         let parts = RuleSplitter.splitTopLevel(regex, token: "##") ?? [regex]
-        guard parts.count >= 2 else {
-            if let reg = try? NSRegularExpression(
-                pattern: regex,
+        let pattern: String
+        let replacement: String
+        let firstOnly: Bool
+        if parts.count >= 2 {
+            pattern = parts[0]
+            replacement = parts[1]
+            firstOnly = parts.count > 2
+        } else {
+            pattern = regex
+            replacement = ""
+            firstOnly = false
+        }
+        // 兼容书源里常用的 [\s\S]：部分 ICU 下字符类异常时改为 . + DOTALL
+        let patternsToTry = [pattern, pattern.replacingOccurrences(of: "[\\s\\S]", with: ".")]
+        var reg: NSRegularExpression?
+        for p in patternsToTry {
+            if let compiled = try? NSRegularExpression(
+                pattern: p,
                 options: [.dotMatchesLineSeparators]
             ) {
-                let range = NSRange(content.startIndex..., in: content)
-                return reg.stringByReplacingMatches(in: content, range: range, withTemplate: "")
+                reg = compiled
+                break
             }
-            return content.replacingOccurrences(of: regex, with: "")
         }
-        let pattern = parts[0]
-        let replacement = parts.count > 1 ? parts[1] : ""
-        let firstOnly = parts.count > 2
-        guard let reg = try? NSRegularExpression(
-            pattern: pattern,
-            options: [.dotMatchesLineSeparators]
-        ) else {
+        guard let reg else {
             return firstOnly ? replacement : content.replacingOccurrences(of: pattern, with: replacement)
         }
         let range = NSRange(content.startIndex..., in: content)
         if firstOnly {
             guard let match = reg.firstMatch(in: content, range: range),
                   let matchRange = Range(match.range, in: content) else { return content }
-            let firstMatch = String(content[matchRange])
-            let firstRange = NSRange(firstMatch.startIndex..., in: firstMatch)
-            return content.replacingCharacters(
-                in: matchRange,
-                with: reg.stringByReplacingMatches(in: firstMatch, range: firstRange, withTemplate: replacement)
+            let replaced = reg.stringByReplacingMatches(
+                in: String(content[matchRange]),
+                range: NSRange(location: 0, length: (content[matchRange] as NSString).length),
+                withTemplate: replacement
             )
+            return content.replacingCharacters(in: matchRange, with: replaced)
         }
         return reg.stringByReplacingMatches(in: content, range: range, withTemplate: replacement)
     }

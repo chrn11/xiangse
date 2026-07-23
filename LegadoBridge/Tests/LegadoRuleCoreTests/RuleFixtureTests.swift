@@ -271,4 +271,12 @@ final class RuleFixtureTests: XCTestCase {
         XCTAssertTrue(out.contains("萧炎可见"), "正文应保留，实际: \(out)")
         XCTAssertTrue(out.contains("前文"), "前文应保留，实际: \(out)")
     }
+
+    func testApplyReplaceRegexStripsAdBlockInHTMLWithIdeographicSpace() {
+        let raw = "第一章\n\u{3000}\u{3000}【广告】此处应被去掉，含乱码 XYZ999【/广告】\n\u{3000}\u{3000}纳兰嫣然标记句"
+        let out = RuleWebBook.applyReplaceRegex(raw, regex: "【广告】[\\s\\S]*?【/广告】##")
+        XCTAssertFalse(out.contains("【广告】"), "广告开标签应去掉: \(out)")
+        XCTAssertFalse(out.contains("XYZ999"), "乱码针应去掉: \(out)")
+        XCTAssertTrue(out.contains("纳兰嫣然"), "标记应保留: \(out)")
+    }
 }
