@@ -8397,7 +8397,7 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
         if (curIdx == wantIdx && readerOnStack) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                      @"nativeRead skip sameBook sameIdx=%ld", (long)wantIdx]);
-            LBDeliverContentToVisibleReaders(@"nativeReadSameIdx");
+            // 禁止再走 deliver/overlay：滚动切章后同 idx 复入会叠 UITextView/overlay92011
             return;
         }
         if (curIdx != wantIdx && readerOnStack) {

@@ -2880,40 +2880,61 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
     }
     // scroll-S4：loadCp 在 dicContents/dicQuerying 命中 cp key 时早退（反汇编 confirmed）。
     // 清除预种 key，仅保留 xsfolder 磁盘缓存供 queryCpFileByBook；可选空 dicHeight。
+    // 切章（curCpIndex 变化）：清空整表 dicContents/dicHeight/dicQueryError，并滚到顶，避免多章 cell 叠字。
     if (LBObjectIsScrollContainerLike(container)) {
         NSMutableArray *scrollPaths = [NSMutableArray array];
+        NSInteger prevCp = LBReadIntegerKey(container, @"curCpIndex", -999);
+        BOOL chapterSwitch = (prevCp != -999 && prevCp != cpIndex);
         @try {
             id dc = nil;
             @try { dc = [container valueForKey:@"dicContents"]; } @catch (__unused NSException *e) {}
             if ([dc isKindOfClass:[NSMutableDictionary class]]) {
                 NSMutableDictionary *mdc = (NSMutableDictionary *)dc;
-                [mdc removeObjectForKey:@(cpIndex)];
-                [mdc removeObjectForKey:[@(cpIndex) stringValue]];
-                if ([title isKindOfClass:[NSString class]] && title.length > 0) {
-                    [mdc removeObjectForKey:title];
+                if (chapterSwitch) {
+                    [mdc removeAllObjects];
+                    [scrollPaths addObject:@"clear_dicContents_all"];
+                } else {
+                    [mdc removeObjectForKey:@(cpIndex)];
+                    [mdc removeObjectForKey:[@(cpIndex) stringValue]];
+                    if ([title isKindOfClass:[NSString class]] && title.length > 0) {
+                        [mdc removeObjectForKey:title];
+                    }
+                    if ([chUrl isKindOfClass:[NSString class]] && chUrl.length > 0) {
+                        [mdc removeObjectForKey:chUrl];
+                    }
+                    [scrollPaths addObject:@"clear_dicContents_keys"];
                 }
-                if ([chUrl isKindOfClass:[NSString class]] && chUrl.length > 0) {
-                    [mdc removeObjectForKey:chUrl];
-                }
-                [scrollPaths addObject:@"clear_dicContents_keys"];
             }
             id dq = nil;
             @try { dq = [container valueForKey:@"dicQuerying"]; } @catch (__unused NSException *e) {}
             if ([dq isKindOfClass:[NSMutableDictionary class]]) {
-                [(NSMutableDictionary *)dq removeObjectForKey:@(cpIndex)];
-                [(NSMutableDictionary *)dq removeObjectForKey:[@(cpIndex) stringValue]];
-                [scrollPaths addObject:@"clear_dicQuerying_keys"];
+                if (chapterSwitch) {
+                    [(NSMutableDictionary *)dq removeAllObjects];
+                    [scrollPaths addObject:@"clear_dicQuerying_all"];
+                } else {
+                    [(NSMutableDictionary *)dq removeObjectForKey:@(cpIndex)];
+                    [(NSMutableDictionary *)dq removeObjectForKey:[@(cpIndex) stringValue]];
+                    [scrollPaths addObject:@"clear_dicQuerying_keys"];
+                }
             }
             id dqe = nil;
             @try { dqe = [container valueForKey:@"dicQueryError"]; } @catch (__unused NSException *e) {}
             if ([dqe isKindOfClass:[NSMutableDictionary class]]) {
-                [(NSMutableDictionary *)dqe removeObjectForKey:@(cpIndex)];
-                [(NSMutableDictionary *)dqe removeObjectForKey:[@(cpIndex) stringValue]];
-                [scrollPaths addObject:@"clear_dicQueryError_keys"];
+                if (chapterSwitch) {
+                    [(NSMutableDictionary *)dqe removeAllObjects];
+                    [scrollPaths addObject:@"clear_dicQueryError_all"];
+                } else {
+                    [(NSMutableDictionary *)dqe removeObjectForKey:@(cpIndex)];
+                    [(NSMutableDictionary *)dqe removeObjectForKey:[@(cpIndex) stringValue]];
+                    [scrollPaths addObject:@"clear_dicQueryError_keys"];
+                }
             }
             id dh = nil;
             @try { dh = [container valueForKey:@"dicHeight"]; } @catch (__unused NSException *e) {}
-            if (![dh isKindOfClass:[NSMutableDictionary class]]) {
+            if (chapterSwitch && [dh isKindOfClass:[NSMutableDictionary class]]) {
+                [(NSMutableDictionary *)dh removeAllObjects];
+                [scrollPaths addObject:@"clear_dicHeight_all"];
+            } else if (![dh isKindOfClass:[NSMutableDictionary class]]) {
                 NSMutableDictionary *emptyH = [NSMutableDictionary dictionary];
                 if ([container respondsToSelector:@selector(setDicHeight:)]) {
                     ((void (*)(id, SEL, id))objc_msgSend)(container, @selector(setDicHeight:), emptyH);
@@ -2921,6 +2942,30 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
                     @try { [container setValue:emptyH forKey:@"dicHeight"]; } @catch (__unused NSException *e) {}
                 }
                 [scrollPaths addObject:@"dicHeight"];
+            }
+            if (chapterSwitch) {
+                @try {
+                    id arr = [container valueForKey:@"arrCpIndex"];
+                    if ([arr isKindOfClass:[NSMutableArray class]]) {
+                        [(NSMutableArray *)arr removeAllObjects];
+                        [scrollPaths addObject:@"clear_arrCpIndex"];
+                    }
+                } @catch (__unused NSException *e) {}
+                UIScrollView *sv = nil;
+                @try {
+                    id t = [container valueForKey:@"tableView"];
+                    if ([t isKindOfClass:[UIScrollView class]]) sv = (UIScrollView *)t;
+                } @catch (__unused NSException *e) {}
+                if (!sv) {
+                    @try {
+                        id t = [container valueForKey:@"scrollView"];
+                        if ([t isKindOfClass:[UIScrollView class]]) sv = (UIScrollView *)t;
+                    } @catch (__unused NSException *e) {}
+                }
+                if (sv) {
+                    [sv setContentOffset:CGPointZero animated:NO];
+                    [scrollPaths addObject:@"scrollToTop"];
+                }
             }
         } @catch (__unused NSException *e) {}
         if (scrollPaths.count > 0) {
