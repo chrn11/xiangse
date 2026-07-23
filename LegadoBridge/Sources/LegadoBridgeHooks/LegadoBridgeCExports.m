@@ -1512,13 +1512,18 @@ static void LBClearNativeOpenOnceState(NSString *reason) {
 #pragma mark - 8.5 离线：目录落盘 + xsfolder 正文回退
 
 static NSString *LBCatalogCacheSafeKey(NSString *bookUrl) {
+    // 须逐字符重建：若 in-place 把非法字符换成 `_`，`_` 仍非 alnum → 死循环，
+    // nativeRead 会卡在 LBEnsurePendingCatalogForBook（真机：openurl 有、request/trace 无）。
     if (bookUrl.length == 0) return @"unknown";
-    NSMutableString *s = [NSMutableString stringWithString:bookUrl];
-    NSCharacterSet *bad = [[NSCharacterSet alphanumericCharacterSet] invertedSet];
-    for (;;) {
-        NSRange r = [s rangeOfCharacterFromSet:bad];
-        if (r.location == NSNotFound) break;
-        [s replaceCharactersInRange:r withString:@"_"];
+    NSCharacterSet *allowed = [NSCharacterSet alphanumericCharacterSet];
+    NSMutableString *s = [NSMutableString stringWithCapacity:MIN(bookUrl.length, (NSUInteger)120)];
+    for (NSUInteger i = 0; i < bookUrl.length; i++) {
+        unichar c = [bookUrl characterAtIndex:i];
+        if ([allowed characterIsMember:c]) {
+            [s appendFormat:@"%C", c];
+        } else {
+            [s appendString:@"_"];
+        }
     }
     if (s.length > 120) {
         return [s substringFromIndex:s.length - 120];
