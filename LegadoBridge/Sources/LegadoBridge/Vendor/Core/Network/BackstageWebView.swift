@@ -205,6 +205,9 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
     private var isRedirect: Bool = false
     private var timeoutTask: Task<Void, Never>?
     private var completed: Bool = false
+    /// WKWebView.navigationDelegate 为 weak；本地 handler 若无自持有会在 start() 返回后立刻释放，
+    /// 导致 didFinish/超时回调全丢（真机表现为 phase=enter 后永不 done）。
+    private var retainSelf: WebViewHandler?
 
     init(
         url: String?,
@@ -240,6 +243,7 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
     }
 
     func start() {
+        retainSelf = self
         let webView = WebViewPool.shared.acquire()
         self.webView = webView
         webView.navigationDelegate = self
@@ -403,11 +407,15 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
     }
 
     private func cleanupWebView() {
+        timeoutTask?.cancel()
+        timeoutTask = nil
         if let webView = webView {
             webView.navigationDelegate = nil
             WebViewPool.shared.release(webView)
         }
         self.webView = nil
+        // 最后放下自持有，允许释放
+        retainSelf = nil
     }
 
     // MARK: - Cookie 同步
