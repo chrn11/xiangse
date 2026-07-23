@@ -29,7 +29,7 @@ public class WebViewPool {
     private let maxPoolSize = 3
     private let lock = NSLock()
 
-    @MainActor
+    // 须在主线程调用（WKWebView 创建/释放）；不用 @MainActor，避免 Swift 并发调度饿死
     public func acquire() -> WKWebView {
         lock.lock()
         defer { lock.unlock() }
@@ -48,7 +48,6 @@ public class WebViewPool {
         return webView
     }
 
-    @MainActor
     public func release(_ webView: WKWebView) {
         lock.lock()
         defer { lock.unlock() }
@@ -62,7 +61,6 @@ public class WebViewPool {
         }
     }
 
-    @MainActor
     private func createWebView() -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
@@ -156,8 +154,8 @@ class BackstageWebView {
         let isRule = self.isRule
 
         return try await withCheckedThrowingContinuation { continuation in
-            // 始终异步投递到主队列，避免在 MainActor 上同步进入 continuation 体导致饿死
-            Task { @MainActor in
+            // 用 GCD 主队列，避开 Swift MainActor 执行器与 continuation 互锁
+            DispatchQueue.main.async {
                 let handler = WebViewHandler(
                     url: url,
                     html: html,
@@ -182,23 +180,26 @@ class BackstageWebView {
 }
 
 /// 防止 handler 在 WK 回调前被释放
-@MainActor
 private enum WebViewHandlerBag {
+    private static let lock = NSLock()
     private static var live: [ObjectIdentifier: WebViewHandler] = [:]
 
     static func retain(_ handler: WebViewHandler) {
+        lock.lock()
         live[ObjectIdentifier(handler)] = handler
+        lock.unlock()
     }
 
     static func release(_ handler: WebViewHandler) {
+        lock.lock()
         live.removeValue(forKey: ObjectIdentifier(handler))
+        lock.unlock()
     }
 }
 
 // MARK: - WebView 事件处理器
 
-/// WebView 事件处理器 — 包含所有 WKNavigationDelegate 和 WKScriptMessageHandler 逻辑
-@MainActor
+/// WebView 事件处理器 — 在主队列运行，但不标 @MainActor（避免并发执行器饿死）
 private class WebViewHandler: NSObject, WKNavigationDelegate {
 
     private let url: String?
@@ -330,8 +331,8 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
     }
 
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        Task { @MainActor in
-            guard !completed else { return }
+        DispatchQueue.main.async {
+            guard !self.completed else { return }
 
             // Cookie 同步
             self.setCookieFromWebView(webView)
@@ -343,7 +344,7 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
             }
 
             // 延迟后执行 JS 求值
-            let effectiveDelay = 100 + delayTime
+            let effectiveDelay = 100 + self.delayTime
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(effectiveDelay))) { [weak self] in
                 guard let self = self, !self.completed else { return }
                 self.evaluateJSAndCheckResult(webView: webView)
@@ -352,11 +353,11 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
     }
 
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        Task { @MainActor in self.finishWithError(error) }
+        DispatchQueue.main.async { self.finishWithError(error) }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        Task { @MainActor in self.finishWithError(error) }
+        DispatchQueue.main.async { self.finishWithError(error) }
     }
 
     // MARK: - 资源嗅探（sourceRegex）
