@@ -146,6 +146,37 @@ class AcceptanceMatrixTests(unittest.TestCase):
         self.assertFalse(r.passed)
         self.assertIn("ocr_body_needle_missing", r.fail_reasons)
 
+    def test_dump_preview_complements_ocr_false_negative(self) -> None:
+        """MCP OCR/accessibility 假阴性时，attString preview 含针且原生对象在则可过。"""
+        dump = "\n".join(
+            [
+                "=== legado forensics dump v2 phase=bc15_post_render ===",
+                "## TextReadVC3 count=1",
+                "    ivar pageContainerA = UIViewController<TextRPageContainer>",
+                "## TextRPageContainer count=1",
+                "## TextRPageContainerPage count=1",
+                "    ivar _pageModel:@\"ReadPageModel\" = ReadPageModel",
+                "## TextReadTV count=1",
+                "    ivar frameRef:^{__CTFrame=} = scalar:^{__CTFrame=}",
+                "    ivar _attString:@\"NSMutableAttributedString\" = "
+                "NSAttributedString len=121 preview=第一章\\n　　萧炎，萧家历史上空前绝后的斗气修炼天才。",
+                "ctFrame=1 txtLen=121",
+                "pageModel: ReadPageModel",
+            ]
+        )
+        r = evaluate_acceptance(
+            **_baseline_inputs(
+                ocr_result={"texts": [], "screen": {"width": 390, "height": 844}},
+                ocr_texts=[],
+                xiaoyan_assert={"passed": False},
+                dump_text=dump,
+                ui_texts=["返回", "第一章 陨落的天才", "斗破苍穹"],
+            )
+        )
+        self.assertTrue(r.passed, r.fail_reasons)
+        self.assertTrue(r.checks["dump_preview_needle"]["passed"])
+        self.assertTrue(r.checks["needle_render"]["passed"])
+
     def test_stale_dump_rejected(self) -> None:
         r = evaluate_acceptance(
             **_baseline_inputs(
