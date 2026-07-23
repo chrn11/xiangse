@@ -129,12 +129,20 @@ class McpClient:
         inner = info.get("paths", {})
         if isinstance(inner, dict):
             paths.update({k: v for k, v in inner.items() if isinstance(v, str)})
-        for key in ("bundle_path", "bundlePath", "data_container", "executable_path"):
+        elif isinstance(inner, str) and inner:
+            paths["data_container"] = inner
+        for key in ("bundle_path", "bundlePath", "data_container", "executable_path", "documents", "Documents"):
             val = info.get(key)
             if isinstance(val, str) and val:
                 paths[key] = val
                 if key == "bundle_path":
                     paths.setdefault("bundle", val)
+                if key.lower() == "documents":
+                    paths.setdefault("documents", val)
+        # 常见：data_container + /Documents
+        dc = paths.get("data_container") or paths.get("dataContainer") or ""
+        if dc and "documents" not in paths:
+            paths["documents"] = dc.rstrip("/") + "/Documents"
         return paths
 
     @staticmethod

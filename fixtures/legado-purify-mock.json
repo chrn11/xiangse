@@ -1,5 +1,5 @@
 {
-  "bookSourceUrl": "http://__LAN_HOST__:8765",
+  "bookSourceUrl": "http://__LAN_HOST__:8765/purify-source",
   "bookSourceName": "本地净化测试源",
   "bookSourceType": 0,
   "enabled": true,

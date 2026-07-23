@@ -1,5 +1,5 @@
 {
-  "bookSourceUrl": "http://__LAN_HOST__:8765",
+  "bookSourceUrl": "http://__LAN_HOST__:8765/webview-source",
   "bookSourceName": "本地 WebView 测试源",
   "bookSourceType": 0,
   "enabled": true,
