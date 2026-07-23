@@ -204,13 +204,14 @@ class BackstageWebView {
 
                 let deadline = Date().addingTimeInterval(Double(effectiveTimeout) / 1000.0 + 2.0)
                 while !box.isFinished && Date() < deadline {
-                    RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+                    // 必须用 common：GCD main 与 Timer 挂在 common modes；只用 default 会饿死 didFinish/asyncAfter
+                    RunLoop.current.run(mode: .common, before: Date(timeIntervalSinceNow: 0.05))
                 }
                 if !box.isFinished {
                     handler.forceTimeoutFromPump()
                     let extra = Date().addingTimeInterval(1.0)
                     while !box.isFinished && Date() < extra {
-                        RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+                        RunLoop.current.run(mode: .common, before: Date(timeIntervalSinceNow: 0.05))
                     }
                 }
                 boxResult = box.result ?? .failure(WebViewFetchError.timeout)
@@ -377,10 +378,30 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
             }
         }
 
-        // 超时：Dispatch 强捕获 self（勿只靠 weak Task，避免 start 未跑/弱引用丢失）
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(timeout))) { [weak self] in
+        // 超时：用 Timer（挂 common modes），在 main.sync+RunLoop 泵送时才能触发
+        Timer.scheduledTimer(withTimeInterval: Double(timeout) / 1000.0, repeats: false) { [weak self] _ in
             guard let self = self, !self.completed else { return }
             self.finishWithError(WebViewFetchError.timeout)
+        }
+    }
+
+    // MARK: - 主线程调度（避免 main.sync 内再 main.async 死锁）
+
+    private func performOnMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
+    }
+
+    private func scheduleOnMain(milliseconds: Int, _ work: @escaping () -> Void) {
+        if Thread.isMainThread {
+            Timer.scheduledTimer(withTimeInterval: Double(milliseconds) / 1000.0, repeats: false) { _ in
+                work()
+            }
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(milliseconds), execute: work)
         }
     }
 
@@ -393,8 +414,13 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
     }
 
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        DispatchQueue.main.async {
+        // 不可再 DispatchQueue.main.async：getStrResponse 正占用 main.sync，嵌套 async 永远排不到
+        let work = { [self] in
             guard !self.completed else { return }
+            let fin = "didFinish url=\(webView.url?.absoluteString ?? self.url ?? "")\n"
+            let finPath = (NSHomeDirectory() as NSString)
+                .appendingPathComponent("Documents/legado_webview_didfinish.txt")
+            try? fin.write(toFile: finPath, atomically: true, encoding: .utf8)
 
             // Cookie 同步
             self.setCookieFromWebView(webView)
@@ -405,21 +431,28 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
                 webView.evaluateJavaScript("window.result = \"\(result.replacingOccurrences(of: "\"", with: "\\\""))\"") { _, _ in }
             }
 
-            // 延迟后执行 JS 求值
-            let effectiveDelay = 100 + self.delayTime
-            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(effectiveDelay))) { [weak self] in
+            // 延迟后执行 JS 求值（Timer 可在 RunLoop.common 泵送中触发）
+            let effectiveDelay = 100 + Int(self.delayTime)
+            self.scheduleOnMain(milliseconds: effectiveDelay) { [weak self] in
                 guard let self = self, !self.completed else { return }
                 self.evaluateJSAndCheckResult(webView: webView)
             }
         }
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        DispatchQueue.main.async { self.finishWithError(error) }
+        let work = { self.finishWithError(error) }
+        if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        DispatchQueue.main.async { self.finishWithError(error) }
+        let work = { self.finishWithError(error) }
+        if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
     }
 
     // MARK: - 资源嗅探（sourceRegex）
@@ -457,7 +490,7 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
                 } else {
                     interval = BackstageWebView.retryIntervals.last ?? 1000
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(interval))) { [weak self] in
+                self.scheduleOnMain(milliseconds: Int(interval)) { [weak self] in
                     guard let self = self, !self.completed else { return }
                     self.evaluateJSAndCheckResult(webView: webView)
                 }
