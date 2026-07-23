@@ -3,16 +3,12 @@
 **HEAD（取证树）**：见 git main 最新
 **基线 IPA SHA256**：`ed35e2734ef9d75ab8700921ec2819bb329c679ea508ba88e6d9576ae7be1631`
 **可执行文件 SHA256**：`04f780eb59f86c9104f8c8c3c04fb24278f521d0a43e401b3773d2a47890dea7`
-**形式**：静态反汇编（lldb 21.1.6 disassemble arm64）+ 假设链真机结论回写 + BC4–BC10 真机回写。
-**BC4 回写（2026-07-21）**：`bc_main_drain_end drain=1` → **推翻** AF/AI/AJ「main 不排空」。
-**BC5/BC6 误判链（已推翻）**：无 `cb_enter` ≠ CB 绕过；旧 `stackRem` 公式把 used/remaining 标反，**「栈耗尽」不成立**（BC8c：`cb_enter stackRem=535196`）。
-**BC8c（2026-07-22）**：CB 完成并声明 `path=async_main`；随后 post-CB 取证窗 SIGSEGV。
-**BC9（2026-07-22，`0b46cfe`）**：禁 `LBAMStartPostCbHeartbeat` / `LBAKStartPostIdleMainBlockForensics`。真机：见 `bc9_*_skipped`，**无探针内 SIGSEGV 字样**，但仍无 `qf_enter`；进程约 1s 后换 pid。
-**BC10（2026-07-22）**：BC9 IPS 裁定 VWA 风暴；改为 probe-local addMethod + 移除 `viewWillAppear:`。
-**BC11（2026-07-23）**：BC10 后仍无 `qf_enter`。IPS `StandarReader-2026-07-23-093434.ips`（pid=48715）：
-- 仍 main 511 帧，但符号换成 `LBFHook_drawRect` ↔ `StandarReader` drawRect@0x5bf20
-- 根因：`TextReadTV`+`TextReadTVBase` 同 sel 双钩；子类真实 IMP 内 `[super drawRect:]` 进父钩时 `object_getClass(self)` 仍是子类，GetOrig 再次指向子类真实 IMP → 死递归
-- 修复：Observer 清单移除 `drawRect:`/`resetContentPosByScreenSize:`；安装时同一继承链同一 sel 去重
+**形式**：静态反汇编 + 假设链真机结论回写 + BC4–BC13。
+**BC4**：`drain=1` → 推翻「main 不排空」。
+**BC5/BC6/BC8 误判（已证伪）**：CB 绕过 / 栈耗尽 / bounce——见下方「证伪联动清单」。
+**BC9–BC11**：取证钩风暴（VWA→drawRect）→ **BC11 后 `qf_enter`/`qf_exit` main=1 已通**。
+**BC12**：撤 division forensics；仍 **post-QF `SIG=6`（SIGABRT）**，回空书架，无萧炎。
+**BC13（计划规则 12）**：默认禁用 BC8 bounce（`_bbNeedBounce=NO`）；uncaught exception POSIX 直写 reason。
 **关联**：
 - [`baseline-vs-legado-diff.md`](baseline-vs-legado-diff.md)
 - [`hypothesis-AE-qf-dispatch-after-format.md`](hypothesis-AE-qf-dispatch-after-format.md)
@@ -21,23 +17,32 @@
 - [`hypothesis-AJ-ban-bg-uikit-main-drain.md`](hypothesis-AJ-ban-bg-uikit-main-drain.md)
 - [`reader-call-chain.md`](reader-call-chain.md)
 
+### 证伪联动清单（计划硬规则 12，2026-07-23）
+
+| 证伪结论 | 证据 | 基于该结论的改动 | 联动处理 |
+|---|---|---|---|
+| CB 被绕过 | BC6b `inCB=1` / BC8c `cb_enter` | BC5 文档叙事 | 文档已纠正 |
+| CB 栈耗尽 | BC8c `stackRem=535196` | BC8/BC8b bounce + `semaphore_wait(FOREVER)` | **BC13：`_bbNeedBounce=NO` 默认禁用** |
+| main 不排空 / QF 饿死 | BC4 `drain=1`；BC11 `qf_enter`+脉冲 | AF/AI/AJ；计划 2026-07-22「QF 死锁」段 | 文档/计划已改写；禁止再按饿死改 CB/QF |
+| post-CB 取证为唯一杀点 | BC9 后仍死；IPS VWA/drawRect | 仅禁 heartbeat 不够 | BC10/BC11 已处理 forensics 钩 |
+
 ---
 
 ## 0. 裁定速览
 
 | 维度 | 原版正常 TXT 阅读（静态判定） | Legado 路径（真机实测） | 差分性质 |
 |---|---|---|---|
-| loadCurCp 调用线程 | main（UIKit appear/onReset 链） | main | 相同 |
-| callBackResponse 执行线程 | bg 网络回调 | bg（Legado CB） | 相同 |
-| QF 默认派发路径 | `dispatch_async(main)` | 同（`after_cb path=async_main`） | 相同 |
-| main runloop 排空 | 是 | **是**（BC4/BC9：`drain=1`） | 非根因 |
-| CB 栈 | 正常 | **正常**（BC8c：`stackRem≈535KB`；旧 rem 公式误标） | 非根因 |
-| QF 是否进入 | 是 | BC9/BC10 仍无 `qf_enter`（forensics 钩风暴） | **取证钩副作用** |
-| 结果 | QF→division→drawRect 上屏 | forensics 递归风暴杀进程 → 回空书架 | 根因差分（BC10/BC11） |
+| loadCurCp 调用线程 | main | main | 相同 |
+| callBackResponse 执行线程 | bg | bg | 相同 |
+| QF 默认派发 / 实际进入 | `dispatch_async(main)` / 进入 | **BC11+：`qf_enter` main=1 且 `qf_exit`** | 已对齐 |
+| main 排空 | 是 | 是（脉冲可见） | 非根因 |
+| CB 栈 | 正常 | 正常 | 非根因 |
+| 上屏 | 有 | **无**：post-QF `SIGABRT` → 回空书架 | **当前断点（BC12/BC13）** |
 
-**核心结论（BC11）**：业务路径（CB→format→`dispatch_async(main)` QF）与原版一致，main 也排空。进程死在 **LegadoBridgeDebug forensics** 对 UIKit/绘制链的错误挂钩（先 `viewWillAppear`，后 `drawRect` 父子双钩 + super 取 orig 错），**QF 块未及执行**。BC6「栈耗尽」、BC5「CB 绕过」、AF「main 不排空」均为误判。
+**核心结论（BC13）**：6A 的 QF 到达条件已满足。当前卡在 **QF 之后 SIGABRT**（历史上 IPS 指向 unrecognized selector / `UIPageViewController setViewControllers` 链）。禁止再按「栈耗尽」「main 饿死」改生产时序。
 
 ---
+
 ## 1. 原版 `callBackResponse` 反汇编（LPNetWork2 @ 0x10008a1d4，全分支）
 
 反汇编工具：lldb 21.1.6 `disassemble --start-address --count`。覆盖范围 +0 ~ +1380（ret @ +1376）。

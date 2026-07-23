@@ -1097,6 +1097,28 @@ static void LBANSampleMemPath(int i, long ms, long mem) {
 }
 
 static void LBALUncaughtException(NSException *ex) {
+    // BC13：SIGABRT 轮未见 al_uncaught_exception——疑 ObjC 探针在 terminate 路径失败。
+    // 先 POSIX 直写 name/reason（截断），再尝试原 LBABSyncProbe。
+    const char *n = ex.name ? ex.name.UTF8String : "?";
+    const char *r = ex.reason ? ex.reason.UTF8String : "?";
+    char mark[384];
+    int mn = snprintf(mark, sizeof(mark),
+                      "hypothesis_AC bc13_uncaught name=%.64s reason=%.200s inQF=%d postQF=%d pid=%d\n",
+                      n ? n : "?", r ? r : "?",
+                      atomic_load(&sALInQF), atomic_load(&sALPostQF), (int)getpid());
+    const char *home = getenv("HOME");
+    char path[512];
+    if (home && home[0]) {
+        snprintf(path, sizeof(path), "%s/Documents/legado_ab_probe.txt", home);
+    } else {
+        snprintf(path, sizeof(path), "/tmp/legado_ab_probe.txt");
+    }
+    int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        if (mn > 0) (void)write(fd, mark, (size_t)mn);
+        (void)fsync(fd);
+        close(fd);
+    }
     NSString *name = ex.name ?: @"?";
     NSString *reason = ex.reason ?: @"?";
     if (reason.length > 160) reason = [reason substringToIndex:160];
@@ -1111,9 +1133,7 @@ static void LBALUncaughtException(NSException *ex) {
 }
 
 static void LBALInstallExceptionProbe(void) {
-    static int once = 0;
-    if (once) return;
-    once = 1;
+    // 可重入：每次夺回 handler（nativeOpen/DebugPanel 可能盖掉）
     NSSetUncaughtExceptionHandler(&LBALUncaughtException);
 }
 
@@ -1525,6 +1545,7 @@ static void LBAE_QueryFinish(id self, SEL _cmd, id response, id config, id userI
     LBAONotifyForensicsWindow(1, 0);
     // AO：QF 入口先夺 handler（open 路径可能已用 signal() 盖掉）
     LBANClaimFaultHandlers("qf_enter");
+    LBALInstallExceptionProbe();
     LBAOProbeFaultHandler("qf_enter");
     LBABSyncProbe([NSString stringWithFormat:
                    @"qf_enter self=%@ respLen=%lu action=%@ respCls=%@",
@@ -1557,6 +1578,7 @@ static void LBAE_QueryFinish(id self, SEL _cmd, id response, id config, id userI
         atomic_store(&sALPostQF, 1);
         LBAONotifyForensicsWindow(0, 1);
         LBAOEmitLBFStats("qf_exit");
+        LBALInstallExceptionProbe();
         LBAOProbeFaultHandler("qf_exit");
     }
     LBABSyncProbe(@"ag_post_qf");
@@ -1615,9 +1637,11 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
     dispatch_once(&sBC8Once, ^{
         sBC8FreshQ = dispatch_queue_create("legado.bc8.cb.fresh", DISPATCH_QUEUE_SERIAL);
     });
-    BOOL _bbNeedBounce = (_bbRemaining < 32768) && sABNextCallBackResponse
-                         && (atomic_load(&sBC8BounceDepth) == 0) && sBC8FreshQ;
+    // 计划硬规则 12 / BC8c 证伪：BC8 bounce 基于「CB 栈耗尽」上线，已证伪（stackRem≈535KB）。
+    // 默认永久禁用；保留代码仅供对照，禁 semaphore_wait(FOREVER) 死锁面进入生产 CB 路径。
+    BOOL _bbNeedBounce = NO;
     if (_bbNeedBounce) {
+        LBABSyncProbe(@"bc13_bc8_bounce_unreachable"); // 死代码哨兵，真机出现即回归
         {
             char mark[256];
             int n = snprintf(mark, sizeof(mark),
@@ -1802,6 +1826,7 @@ static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id 
     // 本刀跳过 post-CB 心跳，让 main 上的 QF 块有机会执行。
     LBABSyncProbe(@"bc9_post_cb_hb_skipped");
     // LBAMStartPostCbHeartbeat(); // BC9 disabled
+    LBALInstallExceptionProbe();
 }
 
 static id LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id userInfo) {
