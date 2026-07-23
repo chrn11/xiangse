@@ -2643,14 +2643,38 @@ static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArra
             NSString *altPath = [bookDir stringByAppendingPathComponent:
                                  [NSString stringWithFormat:@"%@%ld", dirKey, (long)cpIndex]];
             [body writeToFile:altPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-            NSDictionary *lstPlist = @{
-                @"list": @[ @{
-                    @"title": title,
-                    @"url": [@(cpIndex) stringValue]
-                } ]
-            };
-            [lstPlist writeToFile:[bookDir stringByAppendingPathComponent:@"localSourceText"]
-                       atomically:YES];
+            // 合并 localSourceText.list，避免切章 seed 覆盖掉已缓存章
+            NSString *lstPath = [bookDir stringByAppendingPathComponent:@"localSourceText"];
+            NSMutableArray *list = [NSMutableArray array];
+            @try {
+                id existing = [NSDictionary dictionaryWithContentsOfFile:lstPath];
+                if ([existing isKindOfClass:[NSDictionary class]]) {
+                    id oldList = [(NSDictionary *)existing objectForKey:@"list"];
+                    if ([oldList isKindOfClass:[NSArray class]]) {
+                        [list addObjectsFromArray:(NSArray *)oldList];
+                    }
+                }
+            } @catch (__unused NSException *e) {}
+            NSString *urlKey = [@(cpIndex) stringValue];
+            BOOL merged = NO;
+            for (NSUInteger li = 0; li < list.count; li++) {
+                id row = list[li];
+                if (![row isKindOfClass:[NSDictionary class]]) continue;
+                NSString *u = [(NSDictionary *)row objectForKey:@"url"];
+                if ([u isKindOfClass:[NSString class]] && [u isEqualToString:urlKey]) {
+                    NSMutableDictionary *upd = [row mutableCopy];
+                    upd[@"title"] = title;
+                    upd[@"url"] = urlKey;
+                    list[li] = upd;
+                    merged = YES;
+                    break;
+                }
+            }
+            if (!merged) {
+                [list addObject:@{ @"title": title, @"url": urlKey }];
+            }
+            NSDictionary *lstPlist = @{ @"list": list };
+            [lstPlist writeToFile:lstPath atomically:YES];
         }
         if (primaryDir.length > 0) {
             for (id tgt in @[reader, LBFindReadPageContainerForReader(reader) ?: [NSNull null]]) {
@@ -2879,6 +2903,13 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
                 [(NSMutableDictionary *)dq removeObjectForKey:@(cpIndex)];
                 [(NSMutableDictionary *)dq removeObjectForKey:[@(cpIndex) stringValue]];
                 [scrollPaths addObject:@"clear_dicQuerying_keys"];
+            }
+            id dqe = nil;
+            @try { dqe = [container valueForKey:@"dicQueryError"]; } @catch (__unused NSException *e) {}
+            if ([dqe isKindOfClass:[NSMutableDictionary class]]) {
+                [(NSMutableDictionary *)dqe removeObjectForKey:@(cpIndex)];
+                [(NSMutableDictionary *)dqe removeObjectForKey:[@(cpIndex) stringValue]];
+                [scrollPaths addObject:@"clear_dicQueryError_keys"];
             }
             id dh = nil;
             @try { dh = [container valueForKey:@"dicHeight"]; } @catch (__unused NSException *e) {}
