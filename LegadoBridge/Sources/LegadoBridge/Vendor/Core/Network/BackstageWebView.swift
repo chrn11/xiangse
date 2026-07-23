@@ -136,9 +136,9 @@ class BackstageWebView {
     }
 
     /// 获取 StrResponse（对应 Android getStrResponse）
-    /// 真机：`main.async` + continuation 在 hop 之后仍不进 `start()`（主队列块不执行或卡在 WK 前）。
-    /// 做法：`Task.detached` 离开调用方执行器 → `DispatchQueue.main.sync` 在主线程启动 WK，
-    /// 并用 `RunLoop` 泵送直到完成，使 didFinish/evaluateJS/超时定时器能在同一段 sync 内跑完。
+    /// - 必须先 `Task.detached`：调用方 Task 若继承 MainActor，会与 WK 回调互锁。
+    /// - 不可 `main.sync`+RunLoop 占住主线程：真机 didFinish 永不回调（WebKit IPC 需要主队列空闲）。
+    /// - 用 `main.async` 启动 Handler，完成回调 `resume` continuation；延迟用 Timer（common modes）。
     func getStrResponse() async throws -> StrResponse {
         let effectiveTimeout = timeout ?? 60000
         let url = self.url
@@ -157,7 +157,7 @@ class BackstageWebView {
         return try await Task.detached(priority: .userInitiated) {
             let hop = [
                 "ts=\(ISO8601DateFormatter().string(from: Date()))",
-                "hop=detached_sync",
+                "hop=detached_async",
                 "url=\(url ?? "")",
                 "htmlLen=\(html?.count ?? 0)",
             ].joined(separator: "\n")
@@ -165,76 +165,46 @@ class BackstageWebView {
                 .appendingPathComponent("Documents/legado_webview_hop.txt")
             try? hop.write(toFile: hopPath, atomically: true, encoding: .utf8)
 
-            // 禁止在主线程调此路径（会 main.sync 自死锁）
-            if Thread.isMainThread {
-                throw WebViewFetchError.invalidState
-            }
+            return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<StrResponse, Error>) in
+                DispatchQueue.main.async {
+                    let syncMark = [
+                        "ts=\(ISO8601DateFormatter().string(from: Date()))",
+                        "phase=main_async",
+                        "url=\(url ?? "")",
+                        "htmlLen=\(html?.count ?? 0)",
+                    ].joined(separator: "\n")
+                    let syncPath = (NSHomeDirectory() as NSString)
+                        .appendingPathComponent("Documents/legado_webview_main_sync.txt")
+                    try? syncMark.write(toFile: syncPath, atomically: true, encoding: .utf8)
 
-            var boxResult: Result<StrResponse, Error>?
-            DispatchQueue.main.sync {
-                let syncMark = [
-                    "ts=\(ISO8601DateFormatter().string(from: Date()))",
-                    "phase=main_sync",
-                    "url=\(url ?? "")",
-                    "htmlLen=\(html?.count ?? 0)",
-                ].joined(separator: "\n")
-                let syncPath = (NSHomeDirectory() as NSString)
-                    .appendingPathComponent("Documents/legado_webview_main_sync.txt")
-                try? syncMark.write(toFile: syncPath, atomically: true, encoding: .utf8)
-
-                let box = WebViewResultBox()
-                let handler = WebViewHandler(
-                    url: url,
-                    html: html,
-                    encode: encode,
-                    tag: tag,
-                    headerMap: headerMap,
-                    sourceRegex: sourceRegex,
-                    overrideUrlRegex: overrideUrlRegex,
-                    javaScript: javaScript,
-                    delayTime: delayTime,
-                    cacheFirst: cacheFirst,
-                    result: result,
-                    isRule: isRule,
-                    timeout: effectiveTimeout,
-                    onComplete: { box.finish($0) }
-                )
-                WebViewHandlerBag.retain(handler)
-                handler.start()
-
-                let deadline = Date().addingTimeInterval(Double(effectiveTimeout) / 1000.0 + 2.0)
-                while !box.isFinished && Date() < deadline {
-                    // 必须用 common：GCD main 与 Timer 挂在 common modes；只用 default 会饿死 didFinish/asyncAfter
-                    RunLoop.current.run(mode: .common, before: Date(timeIntervalSinceNow: 0.05))
+                    let handler = WebViewHandler(
+                        url: url,
+                        html: html,
+                        encode: encode,
+                        tag: tag,
+                        headerMap: headerMap,
+                        sourceRegex: sourceRegex,
+                        overrideUrlRegex: overrideUrlRegex,
+                        javaScript: javaScript,
+                        delayTime: delayTime,
+                        cacheFirst: cacheFirst,
+                        result: result,
+                        isRule: isRule,
+                        timeout: effectiveTimeout,
+                        onComplete: { result in
+                            switch result {
+                            case .success(let response):
+                                continuation.resume(returning: response)
+                            case .failure(let error):
+                                continuation.resume(throwing: error)
+                            }
+                        }
+                    )
+                    WebViewHandlerBag.retain(handler)
+                    handler.start()
                 }
-                if !box.isFinished {
-                    handler.forceTimeoutFromPump()
-                    let extra = Date().addingTimeInterval(1.0)
-                    while !box.isFinished && Date() < extra {
-                        RunLoop.current.run(mode: .common, before: Date(timeIntervalSinceNow: 0.05))
-                    }
-                }
-                boxResult = box.result ?? .failure(WebViewFetchError.timeout)
-            }
-            switch boxResult! {
-            case .success(let response):
-                return response
-            case .failure(let error):
-                throw error
             }
         }.value
-    }
-}
-
-/// 主线程 RunLoop 泵送用的完成盒（非 Sendable，仅 main.sync 内读写）
-private final class WebViewResultBox {
-    private(set) var isFinished = false
-    private(set) var result: Result<StrResponse, Error>?
-
-    func finish(_ value: Result<StrResponse, Error>) {
-        guard !isFinished else { return }
-        result = value
-        isFinished = true
     }
 }
 
@@ -336,13 +306,21 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
         self.webView = webView
         webView.navigationDelegate = self
 
-        // 挂到隐藏 1x1 window，确保导航回调会触发
-        let win = UIWindow(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
-        win.windowLevel = UIWindow.Level(rawValue: -1000)
-        win.isHidden = false
-        win.addSubview(webView)
-        webView.frame = win.bounds
-        hostWindow = win
+        // 优先挂到已有 keyWindow（比新建 UIWindow 更易触发 didFinish）；否则退回隐藏 1x1 window
+        if let keyWin = UIApplication.shared.windows.first(where: { $0.isKeyWindow })
+            ?? UIApplication.shared.windows.first {
+            webView.frame = CGRect(x: 0, y: 0, width: 2, height: 2)
+            webView.isHidden = true
+            keyWin.addSubview(webView)
+            hostWindow = nil
+        } else {
+            let win = UIWindow(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
+            win.windowLevel = UIWindow.Level(rawValue: -1000)
+            win.isHidden = false
+            win.addSubview(webView)
+            webView.frame = win.bounds
+            hostWindow = win
+        }
 
         // 配置 User-Agent
         let ua = headerMap?["User-Agent"] ?? "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1"
@@ -360,9 +338,9 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
             }
         }
 
-        // 加载内容
+        // 加载内容：已有 HTML 时 baseURL 用 about:blank，避免局域网 http base 卡住导航
         if let html = html, !html.isEmpty {
-            let baseURL = url.flatMap { URL(string: $0) }
+            let baseURL = URL(string: "about:blank")
             webView.loadHTMLString(html, baseURL: baseURL)
         } else if let url = url, !url.isEmpty {
             if let headerMap = headerMap, !headerMap.isEmpty {

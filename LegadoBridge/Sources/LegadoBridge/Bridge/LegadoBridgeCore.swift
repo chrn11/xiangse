@@ -756,7 +756,9 @@ import LegadoBridgeHooks
 
     @objc(handleContentRequestWithChapterUrl:bookUrl:sourceUrl:)
     public func handleContentRequest(chapterUrl: String, bookUrl: String, sourceUrl: String?) {
-        Task {
+        // 必须 detached：主线程 Task{} 会继承 MainActor，导致 BackstageWebView 的 main.async{start}
+        // 与 await 互锁（真机只有 phase=enter / hop，无 didFinish）。
+        Task.detached(priority: .userInitiated) {
             do {
                 let binding = BookBindingStore.shared.binding(forBookUrl: bookUrl)
                 if let binding, !binding.sourceAvailable {
@@ -764,7 +766,7 @@ import LegadoBridgeHooks
                 }
                 let resolvedUrl = sourceUrl
                     ?? binding?.sourceUrl
-                    ?? bookCache[bookUrl]?.sourceUrl
+                    ?? self.bookCache[bookUrl]?.sourceUrl
                 guard let source = SourceRegistry.shared.exactSource(forUrl: resolvedUrl),
                       SourceRegistry.shared.isEnabled(url: source.bookSourceUrl) else {
                     throw LegadoBridgeError.sourceNotFound
@@ -773,11 +775,11 @@ import LegadoBridgeHooks
                     bookUrl: bookUrl,
                     sourceUrl: source.bookSourceUrl,
                     sourceName: source.bookSourceName,
-                    name: bookCache[bookUrl]?.name ?? "",
-                    author: bookCache[bookUrl]?.author ?? "",
-                    coverUrl: bookCache[bookUrl]?.coverUrl ?? ""
+                    name: self.bookCache[bookUrl]?.name ?? "",
+                    author: self.bookCache[bookUrl]?.author ?? "",
+                    coverUrl: self.bookCache[bookUrl]?.coverUrl ?? ""
                 )
-                let book = bookCache[bookUrl] ?? BridgeBook(
+                let book = self.bookCache[bookUrl] ?? BridgeBook(
                     bookUrl: bookUrl,
                     sourceUrl: source.bookSourceUrl,
                     sourceName: source.bookSourceName
@@ -817,7 +819,7 @@ import LegadoBridgeHooks
                     chapterUrl: chapterUrl,
                     binding: ensured
                 )
-                postNotification(XiangseAdapter.notifyResetContent, userInfo: payload)
+                self.postNotification(XiangseAdapter.notifyResetContent, userInfo: payload)
                 // 阅读页可能尚未注册监听：缓存并由 ReadVC appear / delay 再投
                 LBNoteResetContentPosted(payload)
             } catch {
@@ -833,7 +835,7 @@ import LegadoBridgeHooks
                     "chapterUrl": chapterUrl,
                     XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
                 ]
-                postNotification(
+                self.postNotification(
                     XiangseAdapter.notifyResetContent,
                     userInfo: errPayload
                 )
