@@ -493,6 +493,27 @@ void LBInstallReadingHooks(void) {
             LBReadingDiagLog([NSString stringWithFormat:@"loadCurCp skip: %@", reason]);
         }
 
+        // 3b) loadCp: — 滚动容器正文入口（ReadScrollContainer；与 loadCurCp 互斥）
+        {
+            NSArray *scrollCpCandidates = @[@"ReadScrollContainer", @"TextRScrollContainer"];
+            SEL loadCpSel = NSSelectorFromString(@"loadCp:");
+            Class scrollOwner = LBFindClassImplementing(scrollCpCandidates, loadCpSel);
+            NSString *scrollReason = nil;
+            NSString *scrollEnc = nil;
+            if (scrollOwner &&
+                LBValidateInstanceMethod(scrollOwner, loadCpSel, NULL, &scrollEnc, &scrollReason)) {
+                Method m = class_getInstanceMethod(scrollOwner, loadCpSel);
+                IMP raw = method_getImplementation(m);
+                if (raw) {
+                    LBLoadCurCpBridgeRegisterLoadCpOrig((id (*)(id, SEL, long long))raw);
+                    [installed addObject:[NSString stringWithFormat:@"loadCp:@%@ enc=%@",
+                                          NSStringFromClass(scrollOwner), scrollEnc ?: @""]];
+                }
+            } else if (scrollReason) {
+                LBReadingDiagLog([NSString stringWithFormat:@"loadCp: skip: %@", scrollReason]);
+            }
+        }
+
         // 4) addBook:groupKey:tempBook: — 加书架时落盘绑定；进度/缓存不 Hook
         Class shelfMgr = NSClassFromString(@"BookShelfManager");
         SEL addSel = NSSelectorFromString(@"addBook:groupKey:tempBook:");

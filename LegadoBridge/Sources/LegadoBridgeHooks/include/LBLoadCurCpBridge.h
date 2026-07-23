@@ -19,6 +19,9 @@ typedef NS_ENUM(NSInteger, LBLoadCurCpState) {
 /// 注册原版 loadCurCp IMP（由 LBReadingHooks 安装时调用；unwrap 后的真 native）
 void LBLoadCurCpBridgeRegisterOrig(void (*orig)(id, SEL));
 
+/// 注册原版 ReadScrollContainer#loadCp:（滚动模式 invoke 用）
+void LBLoadCurCpBridgeRegisterLoadCpOrig(id (*orig)(id, SEL, long long));
+
 /// Hook 内是否应直通已保存的真 native（invoke 重入 / EarlyWrap 链）
 BOOL LBLoadCurCpBridgePassThroughToNative(void);
 

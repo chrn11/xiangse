@@ -20,6 +20,8 @@
 #import <sys/ucontext.h>
 
 static void (*sOrigLoadCurCp)(id, SEL) = NULL;
+/// ReadScrollContainer#loadCp: 编码 @24@0:8q16（返回 id，参 long long cpIndex）
+static id (*sOrigLoadCp)(id, SEL, long long) = NULL;
 static LBLoadCurCpState sState = LBLoadCurCpStateIdle;
 static NSString *sToken = nil;
 static NSString *sChapterUrl = nil;
@@ -2134,6 +2136,12 @@ void LBLoadCurCpBridgeRegisterOrig(void (*orig)(id, SEL)) {
     LBABInstallProbes();
 }
 
+void LBLoadCurCpBridgeRegisterLoadCpOrig(id (*orig)(id, SEL, long long)) {
+    if (!orig) return;
+    sOrigLoadCp = orig;
+    LBStateLog([NSString stringWithFormat:@"register_loadCp_orig imp=%p", orig]);
+}
+
 static NSString *LBBodyFromPayload(NSDictionary *payload);
 static void LBTryContentReadyAndInvoke(id reader, NSDictionary *payload);
 static void LBScheduleContentReadyWhenReaderReady(NSInteger attempt);
@@ -2209,6 +2217,12 @@ static BOOL LBObjectIsReadPageContainerLike(id obj) {
         return YES;
     }
     return [obj respondsToSelector:NSSelectorFromString(@"curPageVC")];
+}
+
+static BOOL LBObjectIsScrollContainerLike(id obj) {
+    if (!obj) return NO;
+    NSString *n = NSStringFromClass(object_getClass(obj));
+    return [n containsString:@"ScrollContainer"];
 }
 
 /// 假设 F：含 TextRScrollContainer（loadCurCp/division 可能挂在此类）
@@ -3169,8 +3183,9 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
         LBStateLog(@"invoke_skip reason=no_container");
         return;
     }
+    BOOL isScroll = LBObjectIsScrollContainerLike(container);
     // 假设 R2：+load 时 ReadPageContainer 可能未链入，此处补注册 native IMP
-    if (!sOrigLoadCurCp) {
+    if (!sOrigLoadCurCp && !isScroll) {
         for (NSString *cn in @[@"ReadPageContainer", @"TextRPageContainer",
                                NSStringFromClass(object_getClass(container))]) {
             Class cls = NSClassFromString(cn);
@@ -3185,9 +3200,12 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
             break;
         }
     }
-    if (!sOrigLoadCurCp) {
+    if (!sOrigLoadCurCp && !isScroll) {
         LBStateLog(@"invoke_skip reason=null_orig_after_late_register");
         return;
+    }
+    if (!sOrigLoadCurCp && isScroll) {
+        LBStateLog(@"scroll_S2 proceed_without_loadCurCp_orig");
     }
     LBEnsureContainerReaderLink(container, reader);
     id curPage = LBContainerCurPageVC(container);
@@ -3303,7 +3321,45 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
         }
     }
     @try {
-        sOrigLoadCurCp(container, @selector(loadCurCp));
+        if (LBObjectIsScrollContainerLike(container)) {
+            // scroll-S2：滚动容器无 loadCurCp/curPageVC；走 ReadScrollContainer#loadCp:
+            long long cpIndex = 0;
+            if (sPendingPayload) {
+                cpIndex = (long long)LBCpIndexFromPayload(sPendingPayload, reader);
+            }
+            if (!sOrigLoadCp) {
+                for (NSString *cn in @[@"ReadScrollContainer", @"TextRScrollContainer",
+                                       containerName]) {
+                    Class cls = NSClassFromString(cn);
+                    if (!cls) continue;
+                    Method m = class_getInstanceMethod(cls, @selector(loadCp:));
+                    if (!m) continue;
+                    IMP imp = method_getImplementation(m);
+                    if (!imp) continue;
+                    LBLoadCurCpBridgeRegisterLoadCpOrig((id (*)(id, SEL, long long))imp);
+                    LBStateLog([NSString stringWithFormat:
+                                @"scroll_S2 late_register_loadCp %@ imp=%p", cn, imp]);
+                    break;
+                }
+            }
+            if (sOrigLoadCp) {
+                LBStateLog([NSString stringWithFormat:
+                            @"scroll_S2 invoke_loadCp: idx=%lld target=%@",
+                            cpIndex, containerName]);
+                sOrigLoadCp(container, @selector(loadCp:), cpIndex);
+            } else if ([container respondsToSelector:@selector(loadCp:)]) {
+                LBStateLog([NSString stringWithFormat:
+                            @"scroll_S2 invoke_loadCp: msgSend idx=%lld target=%@",
+                            cpIndex, containerName]);
+                ((id (*)(id, SEL, long long))objc_msgSend)(container, @selector(loadCp:), cpIndex);
+            } else {
+                @throw [NSException exceptionWithName:NSInternalInconsistencyException
+                                               reason:@"scroll container missing loadCp:"
+                                             userInfo:nil];
+            }
+        } else {
+            sOrigLoadCurCp(container, @selector(loadCurCp));
+        }
         LBABSyncProbe([NSString stringWithFormat:@"invoke_orig_returned target=%@", containerName]);
         // AQ 探针：invoke 后 pageStatus + main drain 脉冲
         {
