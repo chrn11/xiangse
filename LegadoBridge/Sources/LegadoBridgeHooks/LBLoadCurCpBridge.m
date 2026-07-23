@@ -3164,10 +3164,6 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
         LBStateLog(@"invoke_skip reason=null_reader");
         return;
     }
-    if (!sOrigLoadCurCp) {
-        LBStateLog(@"invoke_skip reason=null_orig");
-        return;
-    }
     if (sReentryGuard) {
         LBStateLog(@"invoke_skip reason=reentry");
         return;
@@ -3184,6 +3180,10 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
         return;
     }
     BOOL isScroll = LBObjectIsScrollContainerLike(container);
+    if (!sOrigLoadCurCp && !isScroll) {
+        LBStateLog(@"invoke_skip reason=null_orig");
+        return;
+    }
     // 假设 R2：+load 时 ReadPageContainer 可能未链入，此处补注册 native IMP
     if (!sOrigLoadCurCp && !isScroll) {
         for (NSString *cn in @[@"ReadPageContainer", @"TextRPageContainer",
