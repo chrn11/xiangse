@@ -908,15 +908,51 @@ class AnalyzeUrl {
         analyzer.method = analyzedUrl.method
         analyzer.body = analyzedUrl.body
         analyzer.charset = analyzedUrl.charset
-        analyzer.useWebView = analyzedUrl.webView
-        analyzer.webJs = analyzedUrl.webJs
+        // forceWebView（ruleContent.webJs / sourceRegex）必须落到 self.useWebView，
+        // 否则 executeStrRequest 的 `self.useWebView && useWebView` 永远进不了 BackstageWebView。
+        let needWebView = forceWebView || analyzedUrl.webView
+        analyzer.useWebView = needWebView
+        analyzer.webJs = javaScript ?? analyzedUrl.webJs
 
         let response = try await analyzer.getStrResponseAwait(
             jsStr: javaScript,
             sourceRegex: sourceRegex,
-            useWebView: forceWebView || analyzedUrl.webView
+            useWebView: needWebView
         )
+        if needWebView {
+            writeWebViewDebugMarker(
+                url: response.url,
+                body: response.body ?? "",
+                force: forceWebView,
+                analyzedFlag: analyzedUrl.webView,
+                hasWebJs: !(analyzer.webJs?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            )
+        }
         return (body: response.body ?? "", url: response.url)
+    }
+
+    /// 8.7 真机门禁：证明本轮走了 BackstageWebView，且渲染后正文含针时可对照
+    private static func writeWebViewDebugMarker(
+        url: String,
+        body: String,
+        force: Bool,
+        analyzedFlag: Bool,
+        hasWebJs: Bool
+    ) {
+        let marker = [
+            "ts=\(ISO8601DateFormatter().string(from: Date()))",
+            "path=BackstageWebView",
+            "forceWebView=\(force)",
+            "analyzedWebView=\(analyzedFlag)",
+            "hasWebJs=\(hasWebJs)",
+            "url=\(url)",
+            "bodyLen=\(body.count)",
+            "hasMarker=\(body.contains("WEBVIEW_OK_MARKER"))",
+            "hasXiaoyan=\(body.contains("萧炎"))",
+        ].joined(separator: "\n")
+        let path = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_webview_debug.txt")
+        try? marker.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     // MARK: - 静态工具方法

@@ -3,7 +3,17 @@
 <body>
 <div id="placeholder">加载中…</div>
 <script>
-document.getElementById('placeholder').innerHTML =
-  '<div id="chaptercontent"><p>第一章 WebView 验收</p><p>萧炎，由 webJs 渲染出的正文针。</p><p>WEBVIEW_OK_MARKER</p></div>';
+/* 节点与针均运行时拼接：裸 HTTP 不得出现连续验收针 / 静态 chaptercontent 属性字面量 */
+var cid = ['chapter', 'content'].join('');
+var needle = ['WEBVIEW', '_OK_', 'MARKER'].join('');
+var box = document.createElement('div');
+box.id = cid;
+box.innerHTML =
+  '<p>第一章 WebView 验收</p>' +
+  '<p>萧炎，由 webJs 渲染出的正文针。</p>' +
+  '<p>' + needle + '</p>';
+var ph = document.getElementById('placeholder');
+ph.innerHTML = '';
+ph.appendChild(box);
 </script>
 </body></html>

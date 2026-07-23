@@ -28,6 +28,8 @@ PURIFY_TEMPLATE = FIXTURE_DIR / "legado-purify-mock.json"
 PURIFY_RUNTIME = FIXTURE_DIR / "legado-purify-mock.runtime.json"
 WEBVIEW_TEMPLATE = FIXTURE_DIR / "legado-webview-mock.json"
 WEBVIEW_RUNTIME = FIXTURE_DIR / "legado-webview-mock.runtime.json"
+WEBVIEW_MIN_TEMPLATE = FIXTURE_DIR / "legado-webview-min.json"
+WEBVIEW_MIN_RUNTIME = FIXTURE_DIR / "legado-webview-min.runtime.json"
 DEFAULT_PROBE = "192.168.1.6"
 
 
@@ -87,6 +89,14 @@ def write_runtime(host: str, port: int) -> dict:
         _write_template_runtime(
             WEBVIEW_TEMPLATE,
             WEBVIEW_RUNTIME,
+            host,
+            port,
+            f"http://{host}:{port}/webview-source",
+        )
+    if WEBVIEW_MIN_TEMPLATE.is_file():
+        _write_template_runtime(
+            WEBVIEW_MIN_TEMPLATE,
+            WEBVIEW_MIN_RUNTIME,
             host,
             port,
             f"http://{host}:{port}/webview-source",
