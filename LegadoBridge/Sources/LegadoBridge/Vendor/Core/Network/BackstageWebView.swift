@@ -135,9 +135,12 @@ class BackstageWebView {
     }
 
     /// 获取 StrResponse（对应 Android getStrResponse）
-    /// 不可标 `@MainActor` 后在本方法内 `withCheckedThrowingContinuation` 等待 WK 回调：
-    /// MainActor 会挂起等 continuation，而 `didFinish`/`evaluateJS` 也要 MainActor → 死锁。
-    /// 启动用 `DispatchQueue.main.async`（勿用可能饿死的 Task{@:MainActor}）。
+    /// 不可在 MainActor 上 await「只能在主队列完成」的 WK 回调。
+    /// 真机证据：phase=enter 后永无 `legado_webview_handler_start.txt`。
+    /// 原因：`handleContentRequest` 在主线程 `Task {}` 会继承 MainActor；
+    /// 若在此直接 `withCheckedThrowingContinuation` + `DispatchQueue.main.async { start }`，
+    /// MainActor 挂起等 resume，而 start/WK 也排在同一主执行器 → 饿死。
+    /// 修复：先 `Task.detached` 离开 MainActor，再在主队列启动 Handler。
     func getStrResponse() async throws -> StrResponse {
         let effectiveTimeout = timeout ?? 60000
         let url = self.url
@@ -153,29 +156,40 @@ class BackstageWebView {
         let result = self.result
         let isRule = self.isRule
 
-        return try await withCheckedThrowingContinuation { continuation in
-            // 用 GCD 主队列，避开 Swift MainActor 执行器与 continuation 互锁
-            DispatchQueue.main.async {
-                let handler = WebViewHandler(
-                    url: url,
-                    html: html,
-                    encode: encode,
-                    tag: tag,
-                    headerMap: headerMap,
-                    sourceRegex: sourceRegex,
-                    overrideUrlRegex: overrideUrlRegex,
-                    javaScript: javaScript,
-                    delayTime: delayTime,
-                    cacheFirst: cacheFirst,
-                    result: result,
-                    isRule: isRule,
-                    timeout: effectiveTimeout,
-                    continuation: continuation
-                )
-                WebViewHandlerBag.retain(handler)
-                handler.start()
+        return try await Task.detached(priority: .userInitiated) {
+            let hop = [
+                "ts=\(ISO8601DateFormatter().string(from: Date()))",
+                "hop=detached",
+                "url=\(url ?? "")",
+                "htmlLen=\(html?.count ?? 0)",
+            ].joined(separator: "\n")
+            let hopPath = (NSHomeDirectory() as NSString)
+                .appendingPathComponent("Documents/legado_webview_hop.txt")
+            try? hop.write(toFile: hopPath, atomically: true, encoding: .utf8)
+
+            return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<StrResponse, Error>) in
+                DispatchQueue.main.async {
+                    let handler = WebViewHandler(
+                        url: url,
+                        html: html,
+                        encode: encode,
+                        tag: tag,
+                        headerMap: headerMap,
+                        sourceRegex: sourceRegex,
+                        overrideUrlRegex: overrideUrlRegex,
+                        javaScript: javaScript,
+                        delayTime: delayTime,
+                        cacheFirst: cacheFirst,
+                        result: result,
+                        isRule: isRule,
+                        timeout: effectiveTimeout,
+                        continuation: continuation
+                    )
+                    WebViewHandlerBag.retain(handler)
+                    handler.start()
+                }
             }
-        }
+        }.value
     }
 }
 
