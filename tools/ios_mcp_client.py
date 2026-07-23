@@ -44,14 +44,22 @@ class McpClient:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                body = json.loads(resp.read().decode())
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode(errors="replace")
-            raise McpError(f"MCP HTTP {exc.code}: {detail}") from exc
-        except urllib.error.URLError as exc:
-            raise McpError(f"MCP 不可达 {self.base_url}: {exc}") from exc
+        last_exc: Exception | None = None
+        body: dict[str, Any] = {}
+        for attempt in range(4):
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    body = json.loads(resp.read().decode())
+                last_exc = None
+                break
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode(errors="replace")
+                raise McpError(f"MCP HTTP {exc.code}: {detail}") from exc
+            except urllib.error.URLError as exc:
+                last_exc = exc
+                time.sleep(1.5 * (attempt + 1))
+        if last_exc is not None:
+            raise McpError(f"MCP 不可达 {self.base_url}: {last_exc}") from last_exc
 
         if "error" in body:
             raise McpError(json.dumps(body["error"], ensure_ascii=False))

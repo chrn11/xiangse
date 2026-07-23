@@ -1,0 +1,29 @@
+{
+  "bookSourceUrl": "http://__LAN_HOST__:8765",
+  "bookSourceName": "本地 WebView 测试源",
+  "bookSourceType": 0,
+  "enabled": true,
+  "searchUrl": "http://__LAN_HOST__:8765/mock_search.html?q={{key}}",
+  "ruleSearch": {
+    "bookList": ".bookbox",
+    "name": "h4@text",
+    "author": ".author@text",
+    "bookUrl": "a@href",
+    "intro": ".intro@text"
+  },
+  "ruleBookInfo": {
+    "name": "h1@text",
+    "author": ".author@text",
+    "intro": "#intro@text",
+    "tocUrl": "text.目录@href"
+  },
+  "ruleToc": {
+    "chapterList": "#list dd",
+    "chapterName": "a@text",
+    "chapterUrl": "a@href"
+  },
+  "ruleContent": {
+    "content": "#chaptercontent@html",
+    "webJs": "document.documentElement.outerHTML"
+  }
+}

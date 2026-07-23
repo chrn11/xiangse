@@ -2854,8 +2854,50 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
 
     // 分页：只写 ReadPageModel 标量
     if (pageModel) {
+        // 8.5：先读旧 nCpIndex/nPageIndex，再写章号；同章保留页码，换章归零。
+        NSInteger existingCp = -999;
+        NSInteger existingPage = -1;
+        @try {
+            id cv = [pageModel valueForKey:@"nCpIndex"];
+            if ([cv respondsToSelector:@selector(integerValue)]) {
+                existingCp = [cv integerValue];
+            }
+        } @catch (__unused NSException *e) {}
+        @try {
+            id pv = [pageModel valueForKey:@"nPageIndex"];
+            if ([pv respondsToSelector:@selector(integerValue)]) {
+                existingPage = [pv integerValue];
+            }
+        } @catch (__unused NSException *e) {}
         LBSetIntegerKey(pageModel, @"nCpIndex", cpIndex);
-        LBSetIntegerKey(pageModel, @"nPageIndex", 0);
+        {
+            id payloadPage = payload[@"nPageIndex"] ?: payload[@"pageIndex"];
+            if ([payloadPage respondsToSelector:@selector(integerValue)]) {
+                LBSetIntegerKey(pageModel, @"nPageIndex", [payloadPage integerValue]);
+            } else {
+                BOOL keepPage = NO;
+                @try {
+                    id go = [reader valueForKey:@"goRecordAfterLoadCp"];
+                    if ([go isKindOfClass:[NSDictionary class]]) {
+                        id gCp = ((NSDictionary *)go)[@"nCpIndex"] ?: ((NSDictionary *)go)[@"cpIndex"];
+                        id gPg = ((NSDictionary *)go)[@"nPageIndex"] ?: ((NSDictionary *)go)[@"pageIndex"];
+                        if ([gCp respondsToSelector:@selector(integerValue)] &&
+                            [gCp integerValue] == cpIndex &&
+                            [gPg respondsToSelector:@selector(integerValue)]) {
+                            LBSetIntegerKey(pageModel, @"nPageIndex", [gPg integerValue]);
+                            keepPage = YES;
+                        }
+                    }
+                } @catch (__unused NSException *e) {}
+                if (!keepPage) {
+                    if (existingPage > 0 && existingCp == cpIndex) {
+                        // 同章重入：保留翻页后的页码
+                    } else {
+                        LBSetIntegerKey(pageModel, @"nPageIndex", 0);
+                    }
+                }
+            }
+        }
         NSUInteger cpCount = 1;
         @try {
             id cat = [reader valueForKey:@"arrCatalog"];

@@ -621,7 +621,8 @@ public enum RuleWebBook {
         return "\(words)字"
     }
 
-    private static func applyReplaceRegex(_ content: String, regex: String) -> String {
+    /// 供测试与调试：源级 replaceRegex（`pattern##replacement`）
+    static func applyReplaceRegex(_ content: String, regex: String) -> String {
         let parts = RuleSplitter.splitTopLevel(regex, token: "##") ?? [regex]
         guard parts.count >= 2 else {
             if let reg = try? NSRegularExpression(pattern: regex) {

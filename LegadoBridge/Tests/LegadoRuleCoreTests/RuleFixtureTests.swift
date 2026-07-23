@@ -261,4 +261,14 @@ final class RuleFixtureTests: XCTestCase {
         let text = CompatibilityFixtures.repairHTMLEncoding(data, charset: "utf-8")
         XCTAssertTrue(text.contains("中文修复"))
     }
+
+    // MARK: - 8.6 replaceRegex / 8.10 variable 相关
+
+    func testApplyReplaceRegexStripsAdBlock() {
+        let raw = "前文【广告】应删除的广告XYZ【/广告】萧炎可见"
+        let out = RuleWebBook.applyReplaceRegex(raw, regex: "【广告】[\\s\\S]*?【/广告】##")
+        XCTAssertFalse(out.contains("广告"), "广告块应被净除，实际: \(out)")
+        XCTAssertTrue(out.contains("萧炎可见"), "正文应保留，实际: \(out)")
+        XCTAssertTrue(out.contains("前文"), "前文应保留，实际: \(out)")
+    }
 }

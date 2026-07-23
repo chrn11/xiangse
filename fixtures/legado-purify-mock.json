@@ -1,0 +1,45 @@
+{
+  "bookSourceUrl": "http://__LAN_HOST__:8765",
+  "bookSourceName": "本地净化测试源",
+  "bookSourceType": 0,
+  "enabled": true,
+  "searchUrl": "http://__LAN_HOST__:8765/mock_search.html?q={{key}}",
+  "exploreUrl": "http://__LAN_HOST__:8765/mock_explore.html",
+  "ruleExplore": {
+    "bookList": ".bookbox",
+    "name": "h4@text",
+    "author": ".author@text",
+    "bookUrl": "a@href",
+    "intro": ".intro@text"
+  },
+  "ruleSearch": {
+    "bookList": ".bookbox",
+    "name": "h4@text",
+    "author": ".author@text",
+    "bookUrl": "a@href",
+    "coverUrl": "img@src",
+    "intro": ".intro@text"
+  },
+  "ruleBookInfo": {
+    "name": "h1@text",
+    "author": ".author@text",
+    "intro": "#intro@text",
+    "coverUrl": ".cover@src",
+    "tocUrl": "text.目录@href"
+  },
+  "ruleToc": {
+    "chapterList": "#list dd",
+    "chapterName": "a@text",
+    "chapterUrl": "a@href"
+  },
+  "ruleContent": {
+    "content": "#chaptercontent@html",
+    "replaceRegex": "【广告】[\\s\\S]*?【/广告】##"
+  },
+  "loginUrl": "http://__LAN_HOST__:8765/mock_login.html",
+  "loginUi": "[{\"name\":\"username\",\"type\":\"text\"},{\"name\":\"password\",\"type\":\"password\"}]",
+  "loginCheckJs": "true",
+  "enabledCookieJar": true,
+  "concurrentRate": "1000",
+  "variable": "{\"token\":\"parity-token\"}"
+}
