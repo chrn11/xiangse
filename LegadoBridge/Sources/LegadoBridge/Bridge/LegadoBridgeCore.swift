@@ -784,6 +784,26 @@ import LegadoBridgeHooks
                 )
                 let chapter = BridgeChapter(title: "", url: chapterUrl, index: 0)
                 var content = try await BridgeWebBook.getContent(source: source, book: book, chapter: chapter)
+                // 书源 ruleContent.replaceRegex：再落一次，防 getContent 映射遗漏；写对照标记供 8.6 验收
+                if let rr = source.getContentRule()?.replaceRegex?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                   !rr.isEmpty {
+                    let before = content
+                    content = RuleWebBook.applyReplaceRegex(content, regex: rr)
+                    let marker = [
+                        "ts=\(ISO8601DateFormatter().string(from: Date()))",
+                        "replaceRegex=\(rr)",
+                        "beforeLen=\(before.count)",
+                        "afterLen=\(content.count)",
+                        "beforeHasAd=\(before.contains("【广告】"))",
+                        "afterHasAd=\(content.contains("【广告】"))",
+                        "beforeHasNoise=\(before.contains("XYZ999"))",
+                        "afterHasNoise=\(content.contains("XYZ999"))",
+                    ].joined(separator: "\n")
+                    let path = (NSHomeDirectory() as NSString)
+                        .appendingPathComponent("Documents/legado_purify_debug.txt")
+                    try? marker.write(toFile: path, atomically: true, encoding: .utf8)
+                }
                 // 全局/书本级替换净化（书源内 replaceRegex 已在 RuleWebBook 处理）
                 content = ReplaceRuleStore.shared.purify(
                     content,

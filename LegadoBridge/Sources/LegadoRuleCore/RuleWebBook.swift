@@ -625,7 +625,10 @@ public enum RuleWebBook {
     static func applyReplaceRegex(_ content: String, regex: String) -> String {
         let parts = RuleSplitter.splitTopLevel(regex, token: "##") ?? [regex]
         guard parts.count >= 2 else {
-            if let reg = try? NSRegularExpression(pattern: regex) {
+            if let reg = try? NSRegularExpression(
+                pattern: regex,
+                options: [.dotMatchesLineSeparators]
+            ) {
                 let range = NSRange(content.startIndex..., in: content)
                 return reg.stringByReplacingMatches(in: content, range: range, withTemplate: "")
             }
@@ -634,16 +637,22 @@ public enum RuleWebBook {
         let pattern = parts[0]
         let replacement = parts.count > 1 ? parts[1] : ""
         let firstOnly = parts.count > 2
-        guard let reg = try? NSRegularExpression(pattern: pattern) else {
+        guard let reg = try? NSRegularExpression(
+            pattern: pattern,
+            options: [.dotMatchesLineSeparators]
+        ) else {
             return firstOnly ? replacement : content.replacingOccurrences(of: pattern, with: replacement)
         }
         let range = NSRange(content.startIndex..., in: content)
         if firstOnly {
             guard let match = reg.firstMatch(in: content, range: range),
-                  let matchRange = Range(match.range, in: content) else { return "" }
+                  let matchRange = Range(match.range, in: content) else { return content }
             let firstMatch = String(content[matchRange])
             let firstRange = NSRange(firstMatch.startIndex..., in: firstMatch)
-            return reg.stringByReplacingMatches(in: firstMatch, range: firstRange, withTemplate: replacement)
+            return content.replacingCharacters(
+                in: matchRange,
+                with: reg.stringByReplacingMatches(in: firstMatch, range: firstRange, withTemplate: replacement)
+            )
         }
         return reg.stringByReplacingMatches(in: content, range: range, withTemplate: replacement)
     }

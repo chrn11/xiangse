@@ -1,17 +1,9 @@
 {
   "bookSourceUrl": "http://__LAN_HOST__:8765",
-  "bookSourceName": "本地净化测试源",
+  "bookSourceName": "本地净化最小源",
   "bookSourceType": 0,
   "enabled": true,
   "searchUrl": "http://__LAN_HOST__:8765/mock_search.html?q={{key}}",
-  "exploreUrl": "http://__LAN_HOST__:8765/mock_explore.html",
-  "ruleExplore": {
-    "bookList": ".bookbox",
-    "name": "h4@text",
-    "author": ".author@text",
-    "bookUrl": "a@href",
-    "intro": ".intro@text"
-  },
   "ruleSearch": {
     "bookList": ".bookbox",
     "name": "h4@text",

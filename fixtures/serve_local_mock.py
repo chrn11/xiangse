@@ -24,6 +24,10 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_DIR = Path(__file__).resolve().parent
 TEMPLATE = FIXTURE_DIR / "legado-local-mock.json"
 RUNTIME = FIXTURE_DIR / "legado-local-mock.runtime.json"
+PURIFY_TEMPLATE = FIXTURE_DIR / "legado-purify-mock.json"
+PURIFY_RUNTIME = FIXTURE_DIR / "legado-purify-mock.runtime.json"
+WEBVIEW_TEMPLATE = FIXTURE_DIR / "legado-webview-mock.json"
+WEBVIEW_RUNTIME = FIXTURE_DIR / "legado-webview-mock.runtime.json"
 DEFAULT_PROBE = "192.168.1.6"
 
 
@@ -52,13 +56,41 @@ def lan_ip(probe_host: str) -> str:
     raise SystemExit("无法探测 LAN IP：请用 --host 显式指定设备可达地址")
 
 
-def write_runtime(host: str, port: int) -> dict:
-    raw = TEMPLATE.read_text(encoding="utf-8")
+def _write_template_runtime(template: Path, dest: Path, host: str, port: int, book_source_url: str) -> dict:
+    raw = template.read_text(encoding="utf-8")
     text = raw.replace("__LAN_HOST__", host)
     data = json.loads(text)
-    data["bookSourceUrl"] = f"http://{host}:{port}"
-    data["searchUrl"] = f"http://{host}:{port}/mock_search.html?q={{{{key}}}}"
-    RUNTIME.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    data["bookSourceUrl"] = book_source_url
+    if "searchUrl" in data:
+        data["searchUrl"] = f"http://{host}:{port}/mock_search.html?q={{{{key}}}}"
+    if "exploreUrl" in data:
+        data["exploreUrl"] = f"http://{host}:{port}/mock_explore.html"
+    if "loginUrl" in data:
+        data["loginUrl"] = f"http://{host}:{port}/mock_login.html"
+    dest.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return data
+
+
+def write_runtime(host: str, port: int) -> dict:
+    data = _write_template_runtime(
+        TEMPLATE, RUNTIME, host, port, f"http://{host}:{port}"
+    )
+    if PURIFY_TEMPLATE.is_file():
+        _write_template_runtime(
+            PURIFY_TEMPLATE,
+            PURIFY_RUNTIME,
+            host,
+            port,
+            f"http://{host}:{port}",
+        )
+    if WEBVIEW_TEMPLATE.is_file():
+        _write_template_runtime(
+            WEBVIEW_TEMPLATE,
+            WEBVIEW_RUNTIME,
+            host,
+            port,
+            f"http://{host}:{port}/webview-source",
+        )
     return data
 
 
@@ -108,6 +140,8 @@ def main() -> int:
     print(f"bookSourceUrl={src.get('bookSourceUrl')}")
     print(f"searchUrl={src.get('searchUrl')}")
     print(f"import: open_url legado://import/bookSource?src={base}/legado-local-mock.runtime.json")
+    if PURIFY_RUNTIME.is_file():
+        print(f"purify_import: legado://import/bookSource?src={base}/legado-purify-mock.runtime.json")
     print(f"或 MCP open_file_with_app / 粘贴 JSON: {RUNTIME}")
 
     httpd = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
