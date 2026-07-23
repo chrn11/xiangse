@@ -1,63 +1,72 @@
-# 8.5 缓存与页位 — 真机进度
+﻿# 8.5 缓存与页位 — 真机进度
 
 **日期**：2026-07-23  
-**verdict**：FAIL / **BLOCKED（待含补丁的新 Debug IPA）**  
-**当前真机包**：`dist-ci/phase8/dist/StandarReader-legado-bridge-debug.ipa` → manifest `git_commit=f6904f25c9ba…`（run `29994659934`），**不含**本轮离线补丁  
-**工作区**：Bridge 离线回退已改源码且未 commit（用户未授权 commit）
+**verdict**：FAIL（页位恢复未过；开读/离线正文已过）  
+**commit**：`edf303c`（全量 `edf303cb94d1b58dfabfa6495fd59c08166ec2e9`）  
+**CI**：https://github.com/chrn11/xiangse/actions/runs/30000222485 （success；含 `build-bridge-debug`）  
+**真机包**：`D:\soft\xiangse\dist-ci\phase8\dist\StandarReader-legado-bridge-debug.ipa`  
+**旁路**：`StandarReader-legado-bridge-debug-edf303c.ipa`  
+**manifest.git_commit**：`edf303cb94d1b58dfabfa6495fd59c08166ec2e9`
 
-## 本轮核对（源码）
+上一坏包：`6afce46` / run `29999044970`（online 全 false，见下方根因）。
 
-| 文件 | 状态 | 要点 |
-|---|---|---|
-| `LegadoBridge/.../LegadoBridgeCExports.m` | 工作区已改 (+257) | 目录盘缓存、`Library/appdata/xsfolder` 预注、错误通知不冲缓存、`notOnStack` 冷开清 openOnce |
-| `LegadoBridge/.../LegadoBridgeCore.swift` | 工作区已改 | 目录网络失败读 `Documents/legado_catalog_cache` |
-| `.test_tools/phase85_cache_accept.py` | 就绪（`.gitignore`） | dump/xsfolder/上滑/离线路径 |
-
-未改计划文件 `.cursor/plans/原生阅读闭环重建_b9167d21.plan.md`。
-
-## 出包阻塞
-
-- Windows 本地无 Xcode/`insert_dylib` 全链路；Debug IPA 须走 `LegadoBridge CI` → job `build-bridge-debug`。
-- CI `actions/checkout` 只含已推送 commit；**未 commit 则产物仍为 f6904f2，无法验证补丁**。
-- 本轮遵守「不要 git commit」，故 **未推送、未触发新 CI、未重装、未重跑真机门禁**（禁假通过）。
-
-## 已确认（同包 f6904f2，上一轮）
+## 本轮已完成
 
 | 项 | 结果 |
 |---|---|
-| SHA | ✅ `f6904f25c9ba…` |
-| 联网正文 萧炎 | ✅ |
-| 上滑到当前页 药老 | ✅ |
-| xsfolder 章缓存 | ✅ `Library/appdata/xsfolder/book/斗破苍穹_天蚕土豆/` |
-| 停 mock | ✅ |
-| 离线开已缓存章 | ❌ `awaitingCatalog` / 书架「空列表」 |
-| 杀进程恢复药老页 | ❌ preview 回章首 |
+| 差分取证 `f6904f2...6afce46` | ✅ 单假设：`LBCatalogCacheSafeKey` 死循环 |
+| 修复 commit + push | ✅ `edf303c` → `origin/main` |
+| LegadoBridge CI | ✅ success `30000222485` |
+| Debug IPA 下载 | ✅ 覆盖 `dist-ci/phase8/dist/` |
+| SHA 门禁 | ✅ `checks.sha=true`（`edf303c`） |
+| `phase85_cache_accept.py` | ❌ verdict=FAIL（仅 `restore_has_yaolao` 等页位门禁） |
 
-## 产物（旧）
+未改计划文件 `.cursor/plans/原生阅读闭环重建_b9167d21.plan.md`。
 
-- `fixtures/_devkit/phase85_cache/report.json`（verdict=FAIL）
-- IPA：`dist-ci/phase8/dist/StandarReader-legado-bridge-debug.ipa`
+## 真机 checks（`fixtures/_devkit/phase85_cache/report.json`）
 
-## 解阻后最小命令（需用户授权 commit 后）
+| check | `6afce46` | `edf303c` |
+|---|---|---|
+| sha | true | true |
+| online_xiaoyan | false | **true** |
+| online_title | false | **true** |
+| online_yaolao | false | **true** |
+| xsfolder_has_cache | true（无斗破） | true（含 `斗破苍穹_天蚕土豆/0`） |
+| mock_down | true | true |
+| offline_body | false | **true** |
+| offline_no_error | true | true |
+| offline_bookshelf_tap | false | false |
+| prekill_yaolao | false | **true**（pageIdx=1） |
+| restore_has_yaolao | false | **false**（pageIdx=0，章首萧炎） |
+| bookshelf_tap | — | false |
 
-```powershell
-cd D:\soft\xiangse
-git add LegadoBridge/Sources/LegadoBridgeHooks/LegadoBridgeCExports.m `
-  LegadoBridge/Sources/LegadoBridge/Bridge/LegadoBridgeCore.swift
-git commit -m "fix(legado)：8.5 离线目录盘缓存与 xsfolder 正文回退"
-git push
-gh run watch
-$run = (gh run list --workflow bridge-ci.yml -L 1 --json databaseId -q ".[0].databaseId")
-Remove-Item -Recurse -Force dist-ci\phase8 -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path dist-ci\phase8 | Out-Null
-gh run download $run -n LegadoBridge-IPA-Debug -D dist-ci\phase8
-$env:XIANGSE_MCP = "http://192.168.1.18:8090"
-$env:XIANGSE_MOCK = "http://192.168.1.4:8765"
-$env:XIANGSE_IPA = "D:\soft\xiangse\dist-ci\phase8\dist\StandarReader-legado-bridge-debug.ipa"
-# XIANGSE_EXPECT_SHA 设为新 commit 前缀
-python .test_tools/phase85_cache_accept.py
-```
+## 根因（证据）
+
+### A. `6afce46` online 挂死（已修）
+
+1. 真机最小复现：`legado_nativeread_openurl.txt` 已写，但 `legado_nativeread_request.txt` 永不出现；`legado_openreader_trace.txt` 无任何 `nativeRead*` 行；前台长期卡住后 UI 落 SpringBoard。
+2. `6afce46` 在 `LBOpenNativeChapterAtIndex` 无条件调用 `LBEnsurePendingCatalogForBook` → `LBLoadCatalogCache` → `LBCatalogCacheSafeKey`。
+3. 旧实现：in-place 把非 alnum 换成 `_`，而 `_` 仍非 alnum → **死循环**。任意含 `:/._` 的 bookUrl（全部 http URL）都会卡死主线程，故 `TextReadVC3 count=0`。
+4. 修复：改为与 Swift 侧一致的逐字符重建（`edf303c`）。重跑后 online 萧炎/药老、停 mock 离线正文均 true。
+
+### B. 仍 FAIL：杀进程后页位（药老）未恢复
+
+1. prekill：`page_index=1`，preview 含「药老」。
+2. kill 后书架点书失败（`bookshelf_tap=false`），fallback `nativeRead idx=0` → `page_index_restore=0`，preview 为章首「萧炎，萧家历史上…」。
+3. 属 8.5「页位」子项，与 A 的目录 key 死循环无关；本轮未扩 scope 改 goRecord/nPageIndex。
+
+## 产物
+
+- `fixtures/_devkit/phase85_cache/report.json`
+- dumps：`dump_online*.txt` / `dump_offline.txt` / `dump_restore.txt` / `dump_prekill.txt`
+- 截图：`online0.png` / `offline.png` / `restore.png` / `prekill.png`
+- 复现旁证：`fixtures/_devkit/phase85_repro/`
 
 ## 是否可进 8.6
 
-**否** — 8.5 真机未 PASS（仍缺含补丁 IPA 的验收）。
+**否** — `phase85_cache_accept` 仍 FAIL（`restore_has_yaolao=false`）。开读与离线正文已恢复，页位未过门禁。
+
+## Bridge / 脚本
+
+- Bridge：已改 `LegadoBridgeCExports.m`（`LBCatalogCacheSafeKey`）并入 `edf303c`。
+- 验收脚本：本轮未改（非环境假阴；online/offline 已能判真）。
