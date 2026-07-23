@@ -1055,9 +1055,11 @@ static IMP LBFHookIMPForSelector(NSString *selName) {
 static NSArray<NSString *> *LBFObserverSelectors(void) {
     return @[
         @"viewDidLoad", @"loadCurCp",
-        // BC10：移除 viewWillAppear:。即使改为 probe-local addMethod，appear 链仍易与
-        // UIPageViewController 子 VC 嵌套叠加；BC9 IPS 已证其为 QF 前主杀点。
-        // 生命周期改看 viewDidLoad（early wrap）/ drawRect / showContent。
+        // BC10：移除 viewWillAppear:（IPS：LBFHook↔UIPageViewController.viewWillAppear 511 帧）
+        // BC11：移除 drawRect: / resetContentPosByScreenSize:（IPS：LBFHook_drawRect↔StandarReader
+        // drawRect 511 帧）。根因：子类+父类同 sel 双钩后，[super drawRect:] 进入父钩时
+        // object_getClass(self) 仍是子类，GetOrig 取回子类真实 IMP → 死递归。
+        // 生命周期/绘制改看 viewDidLoad（early wrap）/ showContent / division*。
         @"onResetContentNotify", @"onResetContentNotify:", @"onResetContent:",
         @"resetContentNotify:", @"handleResetContent:",
         @"divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:",
@@ -1066,7 +1068,6 @@ static NSArray<NSString *> *LBFObserverSelectors(void) {
         @"onDivisionTextFinish:cpIndex:",
         // AV：CB/QF 两 selector 移出 Observer 清单——Observer tramp 与 Bridge LBAB/LBAE 钩在 CB→QF 链互套，postQF 窗 tid=259 栈溢出（depth 2495、fault=fp-0x178、pc-lr=0x7a80；diff §8.5）
         @"resetLoadCpTip:",
-        @"drawRect:", @"resetContentPosByScreenSize:",
         @"showContent:", @"showContent:title:", @"setPageModel:",
         @"reloadContent", @"reloadView", @"refreshView",
     ];
@@ -1128,6 +1129,30 @@ static BOOL LBFInstallHookOnMethod(Class probe, Class owner, NSString *selName) 
         return YES;
     }
 
+    // BC11：同一继承链同一 sel 只允许装一处。子类+父类双钩时，子类真实 IMP 里 [super sel]
+    // 进入父钩，父钩若用 object_getClass(self)（仍是子类）取 orig → 再次进子类真实 IMP → 死递归。
+    for (Class walk = class_getSuperclass(probe); walk; walk = class_getSuperclass(walk)) {
+        NSString *superKey = LBFOrigKey(NSStringFromClass(walk), selName);
+        if ([g_installedKeys containsObject:superKey]) {
+            LBFAISyncProbe([NSString stringWithFormat:
+                            @"bc11_hook_skip_child probe=%@ sel=%@ super=%@",
+                            probeName, selName, NSStringFromClass(walk)]);
+            return NO;
+        }
+    }
+    for (NSString *cn in LBFObserverProbeClasses()) {
+        Class other = NSClassFromString(cn);
+        if (!other || other == probe) continue;
+        if (![other isSubclassOfClass:probe]) continue;
+        NSString *childKey = LBFOrigKey(NSStringFromClass(other), selName);
+        if ([g_installedKeys containsObject:childKey]) {
+            LBFAISyncProbe([NSString stringWithFormat:
+                            @"bc11_hook_skip_parent probe=%@ sel=%@ child=%@",
+                            probeName, selName, NSStringFromClass(other)]);
+            return NO;
+        }
+    }
+
     Method inherited = class_getInstanceMethod(probe, sel);
     if (!inherited) return NO;
     const char *types = method_getTypeEncoding(inherited);
@@ -1175,7 +1200,7 @@ static void LBFInstallObserverHooks(void) {
         }
     }
     // viewDidLoad/loadCurCp 由 LBFEarlyWrap 专责，observer 不再重复挂钩
-    LBFAISyncProbe(@"bc10_observer_probe_local_hooks");
+    LBFAISyncProbe(@"bc11_observer_no_drawrect_chain_dedup");
 }
 
 IMP LBForensicsResolveOrigIMP(Class cls, SEL sel) {

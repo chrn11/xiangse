@@ -8,12 +8,11 @@
 **BC5/BC6 误判链（已推翻）**：无 `cb_enter` ≠ CB 绕过；旧 `stackRem` 公式把 used/remaining 标反，**「栈耗尽」不成立**（BC8c：`cb_enter stackRem=535196`）。
 **BC8c（2026-07-22）**：CB 完成并声明 `path=async_main`；随后 post-CB 取证窗 SIGSEGV。
 **BC9（2026-07-22，`0b46cfe`）**：禁 `LBAMStartPostCbHeartbeat` / `LBAKStartPostIdleMainBlockForensics`。真机：见 `bc9_*_skipped`，**无探针内 SIGSEGV 字样**，但仍无 `qf_enter`；进程约 1s 后换 pid。
-**BC10（2026-07-22）**：BC9 IPS `StandarReader-2026-07-22-111639.ips`（pid=39121）裁定真杀点：
-- faultingThread = **main**（`com.apple.main-thread`）
-- `EXC_BAD_ACCESS` / `SIGSEGV` @ `__CFStringChangeSizeMultiple` ← `LBFRecordEvent` ← `LBFHook_v_at_B`
-- 栈 **511 帧**：`LBFHook_v_at_B` ↔ `-[UIPageViewController viewWillAppear:]` 各约 250 次
-- 根因：forensics Observer 对 **UIKit 父类** `method_setImplementation(viewWillAppear:)`，触发递归风暴，**抢在 QF 之前**杀进程
-- 修复：钩子改为 **probe 子类 `class_addMethod`**（不改 UIKit IMP）；并从 Observer 清单 **移除 `viewWillAppear:`**
+**BC10（2026-07-22）**：BC9 IPS 裁定 VWA 风暴；改为 probe-local addMethod + 移除 `viewWillAppear:`。
+**BC11（2026-07-23）**：BC10 后仍无 `qf_enter`。IPS `StandarReader-2026-07-23-093434.ips`（pid=48715）：
+- 仍 main 511 帧，但符号换成 `LBFHook_drawRect` ↔ `StandarReader` drawRect@0x5bf20
+- 根因：`TextReadTV`+`TextReadTVBase` 同 sel 双钩；子类真实 IMP 内 `[super drawRect:]` 进父钩时 `object_getClass(self)` 仍是子类，GetOrig 再次指向子类真实 IMP → 死递归
+- 修复：Observer 清单移除 `drawRect:`/`resetContentPosByScreenSize:`；安装时同一继承链同一 sel 去重
 **关联**：
 - [`baseline-vs-legado-diff.md`](baseline-vs-legado-diff.md)
 - [`hypothesis-AE-qf-dispatch-after-format.md`](hypothesis-AE-qf-dispatch-after-format.md)
@@ -33,10 +32,10 @@
 | QF 默认派发路径 | `dispatch_async(main)` | 同（`after_cb path=async_main`） | 相同 |
 | main runloop 排空 | 是 | **是**（BC4/BC9：`drain=1`） | 非根因 |
 | CB 栈 | 正常 | **正常**（BC8c：`stackRem≈535KB`；旧 rem 公式误标） | 非根因 |
-| QF 是否进入 | 是 | BC9 前被杀；BC9 仍无 `qf_enter`（main 上 VWA 风暴） | **取证钩副作用** |
-| 结果 | QF→division→drawRect 上屏 | forensics `viewWillAppear` 递归风暴杀进程 → 回空书架 | 根因差分（BC10） |
+| QF 是否进入 | 是 | BC9/BC10 仍无 `qf_enter`（forensics 钩风暴） | **取证钩副作用** |
+| 结果 | QF→division→drawRect 上屏 | forensics 递归风暴杀进程 → 回空书架 | 根因差分（BC10/BC11） |
 
-**核心结论（BC10）**：业务路径（CB→format→`dispatch_async(main)` QF）与原版一致，main 也排空。进程死在 **LegadoBridgeDebug forensics** 错误地把 `viewWillAppear:` 装到 `UIPageViewController` 上，main 递归风暴 + `LBFRecordEvent` CFString 崩，**QF 块未及执行**。BC6「栈耗尽」、BC5「CB 绕过」、AF「main 不排空」均为误判。
+**核心结论（BC11）**：业务路径（CB→format→`dispatch_async(main)` QF）与原版一致，main 也排空。进程死在 **LegadoBridgeDebug forensics** 对 UIKit/绘制链的错误挂钩（先 `viewWillAppear`，后 `drawRect` 父子双钩 + super 取 orig 错），**QF 块未及执行**。BC6「栈耗尽」、BC5「CB 绕过」、AF「main 不排空」均为误判。
 
 ---
 ## 1. 原版 `callBackResponse` 反汇编（LPNetWork2 @ 0x10008a1d4，全分支）
