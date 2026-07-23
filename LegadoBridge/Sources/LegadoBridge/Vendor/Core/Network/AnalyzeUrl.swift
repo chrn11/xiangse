@@ -579,12 +579,22 @@ class AnalyzeUrl {
                     strResponse = try await bwv.getStrResponse()
 
                 case .GET, .HEAD:
-                    let effectiveSourceRegex = webJs != nil ? nil : sourceRegex
+                    // 与 POST 一致：先 URLSession 取正文，再 loadHTMLString。
+                    // WK 直连 http 局域网在真机上曾只写 phase=enter 永不 didFinish。
+                    let res = try await httpClientNewCallStrResponse { builder in
+                        builder.addHeaders(headerMap)
+                        builder.url = self.urlNoQuery
+                        if let query = self.encodedQuery {
+                            builder.query = query
+                        }
+                        builder.method = self.method == .HEAD ? .HEAD : .GET
+                    }
                     let bwv = BackstageWebView(
-                        url: url,
+                        url: res.url,
+                        html: res.body,
                         tag: source?.bookSourceUrl,
                         headerMap: headerMap,
-                        sourceRegex: effectiveSourceRegex,
+                        sourceRegex: webJs != nil ? nil : sourceRegex,
                         javaScript: webJs ?? jsStr,
                         delayTime: webViewDelayTime
                     )
