@@ -338,23 +338,29 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
             }
         }
 
-        // 加载内容：已有 HTML 时 baseURL 用 about:blank，避免局域网 http base 卡住导航
+        // 对齐 Android BackstageWebView.load()：
+        // - 有 html → loadDataWithBaseURL(url, html, ...)；base 用真实章节 URL，禁止为过门禁强行 about:blank
+        // - 无 html → loadUrl(url[, headers])，即 WK load(URLRequest)
+        let bootLoad: String
         if let html = html, !html.isEmpty {
-            let baseURL = URL(string: "about:blank")
+            let baseURL = url.flatMap { URL(string: $0) }
+            bootLoad = "loadMode=htmlString base=\(baseURL?.absoluteString ?? "nil") htmlLen=\(html.count)\n"
             webView.loadHTMLString(html, baseURL: baseURL)
-        } else if let url = url, !url.isEmpty {
-            if let headerMap = headerMap, !headerMap.isEmpty {
-                var request = URLRequest(url: URL(string: url) ?? URL(string: "http://localhost/")!)
+        } else if let url = url, !url.isEmpty, let urlObj = URL(string: url) {
+            var request = URLRequest(url: urlObj)
+            if let headerMap = headerMap {
                 for (key, value) in headerMap {
                     request.setValue(value, forHTTPHeaderField: key)
                 }
-                webView.load(request)
-            } else {
-                if let urlObj = URL(string: url) {
-                    webView.load(URLRequest(url: urlObj))
-                }
             }
+            bootLoad = "loadMode=urlRequest url=\(urlObj.absoluteString)\n"
+            webView.load(request)
+        } else {
+            bootLoad = "loadMode=none url=\(url ?? "") htmlLen=\(html?.count ?? 0)\n"
         }
+        let loadPath = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_webview_load.txt")
+        try? bootLoad.write(toFile: loadPath, atomically: true, encoding: .utf8)
 
         // 超时：用 Timer（挂 common modes），在 main.sync+RunLoop 泵送时才能触发
         Timer.scheduledTimer(withTimeInterval: Double(timeout) / 1000.0, repeats: false) { [weak self] _ in

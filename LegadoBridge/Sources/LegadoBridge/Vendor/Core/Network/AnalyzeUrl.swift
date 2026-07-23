@@ -579,22 +579,14 @@ class AnalyzeUrl {
                     strResponse = try await bwv.getStrResponse()
 
                 case .GET, .HEAD:
-                    // 与 POST 一致：先 URLSession 取正文，再 loadHTMLString。
-                    // WK 直连 http 局域网在真机上曾只写 phase=enter 永不 didFinish。
-                    let res = try await httpClientNewCallStrResponse { builder in
-                        builder.addHeaders(headerMap)
-                        builder.url = self.urlNoQuery
-                        if let query = self.encodedQuery {
-                            builder.query = query
-                        }
-                        builder.method = self.method == .HEAD ? .HEAD : .GET
-                    }
+                    // 对齐 Android：GET WebView 不预取 HTML，由 WK load(URLRequest) 导航章节 URL。
+                    // 禁止 URLSession + loadHTMLString(about:blank) 作为唯一/过门禁路径。
+                    let effectiveSourceRegex = webJs != nil ? nil : sourceRegex
                     let bwv = BackstageWebView(
-                        url: res.url,
-                        html: res.body,
+                        url: url,
                         tag: source?.bookSourceUrl,
                         headerMap: headerMap,
-                        sourceRegex: webJs != nil ? nil : sourceRegex,
+                        sourceRegex: effectiveSourceRegex,
                         javaScript: webJs ?? jsStr,
                         delayTime: webViewDelayTime
                     )
