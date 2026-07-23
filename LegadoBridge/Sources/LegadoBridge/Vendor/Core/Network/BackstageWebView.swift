@@ -208,6 +208,8 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
     /// WKWebView.navigationDelegate 为 weak；本地 handler 若无自持有会在 start() 返回后立刻释放，
     /// 导致 didFinish/超时回调全丢（真机表现为 phase=enter 后永不 done）。
     private var retainSelf: WebViewHandler?
+    /// 离屏 WKWebView 必须挂到 UIWindow，否则部分系统上永不 didFinish。
+    private var hostWindow: UIWindow?
 
     init(
         url: String?,
@@ -247,6 +249,14 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
         let webView = WebViewPool.shared.acquire()
         self.webView = webView
         webView.navigationDelegate = self
+
+        // 挂到隐藏 1x1 window，确保导航回调会触发
+        let win = UIWindow(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+        win.windowLevel = UIWindow.Level(rawValue: -1000)
+        win.isHidden = false
+        win.addSubview(webView)
+        webView.frame = win.bounds
+        hostWindow = win
 
         // 配置 User-Agent
         let ua = headerMap?["User-Agent"] ?? "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1"
@@ -411,9 +421,13 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
         timeoutTask = nil
         if let webView = webView {
             webView.navigationDelegate = nil
+            webView.stopLoading()
+            webView.removeFromSuperview()
             WebViewPool.shared.release(webView)
         }
         self.webView = nil
+        hostWindow?.isHidden = true
+        hostWindow = nil
         // 最后放下自持有，允许释放
         retainSelf = nil
     }
