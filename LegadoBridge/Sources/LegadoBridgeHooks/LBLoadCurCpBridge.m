@@ -3112,25 +3112,9 @@ static BOOL LBReadCurrentPageProgress(NSInteger *outCp, NSInteger *outPage,
     id container = LBRouteBResolveContainer(reader);
     NSInteger cp = 0;
     NSInteger page = -1;
-    id curPage = LBContainerCurPageVC(container);
-    id pageModel = nil;
-    if (curPage) {
-        @try { pageModel = [curPage valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
-    }
-    if (pageModel) {
-        cp = LBReadIntegerKey(pageModel, @"nCpIndex", 0);
-        page = LBReadIntegerKey(pageModel, @"nPageIndex", -1);
-    }
-    if (page < 0 && container) {
-        id lip = nil;
-        @try { lip = [container valueForKey:@"lastIndexPath"]; } @catch (__unused NSException *e) {}
-        if ([lip isKindOfClass:[NSIndexPath class]]) {
-            page = [(NSIndexPath *)lip row];
-            NSInteger sec = [(NSIndexPath *)lip section];
-            if (sec >= 0) cp = sec;
-        }
-    }
-    if (page < 0 && container) {
+
+    // 滚动模式：优先可见 TextRScrollContainerCell.pageModel（勿被 lastIndexPath.row=0 抢先）
+    if (container) {
         id tv = nil;
         @try { tv = [container valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
         if ([tv isKindOfClass:[UITableView class]]) {
@@ -3139,54 +3123,70 @@ static BOOL LBReadCurrentPageProgress(NSInteger *outCp, NSInteger *outPage,
             CGFloat bestScore = -1;
             id bestPM = nil;
             for (UITableViewCell *cell in table.visibleCells) {
-                NSString *cn = NSStringFromClass(object_getClass(cell));
-                if (![cn containsString:@"ScrollContainerCell"] &&
-                    ![cn containsString:@"ReadScroll"] &&
-                    ![cn containsString:@"TextRScroll"]) {
-                    // 仍尝试读 pageModel（子类名可能变化）
-                }
                 id pm = nil;
                 @try { pm = [cell valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
+                if (!pm) {
+                    @try { pm = [cell valueForKey:@"_pageModel"]; } @catch (__unused NSException *e) {}
+                }
                 if (!pm) continue;
+                __block CGFloat tvArea = 0;
+                __block void (^walkBlock)(UIView *) = ^(UIView *v) {
+                    if (!v) return;
+                    NSString *cn = NSStringFromClass(object_getClass(v));
+                    if ([cn containsString:@"TextReadTV"]) {
+                        tvArea = MAX(tvArea, CGRectGetWidth(v.bounds) * CGRectGetHeight(v.bounds));
+                    }
+                    for (UIView *sub in v.subviews) walkBlock(sub);
+                };
+                walkBlock(cell.contentView ?: (UIView *)cell);
                 CGRect fr = [cell convertRect:cell.bounds toView:table];
                 CGRect inter = CGRectIntersection(fr, tableBounds);
-                if (CGRectIsEmpty(inter)) continue;
-                // 优先：与表顶对齐且可见面积大（当前阅读页）
+                if (CGRectIsEmpty(inter) && tvArea <= 0) continue;
                 CGFloat area = CGRectGetWidth(inter) * CGRectGetHeight(inter);
                 CGFloat topPenalty = MAX(0.0, CGRectGetMinY(fr) - CGRectGetMinY(tableBounds));
-                CGFloat score = area - topPenalty * 10.0;
+                // TextReadTV 面积权重更高：当前正文页通常占满屏
+                CGFloat score = tvArea * 2.0 + area - topPenalty * 10.0;
                 if (score > bestScore) {
                     bestScore = score;
                     bestPM = pm;
                 }
             }
             if (bestPM) {
-                cp = LBReadIntegerKey(bestPM, @"nCpIndex", cp);
+                cp = LBReadIntegerKey(bestPM, @"nCpIndex", 0);
                 page = LBReadIntegerKey(bestPM, @"nPageIndex", -1);
                 LBStateLog([NSString stringWithFormat:
-                            @"phase85 snapshot from cell pageModel cp=%ld page=%ld",
-                            (long)cp, (long)page]);
+                            @"phase85 snapshot cell.pageModel cp=%ld page=%ld score=%.0f",
+                            (long)cp, (long)page, bestScore]);
             }
-            if (page < 0) {
-                CGPoint mid = CGPointMake(CGRectGetMidX(table.bounds),
-                                          CGRectGetMinY(table.bounds) + 80.0);
-                NSIndexPath *ip = [table indexPathForRowAtPoint:mid];
-                if (!ip) {
-                    NSArray *vis = [table indexPathsForVisibleRows];
-                    if (vis.count > 0) ip = vis.firstObject;
-                }
-                if (ip) {
-                    UITableViewCell *cell = [table cellForRowAtIndexPath:ip];
-                    id pm = nil;
-                    @try { pm = [cell valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
-                    if (pm) {
-                        cp = LBReadIntegerKey(pm, @"nCpIndex", ip.section);
-                        page = LBReadIntegerKey(pm, @"nPageIndex", ip.row);
-                    } else {
-                        page = ip.row;
-                        if (ip.section >= 0) cp = ip.section;
-                    }
-                }
+        }
+    }
+
+    if (page < 0) {
+        id curPage = LBContainerCurPageVC(container);
+        id pageModel = nil;
+        if (curPage) {
+            @try { pageModel = [curPage valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
+        }
+        if (pageModel) {
+            cp = LBReadIntegerKey(pageModel, @"nCpIndex", 0);
+            page = LBReadIntegerKey(pageModel, @"nPageIndex", -1);
+        }
+    }
+    if (page < 0 && container) {
+        id lip = nil;
+        @try { lip = [container valueForKey:@"lastIndexPath"]; } @catch (__unused NSException *e) {}
+        if ([lip isKindOfClass:[NSIndexPath class]]) {
+            UITableView *table = nil;
+            @try { table = [container valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
+            UITableViewCell *cell = nil;
+            if ([table isKindOfClass:[UITableView class]]) {
+                cell = [table cellForRowAtIndexPath:(NSIndexPath *)lip];
+            }
+            id pm = nil;
+            @try { pm = [cell valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
+            if (pm) {
+                cp = LBReadIntegerKey(pm, @"nCpIndex", [(NSIndexPath *)lip section]);
+                page = LBReadIntegerKey(pm, @"nPageIndex", -1);
             }
         }
     }
