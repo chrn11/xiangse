@@ -3010,15 +3010,18 @@ static void LBLogHypothesisB2ContainerProbe(id readerVC, NSString *phase) {
                              phase ?: @"?", clsA, bbd8]);
 }
 
-/// 假设 B2：预置 tr_turnPageType≠3，强制 pageContainer 工厂走 TextRScrollContainer 支路
+/// 滚动工厂 seed：按 pageContainer getter 反汇编（0x100066924–92c）纠偏。
+/// cmp type,#3; ccmp bd8,#0,#0,ne; b.eq → TextRPageContainer。
+/// 因此 type==3（或 type!=3 且 bd8!=0）才进 TextRScrollContainer；
+/// 旧 B2 注释「0=滚动 / 禁 3」与真机证据相反（seed=0+bd8=0 → TextRPageContainer）。
 static void LBSeedTurnPageTypeScrollBranch(void) {
-    NSInteger v = 0; // 0=滚动翻页；禁止默认 3 走 UIPageVC 支路
+    NSInteger v = 3; // 纠偏后：3 → 滚动支路（TextRScrollContainer）
     NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
     NSInteger was = [ud integerForKey:@"tr_turnPageType"];
     [ud setInteger:v forKey:@"tr_turnPageType"];
     [ud synchronize];
     LBAppendOpenReaderTrace([NSString stringWithFormat:
-                             @"hypothesis_B2 seed tr_turnPageType=%ld (was=%ld) ts=%.3f",
+                             @"scroll_S1 seed tr_turnPageType=%ld (was=%ld) asm=type==3→Scroll ts=%.3f",
                              (long)v, (long)was, CFAbsoluteTimeGetCurrent()]);
 }
 
