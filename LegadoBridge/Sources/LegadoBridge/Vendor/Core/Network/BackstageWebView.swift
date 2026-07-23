@@ -156,7 +156,8 @@ class BackstageWebView {
         let isRule = self.isRule
 
         return try await withCheckedThrowingContinuation { continuation in
-            let startHandler = {
+            // 始终异步投递到主队列，避免在 MainActor 上同步进入 continuation 体导致饿死
+            Task { @MainActor in
                 let handler = WebViewHandler(
                     url: url,
                     html: html,
@@ -173,14 +174,24 @@ class BackstageWebView {
                     timeout: effectiveTimeout,
                     continuation: continuation
                 )
+                WebViewHandlerBag.retain(handler)
                 handler.start()
             }
-            if Thread.isMainThread {
-                startHandler()
-            } else {
-                DispatchQueue.main.async(execute: startHandler)
-            }
         }
+    }
+}
+
+/// 防止 handler 在 WK 回调前被释放
+@MainActor
+private enum WebViewHandlerBag {
+    private static var live: [ObjectIdentifier: WebViewHandler] = [:]
+
+    static func retain(_ handler: WebViewHandler) {
+        live[ObjectIdentifier(handler)] = handler
+    }
+
+    static func release(_ handler: WebViewHandler) {
+        live.removeValue(forKey: ObjectIdentifier(handler))
     }
 }
 
@@ -438,6 +449,7 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
         hostWindow = nil
         // 最后放下自持有，允许释放
         retainSelf = nil
+        WebViewHandlerBag.release(self)
     }
 
     // MARK: - Cookie 同步
