@@ -54,6 +54,10 @@ typedef IMP (*LBACForensicsHookIMPForSelectorNameFn)(NSString *);
 static void LBABSyncProbe(NSString *tag);
 static void LBABInstallProbes(void);
 static void LBInstallPageProgressHooks(void);
+static NSDictionary *LBLoadSavedPageProgress(void);
+static void LBScheduleApplySavedPage(id reader, id container, NSInteger cpIndex, NSInteger pageIndex);
+static id LBRouteBResolveContainer(id reader);
+static id LBFindTextReaderVCInHierarchy(void);
 static IMP LBACPeelObserverNext(Class cls, SEL sel, IMP cur);
 static void LBAB_CallBackResponse(id self, SEL _cmd, id response, id config, id userInfo);
 static id LBAB_FormatCallBack(id self, SEL _cmd, id response, id config, id userInfo);
@@ -2184,6 +2188,19 @@ void LBLoadCurCpBridgeMarkRendered(void) {
     if (sState == LBLoadCurCpStateInvokingOriginal || sState == LBLoadCurCpStateContentReady) {
         LBSetState(LBLoadCurCpStateRendered, @"native_render_evidence");
     }
+    // 8.5：渲染证据出现后再补一次页位，避免 load 过程中 offset 被重置
+    NSDictionary *saved = LBLoadSavedPageProgress();
+    if (![saved isKindOfClass:[NSDictionary class]]) return;
+    id sPg = saved[@"nPageIndex"] ?: saved[@"pageIndex"];
+    id sCp = saved[@"nCpIndex"] ?: saved[@"cpIndex"];
+    if (![sPg respondsToSelector:@selector(integerValue)] || [sPg integerValue] <= 0) return;
+    NSInteger wantPage = [sPg integerValue];
+    NSInteger wantCp = [sCp respondsToSelector:@selector(integerValue)] ? [sCp integerValue] : 0;
+    id reader = sWeakReader ?: LBFindTextReaderVCInHierarchy();
+    id container = reader ? LBRouteBResolveContainer(reader) : nil;
+    if (container) {
+        LBScheduleApplySavedPage(reader, container, wantCp, wantPage);
+    }
 }
 
 static NSString *LBBodyFromPayload(NSDictionary *payload) {
@@ -2883,6 +2900,8 @@ static void LBWriteSavedPageProgress(NSString *bookUrl, NSString *bookKey,
 }
 
 static id LBFindTextReaderVCInHierarchy(void);
+static BOOL LBReadCurrentPageProgress(NSInteger *outCp, NSInteger *outPage,
+                                      NSString **outBookUrl, NSString **outBookKey);
 
 static NSDictionary *LBGoRecordFromSources(id reader, id container, NSDictionary *payload,
                                            NSInteger cpIndex) {
@@ -3029,35 +3048,34 @@ static void LBApplyRestoredPageToContainer(id container, NSInteger cpIndex, NSIn
                     [table scrollToRowAtIndexPath:hit
                                  atScrollPosition:UITableViewScrollPositionTop
                                          animated:NO];
+                    CGRect rect = [table rectForRowAtIndexPath:hit];
+                    if (rect.size.height > 1.0) {
+                        CGFloat y = MAX(0.0, CGRectGetMinY(rect));
+                        [table setContentOffset:CGPointMake(0, y) animated:NO];
+                        @try { [container setValue:@(y) forKey:@"lastContentOffset"]; } @catch (__unused NSException *e) {}
+                    }
+                    [table layoutIfNeeded];
                     LBStateLog([NSString stringWithFormat:
-                                @"phase85 scrollToPageModel page=%ld section=%ld row=%ld",
-                                (long)pageIndex, (long)hit.section, (long)hit.row]);
+                                @"phase85 scrollToPageModel page=%ld section=%ld row=%ld offY=%.1f",
+                                (long)pageIndex, (long)hit.section, (long)hit.row,
+                                (double)table.contentOffset.y]);
                 } @catch (__unused NSException *e) {}
             }
         }
-        SEL gotoPage = NSSelectorFromString(@"gotoNextPage:");
-        if ([container respondsToSelector:gotoPage]) {
-            NSInteger cur = -1;
-            id lip = nil;
-            @try { lip = [container valueForKey:@"lastIndexPath"]; } @catch (__unused NSException *e) {}
-            if ([lip isKindOfClass:[NSIndexPath class]]) {
-                UITableViewCell *cell = nil;
-                if ([tv isKindOfClass:[UITableView class]]) {
-                    cell = [(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)lip];
-                }
-                id pm = nil;
-                @try { pm = [cell valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
-                if (pm) cur = LBReadIntegerKey(pm, @"nPageIndex", -1);
-                else cur = [(NSIndexPath *)lip row];
-            }
-            if (cur >= 0 && cur < pageIndex) {
-                for (NSInteger i = cur; i < pageIndex; i++) {
+        // 仍停在页首则步进
+        NSInteger curNow = -1;
+        NSInteger cpNow = cpIndex;
+        NSString *bu = nil, *bk = nil;
+        if (LBReadCurrentPageProgress(&cpNow, &curNow, &bu, &bk) && curNow >= 0 && curNow < pageIndex) {
+            SEL gotoPage = NSSelectorFromString(@"gotoNextPage:");
+            if ([container respondsToSelector:gotoPage]) {
+                for (NSInteger i = curNow; i < pageIndex; i++) {
                     @try {
                         ((void (*)(id, SEL, id))objc_msgSend)(container, gotoPage, nil);
                     } @catch (__unused NSException *e) { break; }
                 }
                 LBStateLog([NSString stringWithFormat:
-                            @"phase85 gotoNextPage from=%ld to=%ld", (long)cur, (long)pageIndex]);
+                            @"phase85 gotoNextPage from=%ld to=%ld", (long)curNow, (long)pageIndex]);
             }
         }
     } @catch (__unused NSException *e) {}
@@ -3081,10 +3099,11 @@ static void LBScheduleApplySavedPage(id reader, id container, NSInteger cpIndex,
             });
         }
     };
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), apply);
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), apply);
+    // 正文/分片布局会多次重置 offset；拉长重试直到稳定
+    for (NSNumber *sec in @[@0.4, @0.9, @1.5, @2.2, @3.0, @4.5, @6.0]) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(sec.doubleValue * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), apply);
+    }
 }
 
 static BOOL LBReadCurrentPageProgress(NSInteger *outCp, NSInteger *outPage,
