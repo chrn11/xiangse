@@ -2846,6 +2846,24 @@ static NSDictionary *LBLoadSavedPageProgress(void) {
 static void LBWriteSavedPageProgress(NSString *bookUrl, NSString *bookKey,
                                      NSInteger cpIndex, NSInteger pageIndex) {
     if (pageIndex < 0) return;
+    NSDictionary *old = LBLoadSavedPageProgress();
+    if (pageIndex == 0 && [old isKindOfClass:[NSDictionary class]]) {
+        id oCp = old[@"nCpIndex"] ?: old[@"cpIndex"];
+        id oPg = old[@"nPageIndex"] ?: old[@"pageIndex"];
+        NSString *oBook = [old[@"bookUrl"] isKindOfClass:[NSString class]] ? old[@"bookUrl"] : nil;
+        NSString *oKey = [old[@"bookKey"] isKindOfClass:[NSString class]] ? old[@"bookKey"] : nil;
+        BOOL sameBook = YES;
+        if (bookUrl.length > 0 && oBook.length > 0) sameBook = [bookUrl isEqualToString:oBook];
+        else if (bookKey.length > 0 && oKey.length > 0) sameBook = [bookKey isEqualToString:oKey];
+        if (sameBook && [oCp respondsToSelector:@selector(integerValue)] &&
+            [oPg respondsToSelector:@selector(integerValue)] &&
+            [oCp integerValue] == cpIndex && [oPg integerValue] > 0) {
+            LBStateLog([NSString stringWithFormat:
+                        @"phase85 keep pageProgress skip0 keepPage=%ld",
+                        (long)[oPg integerValue]]);
+            return;
+        }
+    }
     NSMutableDictionary *m = [NSMutableDictionary dictionary];
     if (bookUrl.length > 0) m[@"bookUrl"] = bookUrl;
     if (bookKey.length > 0) m[@"bookKey"] = bookKey;
@@ -2943,46 +2961,102 @@ static void LBSetGoRecordAfterLoadCp(id reader, id container, NSDictionary *go) 
 static void LBApplyRestoredPageToContainer(id container, NSInteger cpIndex, NSInteger pageIndex) {
     if (!container || pageIndex <= 0) return;
     @try {
-        NSIndexPath *ip = [NSIndexPath indexPathForRow:pageIndex inSection:0];
-        // 部分实现用 section=章
-        NSIndexPath *ip2 = [NSIndexPath indexPathForRow:pageIndex inSection:cpIndex];
-        for (NSIndexPath *cand in @[ip, ip2]) {
-            @try { [container setValue:cand forKey:@"lastIndexPath"]; } @catch (__unused NSException *e) {}
-        }
+        NSDictionary *go = @{
+            @"nCpIndex": @(cpIndex),
+            @"cpIndex": @(cpIndex),
+            @"nPageIndex": @(pageIndex),
+            @"pageIndex": @(pageIndex),
+        };
+        LBSetGoRecordAfterLoadCp(nil, container, go);
         id tv = nil;
         @try { tv = [container valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
         if ([tv isKindOfClass:[UITableView class]]) {
             UITableView *table = (UITableView *)tv;
-            for (NSIndexPath *cand in @[ip2, ip]) {
-                @try {
+            NSIndexPath *hit = nil;
+            // 已加载 cell：按 pageModel.nPageIndex 精确命中
+            for (UITableViewCell *cell in table.visibleCells) {
+                id pm = nil;
+                @try { pm = [cell valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
+                if (!pm) continue;
+                if (LBReadIntegerKey(pm, @"nPageIndex", -999) == pageIndex &&
+                    LBReadIntegerKey(pm, @"nCpIndex", cpIndex) == cpIndex) {
+                    hit = [table indexPathForCell:cell];
+                    break;
+                }
+            }
+            if (!hit) {
+                // 扫 section/row，必要时先 scroll 触发 dequeue
+                NSInteger secCount = table.numberOfSections;
+                for (NSInteger s = 0; s < secCount && !hit; s++) {
+                    NSInteger rows = [table numberOfRowsInSection:s];
+                    for (NSInteger r = 0; r < rows; r++) {
+                        NSIndexPath *ip = [NSIndexPath indexPathForRow:r inSection:s];
+                        UITableViewCell *cell = [table cellForRowAtIndexPath:ip];
+                        if (!cell) {
+                            @try {
+                                [table scrollToRowAtIndexPath:ip
+                                             atScrollPosition:UITableViewScrollPositionTop
+                                                     animated:NO];
+                                [table layoutIfNeeded];
+                                cell = [table cellForRowAtIndexPath:ip];
+                            } @catch (__unused NSException *e) {}
+                        }
+                        id pm = nil;
+                        @try { pm = [cell valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
+                        if (pm && LBReadIntegerKey(pm, @"nPageIndex", -999) == pageIndex) {
+                            hit = ip;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!hit) {
+                // 回退：假设 row==pageIndex
+                NSIndexPath *ip2 = [NSIndexPath indexPathForRow:pageIndex inSection:cpIndex];
+                NSIndexPath *ip0 = [NSIndexPath indexPathForRow:pageIndex inSection:0];
+                for (NSIndexPath *cand in @[ip2, ip0]) {
                     if (cand.section < table.numberOfSections &&
                         cand.row < [table numberOfRowsInSection:cand.section]) {
-                        [table scrollToRowAtIndexPath:cand
-                                     atScrollPosition:UITableViewScrollPositionTop
-                                             animated:NO];
-                        LBStateLog([NSString stringWithFormat:
-                                    @"phase85 scrollToRow section=%ld row=%ld",
-                                    (long)cand.section, (long)cand.row]);
+                        hit = cand;
                         break;
                     }
+                }
+            }
+            if (hit) {
+                @try { [container setValue:hit forKey:@"lastIndexPath"]; } @catch (__unused NSException *e) {}
+                @try {
+                    [table scrollToRowAtIndexPath:hit
+                                 atScrollPosition:UITableViewScrollPositionTop
+                                         animated:NO];
+                    LBStateLog([NSString stringWithFormat:
+                                @"phase85 scrollToPageModel page=%ld section=%ld row=%ld",
+                                (long)pageIndex, (long)hit.section, (long)hit.row]);
                 } @catch (__unused NSException *e) {}
             }
         }
         SEL gotoPage = NSSelectorFromString(@"gotoNextPage:");
-        if (pageIndex > 0 && [container respondsToSelector:gotoPage]) {
-            // 仅当仍停在页首时步进（避免重复）
+        if ([container respondsToSelector:gotoPage]) {
             NSInteger cur = -1;
             id lip = nil;
             @try { lip = [container valueForKey:@"lastIndexPath"]; } @catch (__unused NSException *e) {}
-            if ([lip isKindOfClass:[NSIndexPath class]]) cur = [(NSIndexPath *)lip row];
-            if (cur < pageIndex) {
-                for (NSInteger i = MAX(cur, 0); i < pageIndex; i++) {
+            if ([lip isKindOfClass:[NSIndexPath class]]) {
+                UITableViewCell *cell = nil;
+                if ([tv isKindOfClass:[UITableView class]]) {
+                    cell = [(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)lip];
+                }
+                id pm = nil;
+                @try { pm = [cell valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
+                if (pm) cur = LBReadIntegerKey(pm, @"nPageIndex", -1);
+                else cur = [(NSIndexPath *)lip row];
+            }
+            if (cur >= 0 && cur < pageIndex) {
+                for (NSInteger i = cur; i < pageIndex; i++) {
                     @try {
                         ((void (*)(id, SEL, id))objc_msgSend)(container, gotoPage, nil);
                     } @catch (__unused NSException *e) { break; }
                 }
                 LBStateLog([NSString stringWithFormat:
-                            @"phase85 gotoNextPage x%ld", (long)pageIndex]);
+                            @"phase85 gotoNextPage from=%ld to=%ld", (long)cur, (long)pageIndex]);
             }
         }
     } @catch (__unused NSException *e) {}
@@ -3057,38 +3131,62 @@ static BOOL LBReadCurrentPageProgress(NSInteger *outCp, NSInteger *outPage,
         }
     }
     if (page < 0 && container) {
-        // 滚动：取视口中心行
         id tv = nil;
         @try { tv = [container valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
         if ([tv isKindOfClass:[UITableView class]]) {
             UITableView *table = (UITableView *)tv;
-            CGPoint mid = CGPointMake(CGRectGetMidX(table.bounds),
-                                      CGRectGetMinY(table.bounds) + 80.0);
-            NSIndexPath *ip = [table indexPathForRowAtPoint:mid];
-            if (!ip) {
-                NSArray *vis = [table indexPathsForVisibleRows];
-                if (vis.count > 0) ip = vis.firstObject;
+            CGRect tableBounds = table.bounds;
+            CGFloat bestScore = -1;
+            id bestPM = nil;
+            for (UITableViewCell *cell in table.visibleCells) {
+                NSString *cn = NSStringFromClass(object_getClass(cell));
+                if (![cn containsString:@"ScrollContainerCell"] &&
+                    ![cn containsString:@"ReadScroll"] &&
+                    ![cn containsString:@"TextRScroll"]) {
+                    // 仍尝试读 pageModel（子类名可能变化）
+                }
+                id pm = nil;
+                @try { pm = [cell valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
+                if (!pm) continue;
+                CGRect fr = [cell convertRect:cell.bounds toView:table];
+                CGRect inter = CGRectIntersection(fr, tableBounds);
+                if (CGRectIsEmpty(inter)) continue;
+                // 优先：与表顶对齐且可见面积大（当前阅读页）
+                CGFloat area = CGRectGetWidth(inter) * CGRectGetHeight(inter);
+                CGFloat topPenalty = MAX(0.0, CGRectGetMinY(fr) - CGRectGetMinY(tableBounds));
+                CGFloat score = area - topPenalty * 10.0;
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestPM = pm;
+                }
             }
-            // 优先：面积最大的可见 TextReadTV 所在 cell
-            if (!ip) {
-                CGFloat bestArea = 0;
-                UITableViewCell *bestCell = nil;
-                for (UITableViewCell *cell in table.visibleCells) {
-                    for (UIView *v in cell.contentView.subviews) {
-                        NSString *cn = NSStringFromClass(object_getClass(v));
-                        if (![cn containsString:@"TextReadTV"]) continue;
-                        CGFloat a = CGRectGetWidth(v.bounds) * CGRectGetHeight(v.bounds);
-                        if (a > bestArea) {
-                            bestArea = a;
-                            bestCell = cell;
-                        }
+            if (bestPM) {
+                cp = LBReadIntegerKey(bestPM, @"nCpIndex", cp);
+                page = LBReadIntegerKey(bestPM, @"nPageIndex", -1);
+                LBStateLog([NSString stringWithFormat:
+                            @"phase85 snapshot from cell pageModel cp=%ld page=%ld",
+                            (long)cp, (long)page]);
+            }
+            if (page < 0) {
+                CGPoint mid = CGPointMake(CGRectGetMidX(table.bounds),
+                                          CGRectGetMinY(table.bounds) + 80.0);
+                NSIndexPath *ip = [table indexPathForRowAtPoint:mid];
+                if (!ip) {
+                    NSArray *vis = [table indexPathsForVisibleRows];
+                    if (vis.count > 0) ip = vis.firstObject;
+                }
+                if (ip) {
+                    UITableViewCell *cell = [table cellForRowAtIndexPath:ip];
+                    id pm = nil;
+                    @try { pm = [cell valueForKey:@"pageModel"]; } @catch (__unused NSException *e) {}
+                    if (pm) {
+                        cp = LBReadIntegerKey(pm, @"nCpIndex", ip.section);
+                        page = LBReadIntegerKey(pm, @"nPageIndex", ip.row);
+                    } else {
+                        page = ip.row;
+                        if (ip.section >= 0) cp = ip.section;
                     }
                 }
-                if (bestCell) ip = [table indexPathForCell:bestCell];
-            }
-            if (ip) {
-                page = ip.row;
-                if (ip.section >= 0) cp = ip.section;
             }
         }
     }
