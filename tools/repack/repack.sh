@@ -134,6 +134,27 @@ elif [[ -n "$DEBUG_DYLIB" ]]; then
   echo "WARN: DEBUG_DYLIB 路径不存在: $DEBUG_DYLIB"
 fi
 
+# Release 身份契约：写入 reader-build-manifest.json（无 Debug dylib）
+if [[ -f "$FRAMEWORKS/LegadoBridge" || -f "$FRAMEWORKS/LegadoBridge.framework/LegadoBridge" ]]; then
+  BRIDGE_BIN="$FRAMEWORKS/LegadoBridge"
+  [[ -f "$FRAMEWORKS/LegadoBridge.framework/LegadoBridge" ]] && BRIDGE_BIN="$FRAMEWORKS/LegadoBridge.framework/LegadoBridge"
+  GIT_COMMIT="${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)}"
+  RUN_ID="${GITHUB_RUN_ID:-local}"
+  if python3 "$ROOT/tools/repack/manifest.py" \
+    --out "$APP/reader-build-manifest.json" \
+    --variant legado-release \
+    --git-commit "$GIT_COMMIT" \
+    --github-run-id "$RUN_ID" \
+    --base-ipa "$IPA_IN" \
+    --app-binary "$BIN" \
+    --legado-bridge "$BRIDGE_BIN"; then
+    cp "$APP/reader-build-manifest.json" "$APP/reader-build-manifest.bundle.json"
+    echo "==> reader-build-manifest.json (legado-release) 已写入"
+  else
+    echo "WARN: reader-build-manifest.json 写入失败"
+  fi
+fi
+
 rm -rf "$APP/_CodeSignature"
 pushd "$WORK" >/dev/null
 zip -qr "$OUT" Payload

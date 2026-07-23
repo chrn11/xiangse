@@ -22,7 +22,7 @@ REQUIRED_FIELDS = (
     "legado_debug_sha256",
     "built_at_utc",
 )
-VALID_VARIANTS = frozenset({"baseline-debug", "legado-debug"})
+VALID_VARIANTS = frozenset({"baseline-debug", "legado-debug", "legado-release"})
 
 
 def sha256_file(path: Path) -> str:
@@ -64,11 +64,13 @@ def build_manifest(
     debug_hash: str | None = None
     if legado_debug_path and legado_debug_path.is_file():
         debug_hash = sha256_file(legado_debug_path)
-    else:
+    elif variant != "legado-release":
         raise FileNotFoundError(f"缺少 LegadoBridgeDebug: {legado_debug_path}")
 
     if variant == "baseline-debug" and bridge_hash is not None:
         raise ValueError("baseline-debug 不应包含 legado_bridge_sha256")
+    if variant == "legado-release" and not bridge_hash:
+        raise FileNotFoundError(f"legado-release 缺少 LegadoBridge: {legado_bridge_path}")
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -77,7 +79,7 @@ def build_manifest(
         "github_run_id": str(github_run_id),
         "base_ipa_sha256": sha256_file(base_ipa_path),
         "app_binary_sha256": sha256_file(app_binary_path),
-        "legado_bridge_sha256": bridge_hash if variant == "legado-debug" else None,
+        "legado_bridge_sha256": bridge_hash if variant in ("legado-debug", "legado-release") else None,
         "legado_debug_sha256": debug_hash,
         "built_at_utc": built_at_utc or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
@@ -137,6 +139,11 @@ def validate_manifest(
         errors.append("baseline-debug 的 legado_bridge_sha256 必须为 null")
     if variant == "legado-debug" and not manifest.get("legado_bridge_sha256"):
         errors.append("legado-debug 缺少 legado_bridge_sha256")
+    if variant == "legado-release":
+        if not manifest.get("legado_bridge_sha256"):
+            errors.append("legado-release 缺少 legado_bridge_sha256")
+        if manifest.get("legado_debug_sha256") is not None:
+            errors.append("legado-release 的 legado_debug_sha256 必须为 null")
 
     return errors
 
@@ -152,9 +159,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--base-ipa", required=True, type=Path)
     p.add_argument("--app-binary", required=True, type=Path)
     p.add_argument("--legado-bridge", type=Path, default=None)
-    p.add_argument("--legado-debug", required=True, type=Path)
+    p.add_argument("--legado-debug", type=Path, default=None)
     p.add_argument("--built-at-utc", default=None)
     args = p.parse_args(argv)
+
+    if args.variant != "legado-release" and args.legado_debug is None:
+        p.error("--legado-debug 在非 legado-release 时必填")
 
     manifest = build_manifest(
         variant=args.variant,
