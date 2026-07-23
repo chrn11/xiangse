@@ -2850,6 +2850,40 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
             LBSetIntegerKey(tgt, @"curCpIndex", cpIndex);
         }
     }
+    // scroll-S3b：滚动 loadCp → divisionResponse:heights: 依赖 container.dicContents / dicHeight；
+    // LBSeedConfirmedCache 经 LBFindReadPageContainerForReader 可能漏写 pageContainerB。
+    if (LBObjectIsScrollContainerLike(container)) {
+        NSString *body = LBBodyFromPayload(payload);
+        if (body.length > 0) {
+            NSMutableArray *scrollPaths = [NSMutableArray array];
+            NSMutableDictionary *dc = [NSMutableDictionary dictionary];
+            dc[@(cpIndex)] = body;
+            dc[[@(cpIndex) stringValue]] = body;
+            if (title.length > 0) dc[title] = body;
+            if ([chUrl isKindOfClass:[NSString class]] && chUrl.length > 0) dc[chUrl] = body;
+            LBApplyDicContents(container, dc, scrollPaths,
+                               [NSString stringWithFormat:@"dicContents@%@",
+                                NSStringFromClass(object_getClass(container))]);
+            @try {
+                id dh = nil;
+                @try { dh = [container valueForKey:@"dicHeight"]; } @catch (__unused NSException *e) {}
+                if (![dh isKindOfClass:[NSMutableDictionary class]]) {
+                    NSMutableDictionary *emptyH = [NSMutableDictionary dictionary];
+                    if ([container respondsToSelector:@selector(setDicHeight:)]) {
+                        ((void (*)(id, SEL, id))objc_msgSend)(container, @selector(setDicHeight:), emptyH);
+                    } else {
+                        @try { [container setValue:emptyH forKey:@"dicHeight"]; } @catch (__unused NSException *e) {}
+                    }
+                    [scrollPaths addObject:@"dicHeight"];
+                }
+            } @catch (__unused NSException *e) {}
+            if (scrollPaths.count > 0) {
+                LBStateLog([NSString stringWithFormat:
+                            @"scroll_S3b seed paths=%@",
+                            [scrollPaths componentsJoinedByString:@","]]);
+            }
+        }
+    }
 
     id cat = nil;
     @try { cat = [reader valueForKey:@"arrCatalog"]; } @catch (__unused NSException *e) {}
@@ -3227,6 +3261,29 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
         LBScheduleInvokeWhenPageReady(reader, 0);
         return;
     }
+    // scroll-S3：要求容器已 addChild/insertSubview，禁止 orphan 上 loadCp（状态机尚未进入 invoking）
+    if (isScroll) {
+        BOOL scrollAttached = NO;
+        if ([container isKindOfClass:[UIViewController class]]) {
+            UIViewController *cvc = (UIViewController *)container;
+            scrollAttached = (cvc.parentViewController != nil) ||
+                (cvc.viewIfLoaded.superview != nil) ||
+                (cvc.viewIfLoaded.window != nil);
+            if (!scrollAttached && [reader isKindOfClass:[UIViewController class]]) {
+                for (UIViewController *ch in ((UIViewController *)reader).childViewControllers) {
+                    if (ch == cvc) {
+                        scrollAttached = YES;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!scrollAttached) {
+            LBStateLog(@"scroll_S3 defer_invoke reason=container_orphan");
+            LBScheduleInvokeWhenPageReady(reader, 0);
+            return;
+        }
+    }
 
     if (sPendingPayload) {
         NSMutableArray *paths = [NSMutableArray array];
@@ -3311,13 +3368,16 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
                        @"ar_pageStatus_pre container=%@ val=%@ pmSrc=%@ pmVal=%@",
                        containerName, pageStatus ?: @"nil", pmStatusSrc, pmStatusPre ?: @"nil"]);
         // 6A：原版路径 container->curPageVC->pageModel->pageStatus（diff §8.3；与上方 KVC 读数对照）
-        {
+        // scroll-S3：滚动容器无 curPageVC，跳过该探针。
+        if (!isScroll) {
             id opCurPageVCPre = LBOrigPathMsgSendId(container, @"curPageVC");
             NSNumber *opStatusPre = LBOrigPathPageStatus(container);
             LBABSyncProbe([NSString stringWithFormat:
                            @"ar_origpath_pre curPageVC=%@ pageStatus=%@",
                            opCurPageVCPre ? NSStringFromClass(object_getClass(opCurPageVCPre)) : @"nil",
                            opStatusPre ?: @"nil"]);
+        } else {
+            LBABSyncProbe(@"ar_origpath_pre skipped_scroll_no_curPageVC");
         }
     }
     @try {
@@ -3377,14 +3437,16 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
             LBABSyncProbe([NSString stringWithFormat:
                            @"ar_pageStatus_post container=%@ val=%@ pmSrc=%@ pmVal=%@",
                            containerName, pageStatusPost ?: @"nil", pmStatusSrc, pmStatusPost ?: @"nil"]);
-            // 6A：原版路径对照（同 pre 块）
-            {
+            // 6A：原版路径对照（同 pre 块）；滚动跳过 curPageVC
+            if (!isScroll) {
                 id opCurPageVCPost = LBOrigPathMsgSendId(container, @"curPageVC");
                 NSNumber *opStatusPost = LBOrigPathPageStatus(container);
                 LBABSyncProbe([NSString stringWithFormat:
                                @"ar_origpath_post curPageVC=%@ pageStatus=%@",
                                opCurPageVCPost ? NSStringFromClass(object_getClass(opCurPageVCPost)) : @"nil",
                                opStatusPost ?: @"nil"]);
+            } else {
+                LBABSyncProbe(@"ar_origpath_post skipped_scroll_no_curPageVC");
             }
         }
         {

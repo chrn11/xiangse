@@ -3342,6 +3342,14 @@ static void LBHypothesisJFlushDeferred(id readerVC) {
         if (LBOrig_addChildViewController && parent && child) {
             LBOrig_addChildViewController(parent, @selector(addChildViewController:), child);
             addN++;
+        } else {
+            // scroll-S3：勿静默丢 pending（否则 children 一直为 0，loadCp 打 orphan）
+            [remainAdd addObject:item];
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"hypothesis_J flush_add_drop parent=%@ child=%@ orig_add=%p",
+                                     parent ? NSStringFromClass(object_getClass(parent)) : @"nil",
+                                     child ? NSStringFromClass(object_getClass(child)) : @"nil",
+                                     LBOrig_addChildViewController]);
         }
     }
     sHypothesisJPendingAddChild = remainAdd;
@@ -3359,6 +3367,13 @@ static void LBHypothesisJFlushDeferred(id readerVC) {
             LBOrig_insertSubview_atIndex(parentView, @selector(insertSubview:atIndex:),
                                         subview, idxNum ? idxNum.integerValue : 0);
             insN++;
+        } else {
+            [remainIns addObject:item];
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"hypothesis_J flush_ins_drop parent=%@ sub=%@ orig_ins=%p",
+                                     parentView ? NSStringFromClass(object_getClass(parentView)) : @"nil",
+                                     subview ? NSStringFromClass(object_getClass(subview)) : @"nil",
+                                     LBOrig_insertSubview_atIndex]);
         }
     }
     sHypothesisJPendingInsertSubview = remainIns;
@@ -3368,16 +3383,29 @@ static void LBHypothesisJFlushDeferred(id readerVC) {
         if (!containerA && readerVC) {
             containerA = LBReadIvarObjectByName(readerVC, "pageContainerA");
         }
+        id containerB = readerVC ? LBReadIvarObjectByName(readerVC, "_pageContainerB") : nil;
+        if (!containerB && readerVC) {
+            containerB = LBReadIvarObjectByName(readerVC, "pageContainerB");
+        }
         NSString *clsA = containerA ? NSStringFromClass(object_getClass(containerA)) : @"nil";
+        NSString *clsB = containerB ? NSStringFromClass(object_getClass(containerB)) : @"nil";
+        NSUInteger childCount = 0;
+        if ([readerVC isKindOfClass:[UIViewController class]]) {
+            childCount = ((UIViewController *)readerVC).childViewControllers.count;
+        }
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"hypothesis_J deferred_attach_OK add=%lu insert=%lu pageContainerA=%@",
-                                 (unsigned long)addN, (unsigned long)insN, clsA]);
+                                 @"hypothesis_J deferred_attach_OK add=%lu insert=%lu children=%lu "
+                                 @"pageContainerA=%@ pageContainerB=%@",
+                                 (unsigned long)addN, (unsigned long)insN,
+                                 (unsigned long)childCount, clsA, clsB]);
     } else if (sHypothesisJPendingAddChild.count + sHypothesisJPendingInsertSubview.count > 0) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"hypothesis_J deferred_attach_SKIP remain_add=%lu remain_ins=%lu orig_add=%p",
                                  (unsigned long)sHypothesisJPendingAddChild.count,
                                  (unsigned long)sHypothesisJPendingInsertSubview.count,
                                  LBOrig_addChildViewController]);
+    } else {
+        LBAppendOpenReaderTrace(@"hypothesis_J deferred_attach_EMPTY");
     }
 }
 
@@ -3465,7 +3493,6 @@ static void LBHypothesisEFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn 
         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                  @"hypothesis_E after_ORIG pageContainerA=%@", clsA]);
         LBAppendOpenReaderTrace(@"hypothesis_C onReset noArg ORIG_OK");
-        LBHypothesisFProbeAfterOrig(selfObj, @"onReset_noArg_after_ORIG");
         origOk = YES;
     } @catch (NSException *ex) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
@@ -3474,11 +3501,16 @@ static void LBHypothesisEFireOnResetNoArg(id selfObj, SEL sel, LBOnResetNoArgFn 
     } @finally {
         sHypothesisJDeferActive = NO;
         if (origOk) {
+            // scroll-S3：必须先 flush addChild/insertSubview，再 F 探针→loadCp。
+            // 旧序在 orphan TextRScrollContainer 上 invoke_loadCp，随后回空书架。
             LBHypothesisJFlushDeferred(selfObj);
         } else {
             [sHypothesisJPendingAddChild removeAllObjects];
             [sHypothesisJPendingInsertSubview removeAllObjects];
         }
+    }
+    if (origOk) {
+        LBHypothesisFProbeAfterOrig(selfObj, @"onReset_noArg_after_ORIG");
     }
 }
 
