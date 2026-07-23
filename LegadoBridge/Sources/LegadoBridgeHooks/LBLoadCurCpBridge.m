@@ -2608,7 +2608,11 @@ static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArra
         }
         [paths addObject:@"dicContents"];
         id container = LBFindReadPageContainerForReader(reader);
-        if (container) {
+        // scroll-S4：ReadScrollContainer#loadCp: @0x1000a3578 对 dicContents[NSNumber(cp)]
+        // 命中则早退，不调 queryCpFileByBook。滚动容器禁止预种正文。
+        if (container && LBObjectIsScrollContainerLike(container)) {
+            [paths addObject:@"dicContents@scroll_skip_S4"];
+        } else if (container) {
             LBApplyDicContents(container, dc, paths,
                                [NSString stringWithFormat:@"dicContents@%@",
                                 NSStringFromClass(object_getClass(container))]);
@@ -2850,38 +2854,48 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
             LBSetIntegerKey(tgt, @"curCpIndex", cpIndex);
         }
     }
-    // scroll-S3b：滚动 loadCp → divisionResponse:heights: 依赖 container.dicContents / dicHeight；
-    // LBSeedConfirmedCache 经 LBFindReadPageContainerForReader 可能漏写 pageContainerB。
+    // scroll-S4：loadCp 在 dicContents/dicQuerying 命中 cp key 时早退（反汇编 confirmed）。
+    // 清除预种 key，仅保留 xsfolder 磁盘缓存供 queryCpFileByBook；可选空 dicHeight。
     if (LBObjectIsScrollContainerLike(container)) {
-        NSString *body = LBBodyFromPayload(payload);
-        if (body.length > 0) {
-            NSMutableArray *scrollPaths = [NSMutableArray array];
-            NSMutableDictionary *dc = [NSMutableDictionary dictionary];
-            dc[@(cpIndex)] = body;
-            dc[[@(cpIndex) stringValue]] = body;
-            if (title.length > 0) dc[title] = body;
-            if ([chUrl isKindOfClass:[NSString class]] && chUrl.length > 0) dc[chUrl] = body;
-            LBApplyDicContents(container, dc, scrollPaths,
-                               [NSString stringWithFormat:@"dicContents@%@",
-                                NSStringFromClass(object_getClass(container))]);
-            @try {
-                id dh = nil;
-                @try { dh = [container valueForKey:@"dicHeight"]; } @catch (__unused NSException *e) {}
-                if (![dh isKindOfClass:[NSMutableDictionary class]]) {
-                    NSMutableDictionary *emptyH = [NSMutableDictionary dictionary];
-                    if ([container respondsToSelector:@selector(setDicHeight:)]) {
-                        ((void (*)(id, SEL, id))objc_msgSend)(container, @selector(setDicHeight:), emptyH);
-                    } else {
-                        @try { [container setValue:emptyH forKey:@"dicHeight"]; } @catch (__unused NSException *e) {}
-                    }
-                    [scrollPaths addObject:@"dicHeight"];
+        NSMutableArray *scrollPaths = [NSMutableArray array];
+        @try {
+            id dc = nil;
+            @try { dc = [container valueForKey:@"dicContents"]; } @catch (__unused NSException *e) {}
+            if ([dc isKindOfClass:[NSMutableDictionary class]]) {
+                NSMutableDictionary *mdc = (NSMutableDictionary *)dc;
+                [mdc removeObjectForKey:@(cpIndex)];
+                [mdc removeObjectForKey:[@(cpIndex) stringValue]];
+                if ([title isKindOfClass:[NSString class]] && title.length > 0) {
+                    [mdc removeObjectForKey:title];
                 }
-            } @catch (__unused NSException *e) {}
-            if (scrollPaths.count > 0) {
-                LBStateLog([NSString stringWithFormat:
-                            @"scroll_S3b seed paths=%@",
-                            [scrollPaths componentsJoinedByString:@","]]);
+                if ([chUrl isKindOfClass:[NSString class]] && chUrl.length > 0) {
+                    [mdc removeObjectForKey:chUrl];
+                }
+                [scrollPaths addObject:@"clear_dicContents_keys"];
             }
+            id dq = nil;
+            @try { dq = [container valueForKey:@"dicQuerying"]; } @catch (__unused NSException *e) {}
+            if ([dq isKindOfClass:[NSMutableDictionary class]]) {
+                [(NSMutableDictionary *)dq removeObjectForKey:@(cpIndex)];
+                [(NSMutableDictionary *)dq removeObjectForKey:[@(cpIndex) stringValue]];
+                [scrollPaths addObject:@"clear_dicQuerying_keys"];
+            }
+            id dh = nil;
+            @try { dh = [container valueForKey:@"dicHeight"]; } @catch (__unused NSException *e) {}
+            if (![dh isKindOfClass:[NSMutableDictionary class]]) {
+                NSMutableDictionary *emptyH = [NSMutableDictionary dictionary];
+                if ([container respondsToSelector:@selector(setDicHeight:)]) {
+                    ((void (*)(id, SEL, id))objc_msgSend)(container, @selector(setDicHeight:), emptyH);
+                } else {
+                    @try { [container setValue:emptyH forKey:@"dicHeight"]; } @catch (__unused NSException *e) {}
+                }
+                [scrollPaths addObject:@"dicHeight"];
+            }
+        } @catch (__unused NSException *e) {}
+        if (scrollPaths.count > 0) {
+            LBStateLog([NSString stringWithFormat:
+                        @"scroll_S4 prep paths=%@",
+                        [scrollPaths componentsJoinedByString:@","]]);
         }
     }
 
