@@ -2977,11 +2977,19 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
                     }
                 }
             }
-            // 原版 bookShelf.plist 文本源站点对象形态
-            sourceIL[useSName] = @{
+            // BC14：必须 NSMutableDictionary。原版 post-QF 会对站点条目做
+            // setObject:forKeyedSubscript:（更新 lastChapterTitle/_lCTime）。
+            // 若种不可变 @{...} → __NSDictionaryI unrecognized selector → SIGABRT
+            // （bc13_uncaught confirmed，pid=48821 postQF=1）。
+            sourceIL[useSName] = [NSMutableDictionary dictionaryWithDictionary:@{
                 @"_lCTime": @"0",
                 @"lastChapterTitle": lastTitle ?: @"",
-            };
+            }];
+        } else if (![sourceIL[useSName] isKindOfClass:[NSMutableDictionary class]]) {
+            // 已有不可变条目：换成可变副本，避免原版原地写崩
+            sourceIL[useSName] = [NSMutableDictionary dictionaryWithDictionary:
+                                  (NSDictionary *)sourceIL[useSName]];
+            LBABSyncProbe(@"bc14_sourceIL_entry_mutabilized");
         }
         fat[@"_sourceIL"] = sourceIL;
         // queryInfo=arrCatalog 项：本地 chapterContent 读 queryInfo[@"url"] 作相对路径
