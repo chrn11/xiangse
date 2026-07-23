@@ -137,28 +137,44 @@ class BackstageWebView {
     }
 
     /// 获取 StrResponse（对应 Android getStrResponse）
-    @MainActor
+    /// 不可标 `@MainActor` 后在本方法内 `withCheckedThrowingContinuation` 等待 WK 回调：
+    /// MainActor 会挂起等 continuation，而 `didFinish`/`evaluateJS` 也要 MainActor → 死锁，
+    /// 表现为正文永空且永不写 `legado_webview_debug.txt`。
     func getStrResponse() async throws -> StrResponse {
         let effectiveTimeout = timeout ?? 60000
+        let url = self.url
+        let html = self.html
+        let encode = self.encode
+        let tag = self.tag
+        let headerMap = self.headerMap
+        let sourceRegex = self.sourceRegex
+        let overrideUrlRegex = self.overrideUrlRegex
+        let javaScript = self.javaScript ?? Self.defaultJS
+        let delayTime = self.delayTime
+        let cacheFirst = self.cacheFirst
+        let result = self.result
+        let isRule = self.isRule
 
         return try await withCheckedThrowingContinuation { continuation in
-            let handler = WebViewHandler(
-                url: url,
-                html: html,
-                encode: encode,
-                tag: tag,
-                headerMap: headerMap,
-                sourceRegex: sourceRegex,
-                overrideUrlRegex: overrideUrlRegex,
-                javaScript: javaScript ?? Self.defaultJS,
-                delayTime: delayTime,
-                cacheFirst: cacheFirst,
-                result: result,
-                isRule: isRule,
-                timeout: effectiveTimeout,
-                continuation: continuation
-            )
-            handler.start()
+            Task { @MainActor in
+                let handler = WebViewHandler(
+                    url: url,
+                    html: html,
+                    encode: encode,
+                    tag: tag,
+                    headerMap: headerMap,
+                    sourceRegex: sourceRegex,
+                    overrideUrlRegex: overrideUrlRegex,
+                    javaScript: javaScript,
+                    delayTime: delayTime,
+                    cacheFirst: cacheFirst,
+                    result: result,
+                    isRule: isRule,
+                    timeout: effectiveTimeout,
+                    continuation: continuation
+                )
+                handler.start()
+            }
         }
     }
 }

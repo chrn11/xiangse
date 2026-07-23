@@ -913,6 +913,18 @@ class AnalyzeUrl {
         let needWebView = forceWebView || analyzedUrl.webView
         analyzer.useWebView = needWebView
         analyzer.webJs = javaScript ?? analyzedUrl.webJs
+        let hasWebJs = !(analyzer.webJs?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        if needWebView {
+            // 进入前先打点：若仍无完成标记，可区分「未进分支」与「WebView 卡住」
+            writeWebViewDebugMarker(
+                url: analyzedUrl.url,
+                body: "",
+                force: forceWebView,
+                analyzedFlag: analyzedUrl.webView,
+                hasWebJs: hasWebJs,
+                phase: "enter"
+            )
+        }
 
         let response = try await analyzer.getStrResponseAwait(
             jsStr: javaScript,
@@ -925,7 +937,8 @@ class AnalyzeUrl {
                 body: response.body ?? "",
                 force: forceWebView,
                 analyzedFlag: analyzedUrl.webView,
-                hasWebJs: !(analyzer.webJs?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                hasWebJs: hasWebJs,
+                phase: "done"
             )
         }
         return (body: response.body ?? "", url: response.url)
@@ -937,10 +950,12 @@ class AnalyzeUrl {
         body: String,
         force: Bool,
         analyzedFlag: Bool,
-        hasWebJs: Bool
+        hasWebJs: Bool,
+        phase: String
     ) {
         let marker = [
             "ts=\(ISO8601DateFormatter().string(from: Date()))",
+            "phase=\(phase)",
             "path=BackstageWebView",
             "forceWebView=\(force)",
             "analyzedWebView=\(analyzedFlag)",
