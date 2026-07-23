@@ -190,8 +190,9 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
     private let encode: String?
     private let tag: String?
     private let headerMap: [String: String]?
-    private let sourceRegex: String?
-    private let overrideUrlRegex: String?
+    /// 策略回调里需同步读，故 nonisolated（不可变）
+    nonisolated private let sourceRegex: String?
+    nonisolated private let overrideUrlRegex: String?
     private let javaScript: String
     private let delayTime: Int64
     private let cacheFirst: Bool
@@ -290,20 +291,18 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
 
     // MARK: - WKNavigationDelegate
 
+    /// 必须同步调用 decisionHandler。丢进 Task 会导致 WebKit 一直等策略、永不 didFinish。
     nonisolated func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        Task { @MainActor in
-            // overrideUrlRegex 拦截
-            if let overrideUrlRegex = overrideUrlRegex, !overrideUrlRegex.isEmpty {
-                if let requestURL = navigationAction.request.url?.absoluteString {
-                    if Self.matchesRegex(requestURL, pattern: overrideUrlRegex) {
-                        self.finishWithResult(url: self.url ?? requestURL, body: requestURL)
-                        decisionHandler(.cancel)
-                        return
-                    }
-                }
+        if let overrideUrlRegex = overrideUrlRegex, !overrideUrlRegex.isEmpty,
+           let requestURL = navigationAction.request.url?.absoluteString,
+           Self.matchesRegex(requestURL, pattern: overrideUrlRegex) {
+            decisionHandler(.cancel)
+            Task { @MainActor in
+                self.finishWithResult(url: self.url ?? requestURL, body: requestURL)
             }
-            decisionHandler(.allow)
+            return
         }
+        decisionHandler(.allow)
     }
 
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -339,18 +338,16 @@ private class WebViewHandler: NSObject, WKNavigationDelegate {
     // MARK: - 资源嗅探（sourceRegex）
 
     nonisolated func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-        Task { @MainActor in
-            if let sourceRegex = self.sourceRegex, !sourceRegex.isEmpty {
-                if let responseURL = navigationResponse.response.url?.absoluteString {
-                    if Self.matchesRegex(responseURL, pattern: sourceRegex) {
-                        self.finishWithResult(url: self.url ?? responseURL, body: responseURL)
-                        decisionHandler(.cancel)
-                        return
-                    }
-                }
+        if let sourceRegex = sourceRegex, !sourceRegex.isEmpty,
+           let responseURL = navigationResponse.response.url?.absoluteString,
+           Self.matchesRegex(responseURL, pattern: sourceRegex) {
+            decisionHandler(.cancel)
+            Task { @MainActor in
+                self.finishWithResult(url: self.url ?? responseURL, body: responseURL)
             }
-            decisionHandler(.allow)
+            return
         }
+        decisionHandler(.allow)
     }
 
     // MARK: - JS 求值与重试
