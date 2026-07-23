@@ -1055,21 +1055,14 @@ static IMP LBFHookIMPForSelector(NSString *selName) {
 static NSArray<NSString *> *LBFObserverSelectors(void) {
     return @[
         @"viewDidLoad", @"loadCurCp",
-        // BC10：移除 viewWillAppear:（IPS：LBFHook↔UIPageViewController.viewWillAppear 511 帧）
-        // BC11：移除 drawRect: / resetContentPosByScreenSize:（IPS：LBFHook_drawRect↔StandarReader
-        // drawRect 511 帧）。根因：子类+父类同 sel 双钩后，[super drawRect:] 进入父钩时
-        // object_getClass(self) 仍是子类，GetOrig 取回子类真实 IMP → 死递归。
-        // 生命周期/绘制改看 viewDidLoad（early wrap）/ showContent / division*。
+        // BC10：移除 viewWillAppear:
+        // BC11：移除 drawRect: / resetContentPosByScreenSize:
+        // BC12：移除 division*/showContent*/setPageModel/resetLoadCpTip/reload*。
+        // BC11 后 qf_enter/qf_exit 已通；IPS 094459 在 LBFHook_v_at_id_q
+        // (onDivisionTextFinish:cpIndex:) → UIPageViewController setViewControllers
+        // 路径 unrecognized selector → SIGABRT。先撤 QF 后排版链 forensics 钩。
         @"onResetContentNotify", @"onResetContentNotify:", @"onResetContent:",
         @"resetContentNotify:", @"handleResetContent:",
-        @"divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:",
-        @"divisionText:cpTitle:cpIndex:tvSize:doubleCol:backHeights:paibanInfo:",
-        @"divisionResponse:cpTitle:cpIndex:", @"divisionResponse:cpTitle:cpIndex:heights:",
-        @"onDivisionTextFinish:cpIndex:",
-        // AV：CB/QF 两 selector 移出 Observer 清单——Observer tramp 与 Bridge LBAB/LBAE 钩在 CB→QF 链互套，postQF 窗 tid=259 栈溢出（depth 2495、fault=fp-0x178、pc-lr=0x7a80；diff §8.5）
-        @"resetLoadCpTip:",
-        @"showContent:", @"showContent:title:", @"setPageModel:",
-        @"reloadContent", @"reloadView", @"refreshView",
     ];
 }
 
@@ -1200,7 +1193,7 @@ static void LBFInstallObserverHooks(void) {
         }
     }
     // viewDidLoad/loadCurCp 由 LBFEarlyWrap 专责，observer 不再重复挂钩
-    LBFAISyncProbe(@"bc11_observer_no_drawrect_chain_dedup");
+    LBFAISyncProbe(@"bc12_observer_no_division_chain");
 }
 
 IMP LBForensicsResolveOrigIMP(Class cls, SEL sel) {
