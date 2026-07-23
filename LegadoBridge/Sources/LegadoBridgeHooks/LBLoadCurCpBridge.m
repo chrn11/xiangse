@@ -2847,7 +2847,7 @@ static void LBWriteSavedPageProgress(NSString *bookUrl, NSString *bookKey,
                                      NSInteger cpIndex, NSInteger pageIndex) {
     if (pageIndex < 0) return;
     NSDictionary *old = LBLoadSavedPageProgress();
-    if (pageIndex == 0 && [old isKindOfClass:[NSDictionary class]]) {
+    if ([old isKindOfClass:[NSDictionary class]]) {
         id oCp = old[@"nCpIndex"] ?: old[@"cpIndex"];
         id oPg = old[@"nPageIndex"] ?: old[@"pageIndex"];
         NSString *oBook = [old[@"bookUrl"] isKindOfClass:[NSString class]] ? old[@"bookUrl"] : nil;
@@ -2855,12 +2855,13 @@ static void LBWriteSavedPageProgress(NSString *bookUrl, NSString *bookKey,
         BOOL sameBook = YES;
         if (bookUrl.length > 0 && oBook.length > 0) sameBook = [bookUrl isEqualToString:oBook];
         else if (bookKey.length > 0 && oKey.length > 0) sameBook = [bookKey isEqualToString:oKey];
-        if (sameBook && [oCp respondsToSelector:@selector(integerValue)] &&
-            [oPg respondsToSelector:@selector(integerValue)] &&
-            [oCp integerValue] == cpIndex && [oPg integerValue] > 0) {
+        NSInteger oldPage = [oPg respondsToSelector:@selector(integerValue)] ? [oPg integerValue] : -1;
+        NSInteger oldCp = [oCp respondsToSelector:@selector(integerValue)] ? [oCp integerValue] : -1;
+        // 杀进程 resignActive 时 UI 撕裂常误读 page=0/错章；禁止用 0 覆盖已落盘页位
+        if (sameBook && oldPage > 0 && pageIndex == 0) {
             LBStateLog([NSString stringWithFormat:
-                        @"phase85 keep pageProgress skip0 keepPage=%ld",
-                        (long)[oPg integerValue]]);
+                        @"phase85 keep pageProgress skip0 keepCp=%ld keepPage=%ld gotCp=%ld",
+                        (long)oldCp, (long)oldPage, (long)cpIndex]);
             return;
         }
     }
