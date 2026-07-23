@@ -621,25 +621,30 @@ public enum RuleWebBook {
         return "\(words)字"
     }
 
-    /// 供测试与调试：源级 replaceRegex（`pattern##replacement`）
+    /// 供测试与调试：源级 replaceRegex（`pattern##replacement`；`pattern##` 表示替换为空）
     public static func applyReplaceRegex(_ content: String, regex: String) -> String {
-        let parts = RuleSplitter.splitTopLevel(regex, token: "##") ?? [regex]
         let pattern: String
         let replacement: String
         let firstOnly: Bool
-        if parts.count >= 2 {
+        if let parts = RuleSplitter.splitTopLevel(regex, token: "##"), parts.count >= 2 {
             pattern = parts[0]
             replacement = parts[1]
             firstOnly = parts.count > 2
+        } else if regex.contains("##") {
+            // splitTopLevel 在「pattern##」（空 replacement）时会丢掉空段并返回 nil，
+            // 若把整串（含 ##）当地正则则永远匹配失败。
+            let segs = splitReplaceRegexKeepEmpty(regex)
+            pattern = segs.pattern
+            replacement = segs.replacement
+            firstOnly = segs.firstOnly
         } else {
             pattern = regex
             replacement = ""
             firstOnly = false
         }
-        // 兼容书源里常用的 [\s\S]：部分 ICU 下字符类异常时改为 . + DOTALL
         let patternsToTry = [pattern, pattern.replacingOccurrences(of: "[\\s\\S]", with: ".")]
         var reg: NSRegularExpression?
-        for p in patternsToTry {
+        for p in patternsToTry where !p.isEmpty {
             if let compiled = try? NSRegularExpression(
                 pattern: p,
                 options: [.dotMatchesLineSeparators]
@@ -658,11 +663,28 @@ public enum RuleWebBook {
             let replaced = reg.stringByReplacingMatches(
                 in: String(content[matchRange]),
                 range: NSRange(location: 0, length: (content[matchRange] as NSString).length),
-                withTemplate: replacement
+                withTemplate: NSRegularExpression.escapedTemplate(for: replacement)
             )
             return content.replacingCharacters(in: matchRange, with: replaced)
         }
-        return reg.stringByReplacingMatches(in: content, range: range, withTemplate: replacement)
+        return reg.stringByReplacingMatches(
+            in: content,
+            range: range,
+            withTemplate: NSRegularExpression.escapedTemplate(for: replacement)
+        )
+    }
+
+    /// 按首个顶层 `##` 切开，保留空 replacement（`pattern##`）。
+    private static func splitReplaceRegexKeepEmpty(_ regex: String) -> (pattern: String, replacement: String, firstOnly: Bool) {
+        guard let hashRange = regex.range(of: "##") else {
+            return (regex, "", false)
+        }
+        let pattern = String(regex[..<hashRange.lowerBound])
+        let rest = String(regex[hashRange.upperBound...])
+        if let second = rest.range(of: "##") {
+            return (pattern, String(rest[..<second.lowerBound]), true)
+        }
+        return (pattern, rest, false)
     }
 }
 

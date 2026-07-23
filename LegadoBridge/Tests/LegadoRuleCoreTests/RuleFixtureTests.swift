@@ -279,4 +279,11 @@ final class RuleFixtureTests: XCTestCase {
         XCTAssertFalse(out.contains("XYZ999"), "乱码针应去掉: \(out)")
         XCTAssertTrue(out.contains("纳兰嫣然"), "标记应保留: \(out)")
     }
+
+    func testApplyReplaceRegexEmptyReplacementSuffix() {
+        // pattern## （空替换）不得把「##」算进正则本身
+        let raw = "A【广告】X【/广告】B"
+        let out = RuleWebBook.applyReplaceRegex(raw, regex: "【广告】[\\s\\S]*?【/广告】##")
+        XCTAssertEqual(out, "AB", "空 replacement 应整块删除，实际: \(out)")
+    }
 }
