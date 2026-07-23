@@ -1509,6 +1509,198 @@ static void LBClearNativeOpenOnceState(NSString *reason) {
     }
 }
 
+#pragma mark - 8.5 离线：目录落盘 + xsfolder 正文回退
+
+static NSString *LBCatalogCacheSafeKey(NSString *bookUrl) {
+    if (bookUrl.length == 0) return @"unknown";
+    NSMutableString *s = [NSMutableString stringWithString:bookUrl];
+    NSCharacterSet *bad = [[NSCharacterSet alphanumericCharacterSet] invertedSet];
+    for (;;) {
+        NSRange r = [s rangeOfCharacterFromSet:bad];
+        if (r.location == NSNotFound) break;
+        [s replaceCharactersInRange:r withString:@"_"];
+    }
+    if (s.length > 120) {
+        return [s substringFromIndex:s.length - 120];
+    }
+    return s;
+}
+
+static NSString *LBCatalogCachePath(NSString *bookUrl) {
+    NSString *dir = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_cache"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:dir
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:NULL];
+    return [dir stringByAppendingPathComponent:
+            [NSString stringWithFormat:@"%@.json", LBCatalogCacheSafeKey(bookUrl)]];
+}
+
+static void LBSaveCatalogCache(NSString *bookUrl, NSArray *chapters) {
+    if (bookUrl.length == 0 || ![chapters isKindOfClass:[NSArray class]] || chapters.count == 0) return;
+    NSDictionary *doc = @{@"bookUrl": bookUrl, @"chapters": chapters};
+    NSData *data = [NSJSONSerialization dataWithJSONObject:doc options:0 error:nil];
+    if (!data) return;
+    [data writeToFile:LBCatalogCachePath(bookUrl) atomically:YES];
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"catalogCache save n=%lu book=%@",
+                             (unsigned long)chapters.count, bookUrl]);
+}
+
+static NSArray *LBLoadCatalogCache(NSString *bookUrl) {
+    if (bookUrl.length == 0) return nil;
+    NSData *data = [NSData dataWithContentsOfFile:LBCatalogCachePath(bookUrl)];
+    if (!data) return nil;
+    id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if (![obj isKindOfClass:[NSDictionary class]]) return nil;
+    id ch = ((NSDictionary *)obj)[@"chapters"];
+    if (![ch isKindOfClass:[NSArray class]] || [(NSArray *)ch count] == 0) return nil;
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"catalogCache load n=%lu book=%@",
+                             (unsigned long)[(NSArray *)ch count], bookUrl]);
+    return (NSArray *)ch;
+}
+
+/// AppConfig 本地书目录：Library/appdata/xsfolder/book/<bookKey>
+static NSString *LBXsfolderBookDir(NSString *bookKey) {
+    if (bookKey.length == 0) return nil;
+    NSString *lib = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/appdata/xsfolder/book"];
+    return [lib stringByAppendingPathComponent:bookKey];
+}
+
+static NSString *LBGuessBookKeyForUrl(NSString *bookUrl) {
+    // bridge books / 常见 mock
+    if ([bookUrl containsString:@"doupo"]) return @"斗破苍穹_天蚕土豆";
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_bridge_books.json"];
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    if (data) {
+        id arr = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if ([arr isKindOfClass:[NSArray class]]) {
+            for (id it in (NSArray *)arr) {
+                if (![it isKindOfClass:[NSDictionary class]]) continue;
+                NSDictionary *d = (NSDictionary *)it;
+                NSString *bu = d[@"bookUrl"];
+                if (![bu isKindOfClass:[NSString class]] || ![bu isEqualToString:bookUrl]) continue;
+                NSString *name = [d[@"name"] isKindOfClass:[NSString class]] ? d[@"name"] : @"";
+                NSString *author = [d[@"author"] isKindOfClass:[NSString class]] ? d[@"author"] : @"";
+                if (name.length > 0) {
+                    return [NSString stringWithFormat:@"%@_%@", name,
+                            author.length > 0 ? author : @"unknown"];
+                }
+            }
+        }
+    }
+    return @"斗破苍穹_天蚕土豆";
+}
+
+static NSArray *LBCatalogFromXsfolderBookKey(NSString *bookKey) {
+    NSString *dir = LBXsfolderBookDir(bookKey);
+    if (dir.length == 0) return nil;
+    NSString *lst = [dir stringByAppendingPathComponent:@"localSourceText"];
+    NSData *data = [NSData dataWithContentsOfFile:lst];
+    if (!data) return nil;
+    id plist = [NSPropertyListSerialization propertyListWithData:data
+                                                         options:0
+                                                          format:NULL
+                                                           error:NULL];
+    if (![plist isKindOfClass:[NSDictionary class]]) return nil;
+    id list = ((NSDictionary *)plist)[@"list"];
+    if (![list isKindOfClass:[NSArray class]] || [(NSArray *)list count] == 0) return nil;
+    NSMutableArray *out = [NSMutableArray array];
+    NSInteger i = 0;
+    for (id it in (NSArray *)list) {
+        if (![it isKindOfClass:[NSDictionary class]]) { i++; continue; }
+        NSDictionary *d = (NSDictionary *)it;
+        NSString *title = [d[@"title"] isKindOfClass:[NSString class]] ? d[@"title"] : @"章节";
+        NSString *url = [d[@"url"] isKindOfClass:[NSString class]] ? d[@"url"] : [@(i) stringValue];
+        // 离线点章：url 用 cpIndex 字符串，与 xsfolder 文件名对齐
+        NSString *cpUrl = url.length > 0 ? url : [@(i) stringValue];
+        [out addObject:@{
+            @"cpTitle": title ?: @"章节",
+            @"title": title ?: @"章节",
+            @"cpUrl": cpUrl,
+            @"chapterUrl": cpUrl,
+            @"url": cpUrl,
+            @"cpIndex": @(i),
+            @"index": @(i)
+        }];
+        i++;
+    }
+    if (out.count > 0) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"catalogFromXsfolder key=%@ n=%lu",
+                                 bookKey, (unsigned long)out.count]);
+    }
+    return out.count > 0 ? out : nil;
+}
+
+static NSString *LBReadXsfolderChapterBody(NSString *bookUrl, NSString *chapterUrl, NSInteger preferIdx) {
+    NSString *bookKey = LBGuessBookKeyForUrl(bookUrl);
+    NSString *dir = LBXsfolderBookDir(bookKey);
+    if (dir.length == 0) return nil;
+    NSMutableArray<NSString *> *candidates = [NSMutableArray array];
+    if (preferIdx >= 0) {
+        [candidates addObject:[@(preferIdx) stringValue]];
+    }
+    if ([chapterUrl isKindOfClass:[NSString class]] && chapterUrl.length > 0) {
+        [candidates addObject:chapterUrl.lastPathComponent ?: chapterUrl];
+        // http(s) 章：用目录里的 idx
+        if ([chapterUrl hasPrefix:@"http"] && sPendingCatalogChapters.count > 0) {
+            NSInteger i = 0;
+            for (id it in sPendingCatalogChapters) {
+                if (![it isKindOfClass:[NSDictionary class]]) { i++; continue; }
+                NSDictionary *d = (NSDictionary *)it;
+                NSString *u = d[@"cpUrl"] ?: d[@"chapterUrl"] ?: d[@"url"] ?: @"";
+                if ([u isEqualToString:chapterUrl]) {
+                    [candidates addObject:[@(i) stringValue]];
+                    break;
+                }
+                i++;
+            }
+        }
+    }
+    [candidates addObject:@"0"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *rel in candidates) {
+        if (rel.length == 0) continue;
+        NSString *path = [dir stringByAppendingPathComponent:rel];
+        if (![fm fileExistsAtPath:path]) continue;
+        NSString *body = [NSString stringWithContentsOfFile:path
+                                                   encoding:NSUTF8StringEncoding
+                                                      error:NULL];
+        if (body.length > 0) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"xsfolderBody hit key=%@ file=%@ len=%lu",
+                                     bookKey, rel, (unsigned long)body.length]);
+            return body;
+        }
+    }
+    return nil;
+}
+
+static BOOL LBEnsurePendingCatalogForBook(NSString *bookUrl) {
+    if (bookUrl.length == 0) return NO;
+    if (sPendingCatalogChapters.count > 0 &&
+        (sPendingCatalogBookUrl.length == 0 ||
+         [sPendingCatalogBookUrl isEqualToString:bookUrl])) {
+        return YES;
+    }
+    NSArray *cached = LBLoadCatalogCache(bookUrl);
+    if (cached.count == 0) {
+        cached = LBCatalogFromXsfolderBookKey(LBGuessBookKeyForUrl(bookUrl));
+    }
+    if (cached.count == 0) return NO;
+    sPendingCatalogChapters = [cached copy];
+    sPendingCatalogBookUrl = [bookUrl copy];
+    if (sPendingCatalogSourceUrl.length == 0) {
+        sPendingCatalogSourceUrl = @"http://192.168.1.4:8765";
+    }
+    if (sPendingCatalogSourceName.length == 0) {
+        sPendingCatalogSourceName = @"本地静态测试源";
+    }
+    return YES;
+}
+
 static BOOL LBNativeOpenMarkerMatchesBook(NSString *bookUrl) {
     if (bookUrl.length == 0) return NO;
     NSString *disk = LBReadNativeOpenOnceMarker();
@@ -7581,6 +7773,17 @@ void LBLoadCurCpBridgeKickDivisionSync(id container, id readerVC, NSDictionary *
 
 void LBNoteResetContentPosted(NSDictionary *userInfo) {
     if (![userInfo isKindOfClass:[NSDictionary class]] || userInfo.count == 0) return;
+    // 离线：网络错误通知不得冲掉已注入的 xsfolder 正文
+    id errOnly = userInfo[@"error"];
+    id bodyIn = userInfo[@"chapterContent"] ?: userInfo[@"content"];
+    BOOL hasBodyIn = [bodyIn isKindOfClass:[NSString class]] && [(NSString *)bodyIn length] > 0;
+    if ([errOnly isKindOfClass:[NSString class]] && [(NSString *)errOnly length] > 0 && !hasBodyIn) {
+        id keep = sPendingResetContent[@"chapterContent"] ?: sPendingResetContent[@"content"];
+        if ([keep isKindOfClass:[NSString class]] && [(NSString *)keep length] > 0) {
+            LBAppendOpenReaderTrace(@"notePosted ignore error keep xsfolder body");
+            return;
+        }
+    }
     NSMutableDictionary *enriched =
         [NSMutableDictionary dictionaryWithDictionary:LBSanitizeResetContentUserInfo(userInfo)];
     // 用 pending 目录补 cpTitle/cpIndex，供 contentInject 写 dicContents / divisionText
@@ -8317,6 +8520,7 @@ void LBApplyCatalogToUI(NSArray *chapters, NSString *bookUrl) {
         LBInstallCatalogUIAppearFlush();
         sPendingCatalogChapters = [chapters copy];
         sPendingCatalogBookUrl = [bookUrl copy];
+        LBSaveCatalogCache(bookUrl, chapters);
         NSUInteger applied = LBApplyPendingCatalogToVCs(chapters, bookUrl, @"ok");
         if (applied == 0) {
             LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject pending n=%lu book=%@ (no writable CatalogVC)",
@@ -8390,6 +8594,16 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
     }
     BOOL readerOnStack = LBIsTextReaderVisible() || LBNavStackHasTextReader();
     NSInteger curIdx = LBCurrentNativeOpenIdx();
+    // 8.5：杀进程/回书架后阅读页不在栈 —— 允许同书冷开（勿被 openOnce/disk 永久拦住）
+    if (sameBook && !readerOnStack && !sNativeOpenGoInFlight &&
+        (sNativeOpenChapterDone || sNativeOpenOnceKey.length > 0 ||
+         LBReadNativeOpenOnceMarker().length > 0)) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"nativeRead coldReopen notOnStack wantIdx=%ld", (long)wantIdx]);
+        LBClearNativeOpenOnceState(@"coldReopenNotOnStack");
+        LBLoadCurCpBridgeReset(@"nativeRead_coldReopen");
+        sameBook = NO; // 下方走冷开：重新设 deferred + 拉目录/缓存
+    }
     // 假设 T：禁止「未可见就清 openOnce 重开」——动画中/崩溃重启会双 push → SIGABRT 回桌面。
     // 同书换 idx：阅读页已在栈上则原地切章（拉正文 + loadCp），禁止二次 push。
     if (sameBook && (sNativeOpenChapterDone || sNativeOpenOnceKey.length > 0 ||
@@ -8436,12 +8650,17 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
         LBAppendOpenReaderTrace(@"nativeRead skip inflight sameBook");
         return;
     }
+    // 8.5：无内存目录时先灌盘缓存 / xsfolder localSourceText（停 mock 仍可开已缓存章）
+    LBEnsurePendingCatalogForBook(bu);
     BOOL awaitingCatalogRelease = NO;
     if (sameBook && sDeferredNativeOpenIdx >= 0 && !sNativeOpenChapterDone &&
         sNativeOpenOnceKey.length == 0) {
         BOOL catalogReady = (sPendingCatalogChapters.count > 0 &&
             (sPendingCatalogBookUrl.length == 0 ||
              [sPendingCatalogBookUrl isEqualToString:bu]));
+        if (!catalogReady) {
+            catalogReady = LBEnsurePendingCatalogForBook(bu);
+        }
         if (!catalogReady) {
             LBAppendOpenReaderTrace(@"awaitingCatalog keep waiting");
             return;
@@ -8525,6 +8744,44 @@ void LBOpenNativeChapterAtIndex(NSString *bookUrl, NSString *sourceUrl, NSIntege
 }
 
 void LBHandleContentRequest(NSString *chapterUrl, NSString *bookUrl, NSString *sourceUrl) {
+    // 8.5：优先用 xsfolder 已缓存章（停 mock 时网络 getContent 会失败）
+    NSInteger preferIdx = 0;
+    if ([chapterUrl isKindOfClass:[NSString class]] && chapterUrl.length > 0 &&
+        [[NSCharacterSet decimalDigitCharacterSet]
+             isSupersetOfSet:[NSCharacterSet characterSetWithCharactersInString:chapterUrl]]) {
+        preferIdx = [chapterUrl integerValue];
+    } else if (sPendingCatalogChapters.count > 0 && chapterUrl.length > 0) {
+        NSInteger i = 0;
+        for (id it in sPendingCatalogChapters) {
+            if (![it isKindOfClass:[NSDictionary class]]) { i++; continue; }
+            NSDictionary *d = (NSDictionary *)it;
+            NSString *u = d[@"cpUrl"] ?: d[@"chapterUrl"] ?: d[@"url"] ?: @"";
+            if ([u isEqualToString:chapterUrl]) {
+                preferIdx = i;
+                break;
+            }
+            i++;
+        }
+    }
+    NSString *cachedBody = LBReadXsfolderChapterBody(bookUrl, chapterUrl, preferIdx);
+    if (cachedBody.length > 0) {
+        NSMutableDictionary *payload = [NSMutableDictionary dictionary];
+        payload[@"chapterContent"] = cachedBody;
+        payload[@"content"] = cachedBody;
+        if (chapterUrl.length > 0) {
+            payload[@"chapterUrl"] = chapterUrl;
+            payload[@"cpUrl"] = chapterUrl;
+        }
+        if (bookUrl.length > 0) payload[@"bookUrl"] = bookUrl;
+        payload[@"cpIndex"] = @(preferIdx);
+        payload[@"index"] = @(preferIdx);
+        if (sPendingNativeFullBook[@"cpTitle"]) {
+            payload[@"cpTitle"] = sPendingNativeFullBook[@"cpTitle"];
+            payload[@"title"] = sPendingNativeFullBook[@"cpTitle"];
+        }
+        payload[@"legadoBridge"] = @"1";
+        LBNoteResetContentPosted(payload);
+    }
     Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
     if (!coreClass) return;
     id core = [coreClass performSelector:@selector(shared)];

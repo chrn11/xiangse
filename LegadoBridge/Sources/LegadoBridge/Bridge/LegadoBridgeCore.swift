@@ -716,14 +716,33 @@ import LegadoBridgeHooks
                 LBApplyCatalogToUI(chapterMaps as [Any], bookUrl)
             } catch {
                 writeCatalogMarker("err book=\(bookUrl) \(error.localizedDescription)")
-                postNotification(
-                    XiangseAdapter.notifyCatalogResponse,
-                    userInfo: [
-                        "error": error.localizedDescription,
-                        "bookUrl": bookUrl,
-                        XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
-                    ]
-                )
+                // 8.5：目录网络失败时尝试盘缓存（与 C 侧 LBCatalogCachePath 规则对齐）
+                let cacheDir = (NSHomeDirectory() as NSString)
+                    .appendingPathComponent("Documents/legado_catalog_cache")
+                let allowed = CharacterSet.alphanumerics
+                var safe = ""
+                for ch in bookUrl.unicodeScalars {
+                    safe.append(allowed.contains(ch) ? Character(ch) : "_")
+                }
+                if safe.count > 120 {
+                    safe = String(safe.suffix(120))
+                }
+                let file = (cacheDir as NSString).appendingPathComponent("\(safe).json")
+                if let data = try? Data(contentsOf: URL(fileURLWithPath: file)),
+                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let chapters = obj["chapters"] as? [[String: Any]], !chapters.isEmpty {
+                    writeCatalogMarker("ok-offline-cache book=\(bookUrl) chapters=\(chapters.count)")
+                    LBApplyCatalogToUI(chapters as [Any], bookUrl)
+                } else {
+                    postNotification(
+                        XiangseAdapter.notifyCatalogResponse,
+                        userInfo: [
+                            "error": error.localizedDescription,
+                            "bookUrl": bookUrl,
+                            XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
+                        ]
+                    )
+                }
             }
         }
     }

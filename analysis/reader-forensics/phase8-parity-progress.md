@@ -7,7 +7,7 @@ SHA：`f6904f2`（CI `29994659934`）+ 文档 `64a4c09`
 | # | 功能 | 证据 | 结论 |
 |---|---|---|---|
 | 8.1–8.4 | 搜索/详情/目录/正文 | 既有 BC17 / scroll S5 | ✅ |
-| 8.5 | 缓存与进度 | `LBEnsureLoadCurCpPrereqs` 不再无条件 `nPageIndex=0`；`paged_cache_accept.py` | ⚠️ 代码已改；离线专项脚本已备 |
+| 8.5 | 缓存与进度 | Bridge 离线补丁在工作区未进包；IPA 仍 `f6904f2`；见 `phase85-cache-progress.md` | ❌ FAIL/BLOCKED：待 commit+CI 新 Debug IPA 后重跑 `phase85_cache_accept.py` |
 | 8.6 | 替换净化 | `RuleFixtureTests.testApplyReplaceRegexStripsAdBlock`；`legado-purify-mock.json` | ✅ 单测 + 夹具；真机 dump 针待稳定目录点章 |
 | 8.7 | WebView | `legado-webview-mock.json` + `webview_challenge.html` | ⚠️ 夹具就绪，真机轮待补 |
 | 8.8 | 登录 | `legado://login` → UIAlert「书源登录」真机 PASS | ✅ |
