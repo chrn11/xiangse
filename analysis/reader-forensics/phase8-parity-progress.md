@@ -11,7 +11,7 @@ SHA：`0045524`（8.5/8.6）；**8.7 PASS**（`10d89e3` 真导航；旧 `1ec40dd
 | 8.6 | 替换净化 | `0045524`；`phase86_purify_accept` PASS。见 `phase86-purify-progress.md` | ✅ PASS |
 | 8.7 | 后台 WebView 抓正文 | `10d89e3`；`load(URLRequest)` 真导航。见 `phase87-webview-progress.md` | ✅ PASS（**仅 Backstage**） |
 | 8.8 | 登录 | 深链曾 Alert PASS；**可见网页登录/Cookie 全链未 PASS** | ⚠️ 深链 Alert 不作产品门禁；可见 WV 见 `phase88-visible-webview-progress.md` |
-| 8.8b | 可见 WebView 过盾/登录 | Mach-O：`LCStandarConfig -openWebViewWithUrlStr:` → `LCControllerManager show:WebViewController_WK`；代码已改待 CI/真机 `XiangseOpenWebView hit` | ⚠️ 差分已锁；验收门禁改为必须原生 hit；parity 勿 completed |
+| 8.8b | 可见 WebView 过盾/登录 | `0267e5e`；真机 `XiangseOpenWebView hit class=LCStandarConfig`；原生栏截图 PASS；起点页可开，过人机+搜索未复跑 | ⚠️ 原生开页已命中；Cookie WK 回灌补丁待复验；parity 勿 completed |
 | 8.9 | 发现 | `legado://explore` 深链 marker PASS；`mock_explore.html` | ✅ 深链；UI 列表待加强 |
 | 8.10 | 变量/并发 | 引擎已有；源夹具含 `variable`/`concurrentRate` | ⚠️ 引擎级，夹具已挂 |
 | 8.11 | 例外 | `legado-feature-exceptions.md` | ✅ |

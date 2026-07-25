@@ -36,3 +36,9 @@
 
 - `fixtures/_devkit/real_source_e2e/deqi.json` / `dxmwx.json` / `qidian.json` / `kuwo.json` / `ttkan.json`
 - `picked.json`、`report.json`、搜索截图、可选 `probe_*.html`
+
+## 可见 WebView 后续（2026-07-25）
+
+- 基线：`0267e5e` 真机已命中香色 `LCStandarConfig -openWebViewWithUrlStr:`（非 Fallback）。
+- 起点：`legado://login` 打开 `https://www.qidian.com/all/` 原生 WK 可见；有「打开 App / 在此处浏览」引导，**未**完成盾后人机与搜索复跑 → 真实源搜索结论仍 **FAIL**。
+- 证据：`phase88-visible-webview-progress.md`；`fixtures/_devkit/phase88_visible_webview/`。

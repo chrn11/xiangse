@@ -257,6 +257,50 @@ static void LBPresentFallbackWK(NSString *urlStr, NSString *sourceUrl, NSString 
     }];
 }
 
+static WKWebView *LBFindNativeWKWebView(void) {
+    UIWindow *win = LBLegadoKeyWindow();
+    NSMutableArray *cands = [NSMutableArray array];
+    if (win.rootViewController) {
+        LBVisibleCollectVCs(win.rootViewController, cands);
+    }
+    for (id obj in cands) {
+        if (![obj isKindOfClass:[UIViewController class]]) continue;
+        // WebViewController_Base ivar myWebView
+        @try {
+            id wv = [obj valueForKey:@"myWebView"];
+            if ([wv isKindOfClass:[WKWebView class]]) return (WKWebView *)wv;
+        } @catch (__unused NSException *ex) {}
+        if ([obj respondsToSelector:@selector(view)]) {
+            UIView *v = [obj view];
+            if ([v isKindOfClass:[WKWebView class]]) return (WKWebView *)v;
+            for (UIView *sub in v.subviews) {
+                if ([sub isKindOfClass:[WKWebView class]]) return (WKWebView *)sub;
+            }
+        }
+    }
+    return nil;
+}
+
+static void LBHarvestNativeXiangseCookies(NSString *urlStr, NSString *sourceUrl) {
+    WKWebView *wk = LBFindNativeWKWebView();
+    if (wk) {
+        NSString *page = wk.URL.absoluteString.length ? wk.URL.absoluteString : urlStr;
+        LBHarvestWKCookies(wk, page, sourceUrl, ^{
+            LBVisibleWVMarker(@"xiangse path WKCookieStore harvest done");
+        });
+        return;
+    }
+    NSHTTPCookieStorage *store = NSHTTPCookieStorage.sharedHTTPCookieStorage;
+    NSMutableArray *parts = [NSMutableArray array];
+    for (NSHTTPCookie *ck in store.cookies ?: @[]) {
+        [parts addObject:[NSString stringWithFormat:@"%@=%@", ck.name, ck.value]];
+    }
+    if (parts.count > 0) {
+        LBSaveCookieStringToJar([parts componentsJoinedByString:@"; "], urlStr, sourceUrl);
+    }
+    LBVisibleWVMarker(@"xiangse path NSHTTPCookieStorage snapshot (no WK found)");
+}
+
 void LBPresentVisibleWebView(NSString *urlStr, NSString *sourceUrl, NSString *modeTag) {
     if (urlStr.length == 0) {
         LBVisibleWVMarker(@"abort empty url");
@@ -270,17 +314,12 @@ void LBPresentVisibleWebView(NSString *urlStr, NSString *sourceUrl, NSString *mo
     dispatch_async(dispatch_get_main_queue(), ^{
         BOOL usedNative = LBTryCallOpenWebView(urlStr);
         if (usedNative) {
-            // 香色路径无直接 Cookie 回调：延迟从 NSHTTPCookieStorage 抽一份
+            // 香色 WK 的 Cookie 在 WKHTTPCookieStore；延迟从原生 VC 的 myWebView 回灌
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                NSHTTPCookieStorage *store = NSHTTPCookieStorage.sharedHTTPCookieStorage;
-                NSMutableArray *parts = [NSMutableArray array];
-                for (NSHTTPCookie *ck in store.cookies ?: @[]) {
-                    [parts addObject:[NSString stringWithFormat:@"%@=%@", ck.name, ck.value]];
-                }
-                if (parts.count > 0) {
-                    LBSaveCookieStringToJar([parts componentsJoinedByString:@"; "], urlStr, sourceUrl);
-                }
-                LBVisibleWVMarker(@"xiangse path cookie snapshot attempted");
+                LBHarvestNativeXiangseCookies(urlStr, sourceUrl);
+            });
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                LBHarvestNativeXiangseCookies(urlStr, sourceUrl);
             });
             return;
         }
