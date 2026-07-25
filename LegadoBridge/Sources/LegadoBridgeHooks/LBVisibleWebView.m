@@ -65,8 +65,8 @@ static BOOL LBTryCallOpenWebView(NSString *urlStr) {
 
     // 主路径（香色规格）：LCStandarConfig -openWebViewWithUrlStr:
     // self 在 IMP 内未使用，alloc/init 即可；由 LCControllerManager present WK VC。
-    // 真机：browserAwait 在 keyWindow 上挂悬浮钮再 show 会导致进程无崩溃报告退出→SpringBoard；
-    // 必须先开页，按钮挂到 WebView VC 自己的 view 上（见 LBAttachBrowserAwaitDoneUI）。
+    // 真机：browserAwait 往 keyWindow / WebView VC 挂原生钮均会无崩溃报告退出→SpringBoard；
+    // 完成验证改走 WK 页内 DOM 注入（见 LBStartBrowserAwait）。
     Class cfgCls = NSClassFromString(@"LCStandarConfig");
     if (cfgCls) {
         id cfg = [[cfgCls alloc] init];
@@ -422,99 +422,135 @@ void LBPresentLoginWebViewForSource(NSString *sourceUrl) {
 
 #pragma mark - startBrowserAwait
 
+/// 真机对照（f142774）：legado://webview 开同页存活；legado://browserAwait 在原生
+/// 往 WebViewController_WK 挂 UIBarButtonItem/UIButton 后 ≤0.4s 无崩溃报告退出→SpringBoard。
+/// 因此「完成验证」只注入到 WK 页面 DOM，用 JS 标志/轮询结束，禁止再改原生 VC 视图树。
+
 static void LBBrowserAwaitFinish(void);
 
-@interface LBBrowserAwaitTarget : NSObject
-+ (instancetype)shared;
-- (void)onDone;
-@end
-
-@implementation LBBrowserAwaitTarget
-+ (instancetype)shared {
-    static LBBrowserAwaitTarget *t;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ t = [LBBrowserAwaitTarget new]; });
-    return t;
-}
-- (void)onDone {
-    LBVisibleWVMarker(@"startBrowserAwait user done");
-    // 禁止在主线程 semaphore_wait（WK evaluateJavaScript 回调也在主线程 → 会死锁/看门狗杀进程）
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        LBBrowserAwaitFinish();
-    });
-}
-@end
-
-static UIButton *sBrowserAwaitDoneBtn = nil;
 static dispatch_semaphore_t sBrowserAwaitSem = NULL;
 static NSString *sBrowserAwaitHTML = nil;
 static NSString *sBrowserAwaitSourceUrl = nil;
 static NSString *sBrowserAwaitPageUrl = nil;
+static BOOL sBrowserAwaitInjectLogged = NO;
 
-static void LBBrowserAwaitRemoveDoneUI(void) {
-    if (![NSThread isMainThread]) {
-        dispatch_sync(dispatch_get_main_queue(), ^{ LBBrowserAwaitRemoveDoneUI(); });
-        return;
+/// 仅可在非主线程调用：WK completion 在主线程，主线程 wait 会死锁。
+static NSString *LBEvalJSOnWK(WKWebView *wk, NSString *js, NSTimeInterval timeoutSec) {
+    if (!wk || js.length == 0) return @"";
+    if ([NSThread isMainThread]) {
+        LBVisibleWVMarker(@"LBEvalJSOnWK refuse main-thread wait");
+        return @"";
     }
-    if (sBrowserAwaitDoneBtn) {
-        [sBrowserAwaitDoneBtn removeFromSuperview];
-        sBrowserAwaitDoneBtn = nil;
-    }
-    UIViewController *vc = LBFindNativeWebViewController();
-    if (vc) {
-        UINavigationItem *item = vc.navigationItem;
-        if ([item.rightBarButtonItem.target isEqual:[LBBrowserAwaitTarget shared]]) {
-            item.rightBarButtonItem = nil;
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    __block NSString *out = @"";
+    [wk evaluateJavaScript:js completionHandler:^(id r, NSError *err) {
+        if ([r isKindOfClass:[NSString class]]) {
+            out = (NSString *)r;
+        } else if ([r isKindOfClass:[NSNumber class]]) {
+            out = [(NSNumber *)r stringValue];
+        } else if (r != nil) {
+            out = [r description];
         }
+        dispatch_semaphore_signal(sem);
+    }];
+    dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeoutSec * NSEC_PER_SEC)));
+    return out ?: @"";
+}
+
+static NSString *LBBrowserAwaitInjectJS(void) {
+    return @"((function(){\n"
+           @"  try {\n"
+           @"    if (document.getElementById('lb-await-done-btn')) return 'exists';\n"
+           @"    var b = document.createElement('button');\n"
+           @"    b.id = 'lb-await-done-btn';\n"
+           @"    b.type = 'button';\n"
+           @"    b.setAttribute('aria-label', '完成验证');\n"
+           @"    b.textContent = '完成验证';\n"
+           @"    b.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483647;"
+           @"padding:10px 16px;background:rgba(0,0,0,0.78);color:#fff;border:none;"
+           @"border-radius:8px;font:bold 16px -apple-system,sans-serif;';\n"
+           @"    b.onclick = function(){\n"
+           @"      try { document.cookie = 'LB_AWAIT_DONE=1; path=/; max-age=600'; } catch(e) {}\n"
+           @"      window.__lbAwaitDone = 1;\n"
+           @"      try {\n"
+           @"        if (document.title.indexOf('LB_AWAIT_DONE') !== 0) {\n"
+           @"          document.title = 'LB_AWAIT_DONE|' + document.title;\n"
+           @"        }\n"
+           @"      } catch(e2) {}\n"
+           @"    };\n"
+           @"    (document.body || document.documentElement).appendChild(b);\n"
+           @"    return 'injected';\n"
+           @"  } catch (err) { return 'err:' + String(err); }\n"
+           @"})())";
+}
+
+static NSString *LBBrowserAwaitPollJS(void) {
+    return @"((function(){\n"
+           @"  var done = (window.__lbAwaitDone === 1) ? '1' : '0';\n"
+           @"  var hasBtn = document.getElementById('lb-await-done-btn') ? '1' : '0';\n"
+           @"  var ck = '';\n"
+           @"  try { ck = String(document.cookie || ''); } catch (e) {}\n"
+           @"  var ttl = '';\n"
+           @"  try { ttl = String(document.title || ''); } catch (e2) {}\n"
+           @"  return done + '|' + hasBtn + '|' + ck + '|' + ttl;\n"
+           @"})())";
+}
+
+static BOOL LBBrowserAwaitProbeUserDone(NSString *probe) {
+    if (probe.length == 0) return NO;
+    if ([probe hasPrefix:@"1|"]) return YES;
+    if ([probe containsString:@"LB_AWAIT_DONE="]) return YES;
+    if ([probe containsString:@"LB_AWAIT_DONE|"]) return YES;
+    return NO;
+}
+
+static void LBBrowserAwaitTryInjectAndProbe(BOOL *outDone, BOOL *outHasBtn) {
+    if (outDone) *outDone = NO;
+    if (outHasBtn) *outHasBtn = NO;
+    __block WKWebView *wk = nil;
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        wk = LBFindNativeWKWebView();
+    });
+    if (!wk) return;
+
+    NSString *inj = LBEvalJSOnWK(wk, LBBrowserAwaitInjectJS(), 2.0);
+    if (!sBrowserAwaitInjectLogged &&
+        ([inj isEqualToString:@"injected"] || [inj isEqualToString:@"exists"])) {
+        sBrowserAwaitInjectLogged = YES;
+        LBVisibleWVMarker(@"startBrowserAwait overlay host=WKInject hasBtn=1");
+    } else if (inj.length > 0 && [inj hasPrefix:@"err:"]) {
+        LBVisibleWVMarker([NSString stringWithFormat:@"startBrowserAwait inject %@", inj]);
+    }
+
+    NSString *probe = LBEvalJSOnWK(wk, LBBrowserAwaitPollJS(), 2.0);
+    if (outHasBtn && probe.length >= 3) {
+        // format: done|hasBtn|cookie|title
+        NSArray *parts = [probe componentsSeparatedByString:@"|"];
+        if (parts.count >= 2) {
+            *outHasBtn = [parts[1] isEqualToString:@"1"];
+        }
+    }
+    if (outDone) {
+        *outDone = LBBrowserAwaitProbeUserDone(probe);
     }
 }
 
-static void LBAttachBrowserAwaitDoneUI(void) {
-    if (![NSThread isMainThread]) {
-        dispatch_async(dispatch_get_main_queue(), ^{ LBAttachBrowserAwaitDoneUI(); });
+static void LBBrowserAwaitRemoveDoneUI(void) {
+    if ([NSThread isMainThread]) {
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            LBBrowserAwaitRemoveDoneUI();
+        });
         return;
     }
-    if (sBrowserAwaitDoneBtn) {
-        [sBrowserAwaitDoneBtn removeFromSuperview];
-        sBrowserAwaitDoneBtn = nil;
-    }
-
-    UIViewController *hostVC = LBFindNativeWebViewController() ?: LBVisibleTopVC();
-    if (!hostVC) {
-        LBVisibleWVMarker(@"startBrowserAwait attach fail: no host VC");
-        return;
-    }
-
-    // 优先导航栏右上角「完成验证」（与 await_gate 文案一致）；避免往 keyWindow 挂悬浮钮
-    UIBarButtonItem *bar = [[UIBarButtonItem alloc] initWithTitle:@"完成验证"
-                                                            style:UIBarButtonItemStyleDone
-                                                           target:[LBBrowserAwaitTarget shared]
-                                                           action:@selector(onDone)];
-    bar.accessibilityLabel = @"完成验证";
-    hostVC.navigationItem.rightBarButtonItem = bar;
-
-    // 再在 WebView VC 自身 view 上挂一颗可点按钮（无障碍/坐标兜底）；绝不挂 keyWindow
-    UIView *hostView = hostVC.view;
-    if (hostView) {
-        UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
-        btn.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.72];
-        [btn setTitle:@"完成验证" forState:UIControlStateNormal];
-        [btn setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-        btn.titleLabel.font = [UIFont boldSystemFontOfSize:16];
-        btn.layer.cornerRadius = 8;
-        btn.accessibilityLabel = @"完成验证";
-        CGFloat w = hostView.bounds.size.width;
-        btn.frame = CGRectMake(MAX(12, w - 118), 12, 106, 40);
-        btn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleBottomMargin;
-        [btn addTarget:[LBBrowserAwaitTarget shared]
-                action:@selector(onDone)
-      forControlEvents:UIControlEventTouchUpInside];
-        [hostView addSubview:btn];
-        sBrowserAwaitDoneBtn = btn;
-    }
-    LBVisibleWVMarker([NSString stringWithFormat:
-                       @"startBrowserAwait overlay host=%@ hasBtn=%d",
-                       NSStringFromClass([hostVC class]), sBrowserAwaitDoneBtn != nil]);
+    __block WKWebView *wk = nil;
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        wk = LBFindNativeWKWebView();
+    });
+    if (!wk) return;
+    (void)LBEvalJSOnWK(wk,
+        @"(function(){ var b=document.getElementById('lb-await-done-btn');"
+        @" if(b&&b.parentNode){b.parentNode.removeChild(b);} return 'ok'; })()",
+        1.5);
 }
 
 static void LBBrowserAwaitFinish(void) {
@@ -533,13 +569,7 @@ static void LBBrowserAwaitFinish(void) {
     });
     NSString *src = sBrowserAwaitSourceUrl ?: @"";
     if (wk) {
-        dispatch_semaphore_t htmlSem = dispatch_semaphore_create(0);
-        __block NSString *html = @"";
-        [wk evaluateJavaScript:@"document.documentElement.outerHTML" completionHandler:^(id r, NSError *err) {
-            if ([r isKindOfClass:[NSString class]]) html = (NSString *)r;
-            dispatch_semaphore_signal(htmlSem);
-        }];
-        dispatch_semaphore_wait(htmlSem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)));
+        NSString *html = LBEvalJSOnWK(wk, @"document.documentElement.outerHTML", 3.0);
         sBrowserAwaitHTML = html ?: @"";
         // 必须等 Cookie 回灌完成再放行后续 AnalyzeUrl，否则 @js 紧接的 ajax/搜索会空 Cookie
         dispatch_semaphore_t cookieSem = dispatch_semaphore_create(0);
@@ -580,33 +610,42 @@ NSString *LBStartBrowserAwait(NSString *urlStr, NSString *sourceUrl, NSString *t
     sBrowserAwaitHTML = @"";
     sBrowserAwaitSourceUrl = sourceUrl ?: @"";
     sBrowserAwaitPageUrl = urlStr;
+    sBrowserAwaitInjectLogged = NO;
     sBrowserAwaitSem = dispatch_semaphore_create(0);
 
     dispatch_semaphore_t presentedSem = dispatch_semaphore_create(0);
     dispatch_async(dispatch_get_main_queue(), ^{
-        // 先开香色 WebView，再挂「完成验证」到 WebView VC（禁止先挂 keyWindow 悬浮钮）
+        // 与存活的 legado://webview 同路径：只开香色 WebView，不改原生 VC 视图树
         LBPresentVisibleWebView(urlStr, sourceUrl, title.length ? title : @"网页验证");
         LBVisibleWVMarker([NSString stringWithFormat:
                            @"startBrowserAwait presented url=%@ title=%@",
                            urlStr, title ?: @""]);
         dispatch_semaphore_signal(presentedSem);
-        // 等 LCControllerManager present 落地后再挂 UI
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            LBAttachBrowserAwaitDoneUI();
-        });
     });
-    // 最多等 2s 确认主线程已执行开页；避免开页未跑就长时间空等
+    // 最多等 2s 确认主线程已执行开页
     dispatch_semaphore_wait(presentedSem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)));
 
-    long wait = dispatch_semaphore_wait(
-        sBrowserAwaitSem,
-        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeoutSec * NSEC_PER_SEC)));
-    if (wait != 0) {
-        LBVisibleWVMarker(@"startBrowserAwait timeout");
-        // 已在后台线程，直接 Finish（勿再 dispatch_sync 主线程包一层 Finish）
-        LBBrowserAwaitFinish();
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeoutSec];
+    BOOL userDone = NO;
+    while ([[NSDate date] compare:deadline] == NSOrderedAscending) {
+        BOOL done = NO;
+        BOOL hasBtn = NO;
+        LBBrowserAwaitTryInjectAndProbe(&done, &hasBtn);
+        if (done) {
+            userDone = YES;
+            LBVisibleWVMarker(@"startBrowserAwait user done");
+            break;
+        }
+        [NSThread sleepForTimeInterval:0.4];
     }
+    if (!userDone) {
+        LBVisibleWVMarker(@"startBrowserAwait timeout");
+    }
+    // 已在后台线程，直接 Finish（harvest + 放行）
+    LBBrowserAwaitFinish();
+    // Finish 会 signal；若已 signal 过则此处再 wait 立即返回
+    dispatch_semaphore_wait(sBrowserAwaitSem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)));
+
     NSString *out = sBrowserAwaitHTML ?: @"";
     sBrowserAwaitSem = NULL;
     return out;

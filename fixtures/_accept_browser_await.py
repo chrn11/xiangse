@@ -139,7 +139,7 @@ def main() -> int:
         "mcp": MCP,
         "host": HOST,
         "src": SRC_URL,
-        "package_expected": "efac2d4 (current) or newer with harvest-wait",
+        "package_expected": "pending WKInject fix after f142774 FAIL",
         "checks": {},
         "verdict": "FAIL",
     }
@@ -198,21 +198,56 @@ def main() -> int:
                 report["overlay_wait_sec"] = i + 1
                 break
 
+        def process_alive() -> bool:
+            try:
+                apps = c.call("list_running_apps")
+                items = apps.get("apps") if isinstance(apps, dict) else apps
+                for a in items or []:
+                    if isinstance(a, dict) and a.get("bundleId") == BUNDLE:
+                        return True
+            except Exception:
+                pass
+            return False
+
+        def frontmost_bundle() -> str:
+            try:
+                f = c.call("get_frontmost_app")
+                if isinstance(f, dict):
+                    return str(f.get("bundleId") or "")
+            except Exception:
+                pass
+            return ""
+
+        alive_before_tap = process_alive()
+        front_before_tap = frontmost_bundle()
+        report["alive_before_tap"] = alive_before_tap
+        report["frontmost_before_tap"] = front_before_tap
+
         shot1 = OUT / f"await_wait_{stamp}.png"
         c.screenshot_to(shot1)
         report["screenshot_wait"] = str(shot1.relative_to(ROOT)).replace("\\", "/")
 
-        # 再等够 5s 延迟 harvest，再点完成
-        time.sleep(3.0)
+        # 进程已死 / 落到主屏：直接判 FAIL，禁止用 gate 页 Cookie 冒充后续请求成功
         ui_before = ui_blob(c)
         report["ui_before_done"] = ui_before[:800]
-        tapped = tap_done(c)
+        springboard_ui = ("日历" in ui_before and "计算器" in ui_before) or front_before_tap == "com.apple.springboard"
+        report["springboard_suspected"] = bool(springboard_ui or (not alive_before_tap))
+
+        tapped = False
+        if alive_before_tap and not springboard_ui:
+            time.sleep(2.0)
+            tapped = tap_done(c)
+            time.sleep(4.0)
         report["tapped_done"] = tapped
-        time.sleep(4.0)
 
         shot2 = OUT / f"await_after_{stamp}.png"
         c.screenshot_to(shot2)
         report["screenshot_after"] = str(shot2.relative_to(ROOT)).replace("\\", "/")
+
+        alive_after = process_alive()
+        front_after = frontmost_bundle()
+        report["alive_after"] = alive_after
+        report["frontmost_after"] = front_after
 
         wv_log = c.read_sandbox_text("legado_visible_webview.txt", 32768) or ""
         open_marker = c.read_sandbox_text("legado_visible_webview_open.txt", 8192) or ""
@@ -234,12 +269,24 @@ def main() -> int:
         has_native = ("path=XiangseOpenWebView hit" in wv_log) and ("class=" in wv_log)
         fallback_only = ("path=FallbackWKWebView" in wv_log) and (not has_native)
         token_in_jar = "AWAIT_TOKEN" in (cookie_jar + cookie_dump + store)
-        token_in_mock = "AWAIT_TOKEN=ok" in mock_log
-        cookie_attached = (
-            "cookieAttached=true" in cookie_probe
-            or "AWAIT_TOKEN" in cookie_probe
-            or token_in_mock
-        )
+
+        # 只认后续搜索请求：await_search* 带 AWAIT_TOKEN=ok；禁止用 await_gate / runtime.json 冒充
+        token_in_await_search = False
+        try:
+            entries = json.loads(mock_log) if mock_log.strip().startswith("[") else []
+            if isinstance(entries, list):
+                for e in entries:
+                    if not isinstance(e, dict):
+                        continue
+                    path = str(e.get("path") or "")
+                    ck = str(e.get("cookie") or "")
+                    if "await_search" in path and "AWAIT_TOKEN=ok" in ck:
+                        token_in_await_search = True
+                        break
+        except Exception:
+            token_in_await_search = "await_search" in mock_log and "AWAIT_TOKEN=ok" in mock_log
+
+        process_ok = bool(alive_before_tap and alive_after and not springboard_ui)
 
         report["markers"] = {
             "wv_log_tail": wv_log[-1500:],
@@ -257,15 +304,22 @@ def main() -> int:
             "harvest_done": has_harvest,
             "xiangse_native_hit": has_native,
             "not_fallback_only": not fallback_only,
+            "process_survived": process_ok,
             "token_in_jar_or_dump": token_in_jar,
-            "token_in_subsequent_request": token_in_mock or cookie_attached,
+            "token_in_await_search": token_in_await_search,
             "tapped_done": tapped,
         }
 
-        # 最小成功：触发 await + 原生开页 +（user done 或 harvest）+ Cookie 回灌到后续请求或 jar
+        # 最小成功：进程存活 + 原生开页 +（user done 或 harvest）+ await_search Cookie
         triggered = has_overlay or has_user_done or has_harvest
-        cookie_ok = token_in_jar or token_in_mock or cookie_attached
-        ok = bool(triggered and has_native and (not fallback_only) and cookie_ok and (has_user_done or has_harvest or token_in_mock))
+        ok = bool(
+            triggered
+            and has_native
+            and (not fallback_only)
+            and process_ok
+            and token_in_await_search
+            and (has_user_done or has_harvest)
+        )
         report["verdict"] = "PASS" if ok else "FAIL"
         if not ok:
             reasons = [k for k, v in report["checks"].items() if not v]
