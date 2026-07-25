@@ -22,7 +22,8 @@ let package = Package(
             publicHeadersPath: "include",
             linkerSettings: [
                 .linkedFramework("Foundation"),
-                .linkedFramework("UIKit")
+                .linkedFramework("UIKit"),
+                .linkedFramework("WebKit")
             ]
         ),
         .target(

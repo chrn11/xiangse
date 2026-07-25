@@ -844,6 +844,73 @@ import LegadoBridgeHooks
         }
     }
 
+    // MARK: - CookieJar（可见 WebView / 登录回灌）
+
+    /// 将网页 Cookie 写入内存 CookieJar，供后续 AnalyzeUrl 请求注入。
+    @objc(saveCookieJarForUrl:cookieString:)
+    public func saveCookieJar(forUrl url: String, cookieString: String) {
+        let key: String
+        if let host = URL(string: url)?.host, !host.isEmpty {
+            key = host
+        } else {
+            key = url
+        }
+        guard !key.isEmpty, !cookieString.isEmpty else { return }
+        let existing = CookieManager.shared.getCookie(for: key) ?? ""
+        let merged = CookieManager.shared.mergeCookies(existing, cookieString)
+        CookieManager.shared.saveCookie(url: key, cookieString: merged)
+        // 同步用书源 URL 再存一份，兼容 enabledCookieJar 按 bookSourceUrl 取
+        if key != url, url.contains("://") {
+            let ex2 = CookieManager.shared.getCookie(for: url) ?? ""
+            CookieManager.shared.saveCookie(
+                url: url,
+                cookieString: CookieManager.shared.mergeCookies(ex2, cookieString)
+            )
+        }
+        let path = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_cookie_jar.txt")
+        let line = "save key=\(key) len=\(merged.count) src=\(url)\n"
+        if let data = line.data(using: .utf8) {
+            if let handle = FileHandle(forWritingAtPath: path) {
+                handle.seekToEndOfFile()
+                handle.write(data)
+                try? handle.close()
+            } else {
+                try? line.write(toFile: path, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    @objc(cookieJarForUrl:)
+    public func cookieJar(forUrl url: String) -> String? {
+        if let host = URL(string: url)?.host, !host.isEmpty,
+           let c = CookieManager.shared.getCookie(for: host), !c.isEmpty {
+            return c
+        }
+        return CookieManager.shared.getCookie(for: url)
+    }
+
+    /// 解析书源 loginUrl（相对路径相对 bookSourceUrl）
+    @objc(loginUrlForSourceUrl:)
+    public func loginUrl(forSourceUrl sourceUrl: String?) -> String? {
+        guard let sourceUrl, !sourceUrl.isEmpty,
+              let src = SourceRegistry.shared.source(forUrl: sourceUrl) else {
+            return nil
+        }
+        guard let raw = src.loginUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return nil
+        }
+        if raw.hasPrefix("http://") || raw.hasPrefix("https://") {
+            return raw
+        }
+        if let base = URL(string: src.bookSourceUrl),
+           let abs = URL(string: raw, relativeTo: base)?.absoluteString {
+            return abs
+        }
+        return raw
+    }
+
     private func postNotification(_ name: String, userInfo: [String: Any]) {
         DispatchQueue.main.async {
             NotificationCenter.default.post(

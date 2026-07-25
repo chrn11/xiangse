@@ -459,44 +459,73 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                 );
                 return YES;
             }
-            // legado://login?sourceUrl=... — 最小登录表单（loginUi JSON）
+            // legado://webview?url=...[&sourceUrl=...] — 可见 WebView（过盾/登录页）
+            BOOL wantWebView = [host isEqualToString:@"webview"]
+                || [host isEqualToString:@"browser"]
+                || [pathLower containsString:@"/webview"]
+                || [pathLower containsString:@"/browser"];
+            if (wantWebView) {
+                NSString *pageUrl = LBQueryParameterFromURL(url, @"url");
+                if (pageUrl.length == 0) pageUrl = LBQueryParameterFromURL(url, @"src");
+                NSString *sourceUrl = LBQueryParameterFromURL(url, @"sourceUrl");
+                if (pageUrl.length == 0) {
+                    LBLegadoShowResult(@"webview 缺少 url");
+                    return YES;
+                }
+                // 百分号解码（open_url 可能保留编码）
+                NSString *decoded = [pageUrl stringByRemovingPercentEncoding] ?: pageUrl;
+                LBPresentVisibleWebView(decoded, sourceUrl, @"可见WebView");
+                return YES;
+            }
+            // legado://login?sourceUrl=...[&mode=alert] — 默认可见网页登录；mode=alert 保留旧 UIAlert
             BOOL wantLogin = [host isEqualToString:@"login"] || [pathLower containsString:@"/login"];
             if (wantLogin) {
                 NSString *sourceUrl = LBQueryParameterFromURL(url, @"sourceUrl");
                 if (sourceUrl.length == 0) sourceUrl = @"http://192.168.1.4:8765";
-                [[NSString stringWithFormat:@"openURL login src=%@", sourceUrl]
+                NSString *mode = LBQueryParameterFromURL(url, @"mode");
+                NSString *pageUrl = LBQueryParameterFromURL(url, @"url");
+                [[NSString stringWithFormat:@"openURL login src=%@ mode=%@ url=%@",
+                  sourceUrl, mode ?: @"webview", pageUrl ?: @""]
                     writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_login_openurl.txt"]
                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                NSString *suCopy = [sourceUrl copy];
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    UIAlertController *alert =
-                        [UIAlertController alertControllerWithTitle:@"书源登录"
-                                                            message:suCopy
-                                                     preferredStyle:UIAlertControllerStyleAlert];
-                    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
-                        tf.placeholder = @"username";
-                    }];
-                    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
-                        tf.placeholder = @"password";
-                        tf.secureTextEntry = YES;
-                    }];
-                    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-                    [alert addAction:[UIAlertAction actionWithTitle:@"登录" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-                        NSString *user = alert.textFields.count > 0 ? alert.textFields[0].text : @"";
-                        NSString *pass = alert.textFields.count > 1 ? alert.textFields[1].text : @"";
-                        NSString *line = [NSString stringWithFormat:@"login submit user=%@ passLen=%lu src=%@",
-                                          user ?: @"", (unsigned long)(pass.length), suCopy];
-                        [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_login_submit.txt"]
-                               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                        // Cookie 占位：写入简单会话标记，供 CookieJar 后续请求读取
-                        NSString *cookie = [NSString stringWithFormat:@"LBSESS=%@; Path=/", user.length ? user : @"anon"];
-                        [cookie writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_login_cookie.txt"]
-                                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                    }]];
-                    UIViewController *root = UIApplication.sharedApplication.keyWindow.rootViewController;
-                    while (root.presentedViewController) root = root.presentedViewController;
-                    [root presentViewController:alert animated:YES completion:nil];
-                });
+                if ([mode.lowercaseString isEqualToString:@"alert"]) {
+                    NSString *suCopy = [sourceUrl copy];
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        UIAlertController *alert =
+                            [UIAlertController alertControllerWithTitle:@"书源登录"
+                                                                message:suCopy
+                                                         preferredStyle:UIAlertControllerStyleAlert];
+                        [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+                            tf.placeholder = @"username";
+                        }];
+                        [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+                            tf.placeholder = @"password";
+                            tf.secureTextEntry = YES;
+                        }];
+                        [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+                        [alert addAction:[UIAlertAction actionWithTitle:@"登录" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+                            NSString *user = alert.textFields.count > 0 ? alert.textFields[0].text : @"";
+                            NSString *pass = alert.textFields.count > 1 ? alert.textFields[1].text : @"";
+                            NSString *line = [NSString stringWithFormat:@"login submit user=%@ passLen=%lu src=%@",
+                                              user ?: @"", (unsigned long)(pass.length), suCopy];
+                            [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_login_submit.txt"]
+                                   atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                            NSString *cookie = [NSString stringWithFormat:@"LBSESS=%@; Path=/", user.length ? user : @"anon"];
+                            [cookie writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_login_cookie.txt"]
+                                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                        }]];
+                        UIViewController *root = UIApplication.sharedApplication.keyWindow.rootViewController;
+                        while (root.presentedViewController) root = root.presentedViewController;
+                        [root presentViewController:alert animated:YES completion:nil];
+                    });
+                    return YES;
+                }
+                if (pageUrl.length > 0) {
+                    NSString *decoded = [pageUrl stringByRemovingPercentEncoding] ?: pageUrl;
+                    LBPresentVisibleWebView(decoded, sourceUrl, @"书源登录/过盾");
+                } else {
+                    LBPresentLoginWebViewForSource(sourceUrl);
+                }
                 return YES;
             }
             if (src.length > 0) {
