@@ -10,6 +10,7 @@
 import Foundation
 import JavaScriptCore
 import CommonCrypto
+import SwiftSoup
 
 // MARK: - JSBridge 主类
 
@@ -38,8 +39,7 @@ class JSBridge: JsEncodeUtils {
 
         let ajaxBlock: @convention(block) (String) -> String = { [weak self] url in
             guard let self = self, !url.isEmpty else { return "" }
-            let headers = self.parseSourceHeaders()
-            return JSBridgeHTTPClient.syncGet(url: url, headers: headers) ?? ""
+            return self.ajaxViaAnalyzeUrl(url) 
         }
         javaObject?.setObject(ajaxBlock, forKeyedSubscript: "ajax" as NSString)
 
@@ -75,14 +75,79 @@ class JSBridge: JsEncodeUtils {
         // ====== 变量存取 ======
 
         let putBlock: @convention(block) (String, String) -> String = { [weak self] key, value in
-            self?.context?.variables[key] = value; return value
+            self?.context?.variables[key] = value
+            if let sourceUrl = self?.context?.source?.bookSourceUrl {
+                SourceSessionStore.put(key, value: value, sourceUrl: sourceUrl)
+            }
+            return value
         }
         javaObject?.setObject(putBlock, forKeyedSubscript: "put" as NSString)
 
         let getBlock: @convention(block) (String) -> String = { [weak self] key in
-            self?.context?.variables[key] ?? ""
+            if let local = self?.context?.variables[key], !local.isEmpty { return local }
+            return SourceSessionStore.get(key, sourceUrl: self?.context?.source?.bookSourceUrl)
         }
         javaObject?.setObject(getBlock, forKeyedSubscript: "get" as NSString)
+
+        // ====== 正文 / 选元素（AnalyzeRule） ======
+
+        let setContentBlock: @convention(block) (String) -> Void = { [weak self] html in
+            self?.context?.analyzeContent = html
+            self?.context?.document = html
+            self?.context?.lastResult = .string(html)
+        }
+        javaObject?.setObject(setContentBlock, forKeyedSubscript: "setContent" as NSString)
+
+        let getElementBlock: @convention(block) (String) -> JSValue = { [weak self, weak jsContext] path in
+            guard let jsContext = jsContext else {
+                return JSValue(nullIn: JSContext())!
+            }
+            guard let self = self else {
+                return JSValue(newArrayIn: jsContext) ?? JSValue(nullIn: jsContext)
+            }
+            let html = self.context?.analyzeContent ?? self.context?.lastResult.string ?? ""
+            let base = self.context?.analyzeBaseUrl ?? self.context?.baseURL?.absoluteString
+            let engine = self.ruleEngine ?? self.context?.ruleEngine ?? RuleEngine()
+            let elements: [ElementContext]
+            do {
+                elements = try engine.getElements(ruleStr: path, body: html, baseUrl: base, source: self.context?.source)
+            } catch {
+                elements = []
+            }
+            self.context?.lastElementContexts = elements
+            // 返回带 length 的类数组，供 `c.length` 判断
+            let arr = JSValue(newArrayIn: jsContext) ?? JSValue(nullIn: jsContext)
+            for (idx, el) in elements.enumerated() {
+                if let soup = el.element as? Element {
+                    arr.setObject((try? soup.outerHtml()) ?? "", atIndexedSubscript: idx)
+                } else if let s = el.element as? String {
+                    arr.setObject(s, atIndexedSubscript: idx)
+                } else {
+                    arr.setObject(String(describing: el.element), atIndexedSubscript: idx)
+                }
+            }
+            return arr
+        }
+        javaObject?.setObject(getElementBlock, forKeyedSubscript: "getElement" as NSString)
+
+        // ====== 可见浏览器等待（起点 Cookie 验证等） ======
+
+        let startBrowserAwaitBlock: @convention(block) (String, String) -> String = { [weak self] url, title in
+            let sourceUrl = self?.context?.source?.bookSourceUrl
+            let html = BrowserAwaitGate.startBrowserAwait(url: url, title: title, sourceUrl: sourceUrl)
+            if !html.isEmpty {
+                self?.context?.analyzeContent = html
+                self?.context?.document = html
+            }
+            return html
+        }
+        javaObject?.setObject(startBrowserAwaitBlock, forKeyedSubscript: "startBrowserAwait" as NSString)
+
+        let startBrowserBlock: @convention(block) (String, String) -> Void = { [weak self] url, title in
+            let sourceUrl = self?.context?.source?.bookSourceUrl
+            _ = BrowserAwaitGate.startBrowserAwait(url: url, title: title, sourceUrl: sourceUrl)
+        }
+        javaObject?.setObject(startBrowserBlock, forKeyedSubscript: "startBrowser" as NSString)
 
         // ====== 编码函数 ======
 
@@ -282,6 +347,12 @@ class JSBridge: JsEncodeUtils {
         sourceObject?.setObject({ [weak self] in self?.context?.source?.variable ?? "" }, forKeyedSubscript: "variable" as NSString)
         sourceObject?.setObject({ [weak self] in self?.context?.source?.enabledCookieJar ?? false }, forKeyedSubscript: "enabledCookieJar" as NSString)
         sourceObject?.setObject({ [weak self] in self?.context?.source?.concurrentRate ?? "" }, forKeyedSubscript: "concurrentRate" as NSString)
+        // Android BaseSource.getKey() == bookSourceUrl
+        let getKeyBlock: @convention(block) () -> String = { [weak self] in
+            self?.context?.source?.bookSourceUrl ?? ""
+        }
+        sourceObject?.setObject(getKeyBlock, forKeyedSubscript: "getKey" as NSString)
+        sourceObject?.setObject(getKeyBlock, forKeyedSubscript: "getTag" as NSString)
 
         jsContext.setValue(sourceObject, forKey: "source")
     }
@@ -318,12 +389,15 @@ class JSBridge: JsEncodeUtils {
         let removeCookieBlock: @convention(block) (String) -> Void = { url in
             guard let cookieURL = URL(string: url), let cookies = HTTPCookieStorage.shared.cookies(for: cookieURL) else { return }
             for item in cookies { HTTPCookieStorage.shared.deleteCookie(item) }
+            CookieManager.shared.removeCookie(for: url)
         }
 
         cookieObject?.setObject(getCookieBlock, forKeyedSubscript: "get" as NSString)
         cookieObject?.setObject(getCookieKeyBlock, forKeyedSubscript: "getKey" as NSString)
         cookieObject?.setObject(setCookieBlock, forKeyedSubscript: "set" as NSString)
         cookieObject?.setObject(removeCookieBlock, forKeyedSubscript: "remove" as NSString)
+        // 起点书源写的是 cookie.removeCookie(source.getKey())
+        cookieObject?.setObject(removeCookieBlock, forKeyedSubscript: "removeCookie" as NSString)
 
         jsContext.setValue(cookieObject, forKey: "cookie")
     }
@@ -335,7 +409,7 @@ class JSBridge: JsEncodeUtils {
 
         let ajaxBlock: @convention(block) (String) -> String = { [weak self] url in
             guard let self = self, !url.isEmpty else { return "" }
-            return JSBridgeHTTPClient.syncGet(url: url, headers: self.parseSourceHeaders()) ?? ""
+            return self.ajaxViaAnalyzeUrl(url)
         }
         networkObject?.setObject(ajaxBlock, forKeyedSubscript: "ajax" as NSString)
 
@@ -381,6 +455,31 @@ class JSBridge: JsEncodeUtils {
     }
 
     // MARK: - 辅助方法
+
+    /// 经 AnalyzeUrl 发请求（支持 `url,{json}` 选项串，与 Android ajax 一致）
+    private func ajaxViaAnalyzeUrl(_ url: String) -> String {
+        let source = context?.source
+        let base = context?.baseURL?.absoluteString ?? source?.bookSourceUrl ?? ""
+        let analyzed = AnalyzeUrl.analyze(
+            ruleUrl: url,
+            baseUrl: base,
+            source: source
+        )
+        let semaphore = DispatchSemaphore(value: 0)
+        var body = ""
+        Task {
+            do {
+                let (respBody, _) = try await AnalyzeUrl.getResponseBody(analyzedUrl: analyzed)
+                body = respBody
+            } catch {
+                DebugLogger.shared.log("[JS.ajax] \(error)")
+                body = ""
+            }
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 30)
+        return body
+    }
 
     private func parseSourceHeaders() -> [String: String]? {
         guard let headerString = context?.source?.header,

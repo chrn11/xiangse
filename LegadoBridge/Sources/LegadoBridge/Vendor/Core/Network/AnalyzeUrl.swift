@@ -176,12 +176,24 @@ class AnalyzeUrl {
     /// 处理 URL（对应 Android initUrl）
     private func initUrl() {
         ruleUrl = mUrl
+        // 0. 先替换字面量 {{key}}/{{page}}（避免 @js 失败时落到相对路径 "undefined"）
+        //    起点 searchUrl 把 {{key}} 写在 JS 字符串里，先替换不影响 JS 执行。
+        replaceKeyPageLiterals()
         // 1. 执行 @js: 和 <js></js>
         analyzeJs()
-        // 2. 替换关键字、页数、JS
+        // 2. 替换关键字、页数、JS（含 JS 产出的 {{...}}）
         replaceKeyPageJs()
         // 3. 解析 URL
         analyzeUrl()
+    }
+
+    /// 仅替换 {{key}} / {{page}} / {{page-1}} / {{searchKey}}，不执行任意 JS
+    private func replaceKeyPageLiterals() {
+        let vars = buildVariableMap()
+        for name in ["key", "searchKey", "page", "page-1"] {
+            guard let value = vars[name] else { continue }
+            ruleUrl = ruleUrl.replacingOccurrences(of: "{{\(name)}}", with: value)
+        }
     }
 
     // MARK: - 执行 JS
@@ -219,7 +231,13 @@ class AnalyzeUrl {
             }
 
             let evalResult = evalJS(jsCode, result: result)
-            result = String(describing: evalResult ?? result)
+            if let evalResult {
+                let described = String(describing: evalResult)
+                // JS 返回 undefined/null 时保留原串，避免拼出 https://host/undefined
+                if !described.isEmpty, described != "undefined", described != "null" {
+                    result = described
+                }
+            }
             start = match.range.location + match.range.length
         }
 
@@ -485,6 +503,12 @@ class AnalyzeUrl {
         execContext.source = source
         execContext.baseURL = URL(string: baseUrl)
         execContext.variables = buildVariableMap()
+        // 合并书源会话变量（searchUrl 里 java.put('url', ...) 供 bookList 再用）
+        if let sourceUrl = source?.bookSourceUrl {
+            for (k, v) in SourceSessionStore.variables(for: sourceUrl) {
+                execContext.variables[k] = v
+            }
+        }
         bridge.context = execContext
         bridge.inject(into: jsContext)
 
@@ -497,19 +521,53 @@ class AnalyzeUrl {
         if let speakText = speakText { jsContext.setValue(speakText, forKey: "speakText") }
         if let speakSpeed = speakSpeed { jsContext.setValue(speakSpeed, forKey: "speakSpeed") }
 
+        var jsError: String?
+        jsContext.exceptionHandler = { _, exception in
+            jsError = exception?.toString()
+        }
+
         // 执行
         let evalResult = jsContext.evaluateScript(trimmed)
-        if let value = evalResult {
-            let str = value.toString() ?? ""
-            if !str.isEmpty && str != "undefined" && str != "null" {
+        if let jsError, !jsError.isEmpty {
+            DebugLogger.shared.log("[AnalyzeUrl.evalJS] \(jsError)")
+        }
+
+        // 优先读脚本写入的 result / url（起点 searchUrl: result=url）
+        for name in ["result", "url"] {
+            if let bound = jsContext.objectForKeyedSubscript(name),
+               !bound.isUndefined, !bound.isNull,
+               let str = bound.toString(),
+               Self.isUsableJSString(str),
+               !str.hasPrefix("@js:"),
+               !str.hasPrefix("<js>") {
+                if let sourceUrl = source?.bookSourceUrl {
+                    SourceSessionStore.merge(execContext.variables, for: sourceUrl)
+                }
                 return str
             }
+        }
+
+        if let value = evalResult, !value.isUndefined, !value.isNull {
             if value.isNumber {
-                return value.toNumber()?.stringValue ?? str
+                return value.toNumber()?.stringValue
             }
-            return str
+            let str = value.toString() ?? ""
+            if Self.isUsableJSString(str) {
+                if let sourceUrl = source?.bookSourceUrl {
+                    SourceSessionStore.merge(execContext.variables, for: sourceUrl)
+                }
+                return str
+            }
+        }
+        if let sourceUrl = source?.bookSourceUrl {
+            SourceSessionStore.merge(execContext.variables, for: sourceUrl)
         }
         return result
+    }
+
+    private static func isUsableJSString(_ str: String) -> Bool {
+        let t = str.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !t.isEmpty && t != "undefined" && t != "null"
     }
 
     // MARK: - getStrResponse（对应 Android getStrResponseAwait）

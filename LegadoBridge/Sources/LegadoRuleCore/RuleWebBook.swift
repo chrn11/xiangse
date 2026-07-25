@@ -31,13 +31,18 @@ public enum RuleWebBook {
         (body, redirectUrl) = applyLoginCheckIfNeeded(source: source, body: body, url: redirectUrl)
         guard !body.isEmpty else { throw WebBookError.emptyResponse }
 
-        // 真机对照：空搜时留下响应头，区分 Cookie 盾（var buid）与规则解析失败
+        // 真机对照：空搜时留下响应头，区分 Cookie 验证（var buid）与规则解析失败
         Self.writeSearchBodyProbe(
             sourceUrl: source.bookSourceUrl,
             key: key,
             redirectUrl: redirectUrl,
             body: body
         )
+        // 同时留下解析后的请求 URL，便于对照 /undefined
+        let analyzedPath = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_search_analyzed_url.txt")
+        try? "url=\(analyzedUrl.url)\nkey=\(key)\n"
+            .write(toFile: analyzedPath, atomically: true, encoding: .utf8)
 
         guard let searchRule = source.getSearchRule() else {
             throw WebBookError.noRule("搜索规则")
@@ -550,7 +555,12 @@ public enum RuleWebBook {
     ) throws -> [SearchBookResult] {
         guard let bookListRule, !bookListRule.isEmpty else { return [] }
 
-        let elements = try ruleEngine.getElements(ruleStr: bookListRule, body: body, baseUrl: baseUrl)
+        let elements = try ruleEngine.getElements(
+            ruleStr: bookListRule,
+            body: body,
+            baseUrl: baseUrl,
+            source: source
+        )
         var results: [SearchBookResult] = []
 
         for el in elements {

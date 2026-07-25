@@ -94,6 +94,18 @@ public final class CookieManager {
         persistLocked()
     }
 
+    /// 删除指定 key（书源 URL / host）的 Cookie
+    public func removeCookie(for url: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        loadFromDiskIfNeeded()
+        store.removeValue(forKey: url)
+        if let host = URL(string: url)?.host {
+            store.removeValue(forKey: host)
+        }
+        persistLocked()
+    }
+
     public func mergeCookies(_ existing: String, _ newValue: String) -> String {
         if existing.isEmpty { return newValue }
         if newValue.isEmpty { return existing }

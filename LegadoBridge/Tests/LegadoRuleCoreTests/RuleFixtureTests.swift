@@ -126,6 +126,30 @@ final class RuleFixtureTests: XCTestCase {
         )
     }
 
+    /// 起点 searchUrl：@js 内含 {{key}} 与 option JSON，不得解析成 /undefined
+    func testQidianStyleSearchUrlNotUndefined() {
+        let rule = #"@js:url=baseUrl+"/so/{{key}}.html,{'method':'GET','headers':{'User-Agent':'Mozilla/5.0','Referer':'https://www.qidian.com/'}}";java.put('url',url);result=url;"#
+        let analyzed = AnalyzeUrl.analyze(
+            ruleUrl: rule,
+            key: "斗破苍穹",
+            page: 1,
+            baseUrl: "https://www.qidian.com",
+            source: nil
+        )
+        XCTAssertFalse(
+            analyzed.url.contains("undefined"),
+            "搜索 URL 不应含 undefined，实际: \(analyzed.url)"
+        )
+        XCTAssertTrue(
+            analyzed.url.contains("斗破苍穹") || analyzed.url.contains("%"),
+            "搜索 URL 应含关键字，实际: \(analyzed.url)"
+        )
+        XCTAssertTrue(
+            analyzed.url.contains("/so/"),
+            "搜索 URL 应含 /so/，实际: \(analyzed.url)"
+        )
+    }
+
     // MARK: - Cookie
 
     func testCookieStoreRoundTrip() {

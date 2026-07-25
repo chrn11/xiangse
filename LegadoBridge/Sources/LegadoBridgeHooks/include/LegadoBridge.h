@@ -45,4 +45,10 @@ FOUNDATION_EXPORT void LBShowLegadoImportAlert(void);
 /// 打开 Legado 书源管理页；sourceUrl 非空时自动进入该源编辑器
 FOUNDATION_EXPORT void LBPresentLegadoSourceManager(NSString * _Nullable sourceUrl);
 
+/// 书源 JS：java.startBrowserAwait — 可见网页等待（香色 WebView）
+FOUNDATION_EXPORT NSString * _Nullable LBStartBrowserAwait(NSString *urlStr,
+                                                           NSString * _Nullable sourceUrl,
+                                                           NSString * _Nullable title,
+                                                           NSTimeInterval timeoutSec);
+
 #endif /* LegadoBridge_h */

@@ -350,8 +350,131 @@ void LBPresentLoginWebViewForSource(NSString *sourceUrl) {
             core, @selector(loginUrlForSourceUrl:), sourceUrl);
     }
     if (loginUrl.length == 0) {
-        // 无 loginUrl：打开书源根站，便于过盾写 Cookie（起点等场景）
+        // 无 loginUrl：打开书源根站，便于写 Cookie（起点等场景）
         loginUrl = sourceUrl.length ? sourceUrl : @"https://www.qidian.com/";
     }
-    LBPresentVisibleWebView(loginUrl, sourceUrl, @"书源登录/过盾");
+    LBPresentVisibleWebView(loginUrl, sourceUrl, @"书源登录/验证");
+}
+
+#pragma mark - startBrowserAwait
+
+static void LBBrowserAwaitFinish(void);
+
+@interface LBBrowserAwaitTarget : NSObject
++ (instancetype)shared;
+- (void)onDone;
+@end
+
+@implementation LBBrowserAwaitTarget
++ (instancetype)shared {
+    static LBBrowserAwaitTarget *t;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ t = [LBBrowserAwaitTarget new]; });
+    return t;
+}
+- (void)onDone {
+    LBVisibleWVMarker(@"startBrowserAwait user done");
+    LBBrowserAwaitFinish();
+}
+@end
+
+static UIButton *sBrowserAwaitDoneBtn = nil;
+static dispatch_semaphore_t sBrowserAwaitSem = NULL;
+static NSString *sBrowserAwaitHTML = nil;
+static NSString *sBrowserAwaitSourceUrl = nil;
+static NSString *sBrowserAwaitPageUrl = nil;
+
+static void LBBrowserAwaitFinish(void) {
+    WKWebView *wk = LBFindNativeWKWebView();
+    NSString *page = wk.URL.absoluteString.length ? wk.URL.absoluteString : (sBrowserAwaitPageUrl ?: @"");
+    NSString *src = sBrowserAwaitSourceUrl ?: @"";
+    if (wk) {
+        dispatch_semaphore_t htmlSem = dispatch_semaphore_create(0);
+        __block NSString *html = @"";
+        [wk evaluateJavaScript:@"document.documentElement.outerHTML" completionHandler:^(id r, NSError *err) {
+            if ([r isKindOfClass:[NSString class]]) html = (NSString *)r;
+            dispatch_semaphore_signal(htmlSem);
+        }];
+        dispatch_semaphore_wait(htmlSem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)));
+        sBrowserAwaitHTML = html ?: @"";
+        LBHarvestWKCookies(wk, page, src, ^{
+            LBVisibleWVMarker(@"startBrowserAwait harvest done");
+        });
+    } else {
+        sBrowserAwaitHTML = @"";
+        LBHarvestNativeXiangseCookies(page, src);
+    }
+    if (sBrowserAwaitDoneBtn) {
+        [sBrowserAwaitDoneBtn removeFromSuperview];
+        sBrowserAwaitDoneBtn = nil;
+    }
+    if (sBrowserAwaitSem) {
+        dispatch_semaphore_signal(sBrowserAwaitSem);
+    }
+}
+
+static void LBBrowserAwaitOnDoneTap(void) {
+    LBVisibleWVMarker(@"startBrowserAwait user done");
+    LBBrowserAwaitFinish();
+}
+
+NSString *LBStartBrowserAwait(NSString *urlStr, NSString *sourceUrl, NSString *title, NSTimeInterval timeoutSec) {
+    if (urlStr.length == 0) return @"";
+    if (timeoutSec <= 0) timeoutSec = 180;
+
+    // 禁止在主线程阻塞
+    if ([NSThread isMainThread]) {
+        LBVisibleWVMarker(@"startBrowserAwait refuse main-thread block");
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBPresentVisibleWebView(urlStr, sourceUrl, title.length ? title : @"网页验证");
+        });
+        return @"";
+    }
+
+    sBrowserAwaitHTML = @"";
+    sBrowserAwaitSourceUrl = sourceUrl ?: @"";
+    sBrowserAwaitPageUrl = urlStr;
+    sBrowserAwaitSem = dispatch_semaphore_create(0);
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LBPresentVisibleWebView(urlStr, sourceUrl, title.length ? title : @"网页验证");
+        // 悬浮「完成验证」——香色原生导航栏未必有确认按钮，自动化也可点文案
+        UIWindow *win = LBLegadoKeyWindow();
+        if (win) {
+            if (sBrowserAwaitDoneBtn) {
+                [sBrowserAwaitDoneBtn removeFromSuperview];
+                sBrowserAwaitDoneBtn = nil;
+            }
+            UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+            btn.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.72];
+            [btn setTitle:@"完成验证" forState:UIControlStateNormal];
+            [btn setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+            btn.titleLabel.font = [UIFont boldSystemFontOfSize:16];
+            btn.layer.cornerRadius = 8;
+            btn.accessibilityLabel = @"完成验证";
+            btn.frame = CGRectMake(win.bounds.size.width - 118, 56, 106, 40);
+            btn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleBottomMargin;
+            [btn addTarget:[LBBrowserAwaitTarget shared]
+                    action:@selector(onDone)
+          forControlEvents:UIControlEventTouchUpInside];
+            [win addSubview:btn];
+            sBrowserAwaitDoneBtn = btn;
+            LBVisibleWVMarker([NSString stringWithFormat:
+                               @"startBrowserAwait overlay url=%@ title=%@",
+                               urlStr, title ?: @""]);
+        }
+    });
+
+    long wait = dispatch_semaphore_wait(
+        sBrowserAwaitSem,
+        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeoutSec * NSEC_PER_SEC)));
+    if (wait != 0) {
+        LBVisibleWVMarker(@"startBrowserAwait timeout");
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            LBBrowserAwaitFinish();
+        });
+    }
+    NSString *out = sBrowserAwaitHTML ?: @"";
+    sBrowserAwaitSem = NULL;
+    return out;
 }

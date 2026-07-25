@@ -93,6 +93,12 @@ class ExecutionContext {
     var source: (any BridgeSourceProtocol)?
     var variables: [String: String] = [:]
     var lastResult: RuleResult = .none
+    /// AnalyzeRule 当前正文（java.setContent / getElement）
+    var analyzeContent: String = ""
+    var analyzeBaseUrl: String?
+    /// 最近一次 java.getElement 的结果（JS 未显式返回时回落）
+    var lastElementContexts: [ElementContext] = []
+    weak var ruleEngine: RuleEngine?
     
     lazy var jsContext: JSContext = {
         let context = JSContext()!
@@ -516,18 +522,102 @@ class RuleEngine {
     ///   - ruleStr: 列表规则，如 CSS 选择器 "div.book-item" 或 JSONPath "$.list"
     ///   - body: HTML 或 JSON 字符串
     ///   - baseUrl: 基础 URL
+    ///   - source: 书源（JS 列表规则需要会话变量 / startBrowserAwait）
     /// - Returns: 元素上下文数组
-    func getElements(ruleStr: String?, body: String, baseUrl: String?) throws -> [ElementContext] {
+    func getElements(
+        ruleStr: String?,
+        body: String,
+        baseUrl: String?,
+        source: (any BridgeSourceProtocol)? = nil
+    ) throws -> [ElementContext] {
         guard let ruleStr = ruleStr, !ruleStr.isEmpty else { return [] }
-        
+
+        let trimmed = ruleStr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.contains("<js>") || trimmed.lowercased().hasPrefix("@js:") || trimmed.contains("{{js") {
+            return try getJsElements(ruleStr: trimmed, body: body, baseUrl: baseUrl, source: source)
+        }
+
         let isJson = body.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") ||
                      body.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("[")
-        
+
         if isJson {
             return try getJsonElements(ruleStr: ruleStr, body: body)
         } else {
             return try getHtmlElements(ruleStr: ruleStr, body: body, baseUrl: baseUrl)
         }
+    }
+
+    /// 列表规则为 JS 时：跑桥接（含 getElement / startBrowserAwait），再取元素
+    private func getJsElements(
+        ruleStr: String,
+        body: String,
+        baseUrl: String?,
+        source: (any BridgeSourceProtocol)?
+    ) throws -> [ElementContext] {
+        let exec = ExecutionContext()
+        exec.source = source
+        exec.analyzeContent = body
+        exec.analyzeBaseUrl = baseUrl
+        exec.baseURL = baseUrl.flatMap { URL(string: $0) }
+        exec.document = body
+        exec.ruleEngine = self
+        exec.lastResult = .string(body)
+        if let sourceUrl = source?.bookSourceUrl {
+            exec.variables = SourceSessionStore.variables(for: sourceUrl)
+        }
+
+        let jsCode: String
+        if ruleStr.lowercased().hasPrefix("@js:") {
+            jsCode = String(ruleStr.dropFirst(4))
+        } else if let regex = try? NSRegularExpression(pattern: #"<js>([\s\S]*?)</js>"#, options: [.caseInsensitive]),
+                  let match = regex.firstMatch(in: ruleStr, range: NSRange(ruleStr.startIndex..., in: ruleStr)),
+                  let range = Range(match.range(at: 1), in: ruleStr) {
+            jsCode = String(ruleStr[range])
+        } else {
+            jsCode = ruleStr
+        }
+
+        let bridge = JSBridge()
+        bridge.context = exec
+        bridge.ruleEngine = self
+        bridge.inject(into: exec.jsContext)
+
+        exec.jsContext.setValue(body, forKey: "result")
+        exec.jsContext.setValue(baseUrl, forKey: "baseUrl")
+
+        var jsError: String?
+        exec.jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
+        let value = exec.jsContext.evaluateScript(jsCode)
+        if let jsError, !jsError.isEmpty {
+            DebugLogger.shared.log("[getJsElements] \(jsError)")
+        }
+        if let sourceUrl = source?.bookSourceUrl {
+            SourceSessionStore.merge(exec.variables, for: sourceUrl)
+        }
+
+        if !exec.lastElementContexts.isEmpty {
+            return exec.lastElementContexts
+        }
+
+        // JS 若返回 HTML 片段列表 / 选择器字符串，再解析一次
+        if let value, !value.isUndefined, !value.isNull {
+            if value.isArray, let arr = value.toArray() {
+                return arr.compactMap { item -> ElementContext? in
+                    if let s = item as? String, !s.isEmpty {
+                        return ElementContext(element: s, baseUrl: baseUrl)
+                    }
+                    return ElementContext(element: item as Any, baseUrl: baseUrl)
+                }
+            }
+            if let str = value.toString(), !str.isEmpty, str != "undefined", str != "null" {
+                if str.contains("<"), let doc = try? SwiftSoup.parse(str) {
+                    return [ElementContext(element: doc, baseUrl: baseUrl)]
+                }
+                return try getHtmlElements(ruleStr: str, body: exec.analyzeContent, baseUrl: baseUrl)
+            }
+        }
+
+        return exec.lastElementContexts
     }
     
     /// 从 HTML 提取元素列表

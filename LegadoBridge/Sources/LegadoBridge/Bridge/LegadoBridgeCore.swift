@@ -28,6 +28,7 @@ import LegadoBridgeHooks
     @objc(restorePersistedSources)
     @discardableResult
     public func restorePersistedSources() -> Int {
+        Self.wireBrowserAwaitIfNeeded()
         let count = SourceRegistry.shared.restoreFromDiskIfNeeded()
         // 书籍绑定与书源分文件；启动时一并恢复，避免重启串源
         _ = BookBindingStore.shared.restoreFromDiskIfNeeded()
@@ -40,6 +41,14 @@ import LegadoBridgeHooks
             NativeSourceInjector.syncToNativeManager(sources: enabled)
         }
         return count
+    }
+
+    /// 把香色可见 WebView 接到 java.startBrowserAwait
+    private static func wireBrowserAwaitIfNeeded() {
+        guard BrowserAwaitGate.handler == nil else { return }
+        BrowserAwaitGate.handler = { url, title, sourceUrl in
+            LBStartBrowserAwait(url, sourceUrl, title, 180) ?? ""
+        }
     }
 
     // MARK: - 书籍绑定（native-flow）
