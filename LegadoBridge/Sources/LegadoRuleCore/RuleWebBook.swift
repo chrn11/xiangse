@@ -76,6 +76,14 @@ public enum RuleWebBook {
             lastChapterRule: searchRule.lastChapter,
             wordCountRule: searchRule.wordCount
         )
+        Self.writeSearchParseProbe(
+            sourceUrl: source.bookSourceUrl,
+            key: key,
+            elementHint: (try? ruleEngine.getElements(
+                ruleStr: "class.res-book-item", body: body, baseUrl: redirectUrl, source: source
+            ).count) ?? -1,
+            results: results
+        )
 
         if results.isEmpty, (source.bookUrlPattern?.isEmpty ?? true),
            let direct = try parseDetailPageAsSearchResult(
@@ -570,6 +578,31 @@ public enum RuleWebBook {
         try? line.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
+    /// 搜索解析探针：Documents/legado_search_parse_probe.txt
+    private static func writeSearchParseProbe(
+        sourceUrl: String,
+        key: String,
+        elementHint: Int,
+        results: [SearchBookResult]
+    ) {
+        let path = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_search_parse_probe.txt")
+        let samples = results.prefix(5).enumerated().map { idx, r in
+            "[\(idx)] name=\(r.name) url=\(r.bookUrl)"
+        }.joined(separator: "\n")
+        let line = """
+        ts=\(Date())
+        src=\(sourceUrl)
+        key=\(key)
+        direct_class_count=\(elementHint)
+        parsed_count=\(results.count)
+        samples:
+        \(samples.isEmpty ? "(none)" : samples)
+
+        """
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
     private static func applyPreUpdateJS(_ js: String?, body: String, baseUrl: String) -> String {
         guard let js = js?.trimmingCharacters(in: .whitespacesAndNewlines), !js.isEmpty else {
             return body
@@ -657,6 +690,28 @@ public enum RuleWebBook {
             if !item.name.isEmpty || !item.bookUrl.isEmpty {
                 results.append(item)
             }
+        }
+        // 字段级对照：elements 数 vs 入选数（写在 parse 探针前由调用方汇总）
+        if results.count <= 1, elements.count > 1 {
+            let path = (NSHomeDirectory() as NSString)
+                .appendingPathComponent("Documents/legado_search_field_probe.txt")
+            var lines: [String] = [
+                "ts=\(Date())",
+                "elements=\(elements.count)",
+                "kept=\(results.count)",
+                "nameRule=\(nameRule ?? "")",
+                "bookUrlRule=\(bookUrlRule ?? "")"
+            ]
+            for (idx, el) in elements.prefix(5).enumerated() {
+                let n = ruleEngine.getString(ruleStr: nameRule, elementContext: el, baseUrl: baseUrl)
+                let u = ruleEngine.getString(ruleStr: bookUrlRule, elementContext: el, baseUrl: baseUrl)
+                let kind: String
+                if el.element is Element { kind = "Element" }
+                else if el.element is String { kind = "String" }
+                else { kind = String(describing: type(of: el.element)) }
+                lines.append("[\(idx)] type=\(kind) name=\(n) url=\(u)")
+            }
+            try? (lines.joined(separator: "\n") + "\n").write(toFile: path, atomically: true, encoding: .utf8)
         }
         return results
     }
