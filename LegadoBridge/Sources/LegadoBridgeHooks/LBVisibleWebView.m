@@ -1,8 +1,10 @@
 #import "LBInternal.h"
 #import <WebKit/WebKit.h>
 
-/// 可见 WebView：优先调用香色 `openWebViewWithUrlStr:` / `WebViewController_WK`；
-/// 找不到时回退为本模块 WKWebView 容器。完成后 Cookie → CookieJar。
+/// 可见 WebView：优先香色原生入口，否则回退本模块 WKWebView。
+/// Mach-O 差分：`openWebViewWithUrlStr:` 实现在 `LCStandarConfig`（非 VC/AppDelegate）；
+/// 体内转发 `[LCControllerManager sharedInstance] show:@"WebViewController_WK" params:@{url:} parent:nil showType:0`。
+/// `loginWebView` 为 `ReadVCBase1` 的 `WebViewController_WK` ivar，不是开页入口。
 
 static void LBVisibleWVMarker(NSString *line) {
     if (line.length == 0) return;
@@ -60,6 +62,27 @@ static void LBVisibleCollectVCs(UIViewController *vc, NSMutableArray *out) {
 
 static BOOL LBTryCallOpenWebView(NSString *urlStr) {
     SEL sel = NSSelectorFromString(@"openWebViewWithUrlStr:");
+
+    // 主路径（香色规格）：LCStandarConfig -openWebViewWithUrlStr:
+    // self 在 IMP 内未使用，alloc/init 即可；由 LCControllerManager present WK VC。
+    Class cfgCls = NSClassFromString(@"LCStandarConfig");
+    if (cfgCls) {
+        id cfg = [[cfgCls alloc] init];
+        if (cfg && [cfg respondsToSelector:sel]) {
+            LBVisibleWVMarker([NSString stringWithFormat:
+                               @"path=XiangseOpenWebView hit class=%@ url=%@",
+                               NSStringFromClass([cfg class]), urlStr]);
+            ((void (*)(id, SEL, NSString *))objc_msgSend)(cfg, sel, urlStr);
+            return YES;
+        }
+        LBVisibleWVMarker([NSString stringWithFormat:
+                           @"path=XiangseOpenWebView LCStandarConfig no-sel cfg=%@",
+                           cfg ? @"ok" : @"nil"]);
+    } else {
+        LBVisibleWVMarker(@"path=XiangseOpenWebView LCStandarConfig class-missing");
+    }
+
+    // 次路径：VC 树 / AppDelegate 上若挂有同名选择子（历史扫描，通常无）
     UIWindow *win = LBLegadoKeyWindow();
     NSMutableArray *cands = [NSMutableArray array];
     id appDel = UIApplication.sharedApplication.delegate;
@@ -70,47 +93,30 @@ static BOOL LBTryCallOpenWebView(NSString *urlStr) {
     for (id obj in cands) {
         if ([obj respondsToSelector:sel]) {
             LBVisibleWVMarker([NSString stringWithFormat:
-                               @"path=XiangseOpenWebView class=%@ url=%@",
+                               @"path=XiangseOpenWebView hit class=%@ url=%@",
                                NSStringFromClass([obj class]), urlStr]);
             ((void (*)(id, SEL, NSString *))objc_msgSend)(obj, sel, urlStr);
             return YES;
         }
     }
-    // 尝试 WebViewController_WK 实例方法 / 类方法
-    Class wk = NSClassFromString(@"WebViewController_WK");
-    if (wk) {
-        if ([wk respondsToSelector:sel]) {
+
+    // 直调 LCControllerManager（与 LCStandarConfig IMP 等价，作差分备份）
+    Class mgrCls = NSClassFromString(@"LCControllerManager");
+    SEL sharedSel = NSSelectorFromString(@"sharedInstance");
+    SEL showSel = NSSelectorFromString(@"show:params:parent:showType:");
+    if (mgrCls && [mgrCls respondsToSelector:sharedSel]) {
+        id mgr = ((id (*)(id, SEL))objc_msgSend)(mgrCls, sharedSel);
+        if (mgr && [mgr respondsToSelector:showSel]) {
+            NSDictionary *params = urlStr.length ? @{@"url": urlStr} : @{};
             LBVisibleWVMarker([NSString stringWithFormat:
-                               @"path=XiangseWKClassMethod url=%@", urlStr]);
-            ((void (*)(id, SEL, NSString *))objc_msgSend)(wk, sel, urlStr);
+                               @"path=XiangseOpenWebView hit class=LCControllerManager via=show url=%@",
+                               urlStr]);
+            ((void (*)(id, SEL, NSString *, NSDictionary *, id, int))objc_msgSend)(
+                mgr, showSel, @"WebViewController_WK", params, nil, 0);
             return YES;
         }
-        // alloc/init 常见形态后 push
-        id inst = nil;
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-        if ([wk instancesRespondToSelector:@selector(init)]) {
-            inst = [[wk alloc] init];
-        }
-#pragma clang diagnostic pop
-        if (inst && [inst respondsToSelector:sel]) {
-            LBVisibleWVMarker([NSString stringWithFormat:
-                               @"path=XiangseWKInstance url=%@", urlStr]);
-            ((void (*)(id, SEL, NSString *))objc_msgSend)(inst, sel, urlStr);
-            UIViewController *top = LBVisibleTopVC();
-            if ([inst isKindOfClass:[UIViewController class]] && top.navigationController) {
-                [top.navigationController pushViewController:(UIViewController *)inst animated:YES];
-                return YES;
-            }
-            if ([inst isKindOfClass:[UIViewController class]] && top) {
-                UINavigationController *nav = [[UINavigationController alloc]
-                    initWithRootViewController:(UIViewController *)inst];
-                nav.modalPresentationStyle = UIModalPresentationFullScreen;
-                [top presentViewController:nav animated:YES completion:nil];
-                return YES;
-            }
-        }
     }
+
     LBVisibleWVMarker(@"path=XiangseOpenWebView miss");
     return NO;
 }

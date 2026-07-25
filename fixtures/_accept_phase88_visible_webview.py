@@ -2,11 +2,12 @@
 # -*- coding: utf-8 -*-
 """可见 WebView 验收：legado://webview / legado://login 必须打开网页（非 Alert）。
 
-门禁：
+门禁（香色规格）：
 1. Documents/legado_visible_webview_open.txt 存在
-2. legado_visible_webview.txt 含 path=XiangseOpenWebView 或 path=FallbackWKWebView
-3. 截图 OCR/UI 不是「书源登录」Alert 标题独占；应有网页相关痕迹或 WK 标记
-4. 禁止把 BackstageWebView / path=BackstageWebView 当成本项 PASS
+2. legado_visible_webview.txt 必须含 `path=XiangseOpenWebView hit` + `class=`（原生命中）
+3. FallbackWKWebView 不得单独作为香色规格 PASS
+4. 截图/UI 不是「书源登录」Alert 独占；允许原生 WK 导航栏（无「完成/回灌Cookie」）
+5. 禁止把 BackstageWebView 当成本项 PASS
 """
 from __future__ import annotations
 
@@ -75,7 +76,6 @@ def ui_texts(c: McpClient) -> list[str]:
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     c = McpClient(MCP, BUNDLE)
-    doc = ""
     report: dict[str, Any] = {
         "ts": ts(),
         "mcp": MCP,
@@ -119,7 +119,6 @@ def main() -> int:
         shot_ok = c.screenshot_to(shot)
         report["screenshot"] = str(shot.relative_to(ROOT)).replace("\\", "/") if shot_ok else None
 
-        # OCR 辅助（可选）
         ocr_text = ""
         try:
             ocr = c.call("ocr_screen", {}, timeout=60)
@@ -131,15 +130,16 @@ def main() -> int:
             ocr_text = f"ocr_skip:{e}"
 
         has_open = "open visibleWV" in open_marker or PAGE.split("/")[-1] in open_marker
-        has_path = ("path=XiangseOpenWebView" in wv_log) or ("path=FallbackWKWebView" in wv_log) or (
-            "path=XiangseWK" in wv_log
-        )
+        # 香色规格：必须原生 hit + 类名；Fallback 单独不算 PASS
+        has_native_hit = ("path=XiangseOpenWebView hit" in wv_log) and ("class=" in wv_log)
+        used_fallback_only = ("path=FallbackWKWebView" in wv_log) and (not has_native_hit)
         is_alert_only = (
             "书源登录" in blob
             and "username" in blob.lower()
             and "password" in blob.lower()
             and "完成" not in blob
             and "回灌Cookie" not in blob
+            and not has_native_hit
         )
         looks_web = any(
             x in blob + ocr_text + wv_log
@@ -154,12 +154,13 @@ def main() -> int:
                 "Just a moment",
                 "WKWebView",
                 "didFinish",
-                "FallbackWKWebView",
-                "XiangseOpenWebView",
+                "XiangseOpenWebView hit",
+                "WebViewController_WK",
+                "user",
+                "pass",
             )
         )
         not_backstage = "path=BackstageWebView" not in wv_log
-        # 后台 debug 文件即使残留也不算本项证据
         report["markers"] = {
             "open": open_marker[-500:],
             "wv_log": wv_log[-1200:],
@@ -170,7 +171,8 @@ def main() -> int:
         }
         report["checks"] = {
             "has_open_marker": has_open,
-            "has_visible_path": has_path,
+            "has_xiangse_native_hit": has_native_hit,
+            "not_fallback_only": not used_fallback_only,
             "not_alert_only": not is_alert_only,
             "looks_like_web": looks_web,
             "not_claiming_backstage": not_backstage,
@@ -179,7 +181,8 @@ def main() -> int:
         ok = all(
             [
                 has_open,
-                has_path,
+                has_native_hit,
+                not used_fallback_only,
                 not is_alert_only,
                 looks_web,
                 not_backstage,
@@ -188,7 +191,6 @@ def main() -> int:
         )
         report["verdict"] = "PASS" if ok else "FAIL"
 
-        # 第二跳：login 深链（应走 webview，非 alert）
         try:
             c.call(
                 "open_url",
@@ -203,8 +205,12 @@ def main() -> int:
             )
             time.sleep(4)
             login_open = c.read_sandbox_text("legado_login_openurl.txt", 2048) or ""
+            login_wv = c.read_sandbox_text("legado_visible_webview.txt", 16384) or ""
             report["login_openurl"] = login_open[-400:]
-            report["checks"]["login_defaults_to_webview"] = "mode=webview" in login_open or "mode=" not in login_open
+            report["checks"]["login_defaults_to_webview"] = (
+                "mode=webview" in login_open or "mode=" not in login_open
+            )
+            report["checks"]["login_native_hit"] = "path=XiangseOpenWebView hit" in login_wv
         except McpError as e:
             report["login_openurl_err"] = str(e)
 
@@ -214,7 +220,12 @@ def main() -> int:
 
     out = OUT / "report.json"
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps({"verdict": report["verdict"], "checks": report.get("checks"), "out": str(out)}, ensure_ascii=False))
+    print(
+        json.dumps(
+            {"verdict": report["verdict"], "checks": report.get("checks"), "out": str(out)},
+            ensure_ascii=False,
+        )
+    )
     return 0 if report["verdict"] == "PASS" else 1
 
 

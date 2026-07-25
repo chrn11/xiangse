@@ -58,7 +58,7 @@ void LBInstallRuntimeValidateHooks(void);
 /// Legado 阅读护栏：消毒 dicBook/站点后走原生 openReader；点章失败再 Bridge
 void LBInstallLegadoReaderKillSwitch(void);
 
-/// 可见 WebView：优先香色 openWebViewWithUrlStr: / WebViewController_WK，否则 WK 回退
+/// 可见 WebView：优先 LCStandarConfig openWebViewWithUrlStr:（内部 show WebViewController_WK），否则 WK 回退
 void LBPresentVisibleWebView(NSString *urlStr, NSString * _Nullable sourceUrl, NSString * _Nullable modeTag);
 void LBPresentLoginWebViewForSource(NSString * _Nullable sourceUrl);
 
