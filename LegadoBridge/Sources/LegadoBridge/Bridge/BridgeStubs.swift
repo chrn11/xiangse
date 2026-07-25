@@ -41,36 +41,80 @@ public struct WebChapter {
     }
 }
 
-/// 内存 Cookie 管理（替代 CoreData 版 CookieManager）
+/// Cookie 管理（内存 + Documents 落盘；替代 CoreData 版 CookieManager）
+/// 可见 WebView 回灌后若进程被杀，仍需能注入后续搜索请求。
 public final class CookieManager {
     public static let shared = CookieManager()
     private var store: [String: String] = [:]
     private let lock = NSLock()
+    private var loadedFromDisk = false
 
-    private init() {}
+    private static var persistURL: URL {
+        URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Documents/legado_cookie_store.json")
+    }
+
+    private init() {
+        loadFromDiskIfNeeded()
+    }
+
+    private func loadFromDiskIfNeeded() {
+        guard !loadedFromDisk else { return }
+        loadedFromDisk = true
+        let url = Self.persistURL
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String]
+        else { return }
+        store = obj
+    }
+
+    private func persistLocked() {
+        let url = Self.persistURL
+        guard let data = try? JSONSerialization.data(withJSONObject: store, options: []) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
 
     public func getCookie(for domain: String) -> String? {
         lock.lock()
         defer { lock.unlock() }
+        loadFromDiskIfNeeded()
+        if let direct = store[domain], !direct.isEmpty { return direct }
+        // 兼容 bookSourceUrl 全串与 host 两种 key
+        if let host = URL(string: domain)?.host, let c = store[host], !c.isEmpty {
+            return c
+        }
         return store[domain]
     }
 
     public func saveCookie(url: String, cookieString: String) {
         lock.lock()
+        defer { lock.unlock() }
+        loadFromDiskIfNeeded()
         store[url] = cookieString
-        lock.unlock()
+        persistLocked()
     }
 
     public func mergeCookies(_ existing: String, _ newValue: String) -> String {
         if existing.isEmpty { return newValue }
         if newValue.isEmpty { return existing }
-        return existing + "; " + newValue
+        // 按 name 去重合并，避免反复回灌无限膨胀
+        var map: [String: String] = [:]
+        for raw in (existing + ";" + newValue).split(separator: ";") {
+            let parts = raw.split(separator: "=", maxSplits: 1).map {
+                String($0).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard parts.count == 2, !parts[0].isEmpty else { continue }
+            map[parts[0]] = parts[1]
+        }
+        return map.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
     }
 
     /// 测试/夹具用：清空全部 Cookie
     public func removeAll() {
         lock.lock()
+        defer { lock.unlock() }
         store.removeAll()
-        lock.unlock()
+        persistLocked()
+        try? FileManager.default.removeItem(at: Self.persistURL)
     }
 }

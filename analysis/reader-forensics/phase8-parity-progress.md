@@ -11,11 +11,11 @@ SHA：`0045524`（8.5/8.6）；**8.7 PASS**（`10d89e3` 真导航；旧 `1ec40dd
 | 8.6 | 替换净化 | `0045524`；`phase86_purify_accept` PASS。见 `phase86-purify-progress.md` | ✅ PASS |
 | 8.7 | 后台 WebView 抓正文 | `10d89e3`；`load(URLRequest)` 真导航。见 `phase87-webview-progress.md` | ✅ PASS（**仅 Backstage**） |
 | 8.8 | 登录 | 深链曾 Alert PASS；**可见网页登录/Cookie 全链未 PASS** | ⚠️ 深链 Alert 不作产品门禁；可见 WV 见 `phase88-visible-webview-progress.md` |
-| 8.8b | 可见 WebView 过盾/登录 | `82df124`；真机 `XiangseOpenWebView hit class=LCStandarConfig` + WKCookieStore 回灌 jar；起点页可开，过人机+搜索未复跑 | ⚠️ 原生开页+Cookie 回灌已通；真实源搜索仍 FAIL；parity 勿 completed |
+| 8.8b | 可见 WebView 过盾/登录 | `82df124`；原生 hit + WKCookieStore 回灌；`/all/` 可开 | ⚠️ 开页+回灌 PASS；**起点 `/so/` 搜索仍 FAIL**（见 `real-source-e2e.md`）；parity 勿 completed |
 | 8.9 | 发现 | `legado://explore` 深链 marker PASS；`mock_explore.html` | ✅ 深链；UI 列表待加强 |
 | 8.10 | 变量/并发 | 引擎已有；源夹具含 `variable`/`concurrentRate` | ⚠️ 引擎级，夹具已挂 |
 | 8.11 | 例外 | `legado-feature-exceptions.md` | ✅ |
-| **真实源 E2E** | 得奇 / 大熊猫 / 起点 | `real-source-e2e.md`；3/3 搜索 `total=0`；得奇设备 HTTP 403；起点需 Cookie 浏览器 | ❌ FAIL |
+| **真实源 E2E** | 得奇 / 大熊猫 / 起点 | `real-source-e2e.md`；起点复跑仍 `total=0`；`/so/` WebView 卡「进行中」；PC 无 Cookie 为 `var buid` | ❌ FAIL |
 
 真机报告：`fixtures/_devkit/phase8_parity/report.json`（login/explore 深链）；8.5–8.7 见各 `phase8*_*/report.json`；真实源：`fixtures/_devkit/real_source_e2e/report.json`。
 

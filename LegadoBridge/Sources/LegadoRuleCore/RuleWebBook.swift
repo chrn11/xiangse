@@ -31,6 +31,14 @@ public enum RuleWebBook {
         (body, redirectUrl) = applyLoginCheckIfNeeded(source: source, body: body, url: redirectUrl)
         guard !body.isEmpty else { throw WebBookError.emptyResponse }
 
+        // 真机对照：空搜时留下响应头，区分 Cookie 盾（var buid）与规则解析失败
+        Self.writeSearchBodyProbe(
+            sourceUrl: source.bookSourceUrl,
+            key: key,
+            redirectUrl: redirectUrl,
+            body: body
+        )
+
         guard let searchRule = source.getSearchRule() else {
             throw WebBookError.noRule("搜索规则")
         }
@@ -463,6 +471,35 @@ public enum RuleWebBook {
             return (body: string, url: url)
         }
         return (body, url)
+    }
+
+    /// 搜索响应对照探针：Documents/legado_search_body_probe.txt
+    private static func writeSearchBodyProbe(
+        sourceUrl: String,
+        key: String,
+        redirectUrl: String,
+        body: String
+    ) {
+        let path = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_search_body_probe.txt")
+        let hasBuid = body.contains("var buid")
+        let hasList = body.contains("res-book-item")
+        let head = body.count > 1200 ? String(body.prefix(1200)) : body
+        let compactHead = head
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        let line = """
+        ts=\(Date())
+        src=\(sourceUrl)
+        key=\(key)
+        redirect=\(redirectUrl)
+        len=\(body.count)
+        has_buid=\(hasBuid)
+        has_res_book_item=\(hasList)
+        head=\(compactHead)
+
+        """
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     private static func applyPreUpdateJS(_ js: String?, body: String, baseUrl: String) -> String {

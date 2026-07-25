@@ -164,6 +164,21 @@ static void LBHarvestWKCookies(WKWebView *webView, NSString *pageUrl, NSString *
         }
         NSString *joined = [parts componentsJoinedByString:@"; "];
         LBSaveCookieStringToJar(joined, pageUrl, sourceUrl);
+        // 落盘 Cookie 原文（截断），供真机对照 /so 是否仍返回 var buid
+        if (joined.length > 0) {
+            NSString *dumpPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_cookie_dump.txt"];
+            NSString *head = joined.length > 4000 ? [joined substringToIndex:4000] : joined;
+            NSString *line = [NSString stringWithFormat:@"%@ | url=%@ src=%@ | %@\n",
+                             [NSDate date], pageUrl ?: @"", sourceUrl ?: @"", head];
+            NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:dumpPath];
+            if (fh) {
+                [fh seekToEndOfFile];
+                [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+                [fh closeFile];
+            } else {
+                [line writeToFile:dumpPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            }
+        }
         if (done) done();
     }];
 }
