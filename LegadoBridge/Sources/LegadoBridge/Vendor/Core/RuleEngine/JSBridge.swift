@@ -103,8 +103,12 @@ class JSBridge: JsEncodeUtils {
                 return JSValue(nullIn: JSContext())!
             }
             let empty = JSValue(newArrayIn: jsContext)!
+            empty.setValue(0, forKey: "length")
             guard let self = self else { return empty }
-            let html = self.context?.analyzeContent ?? self.context?.lastResult.string ?? ""
+            let html = self.context?.analyzeContent
+                ?? self.context?.lastResult.string
+                ?? (self.context?.document as? String)
+                ?? ""
             let base = self.context?.analyzeBaseUrl ?? self.context?.baseURL?.absoluteString
             let engine = self.ruleEngine ?? self.context?.ruleEngine ?? RuleEngine()
             let elements: [ElementContext]
@@ -114,7 +118,7 @@ class JSBridge: JsEncodeUtils {
                 elements = []
             }
             self.context?.lastElementContexts = elements
-            // 返回带 length 的类数组，供 `c.length` 判断
+            // 返回带 length 的类数组，供 `c.length` 判断（显式写 length，避免 JSC 桥接漏计）
             let arr = JSValue(newArrayIn: jsContext)!
             for (idx, el) in elements.enumerated() {
                 if let soup = el.element as? Element {
@@ -125,9 +129,12 @@ class JSBridge: JsEncodeUtils {
                     arr.setObject(String(describing: el.element), atIndexedSubscript: idx)
                 }
             }
+            arr.setValue(elements.count, forKey: "length")
             return arr
         }
         javaObject?.setObject(getElementBlock, forKeyedSubscript: "getElement" as NSString)
+        // 阅读文档亦提供 getElements；与 getElement 同实现（均返回列表）
+        javaObject?.setObject(getElementBlock, forKeyedSubscript: "getElements" as NSString)
 
         // ====== 可见浏览器等待（起点 Cookie 验证等） ======
 

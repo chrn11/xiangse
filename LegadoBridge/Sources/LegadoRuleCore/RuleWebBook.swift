@@ -546,6 +546,10 @@ public enum RuleWebBook {
         let compactHead = head
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: " ")
+        // 解析探针：直接 class.res-book-item 与 JS bookList 路径各计一次
+        let directCount = (try? RuleEngine().getElements(
+            ruleStr: "class.res-book-item", body: body, baseUrl: sourceUrl
+        ).count) ?? -1
         let line = """
         ts=\(Date())
         src=\(sourceUrl)
@@ -559,6 +563,7 @@ public enum RuleWebBook {
         has_buid=\(hasBuid)
         has_res_book_item=\(hasList)
         hasUndefined=\(requestUrl.contains("undefined") || redirectUrl.contains("undefined"))
+        direct_class_count=\(directCount)
         head=\(compactHead)
 
         """

@@ -46,6 +46,59 @@ final class RuleFixtureTests: XCTestCase {
         )
     }
 
+    /// 起点搜索 HTML：class.res-book-item 与 bookList `<js>…getElement…` 不得解析成 0
+    func testQidianResBookItemClassAndJsBookList() throws {
+        let body = """
+        <!doctype html><html><body>
+        <div id="result-list"><div class="book-img-text"><ul>
+        <li class="res-book-item jsAutoReport" data-bid="1209977">
+          <div class="book-mid-info">
+            <h3 class="book-info-title"><a href="//www.qidian.com/book/1209977/" data-bid="1209977">斗破苍穹</a></h3>
+            <p class="author"><a class="name">天蚕土豆</a><a>玄幻</a></p>
+            <p class="intro">简介甲</p>
+          </div>
+        </li>
+        <li class="res-book-item jsAutoReport" data-bid="2211027">
+          <div class="book-mid-info">
+            <h3 class="book-info-title"><a href="//www.qidian.com/book/2211027/" data-bid="2211027">斗破苍穹续</a></h3>
+            <p class="author"><a class="name">某人</a></p>
+          </div>
+        </li>
+        </ul></div></div>
+        </body></html>
+        """
+        let direct = try RuleWebBook.evaluateElementCount(
+            rule: "class.res-book-item",
+            body: body,
+            baseUrl: "https://www.qidian.com"
+        )
+        XCTAssertEqual(direct, 2, "class.res-book-item 应命中 2 条，实际 \(direct)")
+
+        let jsBookList = """
+        <js>
+        path='class.res-book-item';
+        u=java.get('url');
+        c=java.getElement(path);
+        if (!c.length && result.includes('var buid')) {
+          java.getElement(path);
+        }
+        </js>
+        """
+        let viaJs = try RuleWebBook.evaluateElementCount(
+            rule: jsBookList,
+            body: body,
+            baseUrl: "https://www.qidian.com"
+        )
+        XCTAssertEqual(viaJs, 2, "bookList <js> getElement 应命中 2 条，实际 \(viaJs)")
+
+        let name = try RuleWebBook.evaluateString(
+            rule: "class.book-info-title.0@tag.a.0@text",
+            body: body
+        )
+        // evaluateString 在整页上取，应能拿到书名
+        XCTAssertTrue(name.contains("斗破"), "name 规则应取出书名，实际: \(name)")
+    }
+
     func testCSSListCount() throws {
         let count = try RuleWebBook.evaluateElementCount(
             rule: "@css:.book-item",

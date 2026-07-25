@@ -40,7 +40,23 @@ enum LegadoCSSSelect {
             }
         }
         if s.hasPrefix("class.") {
-            return try root.getElementsByClass(String(s.dropFirst(6))).array()
+            // `class.foo.0`：末段纯数字为下标（Android AnalyzeByJSoup 同款）
+            let (className, index) = parseClassRule(String(s.dropFirst(6)))
+            guard !className.isEmpty else { return [] }
+            var found = try root.getElementsByClass(className).array()
+            // 部分畸形 HTML 下 getElementsByClass 会空，回落 CSS `.className`
+            if found.isEmpty {
+                let escaped = NSRegularExpression.escapedPattern(for: className)
+                found = try root.select(".\(escaped)").array()
+            }
+            if found.isEmpty {
+                found = try root.select("[class~=\"\(className)\"]").array()
+            }
+            if let index {
+                guard index >= 0, index < found.count else { return [] }
+                return [found[index]]
+            }
+            return found
         }
         if s.hasPrefix("id.") {
             if let el = try root.getElementById(String(s.dropFirst(3))) {
@@ -52,6 +68,15 @@ enum LegadoCSSSelect {
             return try root.getElementsByTag(String(s.dropFirst(4))).array()
         }
         return try root.select(s).array()
+    }
+
+    /// `res-book-item` / `book-info-title.0` → (name, optionalIndex)
+    private static func parseClassRule(_ raw: String) -> (String, Int?) {
+        let parts = raw.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        guard let last = parts.last, parts.count >= 2, let idx = Int(last), String(idx) == last else {
+            return (raw, nil)
+        }
+        return (parts.dropLast().joined(separator: "."), idx)
     }
 }
 
@@ -99,28 +124,32 @@ class ExecutionContext {
     /// 最近一次 java.getElement 的结果（JS 未显式返回时回落）
     var lastElementContexts: [ElementContext] = []
     weak var ruleEngine: RuleEngine?
-    
+    /// 必须强引用：JS 块里是 weak self，仅靠局部变量会在 lazy 初始化结束后释放，导致 getElement 空跑
+    var jsBridge: JSBridge?
+
     lazy var jsContext: JSContext = {
         let context = JSContext()!
 
         let bridge = JSBridge()
         bridge.context = self
+        bridge.ruleEngine = self.ruleEngine
+        self.jsBridge = bridge
         bridge.inject(into: context)
-        
+
         // 注入getVar/setVar
         context.setValue({ [weak self] (key: String) -> String in
             self?.variables[key] ?? ""
         }, forKey: "getVar")
-        
+
         context.setValue({ [weak self] (key: String, value: String) in
             self?.variables[key] = value
         }, forKey: "setVar")
-        
+
         // 注入 result
         context.setValue({ [weak self] () -> String? in
             self?.lastResult.string
         }, forKey: "result")
-        
+
         return context
     }()
 }
@@ -577,10 +606,19 @@ class RuleEngine {
             jsCode = ruleStr
         }
 
-        let bridge = JSBridge()
-        bridge.context = exec
-        bridge.ruleEngine = self
-        bridge.inject(into: exec.jsContext)
+        // 先写 ruleEngine，再触达 lazy jsContext（内部强持有 JSBridge，避免 weak self 空跑）
+        _ = exec.jsContext
+        if let retained = exec.jsBridge {
+            retained.context = exec
+            retained.ruleEngine = self
+            retained.inject(into: exec.jsContext)
+        } else {
+            let bridge = JSBridge()
+            bridge.context = exec
+            bridge.ruleEngine = self
+            exec.jsBridge = bridge
+            bridge.inject(into: exec.jsContext)
+        }
 
         exec.jsContext.setValue(body, forKey: "result")
         exec.jsContext.setValue(baseUrl, forKey: "baseUrl")
@@ -602,22 +640,55 @@ class RuleEngine {
         // JS 若返回 HTML 片段列表 / 选择器字符串，再解析一次
         if let value, !value.isUndefined, !value.isNull {
             if value.isArray, let arr = value.toArray() {
-                return arr.compactMap { item -> ElementContext? in
+                let mapped: [ElementContext] = arr.compactMap { item -> ElementContext? in
                     if let s = item as? String, !s.isEmpty {
+                        // outerHtml 字符串再解析成 Element，供后续 class.xxx.0@ 规则使用
+                        if s.contains("<"), let frag = try? SwiftSoup.parseBodyFragment(s).body() {
+                            return ElementContext(element: frag, baseUrl: baseUrl)
+                        }
                         return ElementContext(element: s, baseUrl: baseUrl)
                     }
                     return ElementContext(element: item as Any, baseUrl: baseUrl)
                 }
+                if !mapped.isEmpty { return mapped }
             }
             if let str = value.toString(), !str.isEmpty, str != "undefined", str != "null" {
                 if str.contains("<"), let doc = try? SwiftSoup.parse(str) {
                     return [ElementContext(element: doc, baseUrl: baseUrl)]
                 }
-                return try getHtmlElements(ruleStr: str, body: exec.analyzeContent, baseUrl: baseUrl)
+                let fromSelector = try getHtmlElements(ruleStr: str, body: exec.analyzeContent, baseUrl: baseUrl)
+                if !fromSelector.isEmpty { return fromSelector }
+            }
+        }
+
+        // 起点 bookList：JS 常不 return；getElement 失败时从 path='…' 回落
+        if let fallbackPath = Self.extractJsElementPath(jsCode) {
+            let fallback = try getHtmlElements(ruleStr: fallbackPath, body: exec.analyzeContent, baseUrl: baseUrl)
+            if !fallback.isEmpty {
+                DebugLogger.shared.log("[getJsElements] fallback path=\(fallbackPath) count=\(fallback.count)")
+                return fallback
             }
         }
 
         return exec.lastElementContexts
+    }
+
+    /// 从起点类 bookList JS 抽出 `path='class.xxx'` 或 `getElement('…')`
+    private static func extractJsElementPath(_ jsCode: String) -> String? {
+        let patterns = [
+            #"path\s*=\s*['"]([^'"]+)['"]"#,
+            #"getElement\s*\(\s*['"]([^'"]+)['"]\s*\)"#
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(jsCode.startIndex..., in: jsCode)
+            if let match = regex.firstMatch(in: jsCode, range: range),
+               let r = Range(match.range(at: 1), in: jsCode) {
+                let path = String(jsCode[r]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !path.isEmpty { return path }
+            }
+        }
+        return nil
     }
     
     /// 从 HTML 提取元素列表
