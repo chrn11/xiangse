@@ -605,8 +605,7 @@ class WebBook {
         let elements = try ruleEngine.getElements(
             ruleStr: bookListRule,
             body: body,
-            baseUrl: baseUrl,
-            source: source
+            baseUrl: baseUrl
         )
         
         var books: [SearchBookResult] = []
