@@ -102,9 +102,8 @@ class JSBridge: JsEncodeUtils {
             guard let jsContext = jsContext else {
                 return JSValue(nullIn: JSContext())!
             }
-            guard let self = self else {
-                return JSValue(newArrayIn: jsContext) ?? JSValue(nullIn: jsContext)
-            }
+            let empty = JSValue(newArrayIn: jsContext)!
+            guard let self = self else { return empty }
             let html = self.context?.analyzeContent ?? self.context?.lastResult.string ?? ""
             let base = self.context?.analyzeBaseUrl ?? self.context?.baseURL?.absoluteString
             let engine = self.ruleEngine ?? self.context?.ruleEngine ?? RuleEngine()
@@ -116,7 +115,7 @@ class JSBridge: JsEncodeUtils {
             }
             self.context?.lastElementContexts = elements
             // 返回带 length 的类数组，供 `c.length` 判断
-            let arr = JSValue(newArrayIn: jsContext) ?? JSValue(nullIn: jsContext)
+            let arr = JSValue(newArrayIn: jsContext)!
             for (idx, el) in elements.enumerated() {
                 if let soup = el.element as? Element {
                     arr.setObject((try? soup.outerHtml()) ?? "", atIndexedSubscript: idx)
@@ -466,19 +465,23 @@ class JSBridge: JsEncodeUtils {
             source: source
         )
         let semaphore = DispatchSemaphore(value: 0)
-        var body = ""
+        let box = AjaxBodyBox()
         Task {
             do {
                 let (respBody, _) = try await AnalyzeUrl.getResponseBody(analyzedUrl: analyzed)
-                body = respBody
+                box.value = respBody
             } catch {
                 DebugLogger.shared.log("[JS.ajax] \(error)")
-                body = ""
+                box.value = ""
             }
             semaphore.signal()
         }
         _ = semaphore.wait(timeout: .now() + 30)
-        return body
+        return box.value
+    }
+
+    private final class AjaxBodyBox: @unchecked Sendable {
+        var value = ""
     }
 
     private func parseSourceHeaders() -> [String: String]? {
