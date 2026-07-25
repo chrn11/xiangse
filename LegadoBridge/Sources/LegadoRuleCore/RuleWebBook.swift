@@ -743,7 +743,13 @@ public enum RuleWebBook {
         var seen: Set<String> = []
         var output: [SearchBookResult] = []
         for item in input {
-            let key = "\(item.sourceUrl)|\(item.bookUrl)"
+            // bookUrl 为空时用 name 区分，避免 10 本空 url 去重成 1
+            let key: String
+            if item.bookUrl.isEmpty {
+                key = "\(item.sourceUrl)|name:\(item.name)|author:\(item.author)"
+            } else {
+                key = "\(item.sourceUrl)|\(item.bookUrl)"
+            }
             if seen.insert(key).inserted { output.append(item) }
         }
         return output

@@ -76,7 +76,40 @@ enum LegadoCSSSelect {
             }
             return found
         }
-        return try root.select(s).array()
+        // 普通 CSS；SwiftSoup 对部分 data-* 属性选择器会空，补属性回落
+        do {
+            let found = try root.select(s).array()
+            if !found.isEmpty { return found }
+        } catch {
+            // fall through
+        }
+        if let attrSel = parseAttrSelector(s) {
+            var found = try root.getElementsByAttribute(attrSel.attr).array()
+            if let tag = attrSel.tag, !tag.isEmpty, tag != "*" {
+                found = found.filter { ($0.tagName() ?? "").lowercased() == tag.lowercased() }
+            }
+            return found
+        }
+        return []
+    }
+
+    /// `a[data-bid]` / `[data-bid]` / `a[data-bid=1]` → tag + attr（忽略等值，只按属性名）
+    private static func parseAttrSelector(_ raw: String) -> (tag: String?, attr: String)? {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let open = s.firstIndex(of: "["), let close = s.firstIndex(of: "]"), open < close else {
+            return nil
+        }
+        let tagPart = String(s[..<open]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let inside = String(s[s.index(after: open)..<close]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !inside.isEmpty else { return nil }
+        let attrName: String
+        if let eq = inside.firstIndex(of: "=") {
+            attrName = String(inside[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            attrName = inside
+        }
+        guard !attrName.isEmpty else { return nil }
+        return (tagPart.isEmpty ? nil : tagPart, attrName)
     }
 
     /// `res-book-item` / `book-info-title.0` → (name, optionalIndex)
@@ -1207,7 +1240,13 @@ class CSSParser: RuleExecutor {
                 next.append(contentsOf: try LegadoCSSSelect.elements(in: el, selector: part))
             }
             elements = next
+            // 选择器空且非末段：勿直接失败，尝试从当前节点取同名属性（li[data-bid]）
             if elements.isEmpty && !isLast {
+                if let attrSel = Self.parseLooseAttrName(part),
+                   let v = try? root.attr(attrSel), !v.isEmpty {
+                    stringResult = v
+                    continue
+                }
                 return .none
             }
         }
@@ -1220,6 +1259,17 @@ class CSSParser: RuleExecutor {
         if values.count == 1 { return .string(values[0]) }
         if !values.isEmpty { return .list(values) }
         return .none
+    }
+
+    private static func parseLooseAttrName(_ part: String) -> String? {
+        // a[data-bid] / [data-bid]
+        if let open = part.firstIndex(of: "["), let close = part.firstIndex(of: "]"), open < close {
+            let inside = String(part[part.index(after: open)..<close])
+            let name = inside.split(separator: "=").first.map(String.init)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return name.isEmpty ? nil : name
+        }
+        return nil
     }
 
     private static func isTerminalAttr(_ part: String) -> Bool {
