@@ -1204,11 +1204,12 @@ class CSSParser: RuleExecutor {
                 let input = stringResult
                     ?? (try? elements.first.map { try $0.text() } ?? "")
                     ?? ""
-                let jsCtx = JSContext()
-                jsCtx?.setValue(input, forKey: "result")
-                jsCtx?.setValue(baseUrl, forKey: "baseUrl")
-                let out = jsCtx?.evaluateScript(jsCode)?.toString() ?? ""
-                stringResult = (out == "undefined" || out == "null") ? "" : out
+                // 常见书源写法：'https://m.qidian.com/book/'+result+'/' —— 不依赖 JSC 全局注入
+                if let swiftOut = Self.evalSimpleResultConcat(jsCode, result: input) {
+                    stringResult = swiftOut
+                } else {
+                    stringResult = Self.evalAtChainJS(jsCode, result: input, baseUrl: baseUrl)
+                }
                 elements = []
                 continue
             }
@@ -1232,7 +1233,12 @@ class CSSParser: RuleExecutor {
             if Self.isTerminalAttr(part), part.lowercased() != "text", part.lowercased() != "html" {
                 let values = try elements.map { try extractCSSValue(from: $0, attr: part, baseUrl: baseUrl) }
                     .filter { !$0.isEmpty }
-                stringResult = values.first ?? ""
+                var bid = values.first ?? ""
+                // 选择结果无属性时，回落当前根节点（li[data-bid]）
+                if bid.isEmpty, let v = try? root.attr(part), !v.isEmpty {
+                    bid = v
+                }
+                stringResult = bid
                 elements = []
                 continue
             }
@@ -1284,6 +1290,47 @@ class CSSParser: RuleExecutor {
         if part.hasPrefix(".") || part.hasPrefix("#") || part.hasPrefix("//") { return false }
         // text / html / href / src / data-bid 等
         return true
+    }
+
+    /// `'prefix'+result+'suffix'` / `"prefix"+result+"suffix"`（可省略一侧）
+    private static func evalSimpleResultConcat(_ jsCode: String, result: String) -> String? {
+        let trimmed = jsCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.contains("result") else { return nil }
+        let pattern = #"^\s*(?:'([^']*)'|"([^"]*)")\s*\+\s*result\s*(?:\+\s*(?:'([^']*)'|"([^"]*)"))?\s*;?\s*$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(trimmed.startIndex..., in: trimmed)
+        guard let match = regex.firstMatch(in: trimmed, range: range) else { return nil }
+        func group(_ idx: Int) -> String {
+            guard let r = Range(match.range(at: idx), in: trimmed) else { return "" }
+            return String(trimmed[r])
+        }
+        let prefix = group(1).isEmpty ? group(2) : group(1)
+        let suffix = group(3).isEmpty ? group(4) : group(3)
+        return prefix + result + suffix
+    }
+
+    /// @ 链内嵌 js：用 JSON 字面量注入 result/baseUrl，避免 setValue:forKey 未落到 JS 全局
+    private static func evalAtChainJS(_ jsCode: String, result: String, baseUrl: String?) -> String {
+        guard let jsCtx = JSContext() else { return "" }
+        var jsError: String?
+        jsCtx.exceptionHandler = { _, exc in jsError = exc?.toString() }
+        let resultLiteral = jsonStringLiteral(result)
+        let baseLiteral = jsonStringLiteral(baseUrl ?? "")
+        jsCtx.evaluateScript("var result = \(resultLiteral); var baseUrl = \(baseLiteral);")
+        if let jsError, !jsError.isEmpty {
+            return ""
+        }
+        let out = jsCtx.evaluateScript(jsCode)?.toString() ?? ""
+        if let jsError, !jsError.isEmpty {
+            return ""
+        }
+        if out == "undefined" || out == "null" { return "" }
+        return out
+    }
+
+    private static func jsonStringLiteral(_ value: String) -> String {
+        let data = try? JSONSerialization.data(withJSONObject: value, options: [])
+        return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
     }
     
     private func parseSelector(_ rule: String) -> (String, String) {

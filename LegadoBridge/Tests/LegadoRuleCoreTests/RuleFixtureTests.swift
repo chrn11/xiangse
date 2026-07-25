@@ -113,8 +113,13 @@ final class RuleFixtureTests: XCTestCase {
             bookUrl.contains("m.qidian.com/book/1209977"),
             "bookUrl @链+js 应拼移动详情，实际: \(bookUrl)"
         )
+        XCTAssertTrue(
+            bookUrl.hasPrefix("https://"),
+            "bookUrl 应为绝对 URL，实际: \(bookUrl)"
+        )
         XCTAssertFalse(bookUrl.contains("加入书架"), "bookUrl 不得变成列表项全文，实际: \(bookUrl)")
         XCTAssertFalse(bookUrl.contains("\n"), "bookUrl 应为单行 URL，实际: \(bookUrl)")
+        XCTAssertFalse(bookUrl.isEmpty, "bookUrl 不得为空")
     }
 
     func testCSSListCount() throws {
