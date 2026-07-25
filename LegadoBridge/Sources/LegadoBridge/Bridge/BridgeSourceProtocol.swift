@@ -8,6 +8,8 @@ public protocol BridgeSourceProtocol: AnyObject {
     var enabledCookieJar: Bool { get }
     var loginCheckJs: String? { get }
     var loginUrl: String? { get }
+    /// Legado loginUi JSON 字符串（表单字段描述）；打开登录页时写探针，不走 UIAlert
+    var loginUi: String? { get }
     var bookUrlPattern: String? { get }
     var searchUrl: String? { get }
     /// 发现页入口 URL（可含 {{page}} 等模板）

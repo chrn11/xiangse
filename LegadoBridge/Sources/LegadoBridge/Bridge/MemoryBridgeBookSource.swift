@@ -10,6 +10,7 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
     var enabledCookieJar: Bool
     var loginCheckJs: String?
     var loginUrl: String?
+    var loginUi: String?
     var bookUrlPattern: String?
     var searchUrl: String?
     var exploreUrl: String?
@@ -33,6 +34,7 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
         enabledCookieJar = part.enabledCookieJar ?? false
         loginCheckJs = part.loginCheckJs
         loginUrl = part.loginUrl
+        loginUi = part.loginUi
         bookUrlPattern = part.bookUrlPattern
         searchUrl = part.searchUrl
         exploreUrl = part.exploreUrl

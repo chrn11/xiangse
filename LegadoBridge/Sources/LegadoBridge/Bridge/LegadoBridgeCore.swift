@@ -931,6 +931,17 @@ import LegadoBridgeHooks
         return raw
     }
 
+    /// 书源 loginUi JSON（可能为空）；供 hooks 探针与表单回退
+    @objc(loginUiForSourceUrl:)
+    public func loginUi(forSourceUrl sourceUrl: String?) -> String? {
+        guard let sourceUrl, !sourceUrl.isEmpty,
+              let src = SourceRegistry.shared.source(forUrl: sourceUrl) else {
+            return nil
+        }
+        let raw = src.loginUi?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return raw.isEmpty ? nil : raw
+    }
+
     private func postNotification(_ name: String, userInfo: [String: Any]) {
         DispatchQueue.main.async {
             NotificationCenter.default.post(

@@ -1,0 +1,30 @@
+{
+  "bookSourceUrl": "http://__LAN_HOST__:8765/login-ui-source",
+  "bookSourceName": "LoginUi受控源",
+  "bookSourceType": 0,
+  "enabled": true,
+  "enabledCookieJar": true,
+  "loginUrl": "http://__LAN_HOST__:8765/mock_login.html",
+  "loginUi": "[{\"name\":\"username\",\"type\":\"text\"},{\"name\":\"password\",\"type\":\"password\"}]",
+  "searchUrl": "http://__LAN_HOST__:8765/await_search.html?q={{key}}",
+  "ruleSearch": {
+    "bookList": ".bookbox",
+    "name": "h4@text",
+    "author": ".author@text",
+    "bookUrl": "a@href",
+    "intro": ".intro@text"
+  },
+  "ruleBookInfo": {
+    "name": "h1@text",
+    "author": ".author@text",
+    "intro": "#intro@text"
+  },
+  "ruleToc": {
+    "chapterList": "#list dd",
+    "chapterName": "a@text",
+    "chapterUrl": "a@href"
+  },
+  "ruleContent": {
+    "content": "#chaptercontent@html"
+  }
+}

@@ -431,14 +431,46 @@ void LBPresentVisibleWebView(NSString *urlStr, NSString *sourceUrl, NSString *mo
 
 void LBPresentLoginWebViewForSource(NSString *sourceUrl) {
     NSString *loginUrl = nil;
+    NSString *loginUi = nil;
     id core = LBLegadoCoreIfReady();
     if (core && [core respondsToSelector:@selector(loginUrlForSourceUrl:)]) {
         loginUrl = ((NSString * (*)(id, SEL, NSString *))objc_msgSend)(
             core, @selector(loginUrlForSourceUrl:), sourceUrl);
     }
+    if (core && [core respondsToSelector:@selector(loginUiForSourceUrl:)]) {
+        loginUi = ((NSString * (*)(id, SEL, NSString *))objc_msgSend)(
+            core, @selector(loginUiForSourceUrl:), sourceUrl);
+    }
+    NSString *probe = [NSString stringWithFormat:
+                       @"login present src=%@ loginUrl=%@ loginUiLen=%lu path=XiangseWebLogin",
+                       sourceUrl ?: @"",
+                       loginUrl.length ? loginUrl : @"-",
+                       (unsigned long)(loginUi.length)];
+    [probe writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_login_ui_probe.txt"]
+             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    LBVisibleWVMarker(probe);
+
     if (loginUrl.length == 0) {
-        // 无 loginUrl：打开书源根站，便于写 Cookie（起点等场景）
-        loginUrl = sourceUrl.length ? sourceUrl : @"https://www.qidian.com/";
+        // 无 loginUrl：若有 loginUi，用 data: HTML 表单（仍走香色 WebView，禁止 Alert）
+        if (loginUi.length > 0) {
+            NSString *html =
+                @"<!DOCTYPE html><html><head><meta charset=utf-8>"
+                @"<meta name=viewport content=\"width=device-width,initial-scale=1\">"
+                @"<title>书源登录表单</title></head><body>"
+                @"<h1>书源登录表单</h1>"
+                @"<p>由 loginUi 生成（无 loginUrl）</p>"
+                @"<form id=lb-login-form>"
+                @"<label>用户名</label><input name=username type=text placeholder=username>"
+                @"<label>密码</label><input name=password type=password placeholder=password>"
+                @"<button type=submit>登录</button></form></body></html>";
+            NSString *enc = [[html dataUsingEncoding:NSUTF8StringEncoding]
+                             base64EncodedStringWithOptions:0];
+            loginUrl = [NSString stringWithFormat:@"data:text/html;base64,%@", enc ?: @""];
+            LBVisibleWVMarker(@"login fallback data-html from loginUi");
+        } else {
+            // 无 loginUrl / loginUi：打开书源根站，便于写 Cookie（起点等场景）
+            loginUrl = sourceUrl.length ? sourceUrl : @"https://www.qidian.com/";
+        }
     }
     LBPresentVisibleWebView(loginUrl, sourceUrl, @"书源登录/验证");
 }
