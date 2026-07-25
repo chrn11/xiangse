@@ -161,8 +161,17 @@ class AnalyzeUrl {
 
         self.concurrentRateLimiter = ConcurrentRateLimiter(source: source)
 
-        // 解析 URL（domain 先初始化，initUrl 才能安全使用 self）
-        self.domain = Self.getSubDomain(from: source?.bookSourceUrl ?? url)
+        // domain 必须在 initUrl 之前定好；此前误用尚未赋值的 `url`（恒为空），
+        // 导致 getResponseBody(source:nil) 重建时 CookieJar 按空 key 查找、请求不带 Cookie。
+        let domainSeed: String
+        if let srcUrl = source?.bookSourceUrl, !srcUrl.isEmpty {
+            domainSeed = srcUrl
+        } else if !mUrl.isEmpty {
+            domainSeed = mUrl
+        } else {
+            domainSeed = baseUrl
+        }
+        self.domain = Self.getSubDomain(from: domainSeed)
         initUrl()
     }
 
@@ -781,7 +790,7 @@ class AnalyzeUrl {
 
     /// 设置 Cookie（对应 Android setCookie）
     private func setCookie() {
-        let cookie = CookieManager.shared.getCookie(for: domain) ?? ""
+        let cookie = resolveCookieForRequest()
         if !cookie.isEmpty {
             let existingCookie = headerMap["Cookie"] ?? ""
             let merged = Self.mergeCookies(cookie, existing: existingCookie)
@@ -792,6 +801,48 @@ class AnalyzeUrl {
         } else {
             headerMap.removeValue(forKey: "X-Cookie-Jar")
         }
+        writeRequestCookieProbe(cookieLen: cookie.count)
+    }
+
+    /// 按 domain → 请求 host → 书源 URL/host 依次取 CookieJar
+    private func resolveCookieForRequest() -> String {
+        if let c = CookieManager.shared.getCookie(for: domain), !c.isEmpty {
+            return c
+        }
+        let requestHost = Self.getSubDomain(from: url.isEmpty ? (urlNoQuery.isEmpty ? mUrl : urlNoQuery) : url)
+        if !requestHost.isEmpty, requestHost != domain,
+           let c = CookieManager.shared.getCookie(for: requestHost), !c.isEmpty {
+            return c
+        }
+        if let sourceUrl = source?.bookSourceUrl, !sourceUrl.isEmpty {
+            if let c = CookieManager.shared.getCookie(for: sourceUrl), !c.isEmpty {
+                return c
+            }
+            let sourceHost = Self.getSubDomain(from: sourceUrl)
+            if !sourceHost.isEmpty,
+               let c = CookieManager.shared.getCookie(for: sourceHost), !c.isEmpty {
+                return c
+            }
+        }
+        return ""
+    }
+
+    /// 真机对照：Documents/legado_request_cookie_probe.txt
+    private func writeRequestCookieProbe(cookieLen: Int) {
+        let path = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_request_cookie_probe.txt")
+        let attached = cookieLen > 0 || !(headerMap["Cookie"] ?? "").isEmpty
+        let line = [
+            "ts=\(ISO8601DateFormatter().string(from: Date()))",
+            "url=\(url.isEmpty ? urlNoQuery : url)",
+            "domain=\(domain)",
+            "cookieLen=\(cookieLen)",
+            "cookieAttached=\(attached)",
+            "headerCookieLen=\((headerMap["Cookie"] ?? "").count)",
+            "enabledCookieJar=\(enabledCookieJar)",
+            "source=\(source?.bookSourceUrl ?? "")",
+        ].joined(separator: "\n") + "\n"
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     // MARK: - 工具方法
@@ -956,14 +1007,20 @@ class AnalyzeUrl {
     }
 
     /// 使用解析后的 URL 发起网络请求并返回响应内容（旧接口兼容）
+    /// - Parameter source: 须传入书源，否则 CookieJar / enabledCookieJar 无法按书源注入
     static func getResponseBody(
         analyzedUrl: AnalyzedUrl,
         charset: String.Encoding = .utf8,
         javaScript: String? = nil,
         sourceRegex: String? = nil,
-        forceWebView: Bool = false
+        forceWebView: Bool = false,
+        source: (any BridgeSourceProtocol)? = nil
     ) async throws -> (body: String, url: String) {
-        let analyzer = AnalyzeUrl(mUrl: analyzedUrl.url, source: nil)
+        let analyzer = AnalyzeUrl(
+            mUrl: analyzedUrl.url,
+            baseUrl: source?.bookSourceUrl ?? analyzedUrl.url,
+            source: source
+        )
         analyzer.headerMap = analyzedUrl.headers
         analyzer.method = analyzedUrl.method
         analyzer.body = analyzedUrl.body

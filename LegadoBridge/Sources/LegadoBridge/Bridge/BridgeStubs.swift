@@ -78,10 +78,22 @@ public final class CookieManager {
         lock.lock()
         defer { lock.unlock() }
         loadFromDiskIfNeeded()
+        guard !domain.isEmpty else { return nil }
         if let direct = store[domain], !direct.isEmpty { return direct }
         // 兼容 bookSourceUrl 全串与 host 两种 key
         if let host = URL(string: domain)?.host, let c = store[host], !c.isEmpty {
             return c
+        }
+        // 回灌偶发用完整页面 URL 作 key：按 host 反查
+        let wantHost = URL(string: domain)?.host ?? domain
+        if !wantHost.isEmpty {
+            for (key, value) in store {
+                guard !value.isEmpty else { continue }
+                if key == wantHost { return value }
+                if let keyHost = URL(string: key)?.host, keyHost == wantHost {
+                    return value
+                }
+            }
         }
         return store[domain]
     }

@@ -657,7 +657,18 @@ import LegadoBridgeHooks
 
     private func writeSearchMarker(_ msg: String) {
         let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_search_last.txt")
-        try? msg.write(toFile: path, atomically: true, encoding: .utf8)
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        let line = "\(stamp) \(msg)\n"
+        if let data = line.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: path),
+               let handle = FileHandle(forWritingAtPath: path) {
+                handle.seekToEndOfFile()
+                handle.write(data)
+                try? handle.close()
+            } else {
+                try? line.write(toFile: path, atomically: true, encoding: .utf8)
+            }
+        }
     }
 
     // MARK: - 目录

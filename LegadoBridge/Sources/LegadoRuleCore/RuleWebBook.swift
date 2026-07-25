@@ -27,22 +27,25 @@ public enum RuleWebBook {
             source: source
         )
 
-        var (body, redirectUrl) = try await AnalyzeUrl.getResponseBody(analyzedUrl: analyzedUrl)
-        (body, redirectUrl) = applyLoginCheckIfNeeded(source: source, body: body, url: redirectUrl)
-        guard !body.isEmpty else { throw WebBookError.emptyResponse }
+        // 探针必须在空 body 早退之前：否则 ok total=0 前看不到 URL/Cookie/长度
+        Self.writeSearchAnalyzedProbe(analyzedUrl: analyzedUrl, source: source, key: key)
 
-        // 真机对照：空搜时留下响应头，区分 Cookie 验证（var buid）与规则解析失败
+        var (body, redirectUrl) = try await AnalyzeUrl.getResponseBody(
+            analyzedUrl: analyzedUrl,
+            source: source
+        )
+        (body, redirectUrl) = applyLoginCheckIfNeeded(source: source, body: body, url: redirectUrl)
+
         Self.writeSearchBodyProbe(
             sourceUrl: source.bookSourceUrl,
             key: key,
+            requestUrl: analyzedUrl.url,
             redirectUrl: redirectUrl,
-            body: body
+            body: body,
+            headers: analyzedUrl.headers
         )
-        // 同时留下解析后的请求 URL，便于对照 /undefined
-        let analyzedPath = (NSHomeDirectory() as NSString)
-            .appendingPathComponent("Documents/legado_search_analyzed_url.txt")
-        try? "url=\(analyzedUrl.url)\nkey=\(key)\n"
-            .write(toFile: analyzedPath, atomically: true, encoding: .utf8)
+
+        guard !body.isEmpty else { throw WebBookError.emptyResponse }
 
         guard let searchRule = source.getSearchRule() else {
             throw WebBookError.noRule("搜索规则")
@@ -105,7 +108,10 @@ public enum RuleWebBook {
             baseUrl: source.bookSourceUrl,
             source: source
         )
-        var (body, redirectUrl) = try await AnalyzeUrl.getResponseBody(analyzedUrl: analyzedUrl)
+        var (body, redirectUrl) = try await AnalyzeUrl.getResponseBody(
+            analyzedUrl: analyzedUrl,
+            source: source
+        )
         (body, redirectUrl) = applyLoginCheckIfNeeded(source: source, body: body, url: redirectUrl)
         guard !body.isEmpty else { throw WebBookError.emptyResponse }
 
@@ -152,7 +158,10 @@ public enum RuleWebBook {
             baseUrl: source.bookSourceUrl,
             source: source
         )
-        var (body, redirectUrl) = try await AnalyzeUrl.getResponseBody(analyzedUrl: analyzedUrl)
+        var (body, redirectUrl) = try await AnalyzeUrl.getResponseBody(
+            analyzedUrl: analyzedUrl,
+            source: source
+        )
         (body, redirectUrl) = applyLoginCheckIfNeeded(source: source, body: body, url: redirectUrl)
         guard !body.isEmpty else { throw WebBookError.emptyResponse }
 
@@ -239,7 +248,10 @@ public enum RuleWebBook {
                 baseUrl: source.bookSourceUrl,
                 source: source
             )
-            var (fetchedBody, fetchedUrl) = try await AnalyzeUrl.getResponseBody(analyzedUrl: analyzedUrl)
+            var (fetchedBody, fetchedUrl) = try await AnalyzeUrl.getResponseBody(
+                analyzedUrl: analyzedUrl,
+                source: source
+            )
             (fetchedBody, fetchedUrl) = applyLoginCheckIfNeeded(source: source, body: fetchedBody, url: fetchedUrl)
             body = fetchedBody
             redirectUrl = fetchedUrl
@@ -268,7 +280,10 @@ public enum RuleWebBook {
                 baseUrl: source.bookSourceUrl,
                 source: source
             )
-            var (nextBody, nextRedirectUrl) = try await AnalyzeUrl.getResponseBody(analyzedUrl: nextAnalyzedUrl)
+            var (nextBody, nextRedirectUrl) = try await AnalyzeUrl.getResponseBody(
+                analyzedUrl: nextAnalyzedUrl,
+                source: source
+            )
             (nextBody, nextRedirectUrl) = applyLoginCheckIfNeeded(source: source, body: nextBody, url: nextRedirectUrl)
             guard !nextBody.isEmpty else { continue }
             visitedUrls.insert(nextRedirectUrl)
@@ -326,7 +341,8 @@ public enum RuleWebBook {
                 javaScript: contentRule.webJs,
                 sourceRegex: contentRule.sourceRegex,
                 forceWebView: !(contentRule.webJs?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-                    || !(contentRule.sourceRegex?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                    || !(contentRule.sourceRegex?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                source: source
             )
             (fetched, url) = applyLoginCheckIfNeeded(source: source, body: fetched, url: url)
             body = fetched
@@ -356,7 +372,8 @@ public enum RuleWebBook {
                     javaScript: contentRule.webJs,
                     sourceRegex: contentRule.sourceRegex,
                     forceWebView: !(contentRule.webJs?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-                        || !(contentRule.sourceRegex?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                        || !(contentRule.sourceRegex?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                    source: source
                 )
                 (nextBody, nextRedirectUrl) = applyLoginCheckIfNeeded(source: source, body: nextBody, url: nextRedirectUrl)
                 guard !nextBody.isEmpty, !visitedUrls.contains(nextRedirectUrl) else { continue }
@@ -478,17 +495,53 @@ public enum RuleWebBook {
         return (body, url)
     }
 
-    /// 搜索响应对照探针：Documents/legado_search_body_probe.txt
+    /// 搜索请求对照探针（空 body 前就会写）：Documents/legado_search_analyzed_url.txt
+    private static func writeSearchAnalyzedProbe(
+        analyzedUrl: AnalyzedUrl,
+        source: any BridgeSourceProtocol,
+        key: String
+    ) {
+        let jarHost = URL(string: source.bookSourceUrl)?.host ?? source.bookSourceUrl
+        let jarCookie = CookieManager.shared.getCookie(for: jarHost)
+            ?? CookieManager.shared.getCookie(for: source.bookSourceUrl)
+            ?? ""
+        let headerCookie = analyzedUrl.headers["Cookie"] ?? ""
+        let path = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_search_analyzed_url.txt")
+        let line = """
+        ts=\(Date())
+        url=\(analyzedUrl.url)
+        key=\(key)
+        src=\(source.bookSourceUrl)
+        method=\(analyzedUrl.method.rawValue)
+        jarHost=\(jarHost)
+        jarCookieLen=\(jarCookie.count)
+        headerCookieLen=\(headerCookie.count)
+        cookieLikelyAttached=\(!jarCookie.isEmpty || !headerCookie.isEmpty)
+        hasUndefined=\(analyzedUrl.url.contains("undefined"))
+
+        """
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
+    /// 搜索响应对照探针：Documents/legado_search_body_probe.txt（空 body 也会写）
     private static func writeSearchBodyProbe(
         sourceUrl: String,
         key: String,
+        requestUrl: String,
         redirectUrl: String,
-        body: String
+        body: String,
+        headers: [String: String]
     ) {
         let path = (NSHomeDirectory() as NSString)
             .appendingPathComponent("Documents/legado_search_body_probe.txt")
         let hasBuid = body.contains("var buid")
         let hasList = body.contains("res-book-item")
+        let jarHost = URL(string: sourceUrl)?.host ?? sourceUrl
+        let jarCookie = CookieManager.shared.getCookie(for: jarHost)
+            ?? CookieManager.shared.getCookie(for: sourceUrl)
+            ?? ""
+        let headerCookie = headers["Cookie"] ?? ""
         let head = body.count > 1200 ? String(body.prefix(1200)) : body
         let compactHead = head
             .replacingOccurrences(of: "\n", with: " ")
@@ -497,10 +550,15 @@ public enum RuleWebBook {
         ts=\(Date())
         src=\(sourceUrl)
         key=\(key)
+        request=\(requestUrl)
         redirect=\(redirectUrl)
         len=\(body.count)
+        jarCookieLen=\(jarCookie.count)
+        headerCookieLen=\(headerCookie.count)
+        cookieAttached=\(!jarCookie.isEmpty || !headerCookie.isEmpty)
         has_buid=\(hasBuid)
         has_res_book_item=\(hasList)
+        hasUndefined=\(requestUrl.contains("undefined") || redirectUrl.contains("undefined"))
         head=\(compactHead)
 
         """

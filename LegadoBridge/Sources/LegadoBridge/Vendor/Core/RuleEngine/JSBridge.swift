@@ -468,7 +468,10 @@ class JSBridge: JsEncodeUtils {
         let box = AjaxBodyBox()
         Task {
             do {
-                let (respBody, _) = try await AnalyzeUrl.getResponseBody(analyzedUrl: analyzed)
+                let (respBody, _) = try await AnalyzeUrl.getResponseBody(
+                    analyzedUrl: analyzed,
+                    source: source
+                )
                 box.value = respBody
             } catch {
                 DebugLogger.shared.log("[JS.ajax] \(error)")
