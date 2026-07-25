@@ -51,11 +51,11 @@ enum SourceSessionStore {
 }
 
 /// 可见浏览器等待：由 LegadoBridge 在启动时注入，走香色 LCStandarConfig → WebViewController_WK。
-enum BrowserAwaitGate {
+public enum BrowserAwaitGate {
     /// (url, title, sourceUrl) -> page HTML（可为空；调用方常再 ajax）
-    static var handler: ((String, String, String?) -> String)?
+    public static var handler: ((String, String, String?) -> String)?
 
-    static func startBrowserAwait(url: String, title: String, sourceUrl: String?) -> String {
+    public static func startBrowserAwait(url: String, title: String, sourceUrl: String?) -> String {
         guard !url.isEmpty else { return "" }
         if let handler {
             return handler(url, title, sourceUrl)
