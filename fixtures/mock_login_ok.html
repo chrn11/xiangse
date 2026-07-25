@@ -4,9 +4,31 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>登录成功</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; padding: 24px; background: #f6f7f9; color: #222; }
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 20px; max-width: 420px; }
+    h1 { font-size: 20px; margin: 0 0 12px; color: #0a7; }
+    .hint { color: #666; font-size: 13px; margin-top: 12px; line-height: 1.4; }
+  </style>
 </head>
 <body>
-  <p id="login-ok">LOGIN_OK</p>
-  <p>书源登录表单已提交（mock，不校验真实账号）。</p>
+  <div class="card">
+    <h1 id="login-ok">LOGIN_OK</h1>
+    <p>书源登录表单已提交（mock，不校验真实账号）。</p>
+    <p class="hint" id="user-line">user=</p>
+    <p class="hint" id="cookie-line">cookie=</p>
+  </div>
+  <script>
+    (function () {
+      var qs = new URLSearchParams(location.search);
+      var user = qs.get("username") || "anon";
+      document.cookie = "LB_LOGIN=ok; path=/; max-age=86400";
+      document.cookie = "LB_USER=" + encodeURIComponent(user) + "; path=/; max-age=86400";
+      var ul = document.getElementById("user-line");
+      if (ul) ul.textContent = "user=" + user;
+      var cl = document.getElementById("cookie-line");
+      if (cl) cl.textContent = "cookie=" + document.cookie;
+    })();
+  </script>
 </body>
 </html>

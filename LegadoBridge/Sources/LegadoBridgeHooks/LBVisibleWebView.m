@@ -145,6 +145,21 @@ static BOOL LBTryCallOpenWebView(NSString *urlStr) {
     return NO;
 }
 
+static void LBWriteLoginCookieProbeIfNeeded(NSString *cookieStr, NSString *pageUrl) {
+    if (cookieStr.length == 0) return;
+    // 登录成功页 / LB_LOGIN：单独探针，供 mock 提交验收读 jar 之外的落盘证据
+    BOOL looksLogin =
+        [cookieStr containsString:@"LB_LOGIN"] ||
+        [(pageUrl ?: @"") containsString:@"mock_login_ok"] ||
+        [(pageUrl ?: @"") containsString:@"LOGIN_OK"];
+    if (!looksLogin) return;
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_login_cookie.txt"];
+    NSString *body = [NSString stringWithFormat:@"%@ | url=%@ | %@\n", [NSDate date], pageUrl ?: @"", cookieStr];
+    [body writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    LBVisibleWVMarker([NSString stringWithFormat:@"login cookie probe written len=%lu",
+                       (unsigned long)cookieStr.length]);
+}
+
 static void LBSaveCookieStringToJar(NSString *cookieStr, NSString *pageUrl, NSString *sourceUrl) {
     if (cookieStr.length == 0) return;
     id core = LBLegadoCoreIfReady();
@@ -158,6 +173,7 @@ static void LBSaveCookieStringToJar(NSString *cookieStr, NSString *pageUrl, NSSt
         LBVisibleWVMarker([NSString stringWithFormat:
                            @"cookieJarSaved len=%lu key=%@",
                            (unsigned long)cookieStr.length, key ?: @""]);
+        LBWriteLoginCookieProbeIfNeeded(cookieStr, pageUrl);
     } else {
         // 兜底落盘，供后续手工核对
         NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_login_cookie.txt"];
@@ -394,16 +410,51 @@ static void LBHarvestNativeXiangseCookies(NSString *urlStr, NSString *sourceUrl)
     LBVisibleWVMarker(@"xiangse path NSHTTPCookieStorage snapshot (no WK found)");
 }
 
+/// 香色原生 WebView 无本模块 didFinish 回调：开页后仅 2.5s/5s 回灌会错过「填表提交→成功页」新 Cookie。
+/// 用世代号预调度轮询 URL；导航变化时立刻 harvest，并刷新 open marker。禁止改原生 VC 视图树。
+static NSInteger sXiangseCookieWatchGen = 0;
+
+static void LBScheduleXiangseCookieWatch(NSString *urlStr, NSString *sourceUrl, NSString *modeTag) {
+    NSInteger gen = ++sXiangseCookieWatchGen;
+    NSString *src = [(sourceUrl ?: @"") copy];
+    NSString *initial = [(urlStr ?: @"") copy];
+    NSString *mode = [(modeTag.length ? modeTag : @"可见WebView") copy];
+    NSMutableDictionary *state = [NSMutableDictionary dictionaryWithObjectsAndKeys:
+                                  @"", @"lastURL", nil];
+
+    for (NSUInteger tick = 1; tick <= 45; tick++) {
+        NSTimeInterval delay = 2.0 * (NSTimeInterval)tick;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            if (gen != sXiangseCookieWatchGen) return;
+            WKWebView *wk = LBFindNativeWKWebView();
+            if (!wk && tick > 6) return;
+            NSString *cur = (wk && wk.URL.absoluteString.length > 0) ? wk.URL.absoluteString : initial;
+            NSString *lastURL = state[@"lastURL"] ?: @"";
+            BOOL changed = (cur.length > 0 && ![cur isEqualToString:lastURL]);
+            if (changed) {
+                state[@"lastURL"] = cur;
+                LBVisibleWVMarker([NSString stringWithFormat:@"xiangse path nav url=%@", cur]);
+                NSString *openLine = [NSString stringWithFormat:
+                                      @"open visibleWV url=%@ src=%@ mode=%@",
+                                      cur, src, mode];
+                [openLine writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
+                                       @"Documents/legado_visible_webview_open.txt"]
+                           atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            }
+            // 首轮、导航变化、偶数 tick：harvest（覆盖提交后成功页 Cookie）
+            if (tick == 1 || changed || (tick % 2 == 0)) {
+                LBHarvestNativeXiangseCookies(cur, src);
+            }
+        });
+    }
+}
+
 /// 须在主线程调用：立刻走香色开页或 Fallback（不再套一层 dispatch_async）。
 static BOOL LBPresentVisibleWebViewNow(NSString *urlStr, NSString *sourceUrl, NSString *modeTag) {
     BOOL usedNative = LBTryCallOpenWebView(urlStr);
     if (usedNative) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            LBHarvestNativeXiangseCookies(urlStr, sourceUrl);
-        });
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            LBHarvestNativeXiangseCookies(urlStr, sourceUrl);
-        });
+        LBScheduleXiangseCookieWatch(urlStr, sourceUrl, modeTag);
         return YES;
     }
     LBPresentFallbackWK(urlStr, sourceUrl, modeTag);

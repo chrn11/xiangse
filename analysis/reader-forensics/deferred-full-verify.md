@@ -22,7 +22,8 @@
   - **2026-07-25（`51d5ed8` / run `30163275599`）**：Present 前不碰 CookieStore；冷启动 `browserAwait` 最小门禁 **PASS**（`process_survived` + user done/harvest + `/await_search` Cookie `AWAIT_TOKEN=ok`）。证据见 `phase88-browser-await-progress.md` 与 `fixtures/_devkit/browser_await/browser_await_accept_20260725T151942Z.json`。总验（领域/笔趣读）仍延后。
 - 登录：香色原版网页/表单，而不是系统 Alert 冒充
   - **2026-07-25（`51d5ed8`）**：打开正确登录页 **PASS**（受控源 `loginUrl` → `mock_login.html`，`XiangseOpenWebView hit`，UI 可见表单；非 Alert）。完整账号登录 **PARTIAL**。
-  - **2026-07-25（`ea8f85e` / run `30163674589` Debug）**：同上门禁 **PASS**，且 `login_ui_probe_present=true`（`path=XiangseWebLogin`，`loginUiLen=73`）。证据：`phase88-login-progress.md`、`fixtures/_devkit/login_ui/login_accept_20260725T153241Z.json`。完整账号登录仍 **PARTIAL**（勿瞎填真实账号）。
+  - **2026-07-25（`ea8f85e` / run `30163674589` Debug）**：同上门禁 **PASS**，且 `login_ui_probe_present=true`（`path=XiangseWebLogin`，`loginUiLen=73`）。证据：`phase88-login-progress.md`、`fixtures/_devkit/login_ui/login_accept_20260725T153241Z.json`。
+  - **2026-07-25 mock 提交链路（现包 `ea8f85e`）**：填表→`mock_login_ok`/`LOGIN_OK` **PASS**；Cookie `LB_LOGIN` 回灌 jar **FAIL**（原生路径仅开页 harvest，提交导航后无再 harvest）。**已改待 commit**：`LBVisibleWebView.m` 增加 URL 轮询 harvest + `legado_login_cookie.txt` 探针；验收脚本 `fixtures/_accept_login_ui.py` 门禁 B。证据：`login_accept_20260725T153638Z.json`。真实站账号仍 **PARTIAL**（勿瞎填）。
 - Cookie 带到搜索/后续请求（已有进展，总验时再回归）
 - 至少 1 条真实源：搜索 → 详情 → **有章节的目录** → 香色正文（起点已满足；总验仍要覆盖领域/笔趣读）
 
