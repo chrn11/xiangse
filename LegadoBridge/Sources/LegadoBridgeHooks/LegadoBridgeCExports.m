@@ -1695,10 +1695,17 @@ static NSString *LBReadXsfolderChapterBody(NSString *bookUrl, NSString *chapterU
 
 static BOOL LBEnsurePendingCatalogForBook(NSString *bookUrl) {
     if (bookUrl.length == 0) return NO;
+    // 必须 bookUrl 严格匹配；pending 无 bookUrl 或串书时不得复用（否则会出现 doupo 章名变成「上架感言」）
+    if (sPendingCatalogChapters.count > 0 &&
+        sPendingCatalogBookUrl.length > 0 &&
+        [sPendingCatalogBookUrl isEqualToString:bookUrl]) {
+        return YES;
+    }
     if (sPendingCatalogChapters.count > 0 &&
         (sPendingCatalogBookUrl.length == 0 ||
-         [sPendingCatalogBookUrl isEqualToString:bookUrl])) {
-        return YES;
+         ![sPendingCatalogBookUrl isEqualToString:bookUrl])) {
+        sPendingCatalogChapters = nil;
+        sPendingCatalogBookUrl = nil;
     }
     NSArray *cached = LBLoadCatalogCache(bookUrl);
     if (cached.count == 0) {
@@ -2556,7 +2563,12 @@ static UINavigationController *LBFindBestNavigationController(UIViewController *
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = self.bookTitle.length ? self.bookTitle : @"目录";
-    self.tableView.rowHeight = 48;
+    self.tableView.rowHeight = UITableViewAutomaticDimension;
+    self.tableView.estimatedRowHeight = 52;
+    self.tableView.separatorInset = UIEdgeInsetsMake(0, 16, 0, 0);
+    if (@available(iOS 13.0, *)) {
+        self.tableView.backgroundColor = [UIColor systemBackgroundColor];
+    }
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"c"];
 }
 - (void)viewWillAppear:(BOOL)animated {
@@ -2564,12 +2576,18 @@ static UINavigationController *LBFindBestNavigationController(UIViewController *
     [self lb_reloadFromPending];
 }
 - (void)lb_reloadFromPending {
+    // 仅当 pending 明确属于本书时才采用，避免串书目录
     if (sPendingCatalogChapters.count > 0 &&
-        (self.bookUrl.length == 0 || sPendingCatalogBookUrl.length == 0 ||
-         [sPendingCatalogBookUrl isEqualToString:self.bookUrl])) {
+        self.bookUrl.length > 0 &&
+        sPendingCatalogBookUrl.length > 0 &&
+        [sPendingCatalogBookUrl isEqualToString:self.bookUrl]) {
         self.chapters = sPendingCatalogChapters;
     }
     [self.tableView reloadData];
+}
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    if (self.chapters.count == 0) return @"暂无章节";
+    return [NSString stringWithFormat:@"共 %lu 章", (unsigned long)self.chapters.count];
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     return (NSInteger)self.chapters.count;
@@ -2582,6 +2600,14 @@ static UINavigationController *LBFindBestNavigationController(UIViewController *
     }
     cell.textLabel.text = t;
     cell.textLabel.numberOfLines = 2;
+    if (@available(iOS 13.0, *)) {
+        cell.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightRegular];
+        cell.textLabel.textColor = [UIColor labelColor];
+        cell.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
+    } else {
+        cell.textLabel.font = [UIFont systemFontOfSize:16];
+    }
+    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     cell.selectionStyle = UITableViewCellSelectionStyleDefault;
     cell.userInteractionEnabled = YES;
     cell.contentView.userInteractionEnabled = YES;
@@ -2712,8 +2738,13 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
     list.sourceUrl = su;
     list.bookTitle = title ?: @"目录";
     if (sPendingCatalogChapters.count > 0 &&
-        (sPendingCatalogBookUrl.length == 0 || [sPendingCatalogBookUrl isEqualToString:bu])) {
+        sPendingCatalogBookUrl.length > 0 &&
+        [sPendingCatalogBookUrl isEqualToString:bu]) {
         list.chapters = sPendingCatalogChapters;
+    } else if (sPendingCatalogChapters.count > 0 &&
+               ![sPendingCatalogBookUrl isEqualToString:bu]) {
+        // 换书时丢弃串书 pending，避免目录页展示他书章节名
+        sPendingCatalogChapters = nil;
     }
 
     UINavigationController *nav = [(UIViewController *)searchVC navigationController];

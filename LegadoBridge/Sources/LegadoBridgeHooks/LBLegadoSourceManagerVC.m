@@ -61,7 +61,7 @@ static id LBLegadoManagerCore(void) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"Legado 书源管理";
+    self.title = @"书源管理";
     if (!self.groupFilter) self.groupFilter = @"__all__";
     self.navigationItem.rightBarButtonItems = @[
         [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd
@@ -327,7 +327,7 @@ static id LBLegadoManagerCore(void) {
     return self.sources.count > 0
         ? [NSString stringWithFormat:@"共 %lu 个%@（点行编辑；开关启停；右上角分组/发现）",
                                      (unsigned long)self.sources.count, filterHint]
-        : @"暂无 Legado 书源，点右上角 + 导入（亦支持 legado:// / yuedu://）";
+        : @"暂无书源，点右上角 + 导入（亦支持 legado:// / yuedu://）";
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -560,7 +560,7 @@ static id LBLegadoManagerCore(void) {
             isLegado = ((BOOL (*)(Class, SEL, NSData *))objc_msgSend)(coreClass, @selector(probeLegadoJSONData:), data);
         }
         if (!isLegado) {
-            [self showMessage:@"不是合法 Legado 书源 JSON"];
+            [self showMessage:@"不是合法书源 JSON"];
             return;
         }
         if ([core respondsToSelector:@selector(updateSourceJSON:forUrl:error:)]) {

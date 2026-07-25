@@ -595,7 +595,7 @@ static void LBInstallNativeSourceListLegadoButton(void) {
                 if ([bi.accessibilityIdentifier isEqualToString:@"legado.manage.entry"]) return;
             }
             UIBarButtonItem *legadoBtn = [[UIBarButtonItem alloc]
-                initWithTitle:@"Legado"
+                initWithTitle:@"书源"
                 style:UIBarButtonItemStylePlain
                 target:[LBLegadoBarButtonTarget shared]
                 action:@selector(onLegadoTapped)];

@@ -189,7 +189,7 @@ void LBLegadoShowImportAlert(void) {
         return;
     }
 
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Legado 书源导入"
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"书源导入"
                                                                    message:@"可填 URL（http/https），或在第二框粘贴 JSON 正文"
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
@@ -197,7 +197,7 @@ void LBLegadoShowImportAlert(void) {
         textField.keyboardType = UIKeyboardTypeURL;
     }];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"或粘贴 Legado JSON 正文";
+        textField.placeholder = @"或粘贴书源 JSON 正文";
         textField.keyboardType = UIKeyboardTypeDefault;
         textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
         textField.autocorrectionType = UITextAutocorrectionTypeNo;
@@ -222,7 +222,7 @@ void LBLegadoShowImportAlert(void) {
             jsonText = UIPasteboard.generalPasteboard.string;
         }
         if (jsonText.length == 0) {
-            LBLegadoShowResult(@"请粘贴 Legado JSON 正文");
+            LBLegadoShowResult(@"请粘贴书源 JSON 正文");
             return;
         }
         NSData *data = [jsonText dataUsingEncoding:NSUTF8StringEncoding];
@@ -251,7 +251,7 @@ void LBLegadoImportData(NSData *data) {
         if ([coreClass respondsToSelector:probeSel]) {
             isLegado = ((BOOL (*)(Class, SEL, NSData *))objc_msgSend)(coreClass, probeSel, data);
         }
-        if (!isLegado) { LBLegadoShowResult(@"不是 Legado JSON 格式"); return; }
+        if (!isLegado) { LBLegadoShowResult(@"不是书源 JSON 格式"); return; }
         id core = LBLegadoCoreIfReady();
         if (!core || ![core respondsToSelector:@selector(importLegadoJSONData:error:)]) {
             LBLegadoShowResult(@"LegadoBridgeCore 未就绪");
@@ -266,7 +266,7 @@ void LBLegadoImportData(NSData *data) {
         } else {
             // 写成功标记
             [@"imported OK" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_import_result.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
-            LBLegadoShowResult(@"Legado 书源导入成功");
+            LBLegadoShowResult(@"书源导入成功");
         }
     } @catch (NSException *e) {
         LBLegadoShowResult([NSString stringWithFormat:@"异常: %@", e]);
@@ -314,7 +314,7 @@ void LBLegadoFetchAndImport(NSURL *url) {
                 isLegado = ((BOOL (*)(Class, SEL, NSData *))objc_msgSend)(coreClass, probeSel, data);
             }
             if (!isLegado) {
-                LBLegadoShowResult(@"JSON 格式正确，但不是 Legado 书源格式");
+                LBLegadoShowResult(@"JSON 格式正确，但不是书源格式");
                 return;
             }
             // 导入
