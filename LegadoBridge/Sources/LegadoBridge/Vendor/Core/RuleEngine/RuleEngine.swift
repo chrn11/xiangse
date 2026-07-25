@@ -1522,8 +1522,10 @@ class CSSParser: RuleExecutor {
                 continue
             }
 
-            // 纯属性段（非末段）：把元素收成属性字符串，供后续 @js 使用
-            if Self.isTerminalAttr(part), part.lowercased() != "text", part.lowercased() != "html" {
+            // 纯属性段（非末段）：把元素收成属性字符串，供后续 @js 使用。
+            // 仅认「像属性」的名字（href/data-bid 等）；勿把标签名 a/div/li 当成属性，
+            // 否则 `a@text` / `tag.a@href` 中间段会空结果 → 目录 chapters=0。
+            if Self.isMidChainAttributeName(part) {
                 let values = try elements.map { try extractCSSValue(from: $0, attr: part, baseUrl: baseUrl) }
                     .filter { !$0.isEmpty }
                 var bid = values.first ?? ""
@@ -1583,6 +1585,20 @@ class CSSParser: RuleExecutor {
         if part.hasPrefix(".") || part.hasPrefix("#") || part.hasPrefix("//") { return false }
         // text / html / href / src / data-bid 等
         return true
+    }
+
+    /// 非末段何时当属性：含 `-`（data-bid）或常见属性名；排除 a/div/span 等标签名。
+    private static func isMidChainAttributeName(_ part: String) -> Bool {
+        let lower = part.lowercased()
+        if lower == "text" || lower == "html" { return false }
+        if !isTerminalAttr(part) { return false }
+        if lower.contains("-") { return true }
+        let known: Set<String> = [
+            "href", "src", "id", "class", "value", "title", "alt", "name", "type",
+            "content", "outerhtml", "innerhtml", "owntext", "textnodes", "all",
+            "checked", "selected", "disabled", "placeholder", "action", "method",
+        ]
+        return known.contains(lower)
     }
 
     /// `'prefix'+result+'suffix'` / `"prefix"+result+"suffix"`（可省略一侧）

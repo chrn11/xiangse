@@ -1,7 +1,7 @@
 # 香色原生样式还原（xiangse-ui-restore）进度
 
 日期：2026-07-26  
-设备包：`0419490` / run `30164640485` / variant `legado-debug`（已装真机，manifest 一致）  
+设备包：`e51cab5` / run `30165002442` / variant `legado-debug`（已装真机，manifest 一致）  
 工作区：含本轮**未发包**改动（见 §3）  
 真机证据目录：`fixtures/_devkit/ui_restore/`（gitignore，不入库）  
 对照矩阵旧稿：`xiangse-ui-restore-matrix.md`
@@ -22,54 +22,63 @@
 
 登录 WebView / browserAwait 已在延后总验备忘里 PASS，**不纳入本阶段主缺口**。
 
-## 2. 真机验收（包 `0419490` / run `30164640485`）
+## 2. 真机验收（包 `e51cab5` / run `30165002442`）
 
 ### 2.0 装包身份
 
-- IPA：`.test_tools/ci-ipa-30164640485/dist/StandarReader-legado-bridge-debug.ipa`
-- `reader-build-manifest.json`：`git_commit=04194901d3387c…`，`github_run_id=30164640485`，`variant=legado-debug` → **PASS**
+- IPA：`.test_tools/ci-ipa-30165002442/dist/StandarReader-legado-bridge-debug.ipa`
+- SHA256：`890eba34471d6d13febdafbfc1bf14d406110ca6487e96ebbec21583b9f35ba2`
+- `reader-build-manifest.json`：`git_commit=e51cab5266f188…`，`github_run_id=30165002442`，`variant=legado-debug` → **PASS**
 
 ### 2.1 验收表（诚实）
 
 | ID | 项 | 结果 | 证据 |
 |---|---|---|---|
-| G2 | 目录/开章不串「上架感言」 | **FAIL**（冷开无该书目录缓存） | `legado_catalog_select.txt`：`book=.../doupo.html … title=上架感言`；UI 正文为起点感言 |
-| G2′ | 同包 + 种入正确 `legado_catalog_cache/<safeKey>.json` 后再 `nativeRead` doupo | **PASS（对照）** | `v041_doupo_with_cache_meta.json`：UI/select=`第一章 陨落的天才` |
-| G3 | 用户可见无「Legado」品牌字 | **PASS** | 导入 Alert=`导入 1 个书源`；站点栏按钮=`书源`；管理页 title=`书源管理`（`v041_after_import_meta.json` / `v041_source_manager_meta.json`） |
-| G6 | 底栏图标工具栏干净截图 | **FAIL** | 中点后未见目录/字号/主题等；`v041_reader_toolbar*` / `v041_toolbar_after_cache*` |
-| A | 阅读壳仍为宿主 | 保持 | 前台 `com.appbox.StandarReader`；章题栏「返回」模型未变 |
+| G2 | 冷开无错误目录缓存：不得「上架感言」，期望「第一章 陨落的天才」 | **FAIL** | `skipXsfolder` 已生效（不再走 xsfolder「上架感言」）；但 `legado_catalog_last.txt`=`chapters=0`，UI 停在空书架，无正确章题。`v_e51_doupo_cold*` |
+| G2′ | 同包 + 种入正确 `legado_catalog_cache/<safeKey>.json` 后再 `nativeRead` doupo | **PASS** | `v_e51_doupo_with_cache_meta.json`：UI/select=`第一章 陨落的天才` |
+| G3 | 用户可见无「Legado」品牌字 | **PASS** | 导入 Alert=`导入 1 个书源`；站点栏=`书源`；管理页 title=`书源管理`（`v_e51_after_import*` / `v_e51_sites*` / `v_e51_source_manager*`） |
+| G6 | 底栏图标工具栏干净截图 | **FAIL** | 中点未出目录/字号/主题；`v_e51_reader_toolbar_*` / `v_e51_toolbar_cached*` |
+| A | 阅读壳仍为宿主 | 保持 | G2′ 前台章题「返回」+「第一章 陨落的天才」 |
 
-### 2.2 G2 根因（本轮钉死）
+上一轮 `0419490`：G2 串「上架感言」；本包已堵住 xsfolder 污染路径，但冷开网络目录解析空 → 仍总 FAIL。
 
-1. `0419490` 已做 pending **bookUrl 严格匹配**，但缓存未命中时 `LBEnsurePendingCatalogForBook` 仍回退 `LBCatalogFromXsfolderBookKey(LBGuessBookKeyForUrl)`。
-2. `doupo`（及任意未知 URL 旧默认）落到本地 key `斗破苍穹_天蚕土豆`。
-3. 真机该 xsfolder 章 0 / `localSourceText` **已被起点「上架感言」正文污染**（`Library/appdata/xsfolder/book/斗破苍穹_天蚕土豆/0` 开头即「又一次上架了」）。
-4. 因此 `nativeRead` doupo 在**无正确 bookUrl 目录缓存**时直接 `pendingNow` 开章 → select 记 `title=上架感言`。
-5. 对照：写入正确 `{bookUrl,chapters}` 缓存后，**同包**章题变为「第一章 陨落的天才」→ pending 匹配本身可用；缺口在 **http 书误用 xsfolder 目录/正文**。
+### 2.2 G2 本轮根因（钉死）
+
+1. `e51cab5` 的 http(s) 禁 xsfolder pending / 禁 xsfolder 正文 → 冷开无缓存时 **不再**出现「上架感言」（对照旧包已验证）。
+2. 冷开改走 `LBHandleCatalogRequest` → 拉到正确 `doupo_toc.html`（cookie probe / catalog_last toc 均对）。
+3. `getChapterList` 返回 **chapters=0**：TOC HTML 含 `<dd><a>…`，规则 `chapterName=a@text`。
+4. 根因在 `RuleEngine.CSSParser.executeAtChain`：非末段把标签名 `a` 误判为属性名，`a@text` 得到空标题 → TocParser 过滤掉全部章。
+5. 对照：写入正确 bookUrl 目录缓存后，**同包**章题「第一章 陨落的天才」→ pending/开章链正常。
 
 ### 2.3 截图/元数据索引（本轮）
 
 | 文件 | 含义 |
 |---|---|
-| `v041_shelf0*` | 冷启书架 |
-| `v041_after_import*` | 导入 Alert（无 Legado） |
-| `v041_sites2*` / `v041_source_manager*` | 站点栏「书源」+「书源管理」 |
-| `v041_doupo_reader*` | G2 FAIL：doupo 仍上架感言 |
-| `v041_doupo_with_cache*` | G2′ PASS：正确缓存后章题陨落的天才 |
-| `v041_reader_toolbar*` | G6 未拍到底栏图标 |
-| `.test_tools/mcp-evidence/accept_ui_restore_0419490.json` | 验收汇总 |
+| `v_e51_shelf0*` | 冷启书架 |
+| `v_e51_after_import*` | 导入 Alert（无 Legado） |
+| `v_e51_sites*` / `v_e51_source_manager*` | 站点栏「书源」+「书源管理」 |
+| `v_e51_doupo_cold*` | G2 FAIL：无缓存冷开未进阅读 / chapters=0 |
+| `v_e51_doupo_with_cache*` | G2′ PASS：正确缓存后章题陨落的天才 |
+| `v_e51_reader_toolbar_*` / `v_e51_toolbar_cached*` | G6 未拍到底栏图标 |
+| `.test_tools/mcp-evidence/accept_ui_restore_e51cab5.json` | 验收汇总 |
+| `.test_tools/mcp-evidence/ipa_upload_e51cab5.json` / `ipa_install_e51cab5.json` | 装包 |
 
-## 3. 本轮已改代码（已改待 commit，未进 `0419490` 包）
+## 3. 本轮已改代码（已改待 commit，未进 `e51cab5` 包）
 
-文件：`LegadoBridge/Sources/LegadoBridgeHooks/LegadoBridgeCExports.m`
+1. **`RuleEngine.swift`（CSSParser.executeAtChain）**  
+   非末段仅把「像属性」的名字（`href` / `data-bid` 等）当属性；**不再**把标签名 `a`/`div`/`li` 当属性。修复 `a@text` 空标题 → mock TOC `chapters=0`。
+2. **`RuleWebBook.swift`**  
+   增加 `Documents/legado_catalog_body_probe.txt`（bodyLen / ddApprox / chapterCount），便于区分「未拉 TOC」与「拉到但解析 0」。
 
-1. **http(s) 书禁止用 xsfolder 填 pending 目录**（缓存未命中则返回 NO，走 `LBHandleCatalogRequest`）。
-2. **`LBGuessBookKeyForUrl`**：未知 URL 不再默认 `斗破苍穹_天蚕土豆`，改返回 `nil`。
-3. **http(s) 书禁止 `LBReadXsfolderChapterBody`**，避免污染正文抢先上屏。
+上一轮已进 `e51cab5` 包、无需再改：
+
+- http(s) 禁止 xsfolder 填 pending 目录  
+- `LBGuessBookKeyForUrl` 未知 URL 不再默认斗破 key  
+- http(s) 禁止 `LBReadXsfolderChapterBody`
 
 **未改计划文件 status。未 commit。未 push。**
 
-下一包验收要点：删/忽略错误缓存后冷开 `doupo` → select/UI 不得出现「上架感言」；应变为 mock 章名或等网络目录返回后再开章。
+下一包验收要点：删 doupo 目录缓存后冷开 → select/UI 须为「第一章 陨落的天才」（或 mock 正确章题），且不得「上架感言」；探针 `legado_catalog_body_probe.txt` 应 `chapterCount>=1`。
 
 ## 4. 须大脑批准（例外 / 高风险）— 只列不擅自做
 
@@ -94,8 +103,8 @@
 ## 6. 下一步可执行
 
 1. **commit + 推 CI** 打含 §3 的 Debug IPA → 再装真机验 G2 冷开（勿依赖手工种缓存）。
-2. 验收脚本固定：无 doupo 缓存时 `nativeRead` → 断言 select/UI ≠「上架感言」；有缓存时章题含「陨落」。
+2. 验收断言：无 doupo 缓存时 `nativeRead` → UI/select 含「陨落」且不含「上架感言」；`catalog_body_probe.chapterCount>=1`。
 3. 补 G6：干净正文 + 底栏工具栏（对照本地 TXT）。
 4. 例外项保持清单。
 
-修订：2026-07-26（0419490 真机验：G3 PASS / G2 FAIL / 已改待 commit）
+修订：2026-07-26（e51cab5 真机验：G3 PASS / G2 冷开 FAIL(chapters=0) / G2′ PASS / 已改待 commit：a@text 中段属性误判）

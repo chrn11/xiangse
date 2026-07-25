@@ -274,6 +274,16 @@ public enum RuleWebBook {
             rule: tocRule,
             startIndex: 0
         )
+        // 真机：Documents/legado_catalog_body_probe.txt —— 区分「未拉到 TOC」与「拉到但解析 0 章」
+        Self.writeCatalogBodyProbe(
+            bookUrl: book.bookUrl,
+            tocUrl: tocUrl,
+            redirectUrl: redirectUrl,
+            body: preparedBody,
+            chapterListRule: tocRule.bookList ?? tocRule.chapterList,
+            chapterCount: chapters.count,
+            firstTitle: chapters.first?.title
+        )
 
         var pendingPageUrls = tocParser.parseNextPageUrls(body: preparedBody, baseUrl: redirectUrl, rule: tocRule)
         var visitedUrls: Set<String> = [redirectUrl]
@@ -527,6 +537,41 @@ public enum RuleWebBook {
         headerCookieLen=\(headerCookie.count)
         cookieLikelyAttached=\(!jarCookie.isEmpty || !headerCookie.isEmpty)
         hasUndefined=\(analyzedUrl.url.contains("undefined"))
+
+        """
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
+    /// 目录 TOC 对照探针：Documents/legado_catalog_body_probe.txt
+    private static func writeCatalogBodyProbe(
+        bookUrl: String,
+        tocUrl: String,
+        redirectUrl: String,
+        body: String,
+        chapterListRule: String?,
+        chapterCount: Int,
+        firstTitle: String?
+    ) {
+        let path = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_catalog_body_probe.txt")
+        let head = body.count > 800 ? String(body.prefix(800)) : body
+        let compactHead = head
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        let ddCount = body.components(separatedBy: "<dd").count - 1
+        let listId = body.contains("id=\"list\"") || body.contains("id='list'")
+        let line = """
+        ts=\(Date())
+        book=\(bookUrl)
+        toc=\(tocUrl)
+        redirect=\(redirectUrl)
+        bodyLen=\(body.count)
+        hasListId=\(listId)
+        ddApprox=\(ddCount)
+        chapterListRule=\(chapterListRule ?? "")
+        chapterCount=\(chapterCount)
+        first=\(firstTitle ?? "")
+        head=\(compactHead)
 
         """
         try? line.write(toFile: path, atomically: true, encoding: .utf8)
