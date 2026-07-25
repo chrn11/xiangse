@@ -97,18 +97,24 @@ final class RuleFixtureTests: XCTestCase {
         )
         XCTAssertTrue(name.contains("斗破"), "name @链应取出书名，实际: \(name)")
 
-        let bookUrl = try RuleWebBook.evaluateString(
-            rule: "a[data-bid]@data-bid@js:'https://m.qidian.com/book/'+result+'/'",
-            body: """
+        let itemBody = """
             <li class="res-book-item" data-bid="1209977">
+              <div class="book-img-box"><a data-bid="1209977" href="//www.qidian.com/book/1209977/">封面</a></div>
               <h3 class="book-info-title"><a data-bid="1209977">斗破苍穹</a></h3>
+              <p class="update"><a>最新更新 第一章</a></p>
+              <p><a>加入书架</a></p>
             </li>
             """
+        let bookUrl = try RuleWebBook.evaluateString(
+            rule: "a[data-bid]@data-bid@js:'https://m.qidian.com/book/'+result+'/'",
+            body: itemBody
         )
         XCTAssertTrue(
             bookUrl.contains("m.qidian.com/book/1209977"),
             "bookUrl @链+js 应拼移动详情，实际: \(bookUrl)"
         )
+        XCTAssertFalse(bookUrl.contains("加入书架"), "bookUrl 不得变成列表项全文，实际: \(bookUrl)")
+        XCTAssertFalse(bookUrl.contains("\n"), "bookUrl 应为单行 URL，实际: \(bookUrl)")
     }
 
     func testCSSListCount() throws {

@@ -1173,7 +1173,9 @@ class CSSParser: RuleExecutor {
 
     /// `sel1@sel2@attr` / `a[data-bid]@data-bid@js:'…'+result`
     private func executeAtChain(_ rule: String, context: ExecutionContext) throws -> RuleResult {
-        let parts = RuleAnalyzer(data: rule).splitRule("@")
+        // 必须用括号/引号安全切分：RuleAnalyzer 对 `a[data-bid]@…@js:'…'` 常切不开，
+        // 会把整串当选择器再取 text，bookUrl 变成书名+简介。
+        let parts = (RuleSplitter.splitTopLevel(rule, token: "@") ?? [rule])
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         guard !parts.isEmpty else { return .none }
