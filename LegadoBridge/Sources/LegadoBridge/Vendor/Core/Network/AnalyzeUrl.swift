@@ -606,24 +606,14 @@ class AnalyzeUrl {
             jsError = exception?.toString()
         }
 
-        // 包一层 try/catch：起点 searchUrl 在 java.put 抛错时，仍能拿到已赋值的 url
+        // 顶层 try/catch（勿包 IIFE）：JSC 里 IIFE 内解析不到 setValue 注入的 baseUrl
+        // （真机：ReferenceError Can't find variable: baseUrl）
         let wrapped = """
-        (function(){
-          var __e = null;
-          try {
-            \(trimmed)
-          } catch (e) {
-            __e = String(e);
-          }
-          if (typeof result !== 'undefined' && result !== null && String(result) !== 'undefined' && String(result) !== 'null' && String(result).length) {
-            return result;
-          }
-          if (typeof url !== 'undefined' && url !== null && String(url) !== 'undefined' && String(url) !== 'null' && String(url).length) {
-            return url;
-          }
-          if (__e) { throw new Error(__e); }
-          return null;
-        })()
+        try {
+          \(trimmed)
+        } catch (__analyzeUrlEvalErr) {
+          /* 保留已赋值的 url/result，供下方读取 */
+        }
         """
         let evalResult = jsContext.evaluateScript(wrapped)
         if let jsError, !jsError.isEmpty {
