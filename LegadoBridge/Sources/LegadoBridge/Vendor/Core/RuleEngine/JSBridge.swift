@@ -338,7 +338,17 @@ class JSBridge: JsEncodeUtils {
         javaObject?.setObject(androidIdBlock, forKeyedSubscript: "androidId" as NSString)
         #endif
 
-        jsContext.setValue(javaObject, forKey: "java")
+        // 真机：JSContext.setValue(_:forKey:) 写入的全局对 evaluateScript 不可见
+        // （曾表现为 Can't find variable: baseUrl / java；起点 searchUrl 靠 recover 才通）。
+        // 必须用 setObject:forKeyedSubscript: 挂到上下文与 globalObject。
+        Self.bindGlobal(javaObject, name: "java", into: jsContext)
+    }
+
+    /// 把桥接对象挂到 JSContext，保证真机 evaluateScript 能读到同名全局
+    private static func bindGlobal(_ value: JSValue?, name: String, into jsContext: JSContext) {
+        guard let value else { return }
+        jsContext.setObject(value, forKeyedSubscript: name as NSString)
+        jsContext.globalObject?.setObject(value, forKeyedSubscript: name as NSString)
     }
 
     // MARK: - source 对象注入
@@ -360,7 +370,7 @@ class JSBridge: JsEncodeUtils {
         sourceObject?.setObject(getKeyBlock, forKeyedSubscript: "getKey" as NSString)
         sourceObject?.setObject(getKeyBlock, forKeyedSubscript: "getTag" as NSString)
 
-        jsContext.setValue(sourceObject, forKey: "source")
+        Self.bindGlobal(sourceObject, name: "source", into: jsContext)
     }
 
     // MARK: - cookie 对象注入
@@ -405,7 +415,7 @@ class JSBridge: JsEncodeUtils {
         // 起点书源写的是 cookie.removeCookie(source.getKey())
         cookieObject?.setObject(removeCookieBlock, forKeyedSubscript: "removeCookie" as NSString)
 
-        jsContext.setValue(cookieObject, forKey: "cookie")
+        Self.bindGlobal(cookieObject, name: "cookie", into: jsContext)
     }
 
     // MARK: - network 对象注入（阅读约定）
@@ -428,7 +438,7 @@ class JSBridge: JsEncodeUtils {
         }
         networkObject?.setObject(postBlock, forKeyedSubscript: "post" as NSString)
 
-        jsContext.setValue(networkObject, forKey: "network")
+        Self.bindGlobal(networkObject, name: "network", into: jsContext)
     }
 
     /// 禁止协议外原生能力：钥匙串、香色私有文件等
@@ -437,7 +447,8 @@ class JSBridge: JsEncodeUtils {
             DebugLogger.shared.log("[JS] 拒绝协议外原生能力: \(name)")
             return ""
         }
-        jsContext.setValue(deny, forKey: "__denyNative")
+        jsContext.setObject(deny, forKeyedSubscript: "__denyNative" as NSString)
+        jsContext.globalObject?.setObject(deny, forKeyedSubscript: "__denyNative" as NSString)
         _ = jsContext.evaluateScript("""
         (function(){
           var blocked = ['SecItem','keychain','xiangsePrivateFile','LAContext'];
@@ -457,7 +468,7 @@ class JSBridge: JsEncodeUtils {
         cacheObject?.setObject({ (key: String, value: String) -> Void in CacheStore.put(key, value: value) }, forKeyedSubscript: "put" as NSString)
         cacheObject?.setObject({ (key: String) -> String in CacheStore.get(key) ?? "" }, forKeyedSubscript: "getFromMemory" as NSString)
 
-        jsContext.setValue(cacheObject, forKey: "cache")
+        Self.bindGlobal(cacheObject, name: "cache", into: jsContext)
     }
 
     // MARK: - 辅助方法

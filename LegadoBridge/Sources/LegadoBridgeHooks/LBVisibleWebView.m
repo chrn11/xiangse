@@ -397,9 +397,17 @@ static void LBBrowserAwaitFinish(void) {
         }];
         dispatch_semaphore_wait(htmlSem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)));
         sBrowserAwaitHTML = html ?: @"";
+        // 必须等 Cookie 回灌完成再放行后续 AnalyzeUrl，否则 @js 紧接的 ajax/搜索会空 Cookie
+        dispatch_semaphore_t cookieSem = dispatch_semaphore_create(0);
         LBHarvestWKCookies(wk, page, src, ^{
             LBVisibleWVMarker(@"startBrowserAwait harvest done");
+            dispatch_semaphore_signal(cookieSem);
         });
+        long cookieWait = dispatch_semaphore_wait(
+            cookieSem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)));
+        if (cookieWait != 0) {
+            LBVisibleWVMarker(@"startBrowserAwait harvest timeout");
+        }
     } else {
         sBrowserAwaitHTML = @"";
         LBHarvestNativeXiangseCookies(page, src);

@@ -64,6 +64,16 @@ void LBTriggerMixedSearch(NSString *keyword, NSString *sourceUrl) {
         return;
     }
 
+    // 指定 sourceUrl 时直调引擎（保留筛选）；startSearch 共存 Hook 会把 sourceUrl 丢掉并搜全源
+    if (sourceUrl.length > 0) {
+        NSString *marker = [NSString stringWithFormat:@"triggerMixed directHandle key=%@ src=%@",
+                            kw, sourceUrl];
+        [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_trigger.txt"]
+                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        LBHandleSearchRequest(kw, sourceUrl);
+        return;
+    }
+
     Class managerClass = NSClassFromString(@"BookSourceManager");
     if (!managerClass) managerClass = NSClassFromString(@"BookSourceManagerBase");
     id mgr = nil;

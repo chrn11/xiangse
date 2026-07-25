@@ -592,16 +592,33 @@ class AnalyzeUrl {
         bridge.context = execContext
         bridge.inject(into: jsContext)
 
+        // 真机门禁：确认 java 全局可见（setValue 曾导致 Can't find variable: java）
+        let javaType = jsContext.evaluateScript("typeof java")?.toString() ?? "nil"
+        if javaType != "object" {
+            let path = (NSHomeDirectory() as NSString)
+                .appendingPathComponent("Documents/legado_js_bridge_probe.txt")
+            let line = "ts=\(ISO8601DateFormatter().string(from: Date())) typeof_java=\(javaType) baseUrl=\(baseUrl)\n"
+            if let data = line.data(using: .utf8) {
+                if let fh = FileHandle(forWritingAtPath: path) {
+                    fh.seekToEndOfFile()
+                    fh.write(data)
+                    try? fh.close()
+                } else {
+                    try? data.write(to: URL(fileURLWithPath: path))
+                }
+            }
+        }
+
         // 设置特定变量：baseUrl/key/page 用字面量写入脚本，避免 JSC setValue 全局在真机不可见
         // （真机曾报 Can't find variable: baseUrl，且 try/catch 后 exceptionHandler 为空）
         let escapedBase = Self.jsSingleQuoted(baseUrl)
-        if let page = page { jsContext.setValue(page, forKey: "page") }
-        if let key = key { jsContext.setValue(key, forKey: "key") }
-        if let speakText = speakText { jsContext.setValue(speakText, forKey: "speakText") }
-        if let speakSpeed = speakSpeed { jsContext.setValue(speakSpeed, forKey: "speakSpeed") }
+        if let page = page { jsContext.setObject(page, forKeyedSubscript: "page" as NSString) }
+        if let key = key { jsContext.setObject(key, forKeyedSubscript: "key" as NSString) }
+        if let speakText = speakText { jsContext.setObject(speakText, forKeyedSubscript: "speakText" as NSString) }
+        if let speakSpeed = speakSpeed { jsContext.setObject(speakSpeed, forKeyedSubscript: "speakSpeed" as NSString) }
         // 勿把 @js: 原文塞进 url/result，否则脚本失败时会误读成「成功值」
-        jsContext.setValue("", forKey: "result")
-        jsContext.setValue("", forKey: "url")
+        jsContext.setObject("", forKeyedSubscript: "result" as NSString)
+        jsContext.setObject("", forKeyedSubscript: "url" as NSString)
 
         var jsError: String?
         jsContext.exceptionHandler = { _, exception in

@@ -57,6 +57,20 @@ public enum BrowserAwaitGate {
 
     public static func startBrowserAwait(url: String, title: String, sourceUrl: String?) -> String {
         guard !url.isEmpty else { return "" }
+        // 真机探针：无论 handler 是否注入都落盘，便于区分「未调用」与「handler 空」
+        let path = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_browser_await_gate.txt")
+        let line = "ts=\(ISO8601DateFormatter().string(from: Date())) handler=\(handler != nil) url=\(url) title=\(title) src=\(sourceUrl ?? "")\n"
+        if let data = line.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: path),
+               let fh = FileHandle(forWritingAtPath: path) {
+                fh.seekToEndOfFile()
+                fh.write(data)
+                try? fh.close()
+            } else {
+                try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+            }
+        }
         if let handler {
             return handler(url, title, sourceUrl)
         }

@@ -459,6 +459,42 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                 );
                 return YES;
             }
+            // legado://browserAwait?url=...[&sourceUrl=...][&title=...] — 书源等价等待探针
+            // 禁止主线程阻塞：后台队列调用 LBStartBrowserAwait，点「完成验证」后回灌 Cookie
+            BOOL wantBrowserAwait = [host isEqualToString:@"browserawait"]
+                || [host isEqualToString:@"await"]
+                || [pathLower containsString:@"/browserawait"]
+                || [pathLower containsString:@"/await"];
+            if (wantBrowserAwait) {
+                NSString *pageUrl = LBQueryParameterFromURL(url, @"url");
+                if (pageUrl.length == 0) pageUrl = LBQueryParameterFromURL(url, @"src");
+                NSString *sourceUrl = LBQueryParameterFromURL(url, @"sourceUrl");
+                NSString *title = LBQueryParameterFromURL(url, @"title");
+                if (pageUrl.length == 0) {
+                    LBLegadoShowResult(@"browserAwait 缺少 url");
+                    return YES;
+                }
+                NSString *decoded = [pageUrl stringByRemovingPercentEncoding] ?: pageUrl;
+                NSString *titleDecoded = title.length
+                    ? ([title stringByRemovingPercentEncoding] ?: title)
+                    : @"网页验证";
+                NSString *srcCopy = [sourceUrl copy] ?: @"";
+                NSString *urlCopy = [decoded copy];
+                NSString *titleCopy = [titleDecoded copy];
+                [[NSString stringWithFormat:@"openURL browserAwait url=%@ src=%@ title=%@",
+                  urlCopy, srcCopy, titleCopy]
+                    writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_browser_await_openurl.txt"]
+                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+                    NSString *html = LBStartBrowserAwait(urlCopy, srcCopy, titleCopy, 180) ?: @"";
+                    NSString *line = [NSString stringWithFormat:
+                                      @"browserAwait done htmlLen=%lu url=%@",
+                                      (unsigned long)html.length, urlCopy];
+                    [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_browser_await_result.txt"]
+                           atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                });
+                return YES;
+            }
             // legado://webview?url=...[&sourceUrl=...] — 可见 WebView（过盾/登录页）
             BOOL wantWebView = [host isEqualToString:@"webview"]
                 || [host isEqualToString:@"browser"]

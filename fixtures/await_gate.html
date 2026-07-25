@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>网页验证</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; padding: 24px; background: #f6f7f9; color: #222; }
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 20px; max-width: 420px; }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    p { line-height: 1.5; }
+    #status { color: #0a7; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>人机/等待验证页</h1>
+    <p>本页模拟 Cloudflare 等待成功：写入 Cookie <code>AWAIT_TOKEN=ok</code>。</p>
+    <p id="status">正在写入 Cookie…</p>
+    <p>请返回 App 点击右上角「完成验证」。</p>
+  </div>
+  <script>
+    document.cookie = "AWAIT_TOKEN=ok; path=/; max-age=86400";
+    document.cookie = "AWAIT_MARK=browser_await_" + Date.now() + "; path=/; max-age=86400";
+    document.getElementById("status").textContent = "Cookie 已写入：AWAIT_TOKEN=ok";
+  </script>
+</body>
+</html>
