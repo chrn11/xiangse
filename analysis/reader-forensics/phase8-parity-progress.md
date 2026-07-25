@@ -15,7 +15,7 @@ SHA：`0045524`（8.5/8.6）；**8.7 PASS**（`10d89e3` 真导航；旧 `1ec40dd
 | 8.9 | 发现 | `legado://explore` 深链 marker PASS；`mock_explore.html` | ✅ 深链；UI 列表待加强 |
 | 8.10 | 变量/并发 | 引擎已有；源夹具含 `variable`/`concurrentRate` | ⚠️ 引擎级，夹具已挂 |
 | 8.11 | 例外 | `legado-feature-exceptions.md` | ✅ |
-| **真实源 E2E** | 得奇 / 大熊猫 / 起点 | `real-source-e2e.md`；起点复跑仍 `total=0`；`/so/` WebView 卡「进行中」；PC 无 Cookie 为 `var buid` | ❌ FAIL |
+| **真实源 E2E** | 得奇 / 大熊猫 / 起点 | `real-source-e2e.md`（`a2516f0` 再跑）；起点仍 `total=0` + `has_buid=true`；`/so/` 白屏「进行中」；未见可点人机 | ❌ FAIL |
 
 真机报告：`fixtures/_devkit/phase8_parity/report.json`（login/explore 深链）；8.5–8.7 见各 `phase8*_*/report.json`；真实源：`fixtures/_devkit/real_source_e2e/report.json`。
 

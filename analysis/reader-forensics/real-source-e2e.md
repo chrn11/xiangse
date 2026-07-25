@@ -1,10 +1,11 @@
 # 真实书源端到端（2026-07-25）
 
-**verdict**：FAIL（起点搜索仍 `ok total=0`；得奇/大熊猫未本轮复跑）  
-**HEAD（可见 WebView + Cookie 回灌）**：`82df124` / 文档 `8315088`  
-**本轮代码（待 CI 装包）**：CookieManager 落盘 + 搜索 body 探针 + Cookie dump  
+**verdict**：FAIL（起点搜索仍 `ok total=0` / `has_buid=true`；得奇/大熊猫未本轮复跑）  
+**装包 HEAD**：`a2516f0`（CI run `30141217889`，variant `legado-release`）  
+**可见 WebView / Cookie 回灌代码**：`82df124` / `a2516f0`  
 **MCP**：`http://192.168.1.18:8090`  
-**报告**：`fixtures/_devkit/real_source_e2e/`；起点复跑见 `fixtures/_devkit/phase88_visible_webview/qidian_cookie_search_v2.json`
+**包名**：`com.appbox.StandarReader`  
+**本轮报告**：`fixtures/_devkit/phase88_visible_webview/qidian_cookie_search_20260725T043806Z.json`（同内容 `qidian_cookie_search_latest.json`）
 
 ## 源名单与结果
 
@@ -14,34 +15,45 @@
 | 2 | 大熊猫文学网 | `https://www.dxmwx.org` | 斗破苍穹 | （本轮未复跑） | **FAIL**（旧） | 设备侧下载超时；引擎 0 条 |
 | 3 | 起点中文 | `https://www.qidian.com` | 斗破苍穹 | `ok total=0 sources=1` | **FAIL** | 见下「起点本轮」 |
 
-## 起点本轮（2026-07-25 可见 WebView 后复跑）
+## 起点本轮（2026-07-25 12:38–12:41 复跑）
 
 | 项 | 结果 |
 |---|---|
-| 原生开页 | PASS：`path=XiangseOpenWebView hit class=LCStandarConfig`，`/all/` 分类页可见 |
-| 人机弹层 | `/all/` **未见**人机文案；有「打开 App」底栏，非阻断 |
-| Cookie 回灌 | PASS（同进程）：`WKCookieStore harvest done`；jar 有 `www.qidian.com` / `m.qidian.com` |
-| 搜索复跑 | **FAIL** `ok total=0`（同进程、先回灌再搜） |
-| CSS 对照 | `bookList=class.res-book-item` 仍 `total=0` → 不只是 `<js>` 规则问题 |
-| `/so/` 页 | 原生 WebView 打开搜索 URL 后 UI 长期「进行中」；OCR 近空白；harvest key 仍偏分类页 |
-| 无 Cookie 对照（PC） | `https://www.qidian.com/so/斗破苍穹.html` → **HTTP 202**，body 含 `var buid`（Cookie 验证页） |
+| 原生开页 `/all/` | PASS：`path=XiangseOpenWebView hit class=LCStandarConfig`；分类页可见（玄幻/奇幻等标签） |
+| 「在此处浏览」弹层 | PASS：点掉后 `browse_gone` |
+| 人机验证 | **未见可点控件**（UI/OCR 无「人机/滑动/验证」文案）；自动点按与滑块尝试均未命中；`captcha_seen=false` |
+| Cookie 回灌 | PASS（同进程）：`WKCookieStore harvest done`；jar/store 有 `www.qidian.com` / `m.qidian.com`（含 `_csrfToken`、`w_tsfp`） |
+| 原生开页 `/so/` | 长期白屏「进行中」；OCR 几乎只有状态栏 |
+| 搜索复跑 | **FAIL** `ok total=0`；探针 `has_buid=true`、`has_res_book_item=false`；`redirect=https://www.qidian.com/undefined` |
 | 正文 | 未尝试（无搜索结果） |
 
 证据：
 
-- `fixtures/_devkit/phase88_visible_webview/qidian_cookie_search_v2.json`
-- `fixtures/_devkit/phase88_visible_webview/qidian_css_control.json`
-- `fixtures/_devkit/phase88_visible_webview/qidian_so_wait.json`
-- `fixtures/_devkit/phase88_visible_webview/qidian_so_pc_nocookie.html`
+- 报告：`fixtures/_devkit/phase88_visible_webview/qidian_cookie_search_20260725T043806Z.json`
+- `/all/` 截图：`fixtures/_devkit/phase88_visible_webview/qidian_all_20260725T043915Z.png`
+- `/so/` 等待截图：`fixtures/_devkit/phase88_visible_webview/qidian_so_wait_0_20260725T043955Z.png` 等
+- 搜索后截图：`fixtures/_devkit/real_source_e2e/qidian_search_20260725T044107Z.png`（仍卡在原生网页「进行中」）
+
+探针原文摘要：
+
+```
+redirect=https://www.qidian.com/undefined
+len=209
+has_buid=true
+has_res_book_item=false
+head=... var buid = "fffffffffffffffffff" ... /C2WF946J0/probe.js ...
+```
 
 ## 含义
 
-- 引擎 mock 搜索仍成立；**真实起点搜索未通**。
-- `/all/` 能开且能回灌 Cookie，**不等于** `/so/` Cookie 验证已过。
-- 书源 `ruleSearch.bookList` 依赖 `java.startBrowserAwait`；Bridge **尚未实现**该 API；即便改成纯 CSS 列表，当前回灌 Cookie 下仍空结果。
+- 原生开页 + Cookie 回灌仍通；**起点搜索仍不通**。
+- `/all/` 拿到的 Cookie **过不了** `/so/` 的 Cookie 验证：搜索响应仍是 `var buid` 挑战页，不是书单 HTML。
+- `/so/` 在 App 原生网页里长时间白屏转圈，**看不到**可点的人机界面，自动化无法在网页内完成验证。
+- 书源 `ruleSearch.bookList` 在 `var buid` 时会调 `java.startBrowserAwait`；Bridge **仍未实现**该 API。
+- `redirect=.../undefined` 也值得单独查（搜索 URL 组装/跳转可能另有问题），但当前主因仍是 `has_buid=true`。
 
 ## 诚实边界
 
 - **未**把真实源标 PASS。
 - **未**把 `legado-feature-parity` 标 completed。
-- 可见 WebView 原生 hit + Cookie 回灌路径 PASS **不等于**起点过盾搜索 PASS。
+- 可见 WebView 原生 hit + Cookie 回灌 PASS **不等于**起点搜索 PASS。
