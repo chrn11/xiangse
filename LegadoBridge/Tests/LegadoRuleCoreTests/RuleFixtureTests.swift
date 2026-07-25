@@ -122,6 +122,78 @@ final class RuleFixtureTests: XCTestCase {
         XCTAssertFalse(bookUrl.isEmpty, "bookUrl 不得为空")
     }
 
+    /// 起点目录 AllInOne：`:"sS":…` 须解析出章节，且 `$2` / `@js…$3` 可用
+    func testQidianTocAllInOneRegex() throws {
+        let body = #"""
+        <html><body><script>
+        var data={"vs":[{"cs":[
+          {"sS":0,"cN":"第一章 陨落的天才","id":12345,"uT":"2009-01-01 00:00:00"},
+          {"sS":1,"cN":"第二章 VIP","id":12346,"uT":"2009-01-02 00:00:00\"extra"}
+        ]}]};
+        </script></body></html>
+        """#
+        let chapterList = #":"sS":(\d),.*?"cN":"(.*?)","id":(\d+),.*?"uT":"(.*?)""#
+        let count = try RuleWebBook.evaluateElementCount(
+            rule: chapterList,
+            body: body,
+            baseUrl: "https://m.qidian.com/book/1209977/catalog/"
+        )
+        XCTAssertEqual(count, 2, "AllInOne 应命中 2 章，实际 \(count)")
+
+        let engine = RuleEngine()
+        let elements = try engine.getElements(
+            ruleStr: chapterList,
+            body: body,
+            baseUrl: "https://m.qidian.com/book/1209977/catalog/"
+        )
+        XCTAssertEqual(elements.count, 2)
+        let title = engine.getString(
+            ruleStr: "$2",
+            elementContext: elements[0],
+            baseUrl: "https://m.qidian.com/book/1209977/catalog/"
+        )
+        XCTAssertEqual(title, "第一章 陨落的天才")
+
+        let url = engine.getString(
+            ruleStr: "@js:var bid = baseUrl.match(/\\d+/);'https://vipreader.qidian.com/chapter/'+bid+'/$3/'",
+            elementContext: elements[0],
+            baseUrl: "https://m.qidian.com/book/1209977/catalog/"
+        )
+        XCTAssertTrue(
+            url.contains("vipreader.qidian.com/chapter/1209977/12345"),
+            "chapterUrl 应含 bid+章 id，实际: \(url)"
+        )
+
+        let vip = engine.getString(
+            ruleStr: "$1@js:result.replace(/1.*/,'false').replace(/0.*/,'true');",
+            elementContext: elements[0],
+            baseUrl: "https://m.qidian.com/book/1209977/catalog/"
+        )
+        XCTAssertEqual(vip, "true", "sS=0 → isVip 映射 true（书源写法），实际: \(vip)")
+
+        let update = engine.getString(
+            ruleStr: #"$4##\".*""#,
+            elementContext: elements[1],
+            baseUrl: "https://m.qidian.com/book/1209977/catalog/"
+        )
+        XCTAssertEqual(update, "2009-01-02 00:00:00", "updateTime ## 净化，实际: \(update)")
+
+        let toc = TocRule(
+            bookList: chapterList,
+            chapterName: "$2",
+            chapterUrl: "@js:var bid = baseUrl.match(/\\d+/);'https://vipreader.qidian.com/chapter/'+bid+'/$3/'",
+            isVip: "$1@js:result.replace(/1.*/,'false').replace(/0.*/,'true');"
+        )
+        let chapters = try TocParser().parseChapters(
+            body: body,
+            baseUrl: "https://m.qidian.com/book/1209977/catalog/",
+            rule: toc
+        )
+        XCTAssertEqual(chapters.count, 2)
+        XCTAssertEqual(chapters[0].title, "第一章 陨落的天才")
+        XCTAssertTrue(chapters[0].url.contains("/12345/"))
+    }
+
     func testCSSListCount() throws {
         let count = try RuleWebBook.evaluateElementCount(
             rule: "@css:.book-item",

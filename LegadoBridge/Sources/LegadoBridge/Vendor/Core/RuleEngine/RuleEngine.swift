@@ -570,6 +570,10 @@ class RuleEngine {
         if let jsonObject = input as? [String: Any] {
             context.jsonDict = jsonObject
             context.jsonValue = jsonObject
+        } else if let stringGroups = input as? [String] {
+            // AllInOne 捕获组数组
+            context.lastResult = .list(stringGroups)
+            context.document = stringGroups.first
         } else if let jsonArray = input as? [Any] {
             context.jsonValue = jsonArray
         } else if let string = input as? String {
@@ -608,6 +612,16 @@ class RuleEngine {
             return try getJsElements(ruleStr: trimmed, body: body, baseUrl: baseUrl, source: source)
         }
 
+        // 正则 AllInOne：必须以 `:` 开头（可前缀 `-` 倒序 / `+`）
+        if let allInOne = Self.parseAllInOneRegexRule(trimmed) {
+            return try getRegexAllInOneElements(
+                pattern: allInOne.pattern,
+                body: body,
+                baseUrl: baseUrl,
+                reverse: allInOne.reverse
+            )
+        }
+
         let isJson = body.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") ||
                      body.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("[")
 
@@ -616,6 +630,56 @@ class RuleEngine {
         } else {
             return try getHtmlElements(ruleStr: ruleStr, body: body, baseUrl: baseUrl)
         }
+    }
+
+    /// 解析 `-:` / `+:` / `:` AllInOne 列表规则
+    private static func parseAllInOneRegexRule(_ rule: String) -> (pattern: String, reverse: Bool)? {
+        var s = rule.trimmingCharacters(in: .whitespacesAndNewlines)
+        var reverse = false
+        if s.hasPrefix("-") {
+            reverse = true
+            s = String(s.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if s.hasPrefix("+") {
+            s = String(s.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard s.hasPrefix(":") else { return nil }
+        let pattern = String(s.dropFirst())
+        guard !pattern.isEmpty else { return nil }
+        return (pattern, reverse)
+    }
+
+    /// AllInOne 正则：每个匹配 → `[完整匹配, $1, $2, …]`，供 chapterName=`$2` 等取值
+    private func getRegexAllInOneElements(
+        pattern: String,
+        body: String,
+        baseUrl: String?,
+        reverse: Bool
+    ) throws -> [ElementContext] {
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: [.dotMatchesLineSeparators]
+        ) else {
+            throw RuleError.invalidRule("无效 AllInOne 正则：\(pattern)")
+        }
+        let range = NSRange(body.startIndex..., in: body)
+        let matches = regex.matches(in: body, options: [], range: range)
+        var elements: [ElementContext] = []
+        elements.reserveCapacity(matches.count)
+        for match in matches {
+            var groups: [String] = []
+            groups.reserveCapacity(match.numberOfRanges)
+            for i in 0..<match.numberOfRanges {
+                let gr = match.range(at: i)
+                if gr.location != NSNotFound, let sr = Range(gr, in: body) {
+                    groups.append(String(body[sr]))
+                } else {
+                    groups.append("")
+                }
+            }
+            elements.append(ElementContext(element: groups, baseUrl: baseUrl))
+        }
+        if reverse { elements.reverse() }
+        return elements
     }
 
     /// 列表规则为 JS 时：跑桥接（含 getElement / startBrowserAwait），再取元素
@@ -817,6 +881,17 @@ class RuleEngine {
 
         let effectiveBaseUrl = baseUrl ?? elementContext.baseUrl
 
+        // AllInOne 匹配组：`$2` / `$1@js:…` / `$4##\".*"` / `@js:…$3…`
+        if let groups = elementContext.element as? [String] {
+            if let resolved = resolveRegexGroupRule(
+                ruleStr,
+                groups: groups,
+                baseUrl: effectiveBaseUrl
+            ) {
+                return resolved
+            }
+        }
+
         if RuleSplitter.splitTopLevel(ruleStr, token: "&&") != nil {
             let values = evaluateChainedRule(ruleStr, inputs: [elementContext.element], baseUrl: effectiveBaseUrl)
             return values.compactMap { stringifyOutput($0) }.joined(separator: "\n")
@@ -824,6 +899,10 @@ class RuleEngine {
 
         do {
             let context = buildExecutionContext(for: elementContext.element, baseUrl: effectiveBaseUrl)
+            if let groups = elementContext.element as? [String] {
+                context.lastResult = .list(groups)
+                context.document = groups.first
+            }
             let result = try executeSingle(rule: ruleStr, context: context)
             switch result {
             case .string(let value):
@@ -838,6 +917,151 @@ class RuleEngine {
         }
         
         return ""
+    }
+
+    /// 解析 AllInOne 捕获组规则；无法识别时返回 nil（回落通用路径）
+    private func resolveRegexGroupRule(
+        _ ruleStr: String,
+        groups: [String],
+        baseUrl: String?
+    ) -> String? {
+        let trimmed = ruleStr.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        // 纯 `$N`
+        if let num = Self.leadingCaptureGroupIndex(trimmed),
+           trimmed == "$\(num)",
+           num < groups.count {
+            return groups[num]
+        }
+
+        // `$N##pattern##replacement` / `$N##pattern`
+        if let num = Self.leadingCaptureGroupIndex(trimmed),
+           trimmed.hasPrefix("$\(num)##"),
+           num < groups.count {
+            let rest = String(trimmed.dropFirst(2 + "\(num)".count)) // drop `$N`
+            return applyHashReplace(to: groups[num], hashRule: rest)
+        }
+
+        // `$N@js:…`
+        if let num = Self.leadingCaptureGroupIndex(trimmed),
+           trimmed.hasPrefix("$\(num)@"),
+           num < groups.count {
+            let afterAt = String(trimmed.dropFirst(2 + "\(num)".count)) // after `$N@`
+            let lower = afterAt.lowercased()
+            if lower.hasPrefix("js:") {
+                let jsCode = String(afterAt.dropFirst(3))
+                return evalJSWithResult(jsCode, result: groups[num], baseUrl: baseUrl, groups: groups)
+            }
+        }
+
+        // 整段 `@js:`：先替换 `$N` 再执行（起点 chapterUrl）
+        if trimmed.lowercased().hasPrefix("@js:") {
+            let jsCode = substituteCaptureGroups(String(trimmed.dropFirst(4)), groups: groups)
+            return evalJSWithResult(jsCode, result: groups.first ?? "", baseUrl: baseUrl, groups: groups)
+        }
+
+        return nil
+    }
+
+    private static func leadingCaptureGroupIndex(_ rule: String) -> Int? {
+        guard let regex = try? NSRegularExpression(pattern: #"^\$(\d{1,2})"#),
+              let match = regex.firstMatch(in: rule, range: NSRange(rule.startIndex..., in: rule)),
+              let r = Range(match.range(at: 1), in: rule) else { return nil }
+        return Int(rule[r])
+    }
+
+    private func substituteCaptureGroups(_ text: String, groups: [String]) -> String {
+        guard let regex = try? NSRegularExpression(pattern: #"\$(\d{1,2})"#) else { return text }
+        let ns = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
+        guard !matches.isEmpty else { return text }
+        var result = ""
+        var last = 0
+        for match in matches {
+            let full = match.range
+            if full.location > last {
+                result += ns.substring(with: NSRange(location: last, length: full.location - last))
+            }
+            let num = Int(ns.substring(with: match.range(at: 1))) ?? -1
+            if num >= 0, num < groups.count {
+                result += groups[num]
+            } else {
+                result += ns.substring(with: full)
+            }
+            last = full.location + full.length
+        }
+        if last < ns.length {
+            result += ns.substring(from: last)
+        }
+        return result
+    }
+
+    /// hashRule 形如 `##pattern` 或 `##pattern##replacement`（可再跟任意标记表示只替第一次）
+    private func applyHashReplace(to value: String, hashRule: String) -> String {
+        let body = hashRule.hasPrefix("##") ? String(hashRule.dropFirst(2)) : hashRule
+        let parts = RuleSplitter.splitTopLevel(body, token: "##") ?? [body]
+        guard let pattern = parts.first, !pattern.isEmpty else { return value }
+        let replacement = parts.count > 1 ? parts[1] : ""
+        let firstOnly = parts.count > 2
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return value }
+        let full = NSRange(value.startIndex..., in: value)
+        if firstOnly, let match = regex.firstMatch(in: value, range: full) {
+            return regex.stringByReplacingMatches(
+                in: value,
+                options: [],
+                range: match.range,
+                withTemplate: replacement
+            )
+        }
+        return regex.stringByReplacingMatches(
+            in: value,
+            options: [],
+            range: full,
+            withTemplate: replacement
+        )
+    }
+
+    private func evalJSWithResult(
+        _ jsCode: String,
+        result: String,
+        baseUrl: String?,
+        groups: [String]
+    ) -> String {
+        let context = ExecutionContext()
+        context.baseURL = baseUrl.flatMap { URL(string: $0) }
+        context.lastResult = .list(groups)
+        context.document = groups.first
+        context.ruleEngine = self
+        _ = context.jsContext
+        let resultLiteral = jsonStringLiteralForJS(result)
+        let baseLiteral = jsonStringLiteralForJS(baseUrl ?? "")
+        context.jsContext.evaluateScript("var result = \(resultLiteral); var baseUrl = \(baseLiteral);")
+        // 书源常把 match() 数组直接 java.put；强制 String() 避免 JSC→Swift 桥接抛错
+        context.jsContext.evaluateScript("""
+        (function(){
+          if (typeof java === 'undefined' || !java || !java.put) return;
+          var _put = java.put;
+          java.put = function(k, v) {
+            try { return _put(String(k), (v === undefined || v === null) ? '' : String(v)); }
+            catch (e) { return ''; }
+          };
+        })();
+        """)
+        var jsError: String?
+        context.jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
+        let out = context.jsContext.evaluateScript(jsCode)?.toString() ?? ""
+        if let jsError, !jsError.isEmpty {
+            DebugLogger.shared.log("[getString/@js] \(jsError)")
+            return ""
+        }
+        if out == "undefined" || out == "null" { return "" }
+        return out
+    }
+
+    private func jsonStringLiteralForJS(_ value: String) -> String {
+        let data = try? JSONSerialization.data(withJSONObject: value, options: [])
+        return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
     }
     
     /// 从 SwiftSoup Element 中提取字符串
@@ -1999,32 +2223,51 @@ class JavaScriptParser: RuleExecutor {
     var kind: RuleKind { .js }
     
     func canExecute(_ rule: String) -> Bool {
-        return rule.contains("{{js") || rule.contains("<js>")
+        let lower = rule.lowercased()
+        return lower.contains("{{js") || lower.contains("<js>") || lower.hasPrefix("@js:")
     }
     
     func execute(_ rule: String, context: ExecutionContext) throws -> RuleResult {
         let jsCode = extractJS(rule)
-        
-        context.jsContext.setValue(context.lastResult.string, forKey: "result")
-        context.jsContext.setValue(context.baseURL?.absoluteString, forKey: "baseUrl")
-        
+        // JSON 字面量注入，避免 setValue:forKey 未落到 JS 全局（同 @ 链修复）
+        let resultText: String = {
+            if case .string(let s) = context.lastResult { return s }
+            if case .list(let vals) = context.lastResult { return vals.first ?? "" }
+            return (context.document as? String) ?? ""
+        }()
+        let resultLiteral = jsonLiteral(resultText)
+        let baseLiteral = jsonLiteral(context.baseURL?.absoluteString ?? "")
+        _ = context.jsContext
+        context.jsContext.evaluateScript("var result = \(resultLiteral); var baseUrl = \(baseLiteral);")
+        var jsError: String?
+        context.jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
         let jsValue = context.jsContext.evaluateScript(jsCode)
-        
-        if let string = jsValue?.toString() {
+        if let jsError, !jsError.isEmpty {
+            throw RuleError.executionFailed(jsError)
+        }
+        if let string = jsValue?.toString(), string != "undefined", string != "null" {
             return .string(string)
         }
-        
         return .none
+    }
+
+    private func jsonLiteral(_ value: String) -> String {
+        let data = try? JSONSerialization.data(withJSONObject: value, options: [])
+        return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
     }
     
     private func extractJS(_ rule: String) -> String {
+        let trimmed = rule.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.lowercased().hasPrefix("@js:") {
+            return String(trimmed.dropFirst(4))
+        }
         let patterns = [
             #"{{js(.*?)}}"#,
             #"<js>(.*?)</js>"#
         ]
         
         for pattern in patterns {
-            if let regex = try? NSRegularExpression(pattern: pattern),
+            if let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]),
                let match = regex.firstMatch(
                 in: rule,
                 range: NSRange(rule.startIndex..., in: rule)

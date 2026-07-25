@@ -88,6 +88,10 @@ class RuleSplitter {
         if trimmed.hasPrefix("//") {
             return (.xpath, trimmed)
         }
+        // `$1`..`$99`（可跟 @js / ##）是 AllInOne 捕获组，不是 JSONPath
+        if trimmed.range(of: #"^\$\d{1,2}(@|##|$)"#, options: .regularExpression) != nil {
+            return (.css, trimmed)
+        }
         if trimmed.hasPrefix("$") {
             return (.jsonPath, trimmed)
         }
