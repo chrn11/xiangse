@@ -641,7 +641,8 @@ public enum RuleWebBook {
                     .joined(separator: ",")
             }
             let parsedBookUrl = ruleEngine.getString(ruleStr: bookUrlRule, elementContext: el, baseUrl: baseUrl)
-            item.bookUrl = parsedBookUrl.isEmpty ? baseUrl : parsedBookUrl
+            // 勿用列表页 baseUrl 填空 bookUrl：否则 10 条会去重成 1 条
+            item.bookUrl = parsedBookUrl
             let parsedCover = ruleEngine.getString(ruleStr: coverUrlRule, elementContext: el, baseUrl: baseUrl)
             if !parsedCover.isEmpty {
                 item.coverUrl = URL(string: parsedCover, relativeTo: URL(string: baseUrl))?.absoluteURL.absoluteString ?? parsedCover

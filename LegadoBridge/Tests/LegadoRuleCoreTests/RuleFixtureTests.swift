@@ -95,8 +95,20 @@ final class RuleFixtureTests: XCTestCase {
             rule: "class.book-info-title.0@tag.a.0@text",
             body: body
         )
-        // evaluateString 在整页上取，应能拿到书名
-        XCTAssertTrue(name.contains("斗破"), "name 规则应取出书名，实际: \(name)")
+        XCTAssertTrue(name.contains("斗破"), "name @链应取出书名，实际: \(name)")
+
+        let bookUrl = try RuleWebBook.evaluateString(
+            rule: "a[data-bid]@data-bid@js:'https://m.qidian.com/book/'+result+'/'",
+            body: """
+            <li class="res-book-item" data-bid="1209977">
+              <h3 class="book-info-title"><a data-bid="1209977">斗破苍穹</a></h3>
+            </li>
+            """
+        )
+        XCTAssertTrue(
+            bookUrl.contains("m.qidian.com/book/1209977"),
+            "bookUrl @链+js 应拼移动详情，实际: \(bookUrl)"
+        )
     }
 
     func testCSSListCount() throws {

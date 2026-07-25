@@ -59,13 +59,22 @@ enum LegadoCSSSelect {
             return found
         }
         if s.hasPrefix("id.") {
-            if let el = try root.getElementById(String(s.dropFirst(3))) {
-                return [el]
+            let (idName, index) = parseClassRule(String(s.dropFirst(3)))
+            guard !idName.isEmpty else { return [] }
+            if let el = try root.getElementById(idName) {
+                return index == nil || index == 0 ? [el] : []
             }
             return []
         }
         if s.hasPrefix("tag.") {
-            return try root.getElementsByTag(String(s.dropFirst(4))).array()
+            let (tagName, index) = parseClassRule(String(s.dropFirst(4)))
+            guard !tagName.isEmpty else { return [] }
+            var found = try root.getElementsByTag(tagName).array()
+            if let index {
+                guard index >= 0, index < found.count else { return [] }
+                return [found[index]]
+            }
+            return found
         }
         return try root.select(s).array()
     }
@@ -1095,7 +1104,13 @@ class CSSParser: RuleExecutor {
     }
     
     func execute(_ rule: String, context: ExecutionContext) throws -> RuleResult {
-        let (selector, attr) = parseSelector(rule)
+        let trimmed = rule.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Legado 默认规则用 `@` 串联选择器 / 属性 / js（如 class.x.0@tag.a.0@text）
+        if trimmed.contains("@"), !trimmed.lowercased().hasPrefix("@css:"), !trimmed.hasPrefix("@@") {
+            return try executeAtChain(trimmed, context: context)
+        }
+
+        let (selector, attr) = parseSelector(trimmed)
         let elements: [SwiftSoup.Element]
         let baseUrl = context.baseURL?.absoluteString
 
@@ -1121,6 +1136,102 @@ class CSSParser: RuleExecutor {
         }
 
         return .none
+    }
+
+    /// `sel1@sel2@attr` / `a[data-bid]@data-bid@js:'…'+result`
+    private func executeAtChain(_ rule: String, context: ExecutionContext) throws -> RuleResult {
+        let parts = RuleAnalyzer(data: rule).splitRule("@")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return .none }
+
+        let root: SwiftSoup.Element
+        if let document = context.document as? SwiftSoup.Document {
+            root = document
+        } else if let element = context.document as? SwiftSoup.Element {
+            root = element
+        } else if let html = context.document as? String {
+            root = try SwiftSoup.parse(html)
+        } else {
+            throw RuleError.noDocument
+        }
+
+        let baseUrl = context.baseURL?.absoluteString
+        var elements: [SwiftSoup.Element] = [root]
+        var stringResult: String?
+
+        for (idx, part) in parts.enumerated() {
+            let isLast = idx == parts.count - 1
+            let lower = part.lowercased()
+
+            if lower.hasPrefix("js:") || lower.hasPrefix("@js:") {
+                let jsCode = lower.hasPrefix("@js:") ? String(part.dropFirst(4)) : String(part.dropFirst(3))
+                let input = stringResult
+                    ?? (try? elements.first.map { try $0.text() } ?? "")
+                    ?? ""
+                let jsCtx = JSContext()
+                jsCtx?.setValue(input, forKey: "result")
+                jsCtx?.setValue(baseUrl, forKey: "baseUrl")
+                let out = jsCtx?.evaluateScript(jsCode)?.toString() ?? ""
+                stringResult = (out == "undefined" || out == "null") ? "" : out
+                elements = []
+                continue
+            }
+
+            if isLast && Self.isTerminalAttr(part) {
+                if let s = stringResult { return s.isEmpty ? .none : .string(s) }
+                let values = try elements.map { try extractCSSValue(from: $0, attr: part, baseUrl: baseUrl) }
+                    .filter { !$0.isEmpty }
+                if values.count == 1 { return .string(values[0]) }
+                if !values.isEmpty { return .list(values) }
+                return .none
+            }
+
+            // 中间段若已是字符串（如 data-bid），不可再当选择器
+            if stringResult != nil {
+                if isLast { return stringResult!.isEmpty ? .none : .string(stringResult!) }
+                continue
+            }
+
+            // 纯属性段（非末段）：把元素收成属性字符串，供后续 @js 使用
+            if Self.isTerminalAttr(part), part.lowercased() != "text", part.lowercased() != "html" {
+                let values = try elements.map { try extractCSSValue(from: $0, attr: part, baseUrl: baseUrl) }
+                    .filter { !$0.isEmpty }
+                stringResult = values.first ?? ""
+                elements = []
+                continue
+            }
+
+            var next: [SwiftSoup.Element] = []
+            for el in elements {
+                next.append(contentsOf: try LegadoCSSSelect.elements(in: el, selector: part))
+            }
+            elements = next
+            if elements.isEmpty && !isLast {
+                return .none
+            }
+        }
+
+        if let s = stringResult {
+            return s.isEmpty ? .none : .string(s)
+        }
+        let values = try elements.map { try extractCSSValue(from: $0, attr: "text", baseUrl: baseUrl) }
+            .filter { !$0.isEmpty }
+        if values.count == 1 { return .string(values[0]) }
+        if !values.isEmpty { return .list(values) }
+        return .none
+    }
+
+    private static func isTerminalAttr(_ part: String) -> Bool {
+        let lower = part.lowercased()
+        if lower.hasPrefix("js:") || lower.hasPrefix("@js:") { return false }
+        if lower.hasPrefix("class.") || lower.hasPrefix("tag.") || lower.hasPrefix("id.") || lower.hasPrefix("text.") {
+            return false
+        }
+        if part.contains("[") || part.contains(">") || part.contains(" ") { return false }
+        if part.hasPrefix(".") || part.hasPrefix("#") || part.hasPrefix("//") { return false }
+        // text / html / href / src / data-bid 等
+        return true
     }
     
     private func parseSelector(_ rule: String) -> (String, String) {
