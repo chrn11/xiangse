@@ -11,7 +11,7 @@ SHA：`0045524`（8.5/8.6）；**8.7 PASS**（`10d89e3` 真导航；旧 `1ec40dd
 | 8.6 | 替换净化 | `0045524`；`phase86_purify_accept` PASS。见 `phase86-purify-progress.md` | ✅ PASS |
 | 8.7 | 后台 WebView 抓正文 | `10d89e3`；`load(URLRequest)` 真导航。见 `phase87-webview-progress.md` | ✅ PASS（**仅 Backstage**） |
 | 8.8 | 登录 | 深链曾 Alert PASS；**可见网页登录/Cookie 全链未 PASS** | ⚠️ 深链 Alert 不作产品门禁；可见 WV 见 `phase88-visible-webview-progress.md` |
-| 8.8b | 可见 WebView 过盾/登录 | 代码合入（`LBVisibleWebView`）；真机网页截图待新 IPA | ⚠️ 进行中 |
+| 8.8b | 可见 WebView 过盾/登录 | `9b45997`；`phase88` 真机 PASS（Fallback WK + Cookie 回灌）；香色 `openWebViewWithUrlStr:` 运行时未命中 | ⚠️ 可见开页 PASS；原生选择子差分中 |
 | 8.9 | 发现 | `legado://explore` 深链 marker PASS；`mock_explore.html` | ✅ 深链；UI 列表待加强 |
 | 8.10 | 变量/并发 | 引擎已有；源夹具含 `variable`/`concurrentRate` | ⚠️ 引擎级，夹具已挂 |
 | 8.11 | 例外 | `legado-feature-exceptions.md` | ✅ |

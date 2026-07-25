@@ -1,7 +1,8 @@
 # 真实书源端到端（2026-07-25）
 
 **verdict**：FAIL（3/3 搜索空结果）  
-**HEAD（文档撰写时）**：`196622b`（可见 WebView 合入前）；实现合入后见本文件末尾 SHA  
+**HEAD（可见 WebView 合入）**：`9b45997`  
+**真实源跑机基线**：`196622b`（合入前旧包）  
 **MCP**：`http://192.168.1.18:8090`  
 **报告**：`fixtures/_devkit/real_source_e2e/report.json`（gitignore）  
 **脚本**：`fixtures/_accept_real_source_e2e.py`（同逻辑副本亦在 `.test_tools/`）  

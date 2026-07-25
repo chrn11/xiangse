@@ -22,5 +22,10 @@
 
 ## 状态
 
-- 代码已合入；**真机截图须在含本改动的 IPA 安装后**再跑脚本。
-- 合入前设备仍为旧包：login 仍可能是 Alert。
+- 代码已合入：`9b45997`；CI `30139406337`；真机已装 `legado-debug` manifest `git_commit=9b45997…`
+- 验收 `fixtures/_accept_phase88_visible_webview.py`：**PASS**
+  - 路径：`path=FallbackWKWebView`（`openWebViewWithUrlStr:` 在当前 VC 树未命中，已诚实记 miss）
+  - UI：`完成 | 可见WebView | 回灌Cookie | user | pass | 登录`（网页表单，非 Alert）
+  - 截图：`fixtures/_devkit/phase88_visible_webview/visible_wv_20260725T015808Z.png`
+- Cookie 回灌补充：`mock_login_cookie.html` → 点「回灌Cookie」→ `legado_cookie_jar.txt` 有 `save key=`（`cookie_roundtrip.json`）
+- **仍缺口**：香色原生 `openWebViewWithUrlStr:` 尚未在运行时命中（需继续差分谁持有该方法）；起点实站过盾后人机点击全链未做；真实源搜索仍 FAIL
