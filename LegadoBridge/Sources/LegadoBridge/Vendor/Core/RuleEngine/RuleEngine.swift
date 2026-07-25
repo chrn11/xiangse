@@ -951,17 +951,86 @@ class RuleEngine {
             let lower = afterAt.lowercased()
             if lower.hasPrefix("js:") {
                 let jsCode = String(afterAt.dropFirst(3))
-                return evalJSWithResult(jsCode, result: groups[num], baseUrl: baseUrl, groups: groups)
+                let groupVal = groups[num]
+                if let swiftOut = Self.evalSimpleResultReplaceChain(jsCode, result: groupVal) {
+                    return swiftOut
+                }
+                return evalJSWithResult(jsCode, result: groupVal, baseUrl: baseUrl, groups: groups)
             }
         }
 
         // 整段 `@js:`：先替换 `$N` 再执行（起点 chapterUrl）
         if trimmed.lowercased().hasPrefix("@js:") {
             let jsCode = substituteCaptureGroups(String(trimmed.dropFirst(4)), groups: groups)
+            if let swiftOut = Self.evalQidianChapterUrlJS(jsCode, baseUrl: baseUrl) {
+                return swiftOut
+            }
+            if let swiftOut = Self.evalSimpleResultReplaceChain(jsCode, result: groups.first ?? "") {
+                return swiftOut
+            }
             return evalJSWithResult(jsCode, result: groups.first ?? "", baseUrl: baseUrl, groups: groups)
         }
 
         return nil
+    }
+
+    /// 起点 chapterUrl：`var bid=baseUrl.match(/\d+/);…'https://vipreader…/'+bid+'/<id>/'`
+    private static func evalQidianChapterUrlJS(_ jsCode: String, baseUrl: String?) -> String? {
+        let compact = jsCode.replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        guard compact.contains("vipreader.qidian.com/chapter/"),
+              compact.contains("baseUrl.match"),
+              let base = baseUrl, !base.isEmpty else { return nil }
+        guard let bidRegex = try? NSRegularExpression(pattern: #"\d+"#),
+              let bidMatch = bidRegex.firstMatch(in: base, range: NSRange(base.startIndex..., in: base)),
+              let bidRange = Range(bidMatch.range, in: base) else { return nil }
+        let bid = String(base[bidRange])
+
+        let idPatterns = [
+            #"\+bid\+'/(\d+)/'"#,
+            #"chapter/'[^']*'/(\d+)/'"#,
+            #"/(\d+)/'\s*;?\s*$"#
+        ]
+        for pattern in idPatterns {
+            guard let idRegex = try? NSRegularExpression(pattern: pattern),
+                  let idMatch = idRegex.firstMatch(in: compact, range: NSRange(compact.startIndex..., in: compact)),
+                  let idRange = Range(idMatch.range(at: 1), in: compact) else { continue }
+            let chapterId = String(compact[idRange])
+            guard !chapterId.isEmpty else { continue }
+            return "https://vipreader.qidian.com/chapter/\(bid)/\(chapterId)/"
+        }
+        return nil
+    }
+
+    /// `result.replace(/1.*/,'false').replace(/0.*/,'true')` 一类链式替换（无 JSC）
+    private static func evalSimpleResultReplaceChain(_ jsCode: String, result: String) -> String? {
+        let trimmed = jsCode.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ";"))
+        guard trimmed.contains("result.replace(") else { return nil }
+        // 必须整段都是 result.replace… 链式，避免误伤复杂脚本
+        guard let head = trimmed.range(of: #"^\s*result(?:\.replace\([^)]*\))+\s*$"#, options: .regularExpression) else {
+            return nil
+        }
+        _ = head
+        guard let callRegex = try? NSRegularExpression(
+            pattern: #"\.replace\(\s*/([^/]*)/\s*,\s*'([^']*)'\s*\)"#
+        ) else { return nil }
+        var value = result
+        let ns = trimmed as NSString
+        let matches = callRegex.matches(in: trimmed, range: NSRange(location: 0, length: ns.length))
+        guard !matches.isEmpty else { return nil }
+        for match in matches {
+            let pat = ns.substring(with: match.range(at: 1))
+            let rep = ns.substring(with: match.range(at: 2))
+            guard let regex = try? NSRegularExpression(pattern: pat) else { return nil }
+            value = regex.stringByReplacingMatches(
+                in: value,
+                options: [],
+                range: NSRange(value.startIndex..., in: value),
+                withTemplate: rep
+            )
+        }
+        return value
     }
 
     private static func leadingCaptureGroupIndex(_ rule: String) -> Int? {
