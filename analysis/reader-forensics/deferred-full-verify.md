@@ -15,7 +15,8 @@
 
 - 起点书单解析 → **条数 + bookUrl + 目录 chapters=1681 + 第一章正文上屏已 PASS**（包 `efac2d4`，见 `real-source-e2e.md`）
 - 网页等待 `startBrowserAwait` 真机走到并可完成人机
-  - **2026-07-25**：现包 `efac2d4` **未触发**；根因真机 `java` 全局不可见（`Can't find variable: java`）。修复已写工作区，见 `phase88-browser-await-progress.md`；**待新 IPA 再验，勿标 PASS**。
+  - **2026-07-25（`efac2d4`）**：未触发；根因 `java` 全局不可见。
+  - **2026-07-25（`51a63b7` / run `30154271872`）**：触发已 PASS（`handler=true` + overlay + `XiangseOpenWebView` + mock `await_gate.html`）；**等待页前台可见 / 点「完成验证」/ `/await_search` Cookie 回灌仍 FAIL**。根因升级：对照 `legado://webview` 存活 vs `browserAwait` **进程被杀→SpringBoard**（无新 crash report）；旧实现往 keyWindow 挂钮 + 主线程 Finish 信号量。代码已改（`LBVisibleWebView.m`：先开页、钮挂 WebView VC、Finish 转后台），**已改未提交，待 commit/CI 新 IPA 真机复验**。见 `phase88-browser-await-progress.md`；**最小门禁整体仍勿标 PASS**。
 - 登录：香色原版网页/表单，而不是系统 Alert 冒充
 - Cookie 带到搜索/后续请求（已有进展，总验时再回归）
 - 至少 1 条真实源：搜索 → 详情 → **有章节的目录** → 香色正文（起点已满足；总验仍要覆盖领域/笔趣读）

@@ -3,45 +3,61 @@
 **日期**：2026-07-25  
 **MCP**：`http://192.168.1.18:8090`  
 **mock**：`http://192.168.1.4:8765`（`.test_tools/serve_browser_await_mock.py`）  
-**装包**：仍为 `efac2d4`（`legado-debug` / run `30153293936`）  
 **本轮不做**：全能书源 / 领域 / 笔趣读总验收；未改计划 status。
 
 ## 结论（诚实）
 
-| 项 | 结果 |
-|---|---|
-| 代码路径 `startBrowserAwait` 真机被触发 | **FAIL**（现包） |
-| 等待页 + 完成验证 + Cookie 回灌后续请求 | **FAIL**（现包；根因挡住触发） |
-| 根因定位 | **PASS**（有可复现证据） |
-| 修复代码（未装包） | 已写在工作区，**待 commit / CI / 装包后再验** |
+| 阶段 | 包 | 结果 |
+|---|---|---|
+| 触发 `startBrowserAwait` + `handler=true` + `XiangseOpenWebView` + mock `await_gate.html` | `51a63b7` | **PASS** |
+| 等待页前台可见 + 点「完成验证」+ `/await_search` Cookie | `51a63b7` | **FAIL**（进程被杀 → SpringBoard） |
+| 修开页杀进程后的最小门禁 | **待 commit/CI 新 IPA** | **未在真机复验**（本机无 iOS 编链） |
 
-**不要把本轮标成 BrowserAwait PASS。**
+`java` 全局不可见已在 `51a63b7` 修好。当前阻塞是：`LBStartBrowserAwait` 开可见 WebView 后 **StandarReader 进程退出**（`list_running_apps` 无进程，`new_crash_count=0`，ReportCrash↔cr4shedd 被 sandbox deny），frontmost 落到 SpringBoard。
 
-## 根因（证据链）
+对照实验（同包 `51a63b7`）：
 
-1. 受控源已导入：`legado_bridge_sources.json` 含 `BrowserAwait受控源`，`searchUrl` 为 `@js` + `java.startBrowserAwait(...)`。
-2. 不含 `java.` 的 `@js`（只 `result=http://…/await_search.html?q=+key`）**能命中 mock**（`await_search.html` 有 StandarReader UA 请求）。
-3. 一旦脚本访问 `java.startBrowserAwait`，搜索对该源报 `网络响应为空`，且 **无** `legado_visible_webview*.txt`，mock **无** `await_gate.html`。
-4. 诊断源把异常塞进 query 后，mock 记到：
+| 深链 | frontmost | 进程 |
+|---|---|---|
+| `legado://webview?url=…/await_gate.html` | 仍为 StandarReader，页可见 | 存活 |
+| `legado://browserAwait?url=…` | ≤1s 变 SpringBoard | **消失** |
+
+两者都走 `LCStandarConfig openWebViewWithUrlStr:`。差异在 await：主线程块里 **先往 keyWindow 挂「完成验证」再（嵌套 async）show**，且 `LBBrowserAwaitFinish` 曾在主线程 `semaphore_wait`（点完成会死锁）。
+
+## 代码修复（已改未提交）
+
+文件：`LegadoBridge/Sources/LegadoBridgeHooks/LBVisibleWebView.m`
+
+1. **先开页、后挂钮**：`LBPresentVisibleWebView` 主线程同步开页；「完成验证」挂到 `WebViewController_WK` 的 `navigationItem` + **该 VC 的 view**，禁止挂 `keyWindow`。  
+2. **Finish 禁止主线程阻塞**：`onDone` / `LBBrowserAwaitFinish` 转到后台队列再 `evaluateJavaScript` + cookie harvest 的 semaphore。  
+3. 开页 `@try/@catch` + `path=XiangseOpenWebView returned` marker，便于区分死在 IMP 内还是之后。
+
+**状态**：已改未 commit；**待父代理 commit/push → CI 出 IPA → 真机装包复验**。
+
+## 复验步骤（新 IPA 到手后）
+
+1. 确认 mock：`http://192.168.1.4:8765/health`  
+2. 装 CI `legado-debug` IPA（`xiangse_devkit.py install`）  
+3. `python fixtures/_accept_browser_await.py`  
+4. 深链探针（可选）：`legado://browserAwait?url=http://192.168.1.4:8765/await_gate.html`  
+   - 期望：`get_frontmost_app` 仍为 `com.appbox.StandarReader`；UI 可见等待页；可点「完成验证」  
+5. 断言：marker 含 `user done` 或 `harvest done`；mock `/await_search` Cookie 含 `AWAIT_TOKEN=ok`（勿用 runtime.json 上的 Cookie 冒充）
+
+## 装包与证据（FAIL 基线，包 `51a63b7`）
+
+- CI run `30154271872` / commit `51a63b70…` / IPA SHA256 `32d58333…f76044`  
+- 汇总：`fixtures/_devkit/browser_await/browser_await_accept_20260725T141502Z_51a63b7.json`  
+- 杀进程 syslog 摘要：`fixtures/_devkit/browser_await/browser_await_kill_filtered.json`  
+- 清单：`fixtures/_devkit/browser_await/evidence_sha256.txt`
+
+关键 marker（杀进程前仍写出）：
 
 ```text
-h=EX:ReferenceError: Can't find variable: java
+startBrowserAwait overlay url=… title=网页验证
+path=XiangseOpenWebView hit class=LCStandarConfig url=…
 ```
 
-证据：`fixtures/_devkit/browser_await/request_log.jsonl`（`handlerProbe` 条目）；脚本 `.test_tools/browser_await_js_probe.py`。
-
-5. 与 `AnalyzeUrl.evalJS` 注释一致：真机 `JSContext.setValue(_:forKey:)` 写入的全局对 `evaluateScript` **不可见**（曾修 `baseUrl` 字面量）。`java`/`cookie`/`source`/`network` 仍用 `setValue`，故 **起点 searchUrl 实际靠 `recoverUrlFromFailedAnalyzeJs` 回落**，`java.put` 在真机 AnalyzeUrl 路径上并未真正跑通。
-
-## 已改代码（工作区，未进 efac2d4 包）
-
-| 文件 | 改动 |
-|---|---|
-| `JSBridge.swift` | 桥接全局改为 `setObject:forKeyedSubscript:` + `globalObject`（`bindGlobal`） |
-| `AnalyzeUrl.swift` | 注入后探测 `typeof java`；`legado_js_bridge_probe.txt` |
-| `SourceSessionStore.swift` | `BrowserAwaitGate` 调用落盘 `legado_browser_await_gate.txt` |
-| `LBVisibleWebView.m` | `LBBrowserAwaitFinish` **同步等待** Cookie harvest 再放行 |
-| `LBImportHooks.m` | `legado://browserAwait?url=` 后台队列探针深链 |
-| `LegadoBridgeCExports.m` | 指定 `sourceUrl` 时直调 `LBHandleSearchRequest`（不再被 startSearch 丢掉筛选） |
+截图 `await_wait_*` / `await_after_*` 均为主屏。
 
 ## 受控源 / 验收脚本
 
@@ -50,26 +66,10 @@ h=EX:ReferenceError: Can't find variable: java
 | `fixtures/await_gate.html` | 写 `AWAIT_TOKEN=ok` |
 | `fixtures/legado-browser-await-mock.json` | 受控源模板 |
 | `.test_tools/serve_browser_await_mock.py` | 记 Cookie 的 mock |
-| `fixtures/_accept_browser_await.py` | 真机验收（现包预期 FAIL） |
+| `fixtures/_accept_browser_await.py` | 真机验收 |
 
-## 现包失败证据 SHA256
+## 下一步
 
-清单：`fixtures/_devkit/browser_await/evidence_sha256.txt`
-
-| 文件 | SHA256 |
-|---|---|
-| `browser_await_accept_20260725T100634Z.json` | `f07f6d1ff3a7b8d8269badc08d9dc493a38bee33f8868994e3677804ef67d57e` |
-| `await_wait_20260725T100634Z.png` | `8eb7d75f4ea5971e278ca8e859707f716f7db0a483be9b9cbe0d5e951680883d` |
-| `await_after_20260725T100634Z.png` | `00f07b61ec3334776190e06ffdb4f76476fa86e21ab64c0141437bf28291e1f0` |
-| `request_log.jsonl` | `5b09fb77e9929118496e512ae4227f5a5b091950b4113880b684e8a7ccda3bd0` |
-
-关键 mock 行（`handlerProbe`）：`h=EX:ReferenceError: Can't find variable: java`。
-
-（装包后复跑通过时，在本文件追加 PASS 段与新 SHA。）
-
-## 下一步（装新包后最小门禁）
-
-1. CI Debug IPA → 真机安装。  
-2. 起 mock → 导入受控源 → `legado://search?keyword=等待&sourceUrl=http://192.168.1.4:8765/browser-await-source`。  
-3. 断言：`legado_browser_await_gate.txt` handler=true；`startBrowserAwait overlay` + `XiangseOpenWebView hit`；点「完成验证」；mock `/await_search` 的 Cookie 含 `AWAIT_TOKEN=ok`（或 `legado_request_cookie_probe` / jar）。  
-4. 可选：`legado://browserAwait?url=…` 深链对照。
+1. 父代理 commit/push 本改动 → 等 CI IPA。  
+2. 真机跑 `_accept_browser_await.py`，更新本页结论表。  
+3. 仍不做全能书源总验收。

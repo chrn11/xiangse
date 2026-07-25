@@ -65,6 +65,8 @@ static BOOL LBTryCallOpenWebView(NSString *urlStr) {
 
     // 主路径（香色规格）：LCStandarConfig -openWebViewWithUrlStr:
     // self 在 IMP 内未使用，alloc/init 即可；由 LCControllerManager present WK VC。
+    // 真机：browserAwait 在 keyWindow 上挂悬浮钮再 show 会导致进程无崩溃报告退出→SpringBoard；
+    // 必须先开页，按钮挂到 WebView VC 自己的 view 上（见 LBAttachBrowserAwaitDoneUI）。
     Class cfgCls = NSClassFromString(@"LCStandarConfig");
     if (cfgCls) {
         id cfg = [[cfgCls alloc] init];
@@ -72,7 +74,15 @@ static BOOL LBTryCallOpenWebView(NSString *urlStr) {
             LBVisibleWVMarker([NSString stringWithFormat:
                                @"path=XiangseOpenWebView hit class=%@ url=%@",
                                NSStringFromClass([cfg class]), urlStr]);
-            ((void (*)(id, SEL, NSString *))objc_msgSend)(cfg, sel, urlStr);
+            @try {
+                ((void (*)(id, SEL, NSString *))objc_msgSend)(cfg, sel, urlStr);
+            } @catch (NSException *ex) {
+                LBVisibleWVMarker([NSString stringWithFormat:
+                                   @"path=XiangseOpenWebView exception class=%@ name=%@ reason=%@",
+                                   NSStringFromClass([cfg class]), ex.name, ex.reason]);
+                return NO;
+            }
+            LBVisibleWVMarker(@"path=XiangseOpenWebView returned class=LCStandarConfig");
             return YES;
         }
         LBVisibleWVMarker([NSString stringWithFormat:
@@ -95,7 +105,14 @@ static BOOL LBTryCallOpenWebView(NSString *urlStr) {
             LBVisibleWVMarker([NSString stringWithFormat:
                                @"path=XiangseOpenWebView hit class=%@ url=%@",
                                NSStringFromClass([obj class]), urlStr]);
-            ((void (*)(id, SEL, NSString *))objc_msgSend)(obj, sel, urlStr);
+            @try {
+                ((void (*)(id, SEL, NSString *))objc_msgSend)(obj, sel, urlStr);
+            } @catch (NSException *ex) {
+                LBVisibleWVMarker([NSString stringWithFormat:
+                                   @"path=XiangseOpenWebView exception class=%@ name=%@ reason=%@",
+                                   NSStringFromClass([obj class]), ex.name, ex.reason]);
+                continue;
+            }
             return YES;
         }
     }
@@ -111,8 +128,15 @@ static BOOL LBTryCallOpenWebView(NSString *urlStr) {
             LBVisibleWVMarker([NSString stringWithFormat:
                                @"path=XiangseOpenWebView hit class=LCControllerManager via=show url=%@",
                                urlStr]);
-            ((void (*)(id, SEL, NSString *, NSDictionary *, id, int))objc_msgSend)(
-                mgr, showSel, @"WebViewController_WK", params, nil, 0);
+            @try {
+                ((void (*)(id, SEL, NSString *, NSDictionary *, id, int))objc_msgSend)(
+                    mgr, showSel, @"WebViewController_WK", params, nil, 0);
+            } @catch (NSException *ex) {
+                LBVisibleWVMarker([NSString stringWithFormat:
+                                   @"path=XiangseOpenWebView exception class=LCControllerManager name=%@ reason=%@",
+                                   ex.name, ex.reason]);
+                return NO;
+            }
             return YES;
         }
     }
@@ -272,7 +296,39 @@ static void LBPresentFallbackWK(NSString *urlStr, NSString *sourceUrl, NSString 
     }];
 }
 
+static UIViewController *LBFindNativeWebViewController(void) {
+    UIWindow *win = LBLegadoKeyWindow();
+    NSMutableArray *cands = [NSMutableArray array];
+    if (win.rootViewController) {
+        LBVisibleCollectVCs(win.rootViewController, cands);
+    }
+    Class wkCls = NSClassFromString(@"WebViewController_WK");
+    Class baseCls = NSClassFromString(@"WebViewController_Base");
+    for (id obj in cands) {
+        if (![obj isKindOfClass:[UIViewController class]]) continue;
+        UIViewController *vc = (UIViewController *)obj;
+        if (wkCls && [vc isKindOfClass:wkCls]) return vc;
+        if (baseCls && [vc isKindOfClass:baseCls]) return vc;
+        @try {
+            id wv = [vc valueForKey:@"myWebView"];
+            if ([wv isKindOfClass:[WKWebView class]]) return vc;
+        } @catch (__unused NSException *ex) {}
+    }
+    return nil;
+}
+
 static WKWebView *LBFindNativeWKWebView(void) {
+    UIViewController *vc = LBFindNativeWebViewController();
+    if (vc) {
+        @try {
+            id wv = [vc valueForKey:@"myWebView"];
+            if ([wv isKindOfClass:[WKWebView class]]) return (WKWebView *)wv;
+        } @catch (__unused NSException *ex) {}
+        if ([vc.view isKindOfClass:[WKWebView class]]) return (WKWebView *)vc.view;
+        for (UIView *sub in vc.view.subviews) {
+            if ([sub isKindOfClass:[WKWebView class]]) return (WKWebView *)sub;
+        }
+    }
     UIWindow *win = LBLegadoKeyWindow();
     NSMutableArray *cands = [NSMutableArray array];
     if (win.rootViewController) {
@@ -280,7 +336,6 @@ static WKWebView *LBFindNativeWKWebView(void) {
     }
     for (id obj in cands) {
         if (![obj isKindOfClass:[UIViewController class]]) continue;
-        // WebViewController_Base ivar myWebView
         @try {
             id wv = [obj valueForKey:@"myWebView"];
             if ([wv isKindOfClass:[WKWebView class]]) return (WKWebView *)wv;
@@ -316,6 +371,22 @@ static void LBHarvestNativeXiangseCookies(NSString *urlStr, NSString *sourceUrl)
     LBVisibleWVMarker(@"xiangse path NSHTTPCookieStorage snapshot (no WK found)");
 }
 
+/// 须在主线程调用：立刻走香色开页或 Fallback（不再套一层 dispatch_async）。
+static BOOL LBPresentVisibleWebViewNow(NSString *urlStr, NSString *sourceUrl, NSString *modeTag) {
+    BOOL usedNative = LBTryCallOpenWebView(urlStr);
+    if (usedNative) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            LBHarvestNativeXiangseCookies(urlStr, sourceUrl);
+        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            LBHarvestNativeXiangseCookies(urlStr, sourceUrl);
+        });
+        return YES;
+    }
+    LBPresentFallbackWK(urlStr, sourceUrl, modeTag);
+    return NO;
+}
+
 void LBPresentVisibleWebView(NSString *urlStr, NSString *sourceUrl, NSString *modeTag) {
     if (urlStr.length == 0) {
         LBVisibleWVMarker(@"abort empty url");
@@ -326,19 +397,12 @@ void LBPresentVisibleWebView(NSString *urlStr, NSString *sourceUrl, NSString *mo
         writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_visible_webview_open.txt"]
         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 
+    if ([NSThread isMainThread]) {
+        LBPresentVisibleWebViewNow(urlStr, sourceUrl, modeTag);
+        return;
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
-        BOOL usedNative = LBTryCallOpenWebView(urlStr);
-        if (usedNative) {
-            // 香色 WK 的 Cookie 在 WKHTTPCookieStore；延迟从原生 VC 的 myWebView 回灌
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                LBHarvestNativeXiangseCookies(urlStr, sourceUrl);
-            });
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                LBHarvestNativeXiangseCookies(urlStr, sourceUrl);
-            });
-            return;
-        }
-        LBPresentFallbackWK(urlStr, sourceUrl, modeTag);
+        LBPresentVisibleWebViewNow(urlStr, sourceUrl, modeTag);
     });
 }
 
@@ -374,7 +438,10 @@ static void LBBrowserAwaitFinish(void);
 }
 - (void)onDone {
     LBVisibleWVMarker(@"startBrowserAwait user done");
-    LBBrowserAwaitFinish();
+    // 禁止在主线程 semaphore_wait（WK evaluateJavaScript 回调也在主线程 → 会死锁/看门狗杀进程）
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        LBBrowserAwaitFinish();
+    });
 }
 @end
 
@@ -384,9 +451,86 @@ static NSString *sBrowserAwaitHTML = nil;
 static NSString *sBrowserAwaitSourceUrl = nil;
 static NSString *sBrowserAwaitPageUrl = nil;
 
+static void LBBrowserAwaitRemoveDoneUI(void) {
+    if (![NSThread isMainThread]) {
+        dispatch_sync(dispatch_get_main_queue(), ^{ LBBrowserAwaitRemoveDoneUI(); });
+        return;
+    }
+    if (sBrowserAwaitDoneBtn) {
+        [sBrowserAwaitDoneBtn removeFromSuperview];
+        sBrowserAwaitDoneBtn = nil;
+    }
+    UIViewController *vc = LBFindNativeWebViewController();
+    if (vc) {
+        UINavigationItem *item = vc.navigationItem;
+        if ([item.rightBarButtonItem.target isEqual:[LBBrowserAwaitTarget shared]]) {
+            item.rightBarButtonItem = nil;
+        }
+    }
+}
+
+static void LBAttachBrowserAwaitDoneUI(void) {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ LBAttachBrowserAwaitDoneUI(); });
+        return;
+    }
+    if (sBrowserAwaitDoneBtn) {
+        [sBrowserAwaitDoneBtn removeFromSuperview];
+        sBrowserAwaitDoneBtn = nil;
+    }
+
+    UIViewController *hostVC = LBFindNativeWebViewController() ?: LBVisibleTopVC();
+    if (!hostVC) {
+        LBVisibleWVMarker(@"startBrowserAwait attach fail: no host VC");
+        return;
+    }
+
+    // 优先导航栏右上角「完成验证」（与 await_gate 文案一致）；避免往 keyWindow 挂悬浮钮
+    UIBarButtonItem *bar = [[UIBarButtonItem alloc] initWithTitle:@"完成验证"
+                                                            style:UIBarButtonItemStyleDone
+                                                           target:[LBBrowserAwaitTarget shared]
+                                                           action:@selector(onDone)];
+    bar.accessibilityLabel = @"完成验证";
+    hostVC.navigationItem.rightBarButtonItem = bar;
+
+    // 再在 WebView VC 自身 view 上挂一颗可点按钮（无障碍/坐标兜底）；绝不挂 keyWindow
+    UIView *hostView = hostVC.view;
+    if (hostView) {
+        UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+        btn.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.72];
+        [btn setTitle:@"完成验证" forState:UIControlStateNormal];
+        [btn setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+        btn.titleLabel.font = [UIFont boldSystemFontOfSize:16];
+        btn.layer.cornerRadius = 8;
+        btn.accessibilityLabel = @"完成验证";
+        CGFloat w = hostView.bounds.size.width;
+        btn.frame = CGRectMake(MAX(12, w - 118), 12, 106, 40);
+        btn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleBottomMargin;
+        [btn addTarget:[LBBrowserAwaitTarget shared]
+                action:@selector(onDone)
+      forControlEvents:UIControlEventTouchUpInside];
+        [hostView addSubview:btn];
+        sBrowserAwaitDoneBtn = btn;
+    }
+    LBVisibleWVMarker([NSString stringWithFormat:
+                       @"startBrowserAwait overlay host=%@ hasBtn=%d",
+                       NSStringFromClass([hostVC class]), sBrowserAwaitDoneBtn != nil]);
+}
+
 static void LBBrowserAwaitFinish(void) {
-    WKWebView *wk = LBFindNativeWKWebView();
-    NSString *page = wk.URL.absoluteString.length ? wk.URL.absoluteString : (sBrowserAwaitPageUrl ?: @"");
+    if ([NSThread isMainThread]) {
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            LBBrowserAwaitFinish();
+        });
+        return;
+    }
+
+    __block WKWebView *wk = nil;
+    __block NSString *page = sBrowserAwaitPageUrl ?: @"";
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        wk = LBFindNativeWKWebView();
+        if (wk.URL.absoluteString.length) page = wk.URL.absoluteString;
+    });
     NSString *src = sBrowserAwaitSourceUrl ?: @"";
     if (wk) {
         dispatch_semaphore_t htmlSem = dispatch_semaphore_create(0);
@@ -410,20 +554,14 @@ static void LBBrowserAwaitFinish(void) {
         }
     } else {
         sBrowserAwaitHTML = @"";
-        LBHarvestNativeXiangseCookies(page, src);
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            LBHarvestNativeXiangseCookies(page, src);
+        });
     }
-    if (sBrowserAwaitDoneBtn) {
-        [sBrowserAwaitDoneBtn removeFromSuperview];
-        sBrowserAwaitDoneBtn = nil;
-    }
+    LBBrowserAwaitRemoveDoneUI();
     if (sBrowserAwaitSem) {
         dispatch_semaphore_signal(sBrowserAwaitSem);
     }
-}
-
-static void LBBrowserAwaitOnDoneTap(void) {
-    LBVisibleWVMarker(@"startBrowserAwait user done");
-    LBBrowserAwaitFinish();
 }
 
 NSString *LBStartBrowserAwait(NSString *urlStr, NSString *sourceUrl, NSString *title, NSTimeInterval timeoutSec) {
@@ -444,43 +582,30 @@ NSString *LBStartBrowserAwait(NSString *urlStr, NSString *sourceUrl, NSString *t
     sBrowserAwaitPageUrl = urlStr;
     sBrowserAwaitSem = dispatch_semaphore_create(0);
 
+    dispatch_semaphore_t presentedSem = dispatch_semaphore_create(0);
     dispatch_async(dispatch_get_main_queue(), ^{
+        // 先开香色 WebView，再挂「完成验证」到 WebView VC（禁止先挂 keyWindow 悬浮钮）
         LBPresentVisibleWebView(urlStr, sourceUrl, title.length ? title : @"网页验证");
-        // 悬浮「完成验证」——香色原生导航栏未必有确认按钮，自动化也可点文案
-        UIWindow *win = LBLegadoKeyWindow();
-        if (win) {
-            if (sBrowserAwaitDoneBtn) {
-                [sBrowserAwaitDoneBtn removeFromSuperview];
-                sBrowserAwaitDoneBtn = nil;
-            }
-            UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
-            btn.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.72];
-            [btn setTitle:@"完成验证" forState:UIControlStateNormal];
-            [btn setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-            btn.titleLabel.font = [UIFont boldSystemFontOfSize:16];
-            btn.layer.cornerRadius = 8;
-            btn.accessibilityLabel = @"完成验证";
-            btn.frame = CGRectMake(win.bounds.size.width - 118, 56, 106, 40);
-            btn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleBottomMargin;
-            [btn addTarget:[LBBrowserAwaitTarget shared]
-                    action:@selector(onDone)
-          forControlEvents:UIControlEventTouchUpInside];
-            [win addSubview:btn];
-            sBrowserAwaitDoneBtn = btn;
-            LBVisibleWVMarker([NSString stringWithFormat:
-                               @"startBrowserAwait overlay url=%@ title=%@",
-                               urlStr, title ?: @""]);
-        }
+        LBVisibleWVMarker([NSString stringWithFormat:
+                           @"startBrowserAwait presented url=%@ title=%@",
+                           urlStr, title ?: @""]);
+        dispatch_semaphore_signal(presentedSem);
+        // 等 LCControllerManager present 落地后再挂 UI
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            LBAttachBrowserAwaitDoneUI();
+        });
     });
+    // 最多等 2s 确认主线程已执行开页；避免开页未跑就长时间空等
+    dispatch_semaphore_wait(presentedSem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)));
 
     long wait = dispatch_semaphore_wait(
         sBrowserAwaitSem,
         dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeoutSec * NSEC_PER_SEC)));
     if (wait != 0) {
         LBVisibleWVMarker(@"startBrowserAwait timeout");
-        dispatch_sync(dispatch_get_main_queue(), ^{
-            LBBrowserAwaitFinish();
-        });
+        // 已在后台线程，直接 Finish（勿再 dispatch_sync 主线程包一层 Finish）
+        LBBrowserAwaitFinish();
     }
     NSString *out = sBrowserAwaitHTML ?: @"";
     sBrowserAwaitSem = NULL;
