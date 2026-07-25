@@ -592,31 +592,50 @@ class AnalyzeUrl {
         bridge.context = execContext
         bridge.inject(into: jsContext)
 
-        // 设置特定变量
-        jsContext.setValue(baseUrl, forKey: "baseUrl")
-        jsContext.setValue(result, forKey: "result")
-        jsContext.setValue(result, forKey: "url")
+        // 设置特定变量：baseUrl/key/page 用字面量写入脚本，避免 JSC setValue 全局在真机不可见
+        // （真机曾报 Can't find variable: baseUrl，且 try/catch 后 exceptionHandler 为空）
+        let escapedBase = Self.jsSingleQuoted(baseUrl)
         if let page = page { jsContext.setValue(page, forKey: "page") }
         if let key = key { jsContext.setValue(key, forKey: "key") }
         if let speakText = speakText { jsContext.setValue(speakText, forKey: "speakText") }
         if let speakSpeed = speakSpeed { jsContext.setValue(speakSpeed, forKey: "speakSpeed") }
+        // 勿把 @js: 原文塞进 url/result，否则脚本失败时会误读成「成功值」
+        jsContext.setValue("", forKey: "result")
+        jsContext.setValue("", forKey: "url")
 
         var jsError: String?
         jsContext.exceptionHandler = { _, exception in
             jsError = exception?.toString()
         }
 
-        // 顶层 try/catch（勿包 IIFE）：JSC 里 IIFE 内解析不到 setValue 注入的 baseUrl
-        // （真机：ReferenceError Can't find variable: baseUrl）
+        let keyLiteral: String = {
+            guard let key else { return "undefined" }
+            return "'\(Self.jsSingleQuoted(key))'"
+        }()
+        let pageLiteral: String = {
+            guard let page else { return "undefined" }
+            return "\(page)"
+        }()
+        // 顶层 try/catch；显式 var baseUrl=…
         let wrapped = """
+        var baseUrl = '\(escapedBase)';
+        var key = \(keyLiteral);
+        var page = \(pageLiteral);
+        var result = '';
+        var url = '';
+        var __analyzeUrlEvalErrMsg = '';
         try {
           \(trimmed)
         } catch (__analyzeUrlEvalErr) {
-          /* 保留已赋值的 url/result，供下方读取 */
+          __analyzeUrlEvalErrMsg = String(__analyzeUrlEvalErr);
         }
         """
         let evalResult = jsContext.evaluateScript(wrapped)
-        if let jsError, !jsError.isEmpty {
+        if let caught = jsContext.objectForKeyedSubscript("__analyzeUrlEvalErrMsg")?.toString(),
+           !caught.isEmpty {
+            errorOut = caught
+            DebugLogger.shared.log("[AnalyzeUrl.evalJS] \(caught)")
+        } else if let jsError, !jsError.isEmpty {
             errorOut = jsError
             DebugLogger.shared.log("[AnalyzeUrl.evalJS] \(jsError)")
         }
@@ -661,6 +680,15 @@ class AnalyzeUrl {
     private static func isUsableJSString(_ str: String) -> Bool {
         let t = str.trimmingCharacters(in: .whitespacesAndNewlines)
         return !t.isEmpty && t != "undefined" && t != "null"
+    }
+
+    /// 单引号 JS 字符串转义
+    private static func jsSingleQuoted(_ s: String) -> String {
+        s
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
     }
 
     // MARK: - getStrResponse（对应 Android getStrResponseAwait）
