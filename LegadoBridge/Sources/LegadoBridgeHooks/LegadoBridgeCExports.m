@@ -1584,7 +1584,7 @@ static NSString *LBXsfolderBookDir(NSString *bookKey) {
 }
 
 static NSString *LBGuessBookKeyForUrl(NSString *bookUrl) {
-    // bridge books / 常见 mock
+    // bridge books / 常见 mock：仅明确命中才映射；禁止未知 URL 默认落到斗破（会串成「上架感言」）
     if ([bookUrl containsString:@"doupo"]) return @"斗破苍穹_天蚕土豆";
     NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_bridge_books.json"];
     NSData *data = [NSData dataWithContentsOfFile:path];
@@ -1605,7 +1605,7 @@ static NSString *LBGuessBookKeyForUrl(NSString *bookUrl) {
             }
         }
     }
-    return @"斗破苍穹_天蚕土豆";
+    return nil;
 }
 
 static NSArray *LBCatalogFromXsfolderBookKey(NSString *bookKey) {
@@ -1650,7 +1650,12 @@ static NSArray *LBCatalogFromXsfolderBookKey(NSString *bookKey) {
 }
 
 static NSString *LBReadXsfolderChapterBody(NSString *bookUrl, NSString *chapterUrl, NSInteger preferIdx) {
+    // http(s) 书：正文不得走 xsfolder（斗破 key 被起点「上架感言」污染时会直接上屏；离线改走 bookUrl 目录缓存+网络）
+    if ([bookUrl hasPrefix:@"http://"] || [bookUrl hasPrefix:@"https://"]) {
+        return nil;
+    }
     NSString *bookKey = LBGuessBookKeyForUrl(bookUrl);
+    if (bookKey.length == 0) return nil;
     NSString *dir = LBXsfolderBookDir(bookKey);
     if (dir.length == 0) return nil;
     NSMutableArray<NSString *> *candidates = [NSMutableArray array];
@@ -1709,7 +1714,18 @@ static BOOL LBEnsurePendingCatalogForBook(NSString *bookUrl) {
     }
     NSArray *cached = LBLoadCatalogCache(bookUrl);
     if (cached.count == 0) {
-        cached = LBCatalogFromXsfolderBookKey(LBGuessBookKeyForUrl(bookUrl));
+        // http(s) 书：只能用「该书 bookUrl」的目录缓存；禁止用 xsfolder 默认书冒充
+        // 真机：doupo 缓存未命中 → 读到被污染的 斗破苍穹_天蚕土豆 → title=上架感言
+        BOOL isRemote = [bookUrl hasPrefix:@"http://"] || [bookUrl hasPrefix:@"https://"];
+        if (!isRemote) {
+            NSString *bk = LBGuessBookKeyForUrl(bookUrl);
+            if (bk.length > 0) {
+                cached = LBCatalogFromXsfolderBookKey(bk);
+            }
+        } else {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"catalogEnsure skipXsfolder remote book=%@", bookUrl]);
+        }
     }
     if (cached.count == 0) return NO;
     sPendingCatalogChapters = [cached copy];
