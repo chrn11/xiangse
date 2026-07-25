@@ -81,35 +81,44 @@ def ui_blob(c: McpClient) -> str:
 
 
 def tap_done(c: McpClient) -> bool:
-    # 优先无障碍文案
+    # 必须点文案恰好为「完成验证」的按钮；禁止点到说明段落里的同词
+    try:
+        ui = c.call("get_ui_elements", {"limit": 150}, timeout=30)
+        els = ui.get("elements", []) if isinstance(ui, dict) else []
+        exact = None
+        fuzzy = None
+        for e in els:
+            if not isinstance(e, dict):
+                continue
+            txt = str(e.get("text", "")).strip()
+            if txt == "完成验证":
+                exact = e
+                break
+            if fuzzy is None and "完成验证" in txt and len(txt) <= 12:
+                fuzzy = e
+        target = exact or fuzzy
+        if target is not None:
+            rect = target.get("rect") or {}
+            x = rect.get("x", 195) + rect.get("width", 100) / 2
+            y = rect.get("y", 400) + rect.get("height", 44) / 2
+            c.call("tap_screen", {"x": x, "y": y})
+            return True
+    except Exception:
+        pass
     try:
         r = c.call("tap_element", {"text": "完成验证"}, timeout=20)
         if r is not None:
             return True
     except Exception:
         pass
-    blob = ui_blob(c)
-    if "完成验证" in blob:
+    # 页内大按钮常见位置（390 宽屏，卡片下方）
+    for x, y in ((195, 430), (195, 460), (195, 500), (337, 76)):
         try:
-            ui = c.call("get_ui_elements", {"limit": 150}, timeout=30)
-            els = ui.get("elements", []) if isinstance(ui, dict) else []
-            for e in els:
-                if not isinstance(e, dict):
-                    continue
-                if "完成验证" in str(e.get("text", "")):
-                    rect = e.get("rect") or {}
-                    x = rect.get("x", 300) + rect.get("width", 100) / 2
-                    y = rect.get("y", 56) + rect.get("height", 40) / 2
-                    c.call("tap_screen", {"x": x, "y": y})
-                    return True
+            c.call("tap_screen", {"x": x, "y": y})
+            return True
         except Exception:
-            pass
-    # 右上角悬浮按钮兜底（390 宽屏）
-    try:
-        c.call("tap_screen", {"x": 337, "y": 76})
-        return True
-    except Exception:
-        return False
+            continue
+    return False
 
 
 def clear_markers(c: McpClient, doc: str) -> None:
@@ -139,7 +148,7 @@ def main() -> int:
         "mcp": MCP,
         "host": HOST,
         "src": SRC_URL,
-        "package_expected": "pending WKInject fix after f142774 FAIL",
+        "package_expected": "6f25ffd + post-FAIL fix (await_gate btn / WKInject bottom / cookieStore done)",
         "checks": {},
         "verdict": "FAIL",
     }
@@ -237,7 +246,7 @@ def main() -> int:
         if alive_before_tap and not springboard_ui:
             time.sleep(2.0)
             tapped = tap_done(c)
-            time.sleep(4.0)
+            time.sleep(8.0)
         report["tapped_done"] = tapped
 
         shot2 = OUT / f"await_after_{stamp}.png"
@@ -265,7 +274,8 @@ def main() -> int:
 
         has_overlay = "startBrowserAwait overlay" in wv_log
         has_user_done = "startBrowserAwait user done" in wv_log
-        has_harvest = "startBrowserAwait harvest done" in wv_log or "xiangse path WKCookieStore harvest done" in wv_log
+        # 只认 await 自己的 harvest；禁止把开页延迟 harvest（xiangse path）当成完成
+        has_harvest = "startBrowserAwait harvest done" in wv_log
         has_native = ("path=XiangseOpenWebView hit" in wv_log) and ("class=" in wv_log)
         fallback_only = ("path=FallbackWKWebView" in wv_log) and (not has_native)
         token_in_jar = "AWAIT_TOKEN" in (cookie_jar + cookie_dump + store)

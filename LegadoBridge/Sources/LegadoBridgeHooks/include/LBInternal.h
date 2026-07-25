@@ -66,6 +66,8 @@ NSString * _Nullable LBStartBrowserAwait(NSString *urlStr,
                                          NSString * _Nullable sourceUrl,
                                          NSString * _Nullable title,
                                          NSTimeInterval timeoutSec);
+/// 页内深链 / 外部完成信号：解除当前 startBrowserAwait 等待。
+void LBBrowserAwaitSignalUserDone(NSString * _Nullable reason);
 
 /// 阅读会话内存映射 + BookBindingStore 持久化（经 Core.rememberBookBinding）
 void LBReadingRememberBook(NSDictionary * _Nullable dicBook);

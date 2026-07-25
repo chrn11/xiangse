@@ -10,6 +10,17 @@
     h1 { font-size: 20px; margin: 0 0 12px; }
     p { line-height: 1.5; }
     #status { color: #0a7; font-weight: 600; }
+    #lb-await-done-btn {
+      display: block;
+      width: 100%;
+      margin-top: 20px;
+      padding: 14px 16px;
+      background: #111;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font: bold 17px -apple-system, sans-serif;
+    }
   </style>
 </head>
 <body>
@@ -17,12 +28,24 @@
     <h1>人机/等待验证页</h1>
     <p>本页模拟 Cloudflare 等待成功：写入 Cookie <code>AWAIT_TOKEN=ok</code>。</p>
     <p id="status">正在写入 Cookie…</p>
-    <p>请返回 App 点击右上角「完成验证」。</p>
+    <p>Cookie 写入后，点击下方「完成验证」继续搜索。</p>
+    <button id="lb-await-done-btn" type="button" aria-label="完成验证">完成验证</button>
   </div>
   <script>
+    try { document.cookie = "LB_AWAIT_DONE=; path=/; max-age=0"; } catch (e0) {}
     document.cookie = "AWAIT_TOKEN=ok; path=/; max-age=86400";
     document.cookie = "AWAIT_MARK=browser_await_" + Date.now() + "; path=/; max-age=86400";
     document.getElementById("status").textContent = "Cookie 已写入：AWAIT_TOKEN=ok";
+
+    function lbMarkAwaitDone() {
+      try { document.cookie = "LB_AWAIT_DONE=1; path=/; max-age=600"; } catch (e) {}
+      window.__lbAwaitDone = 1;
+      try {
+        var st = document.getElementById("status");
+        if (st) st.textContent = "已点完成验证，等待 App 继续…";
+      } catch (e3) {}
+    }
+    document.getElementById("lb-await-done-btn").addEventListener("click", lbMarkAwaitDone);
   </script>
 </body>
 </html>

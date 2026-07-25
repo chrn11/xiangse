@@ -296,6 +296,23 @@ static void LBPresentFallbackWK(NSString *urlStr, NSString *sourceUrl, NSString 
     }];
 }
 
+static BOOL LBVCLooksLikeWebView(UIViewController *vc, Class wkCls, Class baseCls) {
+    if (!vc) return NO;
+    if (wkCls && [vc isKindOfClass:wkCls]) return YES;
+    if (baseCls && [vc isKindOfClass:baseCls]) return YES;
+    @try {
+        id wv = [vc valueForKey:@"myWebView"];
+        if ([wv isKindOfClass:[WKWebView class]]) return YES;
+    } @catch (__unused NSException *ex) {}
+    if (vc.isViewLoaded) {
+        if ([vc.view isKindOfClass:[WKWebView class]]) return YES;
+        for (UIView *sub in vc.view.subviews) {
+            if ([sub isKindOfClass:[WKWebView class]]) return YES;
+        }
+    }
+    return NO;
+}
+
 static UIViewController *LBFindNativeWebViewController(void) {
     UIWindow *win = LBLegadoKeyWindow();
     NSMutableArray *cands = [NSMutableArray array];
@@ -304,17 +321,23 @@ static UIViewController *LBFindNativeWebViewController(void) {
     }
     Class wkCls = NSClassFromString(@"WebViewController_WK");
     Class baseCls = NSClassFromString(@"WebViewController_Base");
-    for (id obj in cands) {
+    // 优先：已上屏的 top/后出现 VC（避免打到树里靠前的残留 WK）
+    UIViewController *top = LBVisibleTopVC();
+    if (LBVCLooksLikeWebView(top, wkCls, baseCls)) return top;
+    UIViewController *visibleHit = nil;
+    UIViewController *anyHit = nil;
+    for (NSInteger i = (NSInteger)cands.count - 1; i >= 0; i--) {
+        id obj = cands[(NSUInteger)i];
         if (![obj isKindOfClass:[UIViewController class]]) continue;
         UIViewController *vc = (UIViewController *)obj;
-        if (wkCls && [vc isKindOfClass:wkCls]) return vc;
-        if (baseCls && [vc isKindOfClass:baseCls]) return vc;
-        @try {
-            id wv = [vc valueForKey:@"myWebView"];
-            if ([wv isKindOfClass:[WKWebView class]]) return vc;
-        } @catch (__unused NSException *ex) {}
+        if (!LBVCLooksLikeWebView(vc, wkCls, baseCls)) continue;
+        if (!anyHit) anyHit = vc;
+        if (vc.isViewLoaded && vc.view.window) {
+            visibleHit = vc;
+            break;
+        }
     }
-    return nil;
+    return visibleHit ?: anyHit;
 }
 
 static WKWebView *LBFindNativeWKWebView(void) {
@@ -433,6 +456,15 @@ static NSString *sBrowserAwaitHTML = nil;
 static NSString *sBrowserAwaitSourceUrl = nil;
 static NSString *sBrowserAwaitPageUrl = nil;
 static BOOL sBrowserAwaitInjectLogged = NO;
+static volatile BOOL sBrowserAwaitExternalDone = NO;
+static dispatch_semaphore_t sBrowserAwaitGate = NULL; // 串行化，禁止重入双开页
+
+/// 深链 legado://browserAwaitDone 或页内 Cookie 都可置位（不依赖打中正确 document）。
+void LBBrowserAwaitSignalUserDone(NSString *reason) {
+    sBrowserAwaitExternalDone = YES;
+    LBVisibleWVMarker([NSString stringWithFormat:@"startBrowserAwait external done src=%@",
+                       reason.length ? reason : @"?"]);
+}
 
 /// 仅可在非主线程调用：WK completion 在主线程，主线程 wait 会死锁。
 static NSString *LBEvalJSOnWK(WKWebView *wk, NSString *js, NSTimeInterval timeoutSec) {
@@ -458,6 +490,7 @@ static NSString *LBEvalJSOnWK(WKWebView *wk, NSString *js, NSTimeInterval timeou
 }
 
 static NSString *LBBrowserAwaitInjectJS(void) {
+    // 按钮放视口底部中央：真机 top-right fixed 会被香色原生导航栏挡住，无障碍也扫不到。
     return @"((function(){\n"
            @"  try {\n"
            @"    if (document.getElementById('lb-await-done-btn')) return 'exists';\n"
@@ -466,17 +499,12 @@ static NSString *LBBrowserAwaitInjectJS(void) {
            @"    b.type = 'button';\n"
            @"    b.setAttribute('aria-label', '完成验证');\n"
            @"    b.textContent = '完成验证';\n"
-           @"    b.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483647;"
-           @"padding:10px 16px;background:rgba(0,0,0,0.78);color:#fff;border:none;"
-           @"border-radius:8px;font:bold 16px -apple-system,sans-serif;';\n"
+           @"    b.style.cssText = 'position:fixed;left:16px;right:16px;bottom:28px;z-index:2147483647;"
+           @"padding:14px 16px;background:#111;color:#fff;border:none;"
+           @"border-radius:8px;font:bold 17px -apple-system,sans-serif;';\n"
            @"    b.onclick = function(){\n"
            @"      try { document.cookie = 'LB_AWAIT_DONE=1; path=/; max-age=600'; } catch(e) {}\n"
            @"      window.__lbAwaitDone = 1;\n"
-           @"      try {\n"
-           @"        if (document.title.indexOf('LB_AWAIT_DONE') !== 0) {\n"
-           @"          document.title = 'LB_AWAIT_DONE|' + document.title;\n"
-           @"        }\n"
-           @"      } catch(e2) {}\n"
            @"    };\n"
            @"    (document.body || document.documentElement).appendChild(b);\n"
            @"    return 'injected';\n"
@@ -504,9 +532,42 @@ static BOOL LBBrowserAwaitProbeUserDone(NSString *probe) {
     return NO;
 }
 
+/// 不依赖打中正确 document：读默认 DataStore 里是否已有 LB_AWAIT_DONE。
+static BOOL LBBrowserAwaitCookieStoreSaysDone(void) {
+    if ([NSThread isMainThread]) return NO;
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    __block BOOL found = NO;
+    WKHTTPCookieStore *store = WKWebsiteDataStore.defaultDataStore.httpCookieStore;
+    [store getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
+        for (NSHTTPCookie *ck in cookies ?: @[]) {
+            if ([ck.name isEqualToString:@"LB_AWAIT_DONE"] && ck.value.length > 0) {
+                found = YES;
+                break;
+            }
+        }
+        dispatch_semaphore_signal(sem);
+    }];
+    dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)));
+    return found;
+}
+
 static void LBBrowserAwaitTryInjectAndProbe(BOOL *outDone, BOOL *outHasBtn) {
     if (outDone) *outDone = NO;
     if (outHasBtn) *outHasBtn = NO;
+    if (sBrowserAwaitExternalDone) {
+        if (outDone) *outDone = YES;
+        return;
+    }
+    // 优先 CookieStore：不跑 evaluateJavaScript，避免与页内 click 竞态杀进程
+    if (LBBrowserAwaitCookieStoreSaysDone()) {
+        if (outDone) *outDone = YES;
+        if (outHasBtn) *outHasBtn = YES;
+        return;
+    }
+    // 已注入成功后不再反复 EvalJS（真机：点「完成验证」时若正 wait evaluateJavaScript → 无崩溃报告退出）
+    if (sBrowserAwaitInjectLogged) {
+        return;
+    }
     __block WKWebView *wk = nil;
     dispatch_sync(dispatch_get_main_queue(), ^{
         wk = LBFindNativeWKWebView();
@@ -514,21 +575,22 @@ static void LBBrowserAwaitTryInjectAndProbe(BOOL *outDone, BOOL *outHasBtn) {
     if (!wk) return;
 
     NSString *inj = LBEvalJSOnWK(wk, LBBrowserAwaitInjectJS(), 2.0);
-    if (!sBrowserAwaitInjectLogged &&
-        ([inj isEqualToString:@"injected"] || [inj isEqualToString:@"exists"])) {
-        sBrowserAwaitInjectLogged = YES;
-        LBVisibleWVMarker(@"startBrowserAwait overlay host=WKInject hasBtn=1");
-    } else if (inj.length > 0 && [inj hasPrefix:@"err:"]) {
-        LBVisibleWVMarker([NSString stringWithFormat:@"startBrowserAwait inject %@", inj]);
-    }
-
     NSString *probe = LBEvalJSOnWK(wk, LBBrowserAwaitPollJS(), 2.0);
-    if (outHasBtn && probe.length >= 3) {
-        // format: done|hasBtn|cookie|title
+    BOOL hasBtn = NO;
+    if (probe.length >= 3) {
         NSArray *parts = [probe componentsSeparatedByString:@"|"];
         if (parts.count >= 2) {
-            *outHasBtn = [parts[1] isEqualToString:@"1"];
+            hasBtn = [parts[1] isEqualToString:@"1"];
         }
+    }
+    if (outHasBtn) *outHasBtn = hasBtn;
+    if (hasBtn || [inj isEqualToString:@"injected"] || [inj isEqualToString:@"exists"]) {
+        sBrowserAwaitInjectLogged = YES;
+        LBVisibleWVMarker([NSString stringWithFormat:
+                           @"startBrowserAwait overlay host=WKInject hasBtn=%d inj=%@",
+                           hasBtn ? 1 : 0, inj.length ? inj : @"-"]);
+    } else if (inj.length > 0 && [inj hasPrefix:@"err:"]) {
+        LBVisibleWVMarker([NSString stringWithFormat:@"startBrowserAwait inject %@", inj]);
     }
     if (outDone) {
         *outDone = LBBrowserAwaitProbeUserDone(probe);
@@ -569,9 +631,8 @@ static void LBBrowserAwaitFinish(void) {
     });
     NSString *src = sBrowserAwaitSourceUrl ?: @"";
     if (wk) {
-        NSString *html = LBEvalJSOnWK(wk, @"document.documentElement.outerHTML", 3.0);
-        sBrowserAwaitHTML = html ?: @"";
-        // 必须等 Cookie 回灌完成再放行后续 AnalyzeUrl，否则 @js 紧接的 ajax/搜索会空 Cookie
+        // 不取 outerHTML：Finish 阶段再 EvalJS 易与页面卸载竞态；Cookie 回灌才是放行条件
+        sBrowserAwaitHTML = @"";
         dispatch_semaphore_t cookieSem = dispatch_semaphore_create(0);
         LBHarvestWKCookies(wk, page, src, ^{
             LBVisibleWVMarker(@"startBrowserAwait harvest done");
@@ -588,7 +649,7 @@ static void LBBrowserAwaitFinish(void) {
             LBHarvestNativeXiangseCookies(page, src);
         });
     }
-    LBBrowserAwaitRemoveDoneUI();
+    // 去掉按钮时也避免 EvalJS；残留 DOM 无害
     if (sBrowserAwaitSem) {
         dispatch_semaphore_signal(sBrowserAwaitSem);
     }
@@ -607,11 +668,36 @@ NSString *LBStartBrowserAwait(NSString *urlStr, NSString *sourceUrl, NSString *t
         return @"";
     }
 
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        sBrowserAwaitGate = dispatch_semaphore_create(1);
+    });
+    // 重入会双开页 + 双 Finish，真机曾在完成后落到 SpringBoard
+    long gateWait = dispatch_semaphore_wait(
+        sBrowserAwaitGate, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeoutSec * NSEC_PER_SEC)));
+    if (gateWait != 0) {
+        LBVisibleWVMarker(@"startBrowserAwait gate timeout");
+        return @"";
+    }
+    @try {
     sBrowserAwaitHTML = @"";
     sBrowserAwaitSourceUrl = sourceUrl ?: @"";
     sBrowserAwaitPageUrl = urlStr;
     sBrowserAwaitInjectLogged = NO;
+    sBrowserAwaitExternalDone = NO;
     sBrowserAwaitSem = dispatch_semaphore_create(0);
+
+    // 清掉上一轮残留，避免 CookieStore 探针误判已完成
+    {
+        WKHTTPCookieStore *store = WKWebsiteDataStore.defaultDataStore.httpCookieStore;
+        [store getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
+            for (NSHTTPCookie *ck in cookies ?: @[]) {
+                if ([ck.name isEqualToString:@"LB_AWAIT_DONE"]) {
+                    [store deleteCookie:ck completionHandler:nil];
+                }
+            }
+        }];
+    }
 
     dispatch_semaphore_t presentedSem = dispatch_semaphore_create(0);
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -649,4 +735,7 @@ NSString *LBStartBrowserAwait(NSString *urlStr, NSString *sourceUrl, NSString *t
     NSString *out = sBrowserAwaitHTML ?: @"";
     sBrowserAwaitSem = NULL;
     return out;
+    } @finally {
+        dispatch_semaphore_signal(sBrowserAwaitGate);
+    }
 }

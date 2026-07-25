@@ -459,6 +459,15 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                 );
                 return YES;
             }
+            // legado://browserAwaitDone — 页内「完成验证」深链，解除 startBrowserAwait 等待
+            BOOL wantAwaitDone = [host isEqualToString:@"browserawaitdone"]
+                || [host isEqualToString:@"awaitdone"]
+                || [pathLower containsString:@"/browserawaitdone"]
+                || [pathLower containsString:@"/awaitdone"];
+            if (wantAwaitDone) {
+                LBBrowserAwaitSignalUserDone(@"deepLink");
+                return YES;
+            }
             // legado://browserAwait?url=...[&sourceUrl=...][&title=...] — 书源等价等待探针
             // 禁止主线程阻塞：后台队列调用 LBStartBrowserAwait，点「完成验证」后回灌 Cookie
             BOOL wantBrowserAwait = [host isEqualToString:@"browserawait"]
