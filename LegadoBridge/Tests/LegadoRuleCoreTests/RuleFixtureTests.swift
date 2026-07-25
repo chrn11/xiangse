@@ -140,6 +140,10 @@ final class RuleFixtureTests: XCTestCase {
             analyzed.url.contains("undefined"),
             "搜索 URL 不应含 undefined，实际: \(analyzed.url)"
         )
+        XCTAssertFalse(
+            analyzed.url.hasPrefix("@js:"),
+            "搜索 URL 不应残留 @js: 前缀，实际: \(analyzed.url)"
+        )
         XCTAssertTrue(
             analyzed.url.contains("斗破苍穹") || analyzed.url.contains("%"),
             "搜索 URL 应含关键字，实际: \(analyzed.url)"
@@ -148,6 +152,26 @@ final class RuleFixtureTests: XCTestCase {
             analyzed.url.contains("/so/"),
             "搜索 URL 应含 /so/，实际: \(analyzed.url)"
         )
+        XCTAssertTrue(
+            analyzed.url.hasPrefix("https://www.qidian.com/so/"),
+            "搜索 URL 应为绝对地址，实际: \(analyzed.url)"
+        )
+    }
+
+    /// JS 失败时仍能从 baseUrl+"/so/…" 字面量恢复，避免请求落到 localhost
+    func testQidianStyleSearchUrlRecoversWhenJsLeftRaw() {
+        // 模拟字面量已替换、但整段仍带 @js: 的失败态（与真机探针一致的前缀形态）
+        let raw = #"@js:url=baseUrl+"/so/%E6%96%97%E7%A0%B4%E8%8B%8D%E7%A9%B9.html,{'method':'GET','headers':{'User-Agent':'Mozilla/5.0','Referer':'https://www.qidian.com/'}}";java.put('url',url);result=url;"#
+        let analyzed = AnalyzeUrl.analyze(
+            ruleUrl: raw,
+            key: nil,
+            page: 1,
+            baseUrl: "https://www.qidian.com",
+            source: nil
+        )
+        XCTAssertFalse(analyzed.url.hasPrefix("@js:"), "应去掉 @js:，实际: \(analyzed.url)")
+        XCTAssertTrue(analyzed.url.contains("/so/"), "应含 /so/，实际: \(analyzed.url)")
+        XCTAssertFalse(analyzed.url.contains("localhost"), "不应落到 localhost，实际: \(analyzed.url)")
     }
 
     // MARK: - Cookie

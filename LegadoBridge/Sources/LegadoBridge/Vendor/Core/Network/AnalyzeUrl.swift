@@ -212,6 +212,7 @@ class AnalyzeUrl {
         var start = 0
         var result = ruleUrl
         let fullRange = NSRange(ruleUrl.startIndex..., in: ruleUrl)
+        var lastJsError: String?
 
         // 匹配 <js>...</js> 和 @js: 模式
         let jsPattern = try! NSRegularExpression(
@@ -239,11 +240,16 @@ class AnalyzeUrl {
                 continue
             }
 
-            let evalResult = evalJS(jsCode, result: result)
+            let evalResult = evalJS(jsCode, result: result, errorOut: &lastJsError)
             if let evalResult {
                 let described = String(describing: evalResult)
-                // JS 返回 undefined/null 时保留原串，避免拼出 https://host/undefined
-                if !described.isEmpty, described != "undefined", described != "null" {
+                // JS 返回 undefined/null/@js 原文时保留原串，避免拼出 https://host/undefined
+                // 也拒绝仍带 @js: 前缀的回落值（eval 失败时曾把整段规则当结果）
+                if !described.isEmpty,
+                   described != "undefined",
+                   described != "null",
+                   !described.hasPrefix("@js:"),
+                   !described.hasPrefix("<js>") {
                     result = described
                 }
             }
@@ -258,7 +264,66 @@ class AnalyzeUrl {
             }
         }
 
+        // 脚本失败时仍可能留下 @js:…；从 baseUrl+"/path,{opt}" 字面量恢复，避免请求落到 localhost
+        if result.hasPrefix("@js:") || result.hasPrefix("<js>") {
+            if let recovered = Self.recoverUrlFromFailedAnalyzeJs(result, baseUrl: baseUrl) {
+                writeAnalyzeJsProbe(
+                    phase: "recovered",
+                    raw: result,
+                    recovered: recovered,
+                    jsError: lastJsError
+                )
+                result = recovered
+            } else {
+                writeAnalyzeJsProbe(
+                    phase: "failed",
+                    raw: result,
+                    recovered: "",
+                    jsError: lastJsError
+                )
+            }
+        }
+
         ruleUrl = result
+    }
+
+    /// 起点类 searchUrl：`@js:url=baseUrl+"/so/key.html,{...}";…` 在 JS 失败时回落拼 URL
+    private static func recoverUrlFromFailedAnalyzeJs(_ raw: String, baseUrl: String) -> String? {
+        let body: String
+        if raw.hasPrefix("@js:") {
+            body = String(raw.dropFirst(4))
+        } else if raw.hasPrefix("<js>"), raw.hasSuffix("</js>") {
+            body = String(raw.dropFirst(4).dropLast(5))
+        } else {
+            body = raw
+        }
+        guard let re = try? NSRegularExpression(pattern: #"baseUrl\s*\+\s*\"([^\"]+)\""#),
+              let match = re.firstMatch(in: body, range: NSRange(body.startIndex..., in: body)),
+              let pathRange = Range(match.range(at: 1), in: body) else {
+            return nil
+        }
+        let pathAndOpt = String(body[pathRange])
+        if let comma = pathAndOpt.range(of: #",\s*\{"#, options: .regularExpression) {
+            let path = String(pathAndOpt[..<comma.lowerBound])
+            let opt = String(pathAndOpt[comma.lowerBound...])
+            return getAbsoluteURL(baseUrl: baseUrl, path) + opt
+        }
+        return getAbsoluteURL(baseUrl: baseUrl, pathAndOpt)
+    }
+
+    /// Documents/legado_analyze_js_probe.txt
+    private func writeAnalyzeJsProbe(phase: String, raw: String, recovered: String, jsError: String?) {
+        let path = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_analyze_js_probe.txt")
+        let line = [
+            "ts=\(ISO8601DateFormatter().string(from: Date()))",
+            "phase=\(phase)",
+            "baseUrl=\(baseUrl)",
+            "jsError=\(jsError ?? "")",
+            "raw=\(raw.prefix(500))",
+            "recovered=\(recovered.prefix(500))",
+        ].joined(separator: "\n") + "\n"
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     // MARK: - 替换变量
@@ -501,6 +566,12 @@ class AnalyzeUrl {
 
     /// 执行 JS（对应 Android evalJS）
     func evalJS(_ jsStr: String, result: Any? = nil) -> Any? {
+        var ignored: String?
+        return evalJS(jsStr, result: result, errorOut: &ignored)
+    }
+
+    /// 执行 JS；errorOut 带回 JSC 异常文案（供 analyzeJs 探针）
+    func evalJS(_ jsStr: String, result: Any? = nil, errorOut: inout String?) -> Any? {
         let trimmed = jsStr.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return result }
 
@@ -535,9 +606,28 @@ class AnalyzeUrl {
             jsError = exception?.toString()
         }
 
-        // 执行
-        let evalResult = jsContext.evaluateScript(trimmed)
+        // 包一层 try/catch：起点 searchUrl 在 java.put 抛错时，仍能拿到已赋值的 url
+        let wrapped = """
+        (function(){
+          var __e = null;
+          try {
+            \(trimmed)
+          } catch (e) {
+            __e = String(e);
+          }
+          if (typeof result !== 'undefined' && result !== null && String(result) !== 'undefined' && String(result) !== 'null' && String(result).length) {
+            return result;
+          }
+          if (typeof url !== 'undefined' && url !== null && String(url) !== 'undefined' && String(url) !== 'null' && String(url).length) {
+            return url;
+          }
+          if (__e) { throw new Error(__e); }
+          return null;
+        })()
+        """
+        let evalResult = jsContext.evaluateScript(wrapped)
         if let jsError, !jsError.isEmpty {
+            errorOut = jsError
             DebugLogger.shared.log("[AnalyzeUrl.evalJS] \(jsError)")
         }
 
@@ -561,7 +651,7 @@ class AnalyzeUrl {
                 return value.toNumber()?.stringValue
             }
             let str = value.toString() ?? ""
-            if Self.isUsableJSString(str) {
+            if Self.isUsableJSString(str), !str.hasPrefix("@js:"), !str.hasPrefix("<js>") {
                 if let sourceUrl = source?.bookSourceUrl {
                     SourceSessionStore.merge(execContext.variables, for: sourceUrl)
                 }
@@ -570,6 +660,10 @@ class AnalyzeUrl {
         }
         if let sourceUrl = source?.bookSourceUrl {
             SourceSessionStore.merge(execContext.variables, for: sourceUrl)
+        }
+        // 失败时不要把带 @js: 的原规则当成功结果回传
+        if let r = result as? String, r.hasPrefix("@js:") || r.hasPrefix("<js>") {
+            return nil
         }
         return result
     }
