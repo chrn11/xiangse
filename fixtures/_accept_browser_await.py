@@ -148,7 +148,7 @@ def main() -> int:
         "mcp": MCP,
         "host": HOST,
         "src": SRC_URL,
-        "package_expected": "6f25ffd + post-FAIL fix (await_gate btn / WKInject bottom / cookieStore done)",
+        "package_expected": "5c758fe + post-FAIL: no CookieStore before Present; CookieStore only after inject",
         "checks": {},
         "verdict": "FAIL",
     }
@@ -280,13 +280,17 @@ def main() -> int:
         fallback_only = ("path=FallbackWKWebView" in wv_log) and (not has_native)
         token_in_jar = "AWAIT_TOKEN" in (cookie_jar + cookie_dump + store)
 
-        # 只认后续搜索请求：await_search* 带 AWAIT_TOKEN=ok；禁止用 await_gate / runtime.json 冒充
+        # 只认本轮之后的 await_search* 带 AWAIT_TOKEN=ok；禁止用历史日志 / runtime.json 冒充
         token_in_await_search = False
         try:
-            entries = json.loads(mock_log) if mock_log.strip().startswith("[") else []
+            raw = mock_log.lstrip("\ufeff").strip()
+            entries = json.loads(raw) if raw.startswith("[") else []
             if isinstance(entries, list):
                 for e in entries:
                     if not isinstance(e, dict):
+                        continue
+                    ts_e = str(e.get("ts") or "")
+                    if ts_e and ts_e < stamp:
                         continue
                     path = str(e.get("path") or "")
                     ck = str(e.get("cookie") or "")
@@ -294,7 +298,7 @@ def main() -> int:
                         token_in_await_search = True
                         break
         except Exception:
-            token_in_await_search = "await_search" in mock_log and "AWAIT_TOKEN=ok" in mock_log
+            token_in_await_search = False
 
         process_ok = bool(alive_before_tap and alive_after and not springboard_ui)
 

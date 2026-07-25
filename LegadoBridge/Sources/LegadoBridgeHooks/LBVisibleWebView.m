@@ -493,6 +493,7 @@ static NSString *LBBrowserAwaitInjectJS(void) {
     // 按钮放视口底部中央：真机 top-right fixed 会被香色原生导航栏挡住，无障碍也扫不到。
     return @"((function(){\n"
            @"  try {\n"
+           @"    try { document.cookie = 'LB_AWAIT_DONE=; path=/; max-age=0'; } catch (e0) {}\n"
            @"    if (document.getElementById('lb-await-done-btn')) return 'exists';\n"
            @"    var b = document.createElement('button');\n"
            @"    b.id = 'lb-await-done-btn';\n"
@@ -533,6 +534,7 @@ static BOOL LBBrowserAwaitProbeUserDone(NSString *probe) {
 }
 
 /// 不依赖打中正确 document：读默认 DataStore 里是否已有 LB_AWAIT_DONE。
+/// 仅允许在 inject 成功之后调用；Present 前 / 冷启动调用会杀进程。
 static BOOL LBBrowserAwaitCookieStoreSaysDone(void) {
     if ([NSThread isMainThread]) return NO;
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
@@ -540,7 +542,8 @@ static BOOL LBBrowserAwaitCookieStoreSaysDone(void) {
     WKHTTPCookieStore *store = WKWebsiteDataStore.defaultDataStore.httpCookieStore;
     [store getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
         for (NSHTTPCookie *ck in cookies ?: @[]) {
-            if ([ck.name isEqualToString:@"LB_AWAIT_DONE"] && ck.value.length > 0) {
+            if ([ck.name isEqualToString:@"LB_AWAIT_DONE"] && ck.value.length > 0
+                && ![ck.value isEqualToString:@"0"]) {
                 found = YES;
                 break;
             }
@@ -558,14 +561,13 @@ static void LBBrowserAwaitTryInjectAndProbe(BOOL *outDone, BOOL *outHasBtn) {
         if (outDone) *outDone = YES;
         return;
     }
-    // 优先 CookieStore：不跑 evaluateJavaScript，避免与页内 click 竞态杀进程
-    if (LBBrowserAwaitCookieStoreSaysDone()) {
-        if (outDone) *outDone = YES;
-        if (outHasBtn) *outHasBtn = YES;
-        return;
-    }
-    // 已注入成功后不再反复 EvalJS（真机：点「完成验证」时若正 wait evaluateJavaScript → 无崩溃报告退出）
+    // 已注入成功后：只读 CookieStore，不再 EvalJS（点完成时 wait evaluateJavaScript → 无崩溃报告退出）
+    // 未注入前禁止 CookieStore：残留 LB_AWAIT_DONE 会误判完成；且冷启动 Present 前碰 CookieStore 会直接杀进程
     if (sBrowserAwaitInjectLogged) {
+        if (outHasBtn) *outHasBtn = YES;
+        if (LBBrowserAwaitCookieStoreSaysDone()) {
+            if (outDone) *outDone = YES;
+        }
         return;
     }
     __block WKWebView *wk = nil;
@@ -686,18 +688,8 @@ NSString *LBStartBrowserAwait(NSString *urlStr, NSString *sourceUrl, NSString *t
     sBrowserAwaitInjectLogged = NO;
     sBrowserAwaitExternalDone = NO;
     sBrowserAwaitSem = dispatch_semaphore_create(0);
-
-    // 清掉上一轮残留，避免 CookieStore 探针误判已完成
-    {
-        WKHTTPCookieStore *store = WKWebsiteDataStore.defaultDataStore.httpCookieStore;
-        [store getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
-            for (NSHTTPCookie *ck in cookies ?: @[]) {
-                if ([ck.name isEqualToString:@"LB_AWAIT_DONE"]) {
-                    [store deleteCookie:ck completionHandler:nil];
-                }
-            }
-        }];
-    }
+    // 不在 Present 前碰 WKHTTPCookieStore：冷启动真机 ≤0.5s 无崩溃报告退出；
+    // 残留完成 Cookie 由「仅 inject 后才读 CookieStore」+ 页内 max-age=0 清掉规避。
 
     dispatch_semaphore_t presentedSem = dispatch_semaphore_create(0);
     dispatch_async(dispatch_get_main_queue(), ^{
