@@ -148,7 +148,7 @@ def main() -> int:
         "mcp": MCP,
         "host": HOST,
         "src": SRC_URL,
-        "package_expected": "5c758fe + post-FAIL: no CookieStore before Present; CookieStore only after inject",
+        "package_expected": "51d5ed8: no CookieStore before Present; CookieStore only after inject",
         "checks": {},
         "verdict": "FAIL",
     }

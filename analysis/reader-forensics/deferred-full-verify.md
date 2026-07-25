@@ -18,7 +18,8 @@
   - **2026-07-25（`efac2d4`）**：未触发；根因 `java` 全局不可见。
   - **2026-07-25（`51a63b7` / run `30154271872`）**：触发已 PASS；等待页可见 / 点完成 / Cookie 回灌仍 FAIL（原生挂钮杀进程）。
   - **2026-07-25（`6f25ffd` / run `30162463665`）**：开页存活 PASS；点「完成验证」后 Cookie/`await_search` 通，但点后 ≤1s 杀进程 → `process_survived` FAIL（EvalJS 轮询竞态）。
-  - **2026-07-25（`5c758fe` / run `30162921072`）**：停 EvalJS + CookieStore 完成探测后，**冷启动** `browserAwait` ≤0.5s 杀进程 FAIL（Present 前碰 `WKHTTPCookieStore`）。已去掉开局 CookieStore、仅 inject 后读完成 Cookie；**已改待 commit**，待 CI 新 IPA 复验。见 `phase88-browser-await-progress.md`；**最小门禁整体仍勿标 PASS**。
+  - **2026-07-25（`5c758fe` / run `30162921072`）**：停 EvalJS + CookieStore 完成探测后，**冷启动** `browserAwait` ≤0.5s 杀进程 FAIL（Present 前碰 `WKHTTPCookieStore`）。
+  - **2026-07-25（`51d5ed8` / run `30163275599`）**：Present 前不碰 CookieStore；冷启动 `browserAwait` 最小门禁 **PASS**（`process_survived` + user done/harvest + `/await_search` Cookie `AWAIT_TOKEN=ok`）。证据见 `phase88-browser-await-progress.md` 与 `fixtures/_devkit/browser_await/browser_await_accept_20260725T151942Z.json`。总验（领域/笔趣读）仍延后。
 - 登录：香色原版网页/表单，而不是系统 Alert 冒充
 - Cookie 带到搜索/后续请求（已有进展，总验时再回归）
 - 至少 1 条真实源：搜索 → 详情 → **有章节的目录** → 香色正文（起点已满足；总验仍要覆盖领域/笔趣读）
