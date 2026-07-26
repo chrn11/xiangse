@@ -46,14 +46,7 @@
 | O | Legado 搜索（UI 路径） | 书架搜索图标 → 输入「斗破」回车 → 出 mock 4 本结果（斗破苍穹/净化验收专书/WebView验收专书/凡人修仙传） | **PASS** |
 | P | 搜索 trace + 点书 | `legado_search_last.txt` 仍停在 08:34 起点搜索（**UI 搜索不写该 trace，trace 不完全**）；首次点书行无反应 | trace 缺陷待记；点击疑似时机问题 |
 | Q | 深链+点书行 | `legado://search` scheme 不存在（Invalid URL）；但再次 UI 点书行 **成功**进入目录页「斗破苍穹 共2章」 | 目录可达 **PASS** |
-| R | 目录点章 | 点「第一章 陨落的天才」**无反应**（停留目录页）；`legado_catalog_last.txt` 有解析结果；open_once 残留 | **FAIL：UI 目录→正文断链** |
-
-**R 根因（已改代码，待装包复验）**：
-1. `openOnce`+`chapterDone` 时一律 `deliverOnly` return；阅读页未展示时点章被吞。
-2. 栈上有 TextRead 但顶页是目录时，`deliverOnly`/`readerOnStack` 不弹回，UI 仍停目录。
-3. MCP `nativeRead` 可开因走 claim/push，与 UI 路径不一致。
-
-**修复**：无阅读展示时 reclaim（清 openOnce/chapterDone/3.5s throttle）；栈下有 TextRead 时 `popToViewController`；cell 写 `legado_catalog_cell_tap.txt`。改动文件：`LegadoBridgeCExports.m`。
+| R | 目录点章 | 首轮：点「第一章 陨落的天才」无反应。**1340b3c 斗破复验 PASS**：`verify_u0_r_doupo/03_after_tap.png` 正文含萧炎；select=`…/book/doupo.html` | **PASS（斗破，1340b3c）** |
 | S | nativeRead（错误参数） | `url=` 参数 → Alert「nativeRead 缺少 bookUrl」 | 参数名应为 bookUrl |
 | T | nativeRead（正确参数） | **正文完整上屏**（第一章全文，原生排版）；中点唤出完整底栏：上一章/下一章/目录/缓存/设置/换源（G6 真机复现 PASS）；open_once 仍残留 | **PASS**（MCP 直发路径） |
 | U | 阅读页「换源」 | 「换源」→「选择站点」页（localSourceText），点行 → 目录页（斗破苍穹，到底部/已全部加载完毕） | **PASS**（换源功能可用） |
