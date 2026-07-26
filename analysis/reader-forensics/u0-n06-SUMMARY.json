@@ -1,0 +1,23 @@
+{
+  "fixture": "D:\\soft\\xiangse\\fixtures\\u0_local_smoke.txt",
+  "copied_to": "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/u0_local_smoke.txt",
+  "open_file_url": true,
+  "ocr_sample": [
+    "07127",
+    "36.1• 15W",
+    "O.OK O.OK",
+    "100:52",
+    "*hWJuRL",
+    "iti*lkA&t URL:",
+    "file:IllvarlmobilelContainerslDatal",
+    "Applicationl",
+    "F6A696BO-3917-4AE2-8539-44119E9",
+    "AE2EAIDocumentsluO_Ioc",
+    "E%",
+    "*i¥l",
+    "itsA£g]"
+  ],
+  "opened_native": false,
+  "verdict": "PENDING",
+  "note": "TXT 已推到 Documents，但无稳定原生导入 UI/深链夹具；file:// 未进入阅读页。需 Files/打开方式或 App 内导入路径取证后再验。"
+}
