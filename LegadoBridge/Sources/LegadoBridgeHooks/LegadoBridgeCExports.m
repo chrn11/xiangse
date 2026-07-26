@@ -1464,6 +1464,7 @@ static BOOL LBPrepareDetailForOpenReader(NSMutableDictionary *book, NSString *so
 static void LBFlushPendingResetContent(NSString *phase);
 static BOOL LBIsTextReaderVisible(void);
 static BOOL LBNavStackHasTextReader(void);
+static BOOL LBPopToExistingTextReader(void);
 static UIViewController *LBFindVisibleTextReaderVC(void);
 static UIViewController *LBFindBookDetailVC(void);
 static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic);
@@ -1963,16 +1964,44 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
     if (sNativeOpenOnceKey.length > 0 &&
         wantKeyEarly.length > 0 &&
         ![sNativeOpenOnceKey isEqualToString:wantKeyEarly]) {
+        // 换章/换书：旧 openOnce 不得永久拦住目录点章（U0-R：UI 点章无反应）
+        // 仅看「阅读页是否正在展示」：栈上压着 TextRead 但顶是目录时仍须 reclaim
+        BOOL hasReaderOther = LBIsTextReaderVisible();
+        if (hasReaderOther) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"goStart skip openOnce otherKey via=%@ key=%@", via ?: @"?", sNativeOpenOnceKey]);
+            return;
+        }
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"goStart skip openOnce otherKey via=%@ key=%@", via ?: @"?", sNativeOpenOnceKey]);
-        return;
+                                 @"goStart reclaim otherKey noReader via=%@ old=%@ want=%@",
+                                 via ?: @"?", sNativeOpenOnceKey, wantKeyEarly ?: @"?"]);
+        sNativeOpenOnceKey = nil;
+        sNativeOpenGoInFlight = NO;
+        sNativeOpenChapterDone = NO;
+        sNativeReadChapterOpenStarted = NO;
+        sLastLegadoChapterOpenTs = 0;
+        LBClearNativeOpenOnceMarker();
+        diskKey = nil;
     }
     if ((sNativeOpenOnceKey.length > 0 || diskKey.length > 0) && sNativeOpenChapterDone) {
+        // 阅读页未展示时禁止 deliverOnly 吞点：目录 UI 点章须重新 push（U0-R）
+        BOOL hasReader = LBIsTextReaderVisible();
+        if (hasReader) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"goStart skipPush chapterDone deliverOnly via=%@", via ?: @"?"]);
+            sDeferredNativeOpenIdx = -1;
+            LBDeliverContentToVisibleReaders(@"openOnceChapterDone");
+            return;
+        }
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"goStart skipPush chapterDone deliverOnly via=%@", via ?: @"?"]);
-        sDeferredNativeOpenIdx = -1;
-        LBDeliverContentToVisibleReaders(@"openOnceChapterDone");
-        return;
+                                 @"goStart reclaim chapterDone+openOnce noReader via=%@", via ?: @"?"]);
+        sNativeOpenOnceKey = nil;
+        sNativeOpenGoInFlight = NO;
+        sNativeOpenChapterDone = NO;
+        sNativeReadChapterOpenStarted = NO;
+        sLastLegadoChapterOpenTs = 0;
+        LBClearNativeOpenOnceMarker();
+        diskKey = nil;
     }
     if (sNativeOpenGoInFlight) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
@@ -1980,17 +2009,26 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
         return;
     }
     if (sNativeOpenChapterDone) {
+        BOOL hasReaderDone = LBIsTextReaderVisible();
+        if (hasReaderDone) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"goStart skipPush chapterDone deliverOnly via=%@", via ?: @"?"]);
+            sDeferredNativeOpenIdx = -1;
+            LBDeliverContentToVisibleReaders(@"chapterDone");
+            return;
+        }
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"goStart skipPush chapterDone deliverOnly via=%@", via ?: @"?"]);
-        sDeferredNativeOpenIdx = -1;
-        LBDeliverContentToVisibleReaders(@"chapterDone");
-        return;
+                                 @"goStart reclaim chapterDone noReader via=%@", via ?: @"?"]);
+        sNativeOpenChapterDone = NO;
+        sNativeOpenGoInFlight = NO;
+        sNativeReadChapterOpenStarted = NO;
+        sLastLegadoChapterOpenTs = 0;
     }
-    // 已在 nativeFull 阅读页：只补投正文，禁止二次 push（真机曾双开 → SIGABRT）
-    if (sLegadoReaderMode == 1 &&
-        (LBIsTextReaderVisible() || LBNavStackHasTextReader())) {
+    // 已在展示中的 nativeFull 阅读页：只补投正文，禁止二次 push（真机曾双开 → SIGABRT）
+    // 顶页是目录、栈下才有 TextRead 时不走此支，交给 go() 弹回或 push（U0-R）
+    if (sLegadoReaderMode == 1 && LBIsTextReaderVisible()) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"goStart skipPush alreadyOnStack deliverOnly via=%@", via ?: @"?"]);
+                                 @"goStart skipPush alreadyVisible deliverOnly via=%@", via ?: @"?"]);
         sDeferredNativeOpenIdx = -1;
         LBDeliverContentToVisibleReaders(@"alreadyVisible");
         return;
@@ -2195,12 +2233,21 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
         NSString *orm = nil;
         BOOL opened = NO;
         @try {
-            // 栈上已有 TextRead：sameKey  reclaim 后禁止二次 push（曾 defer SIGABRT sig=6）
+            // 栈上已有 TextRead：可见则补投；被目录盖住则 pop 回去（U0-R，禁静默吞点）
             if (LBNavStackHasTextReader()) {
-                LBAppendOpenReaderTrace(@"goStart deliverOnly readerOnStack");
-                LBDeliverContentToVisibleReaders(@"goStartOnStack");
-                sNativeOpenGoInFlight = NO;
-                return;
+                if (LBIsTextReaderVisible()) {
+                    LBAppendOpenReaderTrace(@"goStart deliverOnly readerVisible");
+                    LBDeliverContentToVisibleReaders(@"goStartOnStack");
+                    sNativeOpenGoInFlight = NO;
+                    return;
+                }
+                if (LBPopToExistingTextReader()) {
+                    LBAppendOpenReaderTrace(@"goStart popToReader underCatalog");
+                    LBDeliverContentToVisibleReaders(@"goStartPopToStack");
+                    sNativeOpenGoInFlight = NO;
+                    return;
+                }
+                LBAppendOpenReaderTrace(@"goStart readerOnStack popFail continuePush");
             }
             // 1) 优先 push TextRead + 原生 viewDidLoad
             // 注意：push 动画期间 LBIsTextReaderVisible 常为 NO，切勿立刻再调 openReader
@@ -2305,6 +2352,10 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
 - (void)openChapter:(UIButton *)sender {
     NSNumber *idxNum = objc_getAssociatedObject(sender, &kLBCatIdxKey);
     if (![idxNum isKindOfClass:[NSNumber class]]) return;
+    // U0-R 探针：区分「点不到」vs「点到被 openOnce 吞」
+    [[NSString stringWithFormat:@"cellTap idx=%ld via=LBCatalogCellOpenProxy", (long)idxNum.integerValue]
+        writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_cell_tap.txt"]
+         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     LBOpenLegadoChapterAtIndex(idxNum.integerValue);
 }
 @end
@@ -2943,6 +2994,50 @@ static BOOL LBNavStackHasTextReader(void) {
 
 static BOOL LBIsTextReaderVisible(void) {
     return LBFindVisibleTextReaderVC() != nil;
+}
+
+/// 导航栈内任意 TextRead/ReadVCBase（含被目录盖住、尚未 appear）
+static UIViewController *LBFindAnyTextReaderVC(void) {
+    for (UIWindow *w in LBAllAppWindows()) {
+        UIViewController *root = w.rootViewController;
+        if (!root) continue;
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+        while (stack.count > 0) {
+            UIViewController *vc = stack.lastObject;
+            [stack removeLastObject];
+            NSString *cn = NSStringFromClass([vc class]);
+            if ([cn containsString:@"TextReadVC"] || [cn containsString:@"ReadVCBase"]) {
+                return vc;
+            }
+            for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
+            if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
+            if ([vc isKindOfClass:[UINavigationController class]]) {
+                for (UIViewController *c in [(UINavigationController *)vc viewControllers]) {
+                    [stack addObject:c];
+                }
+            }
+            if ([vc isKindOfClass:[UITabBarController class]]) {
+                for (UIViewController *c in [(UITabBarController *)vc viewControllers]) {
+                    [stack addObject:c];
+                }
+            }
+        }
+    }
+    return nil;
+}
+
+/// 目录盖住阅读页时弹回 TextRead（避免 deliverOnly 时用户仍停在目录）
+static BOOL LBPopToExistingTextReader(void) {
+    UIViewController *reader = LBFindAnyTextReaderVC();
+    if (!reader) return NO;
+    UINavigationController *nav = reader.navigationController;
+    if (!nav) return NO;
+    @try {
+        [nav popToViewController:reader animated:YES];
+        return YES;
+    } @catch (__unused NSException *e) {
+        return NO;
+    }
 }
 
 static UIViewController *LBFindVisibleTextReaderVC(void) {
