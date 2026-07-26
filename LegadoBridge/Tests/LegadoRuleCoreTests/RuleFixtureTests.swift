@@ -531,4 +531,17 @@ final class RuleFixtureTests: XCTestCase {
         XCTAssertFalse(kept.contains("第1/2页"), "应删分页标记，实际: \(kept)")
         XCTAssertTrue(kept.contains("正文") && kept.contains("继续"), "正文应保留: \(kept)")
     }
+
+    func testContentHtmlMidChainThenJs() throws {
+        // 领域 ruleContent.content：#content@html@js:result.replace(...)
+        // 中间段 html 必须抽 innerHTML，不能当 CSS 选择器
+        let body = """
+        <html><body><div id="content"><p>陨落的天才</p><script>evil()</script></div></body></html>
+        """
+        let rule = #"#content@html@js:result.replace(/<script[\s\S]*?<\/script>/g,'')"#
+        let out = try RuleWebBook.evaluateString(rule: rule, body: body)
+        XCTAssertTrue(out.contains("陨落的天才"), "应抽出正文，实际: \(out)")
+        XCTAssertFalse(out.contains("<script"), "JS 应去掉 script，实际: \(out)")
+        XCTAssertFalse(out.isEmpty, "不得空串（content_post_no_body）")
+    }
 }

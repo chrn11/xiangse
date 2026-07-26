@@ -1569,6 +1569,16 @@ class CSSParser: RuleExecutor {
                 continue
             }
 
+            // 中间段 text/html/…：先抽成字符串，供后续 @js（领域：#content@html@js:…）。
+            // 不可当 CSS 选择器，否则 select("html") 空结果 → 正文 beforeLen=0。
+            if !isLast && Self.isValueExtractMidAttr(part) {
+                let values = try elements.map { try extractCSSValue(from: $0, attr: part, baseUrl: baseUrl) }
+                    .filter { !$0.isEmpty }
+                stringResult = values.joined(separator: "\n")
+                elements = []
+                continue
+            }
+
             // 纯属性段（非末段）：把元素收成属性字符串，供后续 @js 使用。
             // 仅认「像属性」的名字（href/data-bid 等）；勿把标签名 a/div/li 当成属性，
             // 否则 `a@text` / `tag.a@href` 中间段会空结果 → 目录 chapters=0。
@@ -1634,10 +1644,19 @@ class CSSParser: RuleExecutor {
         return true
     }
 
+    /// 中间段值抽取：`#content@html@js:` / `div@text@js:`（非 CSS 选择器）。
+    private static func isValueExtractMidAttr(_ part: String) -> Bool {
+        let lower = part.lowercased()
+        return [
+            "text", "html", "innerhtml", "outerhtml",
+            "owntext", "textnodes", "all",
+        ].contains(lower)
+    }
+
     /// 非末段何时当属性：含 `-`（data-bid）或常见属性名；排除 a/div/span 等标签名。
     private static func isMidChainAttributeName(_ part: String) -> Bool {
         let lower = part.lowercased()
-        if lower == "text" || lower == "html" { return false }
+        if isValueExtractMidAttr(part) { return false }
         if !isTerminalAttr(part) { return false }
         if lower.contains("-") { return true }
         let known: Set<String> = [
