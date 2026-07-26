@@ -692,6 +692,27 @@ static NSArray *sPendingCatalogChapters = nil;
 static NSString *sPendingCatalogBookUrl = nil;
 static NSString *sPendingCatalogSourceName = nil;
 static NSString *sPendingCatalogSourceUrl = nil;
+
+/// 从 bookUrl 取 scheme://host[:port]，替代写死的 mock 端口兜底
+static NSString *LBOriginSourceUrlFromBookUrl(NSString *bookUrl) {
+    if (bookUrl.length == 0) return nil;
+    NSURL *u = [NSURL URLWithString:bookUrl];
+    if (u.scheme.length == 0 || u.host.length == 0) return nil;
+    if (u.port != nil) {
+        return [NSString stringWithFormat:@"%@://%@:%@", u.scheme, u.host, u.port];
+    }
+    return [NSString stringWithFormat:@"%@://%@", u.scheme, u.host];
+}
+
+/// pending > bookUrl 源站 > 持久绑定
+static NSString *LBResolvePendingSourceUrl(NSString *bookUrl) {
+    if (sPendingCatalogSourceUrl.length > 0) return sPendingCatalogSourceUrl;
+    NSString *origin = LBOriginSourceUrlFromBookUrl(bookUrl);
+    if (origin.length > 0) return origin;
+    NSString *mapped = LBReadingSourceUrlForBookUrl(bookUrl);
+    if (mapped.length > 0) return mapped;
+    return nil;
+}
 /// legado://nativeRead 等待目录返回后再点章
 static NSInteger sDeferredNativeOpenIdx = -1;
 /// 本章已成功 nativePaged+push，禁止 goStart 二次 push（nativeRead 多路回调曾 SIGABRT）
@@ -1737,7 +1758,7 @@ static BOOL LBEnsurePendingCatalogForBook(NSString *bookUrl) {
     sPendingCatalogChapters = [cached copy];
     sPendingCatalogBookUrl = [bookUrl copy];
     if (sPendingCatalogSourceUrl.length == 0) {
-        sPendingCatalogSourceUrl = @"http://192.168.1.4:8765";
+        sPendingCatalogSourceUrl = LBOriginSourceUrlFromBookUrl(bookUrl);
     }
     if (sPendingCatalogSourceName.length == 0) {
         sPendingCatalogSourceName = @"本地静态测试源";
@@ -1804,7 +1825,7 @@ static void LBSwitchNativeChapterInPlace(NSString *bookUrl, NSString *sourceUrl,
         return;
     }
     NSString *su = sourceUrl.length > 0 ? sourceUrl
-        : (sPendingCatalogSourceUrl.length > 0 ? sPendingCatalogSourceUrl : @"http://192.168.1.4:8765");
+        : LBResolvePendingSourceUrl(bu);
 
     LBNativeOpenOnceLockInit();
     @synchronized(sNativeOpenOnceLock) {
@@ -2078,11 +2099,10 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
             return;
         }
         LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen phase=goStart ch=%@", chCopy]);
-        // 对齐已导入书源：本地静态测试源 / http://192.168.1.4:8765（勿用 404 的 source.json、勿用「本地 mock」）
+        // 源 URL：pending / bookUrl 源站 / 持久绑定（禁止写死 mock 端口）
         NSString *sourceName = sPendingCatalogSourceName.length > 0
             ? sPendingCatalogSourceName : @"本地静态测试源";
-        NSString *sourceUrl = sPendingCatalogSourceUrl.length > 0
-            ? sPendingCatalogSourceUrl : @"http://192.168.1.4:8765";
+        NSString *sourceUrl = LBResolvePendingSourceUrl(buCopy);
         NSString *bookName = @"斗破苍穹";
         NSString *author = @"天蚕土豆";
         for (UIViewController *vc in LBFindCatalogVCs()) {
@@ -2745,7 +2765,7 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
     sPendingCatalogBookUrl = [bu copy];
     if (su.length > 0) sPendingCatalogSourceUrl = [su copy];
     else if (sPendingCatalogSourceUrl.length == 0) {
-        sPendingCatalogSourceUrl = @"http://192.168.1.4:8765";
+        sPendingCatalogSourceUrl = LBOriginSourceUrlFromBookUrl(bu);
     }
     id sn0 = safe[@"sourceName"] ?: safe[@"bookSourceName"] ?: safe[@"querySourceName"];
     if ([sn0 isKindOfClass:[NSString class]] && [(NSString *)sn0 length] > 0) {
@@ -9160,7 +9180,7 @@ void LBHandleCatalogRequest(NSString *bookUrl, NSString *sourceUrl) {
         sPendingCatalogSourceName = @"本地静态测试源";
     }
     if (sPendingCatalogSourceUrl.length == 0) {
-        sPendingCatalogSourceUrl = @"http://192.168.1.4:8765";
+        sPendingCatalogSourceUrl = LBOriginSourceUrlFromBookUrl(bookUrl);
     }
     Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
     if (!coreClass) return;

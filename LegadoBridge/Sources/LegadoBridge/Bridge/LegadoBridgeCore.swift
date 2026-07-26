@@ -89,10 +89,73 @@ import LegadoBridgeHooks
 
     @objc(sourceUrlForBookUrl:)
     public func sourceUrl(forBookUrl bookUrl: String) -> String? {
+        // 优先返回「注册表里真实存在」的源，避免陈旧 binding（如错误端口）把正文打成 sourceNotFound
+        if let source = resolveEnabledSource(requested: nil, bookUrl: bookUrl) {
+            return source.bookSourceUrl
+        }
         if let url = BookBindingStore.shared.sourceUrl(forBookUrl: bookUrl) {
             return url
         }
         return bookCache[bookUrl]?.sourceUrl
+    }
+
+    /// 去掉空串/空白，避免 ObjC 传入 "" 时短路 `??` 回退链
+    private static func nonEmptyURL(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    /// 从 bookUrl / 任意 URL 取 scheme://host[:port]，用于 mock 源端口纠偏
+    private static func originURL(from raw: String?) -> String? {
+        guard let raw = nonEmptyURL(raw), let u = URL(string: raw),
+              let scheme = u.scheme, let host = u.host, !scheme.isEmpty, !host.isEmpty else {
+            return nil
+        }
+        if let port = u.port {
+            return "\(scheme)://\(host):\(port)"
+        }
+        return "\(scheme)://\(host)"
+    }
+
+    /// 按候选顺序解析已启用书源：请求 > binding > 缓存 > bookUrl 源站
+    private func resolveEnabledSource(requested: String?, bookUrl: String) -> MemoryBridgeBookSource? {
+        let binding = BookBindingStore.shared.binding(forBookUrl: bookUrl)
+        var candidates: [String] = []
+        let rawList: [String?] = [
+            Self.nonEmptyURL(requested),
+            Self.nonEmptyURL(binding?.sourceUrl),
+            Self.nonEmptyURL(bookCache[bookUrl]?.sourceUrl),
+            Self.originURL(from: bookUrl),
+            Self.originURL(from: requested),
+            Self.originURL(from: binding?.sourceUrl),
+        ]
+        for item in rawList {
+            guard let item, !candidates.contains(item) else { continue }
+            candidates.append(item)
+        }
+        var hit: MemoryBridgeBookSource?
+        for url in candidates {
+            if let source = SourceRegistry.shared.exactSource(forUrl: url),
+               SourceRegistry.shared.isEnabled(url: source.bookSourceUrl) {
+                hit = source
+                break
+            }
+        }
+        let marker = [
+            "ts=\(ISO8601DateFormatter().string(from: Date()))",
+            "book=\(bookUrl)",
+            "requested=\(Self.nonEmptyURL(requested) ?? "-")",
+            "binding=\(Self.nonEmptyURL(binding?.sourceUrl) ?? "-")",
+            "candidates=\(candidates.joined(separator: ","))",
+            "hit=\(hit?.bookSourceUrl ?? "-")",
+            "regCount=\(SourceRegistry.shared.allSources().count)",
+        ].joined(separator: " ")
+        let path = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_source_resolve.txt")
+        try? marker.write(toFile: path, atomically: true, encoding: .utf8)
+        return hit
     }
 
     @objc(bridgeTokenForBookUrl:)
@@ -681,11 +744,7 @@ import LegadoBridgeHooks
                 if let binding, !binding.sourceAvailable {
                     throw LegadoBridgeError.engineError("书源不可用，请重新导入或换源后重试")
                 }
-                let resolvedUrl = sourceUrl
-                    ?? binding?.sourceUrl
-                    ?? bookCache[bookUrl]?.sourceUrl
-                guard let source = SourceRegistry.shared.exactSource(forUrl: resolvedUrl),
-                      SourceRegistry.shared.isEnabled(url: source.bookSourceUrl) else {
+                guard let source = resolveEnabledSource(requested: sourceUrl, bookUrl: bookUrl) else {
                     throw LegadoBridgeError.sourceNotFound
                 }
                 // 目录请求侧再次落盘，防止仅内存映射丢失
@@ -784,11 +843,7 @@ import LegadoBridgeHooks
                 if let binding, !binding.sourceAvailable {
                     throw LegadoBridgeError.engineError("书源不可用，请重新导入或换源后重试")
                 }
-                let resolvedUrl = sourceUrl
-                    ?? binding?.sourceUrl
-                    ?? self.bookCache[bookUrl]?.sourceUrl
-                guard let source = SourceRegistry.shared.exactSource(forUrl: resolvedUrl),
-                      SourceRegistry.shared.isEnabled(url: source.bookSourceUrl) else {
+                guard let source = self.resolveEnabledSource(requested: sourceUrl, bookUrl: bookUrl) else {
                     throw LegadoBridgeError.sourceNotFound
                 }
                 let ensured = binding ?? BookBindingStore.shared.bind(

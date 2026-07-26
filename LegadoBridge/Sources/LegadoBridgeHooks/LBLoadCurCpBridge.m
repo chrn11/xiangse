@@ -2753,10 +2753,52 @@ static void LBRequestContent(NSString *chapterUrl, NSString *bookUrl, NSString *
     if (chapterUrl.length == 0 || bookUrl.length == 0) return;
     id core = LBLegadoCoreIfReady();
     if (![core respondsToSelector:@selector(handleContentRequestWithChapterUrl:bookUrl:sourceUrl:)]) return;
+    NSString *su = (sourceUrl.length > 0) ? sourceUrl : nil;
     ((void (*)(id, SEL, NSString *, NSString *, NSString *))objc_msgSend)(
         core, @selector(handleContentRequestWithChapterUrl:bookUrl:sourceUrl:),
-        chapterUrl, bookUrl, sourceUrl ?: @""
+        chapterUrl, bookUrl, su
     );
+}
+
+/// content_err 后摘掉「章节加载中」残留（香色用独立 HUD/提示 view，失败路径常不关）
+static void LBDismissChapterLoadingHUD(id readerOrNil) {
+    NSMutableArray<UIView *> *roots = [NSMutableArray array];
+    @try {
+        id v = readerOrNil ? [readerOrNil valueForKey:@"view"] : nil;
+        if ([v isKindOfClass:[UIView class]]) [roots addObject:v];
+    } @catch (__unused NSException *e) {}
+    for (UIWindow *w in UIApplication.sharedApplication.windows) {
+        if (w) [roots addObject:w];
+    }
+    NSMutableArray<UIView *> *stack = [roots mutableCopy];
+    while (stack.count > 0) {
+        UIView *cur = stack.lastObject;
+        [stack removeLastObject];
+        NSString *text = nil;
+        if ([cur isKindOfClass:[UILabel class]]) {
+            text = [(UILabel *)cur text];
+        } else if ([cur respondsToSelector:@selector(text)]) {
+            @try {
+                id t = [cur valueForKey:@"text"];
+                if ([t isKindOfClass:[NSString class]]) text = t;
+            } @catch (__unused NSException *e) {}
+        }
+        if ([text isKindOfClass:[NSString class]] && [text containsString:@"章节加载中"]) {
+            UIView *victim = cur;
+            // 优先摘掉包装提示的容器（常见为 label 的 superview / 再上一级）
+            if (cur.superview.subviews.count <= 4) victim = cur.superview ?: cur;
+            if (victim.superview.subviews.count <= 3 && victim.superview != nil &&
+                ![victim.superview isKindOfClass:[UIWindow class]]) {
+                victim = victim.superview;
+            }
+            [victim removeFromSuperview];
+            LBStateLog(@"dismiss_chapter_loading_hud");
+            return;
+        }
+        for (UIView *sub in cur.subviews) {
+            [stack addObject:sub];
+        }
+    }
 }
 
 /// 假设 P：loadCurCp 静态 callee 含 curPageVC；过早 invoke 会跳过 queryCpFile
@@ -4319,6 +4361,11 @@ void LBLoadCurCpBridgeOnContentPosted(NSDictionary *payload, id readerVC) {
     if (!hasBody && hasRealError) {
         LBSetState(LBLoadCurCpStateFailed,
                    [NSString stringWithFormat:@"content_err %@", payload[@"error"]]);
+        // 正文失败时原生「章节加载中」常不消：扫视图树摘掉残留提示
+        id reader = readerVC ?: sWeakReader ?: LBFindTextReaderVCInHierarchy();
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBDismissChapterLoadingHUD(reader);
+        });
         return;
     }
     if (!hasBody && !hasRealError && payload[@"error"]) {

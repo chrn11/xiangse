@@ -526,7 +526,10 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
             BOOL wantLogin = [host isEqualToString:@"login"] || [pathLower containsString:@"/login"];
             if (wantLogin) {
                 NSString *sourceUrl = LBQueryParameterFromURL(url, @"sourceUrl");
-                if (sourceUrl.length == 0) sourceUrl = @"http://192.168.1.4:8765";
+                if (sourceUrl.length == 0) {
+                    LBLegadoShowResult(@"login 缺少 sourceUrl");
+                    return YES;
+                }
                 NSString *mode = LBQueryParameterFromURL(url, @"mode");
                 NSString *pageUrl = LBQueryParameterFromURL(url, @"url");
                 [[NSString stringWithFormat:@"openURL login src=%@ mode=%@ url=%@",
