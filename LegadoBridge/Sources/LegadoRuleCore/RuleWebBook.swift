@@ -171,9 +171,18 @@ public enum RuleWebBook {
             source: source
         )
         (body, redirectUrl) = applyLoginCheckIfNeeded(source: source, body: body, url: redirectUrl)
+        // 真机：Documents/legado_bookinfo_body_probe.txt —— 区分 CF/空体/解析崩
+        Self.writeBookInfoBodyProbe(bookUrl: book.bookUrl, redirectUrl: redirectUrl, body: body)
         guard !body.isEmpty else { throw WebBookError.emptyResponse }
 
-        var elementCtx = try makeElementContext(body: body, baseUrl: redirectUrl)
+        var elementCtx: ElementContext
+        do {
+            elementCtx = try makeElementContext(body: body, baseUrl: redirectUrl)
+        } catch {
+            throw WebBookError.parseFailed(
+                "详情 HTML 解析失败: \(error.localizedDescription) bodyLen=\(body.count) head=\(String(body.prefix(120)).replacingOccurrences(of: "\n", with: " "))"
+            )
+        }
 
         if let initRule = infoRule.initRule?.trimmingCharacters(in: .whitespacesAndNewlines),
            !initRule.isEmpty,
@@ -489,28 +498,109 @@ public enum RuleWebBook {
         executionContext.variables["url"] = url
 
         let jsContext = executionContext.jsContext
-        jsContext.setValue(["body": body, "url": url], forKey: "result")
+        // Legado 仓源写 result.body()/result.url()；字典桥接没有方法，会导致整段 loginCheckJs 空跑
+        jsContext.setValue(body, forKey: "__lbLoginBody")
+        jsContext.setValue(url, forKey: "__lbLoginUrl")
+        _ = jsContext.evaluateScript("""
+        var result = {
+          body: function() { return __lbLoginBody; },
+          url: function() { return __lbLoginUrl; },
+          header: function() { return ''; }
+        };
+        """)
         jsContext.setValue(body, forKey: "body")
         jsContext.setValue(url, forKey: "url")
 
-        guard let value = jsContext.evaluateScript(js) else { return (body, url) }
-        if let dict = value.toDictionary() as? [String: Any] {
-            return (
-                body: (dict["body"] as? String) ?? body,
-                url: (dict["url"] as? String) ?? url
-            )
+        var jsError: String?
+        jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
+        guard let value = jsContext.evaluateScript(js) else {
+            Self.writeLoginCheckProbe(url: url, jsError: jsError ?? "nil_return", bodyLen: body.count)
+            return (body, url)
         }
-        if let string = value.toString(), !string.isEmpty, string != "undefined", string != "null" {
+        if let jsError, !jsError.isEmpty {
+            Self.writeLoginCheckProbe(url: url, jsError: jsError, bodyLen: body.count)
+        }
+
+        if let parsed = parseLoginCheckJSValue(value, fallbackBody: body, fallbackUrl: url) {
+            return parsed
+        }
+        return (body, url)
+    }
+
+    /// 解析 loginCheckJs 返回值：字符串正文 / {body,url} 字典 / 带 body() 的对象
+    private static func parseLoginCheckJSValue(
+        _ value: JSValue,
+        fallbackBody: String,
+        fallbackUrl: String
+    ) -> (body: String, url: String)? {
+        if value.isString, let string = value.toString(), !string.isEmpty,
+           string != "undefined", string != "null" {
             if let data = string.data(using: .utf8),
                let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 return (
-                    body: (dict["body"] as? String) ?? body,
-                    url: (dict["url"] as? String) ?? url
+                    body: (dict["body"] as? String) ?? fallbackBody,
+                    url: (dict["url"] as? String) ?? fallbackUrl
                 )
             }
-            return (body: string, url: url)
+            return (body: string, url: fallbackUrl)
         }
-        return (body, url)
+        if let dict = value.toDictionary() as? [String: Any] {
+            let b = (dict["body"] as? String) ?? fallbackBody
+            let u = (dict["url"] as? String) ?? fallbackUrl
+            if b != fallbackBody || u != fallbackUrl || dict["body"] is String {
+                return (body: b, url: u)
+            }
+        }
+        if value.isObject {
+            if let bodyVal = value.invokeMethod("body", withArguments: []),
+               let s = bodyVal.toString(), !s.isEmpty, s != "undefined", s != "null" {
+                let u = value.invokeMethod("url", withArguments: [])?.toString()
+                let urlOut = (u?.isEmpty == false && u != "undefined" && u != "null") ? u! : fallbackUrl
+                return (body: s, url: urlOut)
+            }
+        }
+        return nil
+    }
+
+    private static func writeLoginCheckProbe(url: String, jsError: String, bodyLen: Int) {
+        let path = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_login_check_probe.txt")
+        let line = "ts=\(Date()) url=\(url) bodyLen=\(bodyLen) jsError=\(jsError)\n"
+        if let data = line.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: path),
+               let handle = FileHandle(forWritingAtPath: path) {
+                handle.seekToEndOfFile()
+                handle.write(data)
+                try? handle.close()
+            } else {
+                try? line.write(toFile: path, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    private static func writeBookInfoBodyProbe(bookUrl: String, redirectUrl: String, body: String) {
+        let path = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_bookinfo_body_probe.txt")
+        let head = String(body.prefix(900))
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        let lower = body.lowercased()
+        let flags = [
+            "cf=\(lower.contains("just a moment") || lower.contains("cloudflare") || lower.contains("cf-browser"))",
+            "hasTop=\(body.contains("class=\"top\"") || body.contains("class='top'"))",
+            "hasSection=\(body.contains("section-box"))",
+            "hasContent=\(body.contains("id=\"content\"") || body.contains("id='content'"))",
+        ].joined(separator: " ")
+        let line = """
+        ts=\(Date())
+        book=\(bookUrl)
+        redirect=\(redirectUrl)
+        bodyLen=\(body.count)
+        \(flags)
+        head=\(head)
+
+        """
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     /// 搜索请求对照探针（空 body 前就会写）：Documents/legado_search_analyzed_url.txt
