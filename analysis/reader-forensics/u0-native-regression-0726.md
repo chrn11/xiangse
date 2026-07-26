@@ -22,9 +22,9 @@
 |---|---|---|---|
 | F1 | **书架空**：books.json 有 Legado 绑定书，书架 UI 却「空列表」 | `b01_shelf.png` | Legado 书未进原生书架，或加书架链路在 release 失效；phase85 曾记「书架 tap=false 不挡门禁」 |
 | F2 | **open_once 残留**：`legado_native_open_once.txt`（mock 斗破）存于 Documents+Caches | `b_explore_report.json` read 结果 | 违反 acceptance contract「open_once 最终不存在」；上次会话未正常清理 |
-| F3 | **原生 XBS 站点为 0**：切换站点页仅 3 个 Legado 源（📄），无任何原生站点 | `i01_switch.png`、describe_switch | 「检测站点」失去作用对象；默认站点为何缺失待查（用户删？Bridge 影响 BookSourceModelManager？数据被清？） |
-| F4 | **切换站点选择器无响应**：单击/长按站点行均无反应（不选中、无菜单） | `j_checksite_report.json` | **极可能即用户所报「书源检测不能用」的直接体验**；选择器对 Legado 假条目失效 |
-| F5 | **「检测站点」入口不可达**：切换站点选择器与 Bridge 管理页长按均无含「检测站点」的 action sheet | 同上 | 嫌疑链：`source-list` Hook 拦截了原生站点列表控制器 tap（能力行自述 `tap=ConfigSourceModelListCon,ConfigSourceListBase,ConfigSourceModelConBase`）——待 U0 对照取证定罪 |
+| F3 | **原生 XBS 站点被掏空**：站点管理页仅 `站点(3)` Legado 源；SR0 对照为 `站点(960)` | `forensics_sr0_sites/INJ_site_mgr.json` vs `SR0_site_mgr.json` | **已坐实数据面**：原生站点未进注入包列表；嫌疑 `BookSourceModelManager`/`getGroupData` 合并替换 |
+| F4 | **切换站点选择器无响应**：单击/长按站点行均无反应（不选中、无菜单） | `j_checksite_report.json` | 换源选择器路径仍待测；与「站点管理」页不同 |
+| F5 | ~~「检测站点」入口不可达~~ → **入口仍在** | `u0-sr0-site-forensics.md`：两边均为 整理→站点管理→更多→检测站点 | **旧结论作废**；用户在换源/Bridge 页找不到≠入口被删。宿主类 `ConfigSourceModelListCon.onSourceCheckEvent` |
 | F6 | **发现页/广场全空白** | `b02_discover.png`、`h01_square.png` | 无 XBS 站点的连带结果，或独立缺陷 |
 | F7 | **HOOK 能力调试面板在 legado-release 用户可见** | `k01_source_mgr.png` | 属「须批准」清单项（Release 隐藏 Hook 能力区）未决事项；当前暴露内部状态 |
 

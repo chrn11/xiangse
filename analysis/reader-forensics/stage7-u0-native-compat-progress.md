@@ -40,6 +40,7 @@
 
 ## 进行中
 
-- **U0-R（最高优先级）**：目录点章断链 — 代码已改 `LegadoBridgeCExports.m`（openOnce+chapterDone 无阅读展示时 reclaim；栈下 TextRead 时 pop 回；cellTap 探针）。**待 CI 装包复验**。
-- F3/F4/F5：StandarReader0 对照取证或 TrollFools dumpagent（根因未定罪）
-- 复现 N03 + 对照基线；写回归探针脚本
+- **U0-R**：`1340b3c` 已推/已装；真机点章 → `cellTap` + `openOnce commit` + `preferNativeFull` + 阅读页可见。**点章断链已修**；个别书正文空另记。
+- **F5**：对照 SR0 后作废「入口没了」——路径为 整理→站点管理→更多→检测站点（注入包同样有）。见 `u0-sr0-site-forensics.md`。
+- **F3（下一刀）**：注入包 `站点(3)` vs SR0 `站点(960)`——修站点列表数据/合并 Hook。
+- F4：换源选择器行交互仍待测。
