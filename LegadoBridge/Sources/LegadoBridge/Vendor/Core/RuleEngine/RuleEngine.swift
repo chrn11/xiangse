@@ -1176,8 +1176,7 @@ class RuleEngine {
     }
 
     private func jsonStringLiteralForJS(_ value: String) -> String {
-        let data = try? JSONSerialization.data(withJSONObject: value, options: [])
-        return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+        Self.jsonEncodeStringLiteral(value)
     }
     
     /// 从 SwiftSoup Element 中提取字符串
@@ -1704,8 +1703,20 @@ class CSSParser: RuleExecutor {
     }
 
     private static func jsonStringLiteral(_ value: String) -> String {
-        let data = try? JSONSerialization.data(withJSONObject: value, options: [])
-        return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+        jsonEncodeStringLiteral(value)
+    }
+
+    /// 把 String 编成 JS/JSON 字符串字面量。
+    /// 注意：裸 String 不是合法 JSON 顶层，`dataWithJSONObject:` 会抛 NSInvalidArgumentException，
+    /// Swift `try?` 捕不到 → 正文 `#content@html@js` 直接崩（legado_catalog_openreader UNCAUGHT）。
+    private static func jsonEncodeStringLiteral(_ value: String) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: [value], options: []),
+              let wrapped = String(data: data, encoding: .utf8),
+              wrapped.count >= 2 else {
+            return "\"\""
+        }
+        // ["..."] → "..."
+        return String(wrapped.dropFirst().dropLast())
     }
     
     private func parseSelector(_ rule: String) -> (String, String) {
@@ -2403,8 +2414,7 @@ class JavaScriptParser: RuleExecutor {
     }
 
     private func jsonLiteral(_ value: String) -> String {
-        let data = try? JSONSerialization.data(withJSONObject: value, options: [])
-        return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+        Self.jsonEncodeStringLiteral(value)
     }
     
     private func extractJS(_ rule: String) -> String {

@@ -544,4 +544,14 @@ final class RuleFixtureTests: XCTestCase {
         XCTAssertFalse(out.contains("<script"), "JS 应去掉 script，实际: \(out)")
         XCTAssertFalse(out.isEmpty, "不得空串（content_post_no_body）")
     }
+
+    func testContentHtmlJsWithQuotesDoesNotThrowJSONTopLevel() throws {
+        // 回归：jsonStringLiteral 曾对裸 String 调 JSONSerialization → NSException
+        let body = """
+        <html><body><div id="content"><p>他说："你好"</p></div></body></html>
+        """
+        let rule = #"#content@html@js:result.replace(/<p>/g,'').replace(/<\/p>/g,'')"#
+        let out = try RuleWebBook.evaluateString(rule: rule, body: body)
+        XCTAssertTrue(out.contains("你好"), "引号正文应存活，实际: \(out)")
+    }
 }
