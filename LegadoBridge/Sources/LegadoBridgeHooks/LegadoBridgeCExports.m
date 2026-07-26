@@ -7275,8 +7275,8 @@ static void LBG6LogToolbarState(id reader, NSString *phase) {
     }
 }
 
-/// midTap 唤出后 bottom 上已有「目录/缓存/设置/换源」，但全屏内容/加载层盖住 → 截图只见章导航、点不到图标。
-/// 另：按钮/图可能是深色 tint 画在深色底上，像素采样近乎纯黑 → 强制浅色。
+/// midTap 唤出后 bottom 上已有「目录/缓存/设置/换源」，但 window.y 常落到屏高之外（真机 dump：bottomWin.y=847 > 844）。
+/// 另：按钮/图可能是深色 tint；显示态强制浅色。
 static void LBG6ForceToolbarButtonContrast(UIView *root) {
     if (!root) return;
     NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
@@ -7292,7 +7292,6 @@ static void LBG6ForceToolbarButtonContrast(UIView *root) {
                 [b setTitleColor:fg forState:UIControlStateHighlighted];
                 b.tintColor = fg;
                 if (b.imageView) b.imageView.tintColor = fg;
-                // template 图才吃 tint；若已是原图，仍保证不透明
                 b.alpha = 1.0;
                 b.hidden = NO;
                 b.userInteractionEnabled = YES;
@@ -7322,6 +7321,43 @@ static void LBG6ForceToolbarButtonContrast(UIView *root) {
     }
 }
 
+/// 若底栏/滑条 window 底边超出屏幕，整组上移，使图标行回到可见区。
+static void LBG6RepositionToolbarOnScreen(id reader) {
+    if (![reader isKindOfClass:[UIViewController class]]) return;
+    UIView *bottom = nil;
+    id bObj = LBG6ToolbarIvar(reader, @"toolBarBottom");
+    if ([bObj isKindOfClass:[UIView class]]) bottom = (UIView *)bObj;
+    if (!bottom || !bottom.superview) return;
+
+    CGFloat screenH = UIScreen.mainScreen.bounds.size.height;
+    CGRect winF = [bottom convertRect:bottom.bounds toView:nil];
+    CGFloat overflow = CGRectGetMaxY(winF) - screenH;
+    if (overflow <= 0.5) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"G6 reposition skip win=%@ screenH=%.0f",
+                                 NSStringFromCGRect(winF), screenH]);
+        return;
+    }
+
+    NSArray<NSString *> *keys = @[ @"toolBarPageSlider", @"toolBarBottom",
+                                   @"toolBarLeft", @"toolBarRight", @"toolBarSpeaker" ];
+    NSInteger moved = 0;
+    for (NSString *k in keys) {
+        id v = LBG6ToolbarIvar(reader, k);
+        if (![v isKindOfClass:[UIView class]]) continue;
+        UIView *bar = (UIView *)v;
+        CGRect f = bar.frame;
+        f.origin.y -= overflow;
+        bar.frame = f;
+        moved++;
+    }
+    CGRect winAfter = [bottom convertRect:bottom.bounds toView:nil];
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"G6 reposition up=%.1f moved=%ld winBefore=%@ winAfter=%@",
+                             overflow, (long)moved,
+                             NSStringFromCGRect(winF), NSStringFromCGRect(winAfter)]);
+}
+
 static void LBG6BringToolbarToFront(id reader) {
     if (![reader isKindOfClass:[UIViewController class]]) return;
     UIViewController *vc = (UIViewController *)reader;
@@ -7345,7 +7381,6 @@ static void LBG6BringToolbarToFront(id reader) {
             LBG6ForceToolbarButtonContrast(bar);
         }
     }
-    // 原版可能依赖状态刷新才能把图标切到正确渲染模式
     @try {
         SEL resetSel = NSSelectorFromString(@"resetToolBarBtnStatus");
         if ([reader respondsToSelector:resetSel]) {
@@ -7360,28 +7395,25 @@ static void LBG6BringToolbarToFront(id reader) {
             LBAppendOpenReaderTrace(@"G6 resetToolBarValues OK");
         }
     } @catch (__unused NSException *e2) {}
-    // reset 后再刷一次对比度，避免被原版改回深色
+
+    LBG6RepositionToolbarOnScreen(reader);
+
     id bottom = LBG6ToolbarIvar(reader, @"toolBarBottom");
     if ([bottom isKindOfClass:[UIView class]]) {
         UIView *bv = (UIView *)bottom;
         LBG6ForceToolbarButtonContrast(bv);
-        // 诊断：底栏容器刷成可辨颜色，确认是否在屏上
-        bv.backgroundColor = [UIColor colorWithRed:0.75 green:0.12 blue:0.12 alpha:0.95];
-        bv.opaque = YES;
         CGRect winF = [bv convertRect:bv.bounds toView:nil];
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"G6 bottomWin=%@ bg=red sub=%lu",
+                                 @"G6 bottomWin=%@ sub=%lu",
                                  NSStringFromCGRect(winF), (unsigned long)bv.subviews.count]);
         for (UIView *ch in bv.subviews) {
             if (![ch isKindOfClass:[UIButton class]]) continue;
             UIButton *b = (UIButton *)ch;
-            b.backgroundColor = [UIColor colorWithRed:0.1 green:0.45 blue:0.85 alpha:0.9];
             NSString *t = [b titleForState:UIControlStateNormal] ?: @"";
-            UIColor *tc = [b titleColorForState:UIControlStateNormal];
             CGRect bw = [b convertRect:b.bounds toView:nil];
             LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"G6 btnWin title=%@ frame=%@ tint=%@ titleColor=%@ alpha=%.2f hidden=%d",
-                                     t, NSStringFromCGRect(bw), b.tintColor, tc, b.alpha, b.hidden ? 1 : 0]);
+                                     @"G6 btnWin title=%@ frame=%@ alpha=%.2f hidden=%d",
+                                     t, NSStringFromCGRect(bw), b.alpha, b.hidden ? 1 : 0]);
         }
     }
     LBAppendOpenReaderTrace([NSString stringWithFormat:@"G6 bringToolbarFront n=%ld", (long)brought]);

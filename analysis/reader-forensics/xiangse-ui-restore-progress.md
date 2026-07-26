@@ -104,10 +104,16 @@
 | 用原版 `BookSourceManager*` 替换 `LBLegadoSourceManagerVC` | 易污染宿主源列表 |
 | Release 隐藏 Hook 能力区 | 需产品拍板 |
 
-## 7. 下一刀
+## 7. 根因钉死（`654871f` 红底诊断）
 
-1. **对比度**：`74ff1fe` bringToFront 已跑（`bringToolbarFront n=5`），但底栏图标区像素仍近纯黑 `(22,22,22)`，章导航 `(55,55,55)` 可见 → 判深色图/字画在深色底；补 `LBG6ForceToolbarButtonContrast` + `resetToolBarBtnStatus`
-2. 验收关键字改为「目录/缓存/设置/换源」
-3. 顺手查「章节加载中」卡住（mock 200，可能时序）
+- `G6 bottomWin={{0, 847}, {390, 88}}`，屏高 `844` → **整条图标底栏在屏外**
+- 章导航 `toolBarPageSlider` 仍在可见区 → 截图只见「上一章/下一章」
+- 红底几乎不上屏（`red_hits≈0`）与 dump 一致
 
-修订：2026-07-26（`74ff1fe` bringToFront 无效于可见性；对比度修复待进包）
+## 8. 下一刀
+
+1. `LBG6RepositionToolbarOnScreen`：显示态若 bottom 底边超出屏幕，把 pageSlider/bottom/left/right 上移 overflow（已去红底诊断）
+2. CI → 装包 → 中点应见「目录/缓存/设置/换源」并可点
+3. 验收关键字改为上述四字；G2/G3 冒烟
+
+修订：2026-07-26（钉死屏外 y=847；上移修复待进包）
