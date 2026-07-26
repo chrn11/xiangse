@@ -7162,12 +7162,43 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
 }
 @end
 
+static NSString *LBG6DescribeViewBrief(UIView *v) {
+    if (!v) return @"nil";
+    NSMutableString *s = [NSMutableString stringWithFormat:@"%@ f=%@ h=%d a=%.2f",
+                          NSStringFromClass([v class]),
+                          NSStringFromCGRect(v.frame),
+                          v.hidden ? 1 : 0,
+                          v.alpha];
+    @try {
+        NSString *lab = v.accessibilityLabel;
+        if (lab.length) [s appendFormat:@" lab=%@", lab];
+    } @catch (__unused NSException *e) {}
+    @try {
+        if ([v isKindOfClass:[UIButton class]]) {
+            UIButton *b = (UIButton *)v;
+            NSString *t = [b titleForState:UIControlStateNormal];
+            if (t.length) [s appendFormat:@" title=%@", t];
+            UIImage *img = [b imageForState:UIControlStateNormal];
+            if (img) [s appendFormat:@" img=%.0fx%.0f", img.size.width, img.size.height];
+        }
+    } @catch (__unused NSException *e2) {}
+    @try {
+        if ([v isKindOfClass:[UIImageView class]]) {
+            UIImage *img = ((UIImageView *)v).image;
+            if (img) [s appendFormat:@" iv=%.0fx%.0f", img.size.width, img.size.height];
+        }
+    } @catch (__unused NSException *e3) {}
+    return s;
+}
+
 static void LBG6LogToolbarState(id reader, NSString *phase) {
     id bottom = LBG6ToolbarIvar(reader, @"toolBarBottom");
     id header = LBG6ToolbarIvar(reader, @"toolBarHeader");
     id hidden = LBG6ToolbarIvar(reader, @"toolBarHidden");
     NSUInteger sub = 0;
     NSString *bottomDetail = @"nil";
+    NSMutableString *subsDump = [NSMutableString string];
+    NSMutableString *extraDump = [NSMutableString string];
     @try {
         if ([reader isKindOfClass:[UIViewController class]] && ((UIViewController *)reader).isViewLoaded) {
             sub = ((UIViewController *)reader).view.subviews.count;
@@ -7182,16 +7213,66 @@ static void LBG6LogToolbarState(id reader, NSString *phase) {
                             bv.alpha,
                             (unsigned long)bv.subviews.count,
                             bv.superview ? NSStringFromClass([bv.superview class]) : @"nil"];
+            NSUInteger lim = MIN(bv.subviews.count, (NSUInteger)10);
+            for (NSUInteger i = 0; i < lim; i++) {
+                UIView *ch = bv.subviews[i];
+                [subsDump appendFormat:@" [%lu]%@", (unsigned long)i, LBG6DescribeViewBrief(ch)];
+                // 再下一层（图标常包在容器里）
+                NSUInteger lim2 = MIN(ch.subviews.count, (NSUInteger)6);
+                for (NSUInteger j = 0; j < lim2; j++) {
+                    [subsDump appendFormat:@" [%lu.%lu]%@", (unsigned long)i, (unsigned long)j,
+                     LBG6DescribeViewBrief(ch.subviews[j])];
+                }
+            }
+        }
+        // arrToolBarBtn + 各分栏面板是否存在
+        @try {
+            id btns = nil;
+            @try { btns = [reader valueForKey:@"arrToolBarBtn"]; } @catch (__unused NSException *e) {}
+            if (!btns) {
+                @try { btns = [reader valueForKey:@"_arrToolBarBtn"]; } @catch (__unused NSException *e2) {}
+            }
+            NSUInteger n = [btns respondsToSelector:@selector(count)] ? [btns count] : 0;
+            [extraDump appendFormat:@" arrBtn=%lu", (unsigned long)n];
+            if ([btns isKindOfClass:[NSArray class]]) {
+                NSUInteger lim = MIN(n, (NSUInteger)8);
+                for (NSUInteger i = 0; i < lim; i++) {
+                    id b = btns[i];
+                    if ([b isKindOfClass:[UIView class]]) {
+                        [extraDump appendFormat:@" b%lu=%@", (unsigned long)i, LBG6DescribeViewBrief((UIView *)b)];
+                    } else {
+                        [extraDump appendFormat:@" b%lu=%@", (unsigned long)i,
+                         b ? NSStringFromClass([b class]) : @"nil"];
+                    }
+                }
+            }
+        } @catch (__unused NSException *e3) {}
+        for (NSString *k in @[ @"toolBarFont", @"toolBarTheme", @"toolBarSetting",
+                               @"toolBarPageSlider", @"toolBarLeft", @"toolBarRight",
+                               @"toolBarPagingT", @"toolBarPaiban" ]) {
+            id v = LBG6ToolbarIvar(reader, k);
+            if ([v isKindOfClass:[UIView class]]) {
+                UIView *vv = (UIView *)v;
+                [extraDump appendFormat:@" %@={f=%@ h=%d a=%.2f sub=%lu}",
+                 k, NSStringFromCGRect(vv.frame), vv.hidden ? 1 : 0, vv.alpha,
+                 (unsigned long)vv.subviews.count];
+            } else {
+                [extraDump appendFormat:@" %@=%@", k, v ? NSStringFromClass([v class]) : @"nil"];
+            }
         }
     } @catch (__unused NSException *e) {}
     LBAppendOpenReaderTrace([NSString stringWithFormat:
-                             @"G6 %@ bottom=%@ header=%@ hidden=%@ viewSubs=%lu | %@",
+                             @"G6 %@ bottom=%@ header=%@ hidden=%@ viewSubs=%lu | %@%@",
                              phase ?: @"?",
                              bottom ? NSStringFromClass([bottom class]) : @"nil",
                              header ? NSStringFromClass([header class]) : @"nil",
                              hidden,
                              (unsigned long)sub,
-                             bottomDetail]);
+                             bottomDetail,
+                             extraDump]);
+    if (subsDump.length) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"G6 %@ bottomSubs%@", phase ?: @"?", subsDump]);
+    }
 }
 
 static void LBG6ChangeToolBarHook(id self, SEL _cmd) {
