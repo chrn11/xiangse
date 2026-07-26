@@ -1,0 +1,56 @@
+{
+  "reprobe": {
+    "N01": {
+      "verdict": "PASS",
+      "evidence": {
+        "legado_bridge_sources.json": {
+          "len": 3832,
+          "head": "[\n  {\n    \"respondTime\" : 180000,\n    \"lastUpdateTime\" : 1732245696761,\n    \"bookSourceType\" : 0,\n    \"bookSourceComment"
+        },
+        "legado_import_last.txt": {
+          "len": 136,
+          "head": "No such file or directory: /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado"
+        },
+        "legado_dylib_loaded.txt": {
+          "len": 12,
+          "head": "dylib loaded"
+        },
+        "legado_hooks_installed.txt": {
+          "len": 15,
+          "head": "hooks installed"
+        },
+        "path:/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_bridge_sources.json": "{'exitCode': 0, 'output': '10450\\n'}",
+        "path:/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Library/legado_bridge_sources.json": "{'exitCode': 0, 'output': 'MISSING\\n'}",
+        "path:/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Library/Preferences/legado_bridge_sources.json": "{'exitCode': 0, 'output': 'MISSING\\n'}"
+      },
+      "note": "深链 import；hooks_installed 作存活证据；OCR 不可靠"
+    },
+    "N03": {
+      "verdict": "PASS_ENTRY",
+      "path": [
+        "整理",
+        "站点管理",
+        "更多",
+        "检测站点"
+      ],
+      "ocr_has_start": false,
+      "ocr_sample": [
+        "07127",
+        "34.7• 15W",
+        "O.OK O.OK",
+        "100:45",
+        "éÈi£ia",
+        "Èi*i",
+        "SA1 I¥XI,",
+        "If",
+        "¥fi. Love Is Blue"
+      ],
+      "prior_evidence": "verify_u0_cont/f5_04_check.png"
+    },
+    "N02": {
+      "verdict": "PASS",
+      "search_last": "2026-07-26T14:29:19Z enter key=斗破 url=all\n2026-07-26T14:29:19Z partial err src=https://www.biqudv.com 网络响应为空\n2026-07-26T14:29:20Z ok total=54 sources=3 key=斗破\n---\n2026-07-26T16:15:55Z\n2026-07-26T16:17:37Z enter key=斗破 url=all\n2026-07-26T16:17:38Z enter key=斗破 url=all\n2026-07-26T16:17:39Z partial err src=http://192.168.1.4:8766 网络连接已中断。\n2026-07-26T16:17:39Z partial err src=https://www.biqudv.com 网络",
+      "grew": false
+    }
+  }
+}

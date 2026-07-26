@@ -1,0 +1,58 @@
+{
+  "run": "30210873340",
+  "head": "e685ff5",
+  "mode": "strict",
+  "steps": [
+    "wake",
+    "install",
+    "import",
+    "nativeRead"
+  ],
+  "install": "Installed app package from /var/mobile/Library/Caches/ios-mcp-uploads/BA99D065-9783-4423-AE43-B37ECE9A9CBA-StandarReader-legado-bridge-debug.ipa",
+  "cleared_before": [
+    "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_native_open_once.txt",
+    "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Library/Caches/legado_native_open_once.txt"
+  ],
+  "ocr_sample": [
+    "07127",
+    "35.00 15W",
+    "O.OK O.OK",
+    "100:42",
+    "SA1 I¥XI,",
+    "2*",
+    "If",
+    "(stth mock I&EAllli¥lV,g",
+    "W. L'AFF2=811,-JJu-k, l%jEl¥n JJ ).",
+    "Ji",
+    "2ia4E*-\"",
+    ", IAftiLJJ*lfi. h*¢J",
+    "t17QR. l*'lA7h-l¥\""
+  ],
+  "ocr_has_needle": true,
+  "needle_from_bodyLen": "764",
+  "open_once_on_reader": {
+    "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_native_open_once.txt": false,
+    "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Library/Caches/legado_native_open_once.txt": false
+  },
+  "open_once_on_reader_present": false,
+  "trace_preferNativeFull": 0,
+  "trace_has_disk_clear": true,
+  "trace_has_shelf_hook": true,
+  "trace_has_pushSettle": true,
+  "trace_has_readerLeave": false,
+  "trace_tail": "2026-07-26 16:42:00 +0000 | loadCurCp hypothesis_Z seed bookKey=斗破苍穹_天蚕土豆 dirLeaf=斗破苍穹_天蚕土豆 bookDirLen=116 cpRel=0 fileExists=1 fileSize=2252 bodyLen=764 sm=contentReady\n2026-07-26 16:42:00 +0000 | loadCurCp hypothesis_Z write_dirs primaryLeaf=斗破苍穹_天蚕土豆 nDirs=1 sm=contentReady\n2026-07-26 16:42:00 +0000 | loadCurCp scroll_S4 prep paths=clear_dicContents_keys,clear_dicQuerying_keys,clear_dicQueryError_keys sm=contentReady\n2026-07-26 16:42:00 +0000 | loadCurCp hypothesis_W seed dicFatBook bookNameLen=4 authorLen=4 bookKeyLen=9 sm=contentReady\n2026-07-26 16:42:00 +0000 | loadCurCp hypothesis_X seed _useSNameLen=15 sm=contentReady\n2026-07-26 16:42:00 +0000 | loadCurCp hypothesis_Y seed _sourceILKeys=1 useSNameLen=15 useSName=localSourceText prevUseLen=15 localPrefix=1 sm=contentReady\n2026-07-26 16:42:00 +0000 | loadCurCp hypothesis_R2 gates(pre_invoke_routeB) arrCatalog=2 dicContents@r=0 dicContents@c=0 dicFatBook=6 bookKeyLen=9 bookDirLen=116 nCp@pm=-999 pageStatus=-999 useSNameLen=15 sourceILKeys=1 (curCp@r/c N/A paged-no-ivar got -999/0) sm=contentReady\n2026-07-26 16:42:00 +0000 | loadCurCp routeB_invoke_begin sm=invokingOriginal\n2026-07-26 16:42:00 +0000 | sm=invokingOriginal ch=http://192.168.1.4:8765/chapter/doupo_1.html target=TextRScrollContainer orig=0x100c7bcf4\n2026-07-26 16:42:00 +0000 | loadCurCp scroll_S2 invoke_loadCp: idx=0 target=TextRScrollContainer sm=invokingOriginal\n2026-07-26 16:42:00 +0000 | loadCurCp invoke_orig_OK target=TextRScrollContainer sm=invokingOriginal\n2026-07-26 16:42:00 +0000 | ORIG loadCurCp OK\n2026-07-26 16:42:00 +0000 | loadCurCp hypothesis_R2 gates(post_invoke_routeB) arrCatalog=2 dicContents@r=0 dicContents@c=0 dicFatBook=6 bookKeyLen=9 bookDirLen=116 nCp@pm=-999 pageStatus=-999 useSNameLen=15 sourceILKeys=1 (curCp@r/c N/A paged-no-ivar got -999/0) sm=invokingOriginal\n2026-07-26 16:42:00 +0000 | loadCurCp hypothesis_Z post_invoke bookKey=斗破苍穹_天蚕土豆 dirLeaf=斗破苍穹_天蚕土豆 bookDirLen=116 cpRel=0 fileExists=1 fileSize=2252 bodyLen=764 sm=invokingOriginal\n2026-07-26 16:42:00 +0000 | hypothesis_O kick_disabled await_native_chain\n2026-07-26 16:42:00 +0000 | loadCurCp hypothesis_O kick_disabled await_native_QF_DR_finish sm=invokingOriginal\n2026-07-26 16:42:00 +0000 | loadCurCp invoke_orig_done_pending_render sm=idle\n2026-07-26 16:42:00 +0000 | hypothesis_R2 delayed_postCurCp_done sm=idle\n2026-07-26 16:42:00 +0000 | loadCurCp hypothesis_Z async_plus0.6s bookKey=斗破苍穹_天蚕土豆 dirLeaf=斗破苍穹_天蚕土豆 bookDirLen=116 cpRel=0 fileExists=1 fileSize=2252 bodyLen=764 sm=idle\n2026-07-26 16:42:00 +0000 | loadCurCp hypothesis_Z async_plus0.6s bookKey=斗破苍穹_天蚕土豆 dirLeaf=斗破苍穹_天蚕土豆 bookDirLen=116 cpRel=0 fileExists=1 fileSize=2252 bodyLen=764 sm=idle\n2026-07-26 16:42:01 +0000 | G6 retrySkip_t0.8 bottom=UIView header=UIView hidden=1 viewSubs=6 | UIView frame={{0, 844}, {390, 88}} hidden=1 alpha=1.00 sub=6 superview=UIView arrBtn=0 toolBarFont=nil toolBarTheme=nil toolBarSetting=nil toolBarPageSlider={f={{0, 866}, {390, 44}} h=1 a=1.00 sub=9} toolBarLeft={f={{-60, 98}, {60, 60}} h=1 a=1.00 sub=1} toolBarRight={f={{390, 522}, {60, 180}} h=1 a=1.00 sub=3} toolBarPagingT=nil toolBarPaiban=nil\n2026-07-26 16:42:01 +0000 | G6 retrySkip_t0.8 bottomSubs [0]UIView f={{0, 0}, {390, 1}} h=0 a=1.00 [1]UIView f={{0, 1}, {390, 0.3333333432674408}} h=0 a=1.00 [2]UIButton f={{26.25, 0}, {45, 88}} h=0 a=1.00 lab=目录 title=目录 img=45x45 [2.0]UIImageView f={{0, 4}, {45, 45}} h=0 a=1.00 iv=45x45 [2.1]UIButtonLabel f={{11, 42}, {23, 14}} h=0 a=1.00 lab=目录 [3]UIButton f={{123.75, 0}, {45, 88}} h=0 a=1.00 lab=缓存 title=缓存 img=45x45 [3.0]UIImageView f={{0, 4}, {45, 45}} h=0 a=1.00 iv=45x45 [3.1]UIButtonLabel f={{11, 42}, {23, 14}} h=0 a=1.00 lab=缓存 [4]UIButton f={{221.25, 0}, {45, 88}} h=0 a=1.00 lab=设置 title=设置 img=45x45 [4.0]UIImageView f={{0, 4}, {45, 45}} h=0 a=1.00 iv=45x45 [4.1]UIButtonLabel f={{11, 42}, {23, 14}} h=0 a=1.00 lab=设置 [5]UIButton f={{319.25, 0}, {44, 88}} h=0 a=1.00 lab=换源 title=换源 img=44x44 [5.0]UIImageView f={{0, 4.3333333333333321}, {44, 44}} h=0 a=1.00 iv=44x44 [5.1]UIButtonLabel f={{10.666666666666664, 41.666666666666664}, {23, 14}} h=0 a=1.00 lab=换源\n2026-07-26 16:42:01 +0000 | nativeRead skip sameBook sameIdx=0\n2026-07-26 16:42:01 +0000 | pushNativeFull settle vis=1 mode=1\n2026-07-26 16:42:01 +0000 | nativeOpen diskOpenOnce cleared after pushSettle\n2026-07-26 16:42:01 +0000 | hypothesis_R2 go1.4_skip_deliver\n2026-07-26 16:42:01 +0000 | loadCurCp hypothesis_Z async_plus0.6s bookKey=斗破苍穹_天蚕土豆 dirLeaf=斗破苍穹_天蚕土豆 bookDirLen=116 cpRel=0 fileExists=1 fileSize=2252 bodyLen=764 sm=idle\n2026-07-26 16:42:02 +0000 | G6 retrySkip_t2.0 bottom=UIView header=UIView hidden=1 viewSubs=6 | UIView frame={{0, 844}, {390, 88}} hidden=1 alpha=1.00 sub=6 superview=UIView arrBtn=0 toolBarFont=nil toolBarTheme=nil toolBarSetting=nil toolBarPageSlider={f={{0, 866}, {390, 44}} h=1 a=1.00 sub=9} toolBarLeft={f={{-60, 98}, {60, 60}} h=1 a=1.00 sub=1} toolBarRight={f={{390, 522}, {60, 180}} h=1 a=1.00 sub=3} toolBarPagingT=nil toolBarPaiban=nil\n2026-07-26 16:42:02 +0000 | G6 retrySkip_t2.0 bottomSubs [0]UIView f={{0, 0}, {390, 1}} h=0 a=1.00 [1]UIView f={{0, 1}, {390, 0.3333333432674408}} h=0 a=1.00 [2]UIButton f={{26.25, 0}, {45, 88}} h=0 a=1.00 lab=目录 title=目录 img=45x45 [2.0]UIImageView f={{0, 4}, {45, 45}} h=0 a=1.00 iv=45x45 [2.1]UIButtonLabel f={{11, 42}, {23, 14}} h=0 a=1.00 lab=目录 [3]UIButton f={{123.75, 0}, {45, 88}} h=0 a=1.00 lab=缓存 title=缓存 img=45x45 [3.0]UIImageView f={{0, 4}, {45, 45}} h=0 a=1.00 iv=45x45 [3.1]UIButtonLabel f={{11, 42}, {23, 14}} h=0 a=1.00 lab=缓存 [4]UIButton f={{221.25, 0}, {45, 88}} h=0 a=1.00 lab=设置 title=设置 img=45x45 [4.0]UIImageView f={{0, 4}, {45, 45}} h=0 a=1.00 iv=45x45 [4.1]UIButtonLabel f={{11, 42}, {23, 14}} h=0 a=1.00 lab=设置 [5]UIButton f={{319.25, 0}, {44, 88}} h=0 a=1.00 lab=换源 title=换源 img=44x44 [5.0]UIImageView f={{0, 4.3333333333333321}, {44, 44}} h=0 a=1.00 iv=44x44 [5.1]UIButtonLabel f={{10.666666666666664, 41.666666666666664}, {23, 14}} h=0 a=1.00 lab=换源\n2026-07-26 16:42:02 +0000 | hypothesis_R2 settle2.8_skip_deliver vis=1",
+  "open_once_on_shelf": {
+    "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_native_open_once.txt": false,
+    "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Library/Caches/legado_native_open_once.txt": false
+  },
+  "open_once_on_shelf_present": false,
+  "trace_has_shelfAppear": false,
+  "trace_has_disk_clear_final": true,
+  "checks": {
+    "open_once_gone": true,
+    "needle_or_settle": true,
+    "preferNativeFull_or_settle": true,
+    "disk_clear_signal": true
+  },
+  "verdict": "PASS"
+}
