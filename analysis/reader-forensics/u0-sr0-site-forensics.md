@@ -25,7 +25,7 @@
 | ID | 旧说法 | 取证后 |
 |---|---|---|
 | F5 | 检测站点入口不可达 | **入口存在**；须走 整理→站点管理→更多。体验问题改为「文档/导航误导」或「更多菜单难发现」，不是 Hook 删入口 |
-| F3 | 原生站点 0 | **坐实**：注入包站点管理只剩 3 个 Legado 源；SR0 约 960。根因指向站点列表数据被替换/过滤（`BookSourceModelManager` / `getGroupData` 嫌疑），非入口消失 |
+| F3 | 原生站点 0 | **坐实**：注入包 `sourceModelList.xbs`≈12KB / `getUseSourceNames orig=3`；SR0≈22MB / 站点(960)。根因：`NativeSourceInjector.invokeAddModels` 曾以 **`replace=true` 优先** 调原生 `addModels:`，整表替换后只剩 Legado 壳。已改：禁止 replace=true（仅 merge+save）。**已截断的沙盒需从 SR0 导出/导入 XBS 或重装后先恢复站点再同步 Legado** |
 | F4 | 站点行点不动 | 仍待在「站点管理」列表上对原生行 / Legado 行分别测 tap/长按编辑；换源选择器上的失效是另一条路径 |
 
 ## U0-R（目录点章）复验摘要

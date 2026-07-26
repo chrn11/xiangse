@@ -169,13 +169,19 @@ enum NativeSourceInjector {
         let arr = NSMutableArray(array: models.map { NSMutableDictionary(dictionary: $0) })
         typealias Fn = @convention(c) (AnyObject, Selector, NSArray, Bool, Bool, Bool, Bool, Bool) -> Bool
         let fn = unsafeBitCast(methodPtr, to: Fn.self)
-        // replace=true / autoSave=true；fromCloud=true 贴近 AppDelegate 打开文件导入路径
+        // U0-F3：禁止 replace=true。真机曾用 replace 成功写入 → sourceModelList.xbs
+        // 从约 22MB/960 站被截成仅 Legado 壳（注入包实测 12KB / 站点(3)）。
+        // 权威落盘仍是下方 mergeModelsIntoManager + save；此处只作非替换尽力调用。
         let combos: [(Bool, Bool, Bool, Bool, Bool)] = [
-            (true, false, true, false, true),
-            (true, false, true, false, false),
-            (false, false, true, false, false)
+            // replace, showTip, autoSave, updateOnly, fromCloud
+            (false, false, true, false, true),
+            (false, false, true, false, false),
+            (false, false, false, false, false)
         ]
         for (replace, showTip, autoSave, updateOnly, fromCloud) in combos {
+            if replace {
+                continue // 硬禁：永不整表替换原生 XBS
+            }
             if fn(manager, sel, arr, replace, showTip, autoSave, updateOnly, fromCloud) {
                 return true
             }

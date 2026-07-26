@@ -72,8 +72,17 @@ static id (*LBOrig_Config_getGroupData)(id, SEL) = NULL;
 static id LBConfig_getGroupData_IMP(id self, SEL _cmd) {
     id orig = LBOrig_Config_getGroupData ? LBOrig_Config_getGroupData(self, _cmd) : nil;
     NSArray *legadoNames = LBLegadoGetSourceNames();
-    NSString *dbg = [NSString stringWithFormat:@"origClass=%@ legado=%lu",
+    NSUInteger origNameCount = 0;
+    if ([orig isKindOfClass:[NSArray class]]) {
+        for (id section in (NSArray *)orig) {
+            if ([section isKindOfClass:[NSArray class]]) {
+                origNameCount += [(NSArray *)section count];
+            }
+        }
+    }
+    NSString *dbg = [NSString stringWithFormat:@"origClass=%@ origNames=%lu legado=%lu",
                      orig ? NSStringFromClass([orig class]) : @"(nil)",
+                     (unsigned long)origNameCount,
                      (unsigned long)legadoNames.count];
     [dbg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_getgroupdata_hook.txt"]
           atomically:YES encoding:NSUTF8StringEncoding error:NULL];
