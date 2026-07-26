@@ -18,6 +18,19 @@ func resolveUrl(_ url: String, baseUrl: String?) -> String {
     return URL(string: url, relativeTo: baseURL)?.absoluteString ?? url
 }
 
+/// 把 String 编成 JS/JSON 字符串字面量。
+/// 裸 String 不是合法 JSON 顶层，`dataWithJSONObject:` 会抛 NSInvalidArgumentException，
+/// Swift `try?` 捕不到 → 正文 `#content@html@js` 直接崩（legado_catalog_openreader UNCAUGHT）。
+func legadoJSONEncodeStringLiteral(_ value: String) -> String {
+    guard let data = try? JSONSerialization.data(withJSONObject: [value], options: []),
+          let wrapped = String(data: data, encoding: .utf8),
+          wrapped.count >= 2 else {
+        return "\"\""
+    }
+    // ["..."] → "..."
+    return String(wrapped.dropFirst().dropLast())
+}
+
 /// Legado CSS 扩展选择器：`text.` / `class.` / `id.` / `tag.`（Android AnalyzeByJSoup 同款前缀）
 /// SwiftSoup 原生不识 `text.目录`，直接 select 会空结果 → tocUrl 回落 bookUrl → 目录空。
 enum LegadoCSSSelect {
@@ -1176,7 +1189,7 @@ class RuleEngine {
     }
 
     private func jsonStringLiteralForJS(_ value: String) -> String {
-        Self.jsonEncodeStringLiteral(value)
+        legadoJSONEncodeStringLiteral(value)
     }
     
     /// 从 SwiftSoup Element 中提取字符串
@@ -1703,20 +1716,7 @@ class CSSParser: RuleExecutor {
     }
 
     private static func jsonStringLiteral(_ value: String) -> String {
-        jsonEncodeStringLiteral(value)
-    }
-
-    /// 把 String 编成 JS/JSON 字符串字面量。
-    /// 注意：裸 String 不是合法 JSON 顶层，`dataWithJSONObject:` 会抛 NSInvalidArgumentException，
-    /// Swift `try?` 捕不到 → 正文 `#content@html@js` 直接崩（legado_catalog_openreader UNCAUGHT）。
-    private static func jsonEncodeStringLiteral(_ value: String) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: [value], options: []),
-              let wrapped = String(data: data, encoding: .utf8),
-              wrapped.count >= 2 else {
-            return "\"\""
-        }
-        // ["..."] → "..."
-        return String(wrapped.dropFirst().dropLast())
+        legadoJSONEncodeStringLiteral(value)
     }
     
     private func parseSelector(_ rule: String) -> (String, String) {
@@ -2414,7 +2414,7 @@ class JavaScriptParser: RuleExecutor {
     }
 
     private func jsonLiteral(_ value: String) -> String {
-        Self.jsonEncodeStringLiteral(value)
+        legadoJSONEncodeStringLiteral(value)
     }
     
     private func extractJS(_ rule: String) -> String {
