@@ -711,6 +711,10 @@ static int sLegadoReaderMode = 0;
 static BOOL sDidAppearUIKit = NO;
 /// G6：nativeFull 旁路 ReadVCBase2.viewDidAppear 后需补 createToolbar（每阅读页实例一次）
 static __weak id sG6ToolbarCreatedForReader = nil;
+static char kLBG6MidTapProxyKey;
+static char kLBG6MidTapInstalledKey;
+static NSTimeInterval sG6LastChangeToolBarTs = 0;
+static void (*LBOrig_changeToolBar)(id, SEL) = NULL;
 static BOOL sReaderContentAppearHooked = NO;
 static BOOL sCatalogUIAppearHooked = NO;
 static BOOL sCatalogInjectReentrant = NO;
@@ -7100,23 +7104,152 @@ static id LBG6ToolbarIvar(id reader, NSString *key) {
     return v;
 }
 
+@interface LBG6MidTapProxy : NSObject <UIGestureRecognizerDelegate>
+@property (nonatomic, weak) id reader;
+- (void)onMidTap:(UITapGestureRecognizer *)gr;
+@end
+
+@implementation LBG6MidTapProxy
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
+shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    return YES;
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch {
+    (void)gestureRecognizer;
+    // 避开顶栏按钮（返回等）
+    UIView *v = touch.view;
+    if ([v isKindOfClass:[UIControl class]]) return NO;
+    return YES;
+}
+
+- (void)onMidTap:(UITapGestureRecognizer *)gr {
+    if (gr.state != UIGestureRecognizerStateEnded) return;
+    id reader = self.reader;
+    if (!reader || sLegadoReaderMode != 1) return;
+    UIView *host = gr.view ?: nil;
+    @try {
+        if (!host && [reader isKindOfClass:[UIViewController class]] && ((UIViewController *)reader).isViewLoaded) {
+            host = ((UIViewController *)reader).view;
+        }
+    } @catch (__unused NSException *e) {}
+    if (!host) return;
+    CGPoint p = [gr locationInView:host];
+    // 统一换算到 reader.view 坐标判中区
+    UIView *root = nil;
+    @try {
+        if ([reader isKindOfClass:[UIViewController class]]) root = ((UIViewController *)reader).view;
+    } @catch (__unused NSException *e) {}
+    CGPoint pr = root ? [gr locationInView:root] : p;
+    CGFloat w = root ? root.bounds.size.width : host.bounds.size.width;
+    if (w < 1.0 || pr.x < w / 3.0 || pr.x > w * 2.0 / 3.0) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"G6 midTap ignore x=%.0f w=%.0f (not center)", pr.x, w]);
+        return;
+    }
+    NSTimeInterval now = [NSDate date].timeIntervalSince1970;
+    if (now - sG6LastChangeToolBarTs < 0.20) {
+        LBAppendOpenReaderTrace(@"G6 midTap skip (changeToolBar just ran)");
+        return;
+    }
+    SEL sel = NSSelectorFromString(@"changeToolBar");
+    if (![reader respondsToSelector:sel]) {
+        LBAppendOpenReaderTrace(@"G6 midTap changeToolBar miss");
+        return;
+    }
+    LBAppendOpenReaderTrace([NSString stringWithFormat:@"G6 midTap -> changeToolBar x=%.0f y=%.0f", pr.x, pr.y]);
+    ((void (*)(id, SEL))objc_msgSend)(reader, sel);
+}
+@end
+
 static void LBG6LogToolbarState(id reader, NSString *phase) {
     id bottom = LBG6ToolbarIvar(reader, @"toolBarBottom");
     id header = LBG6ToolbarIvar(reader, @"toolBarHeader");
     id hidden = LBG6ToolbarIvar(reader, @"toolBarHidden");
     NSUInteger sub = 0;
+    NSString *bottomDetail = @"nil";
     @try {
         if ([reader isKindOfClass:[UIViewController class]] && ((UIViewController *)reader).isViewLoaded) {
             sub = ((UIViewController *)reader).view.subviews.count;
         }
+        if ([bottom isKindOfClass:[UIView class]]) {
+            UIView *bv = (UIView *)bottom;
+            bottomDetail = [NSString stringWithFormat:
+                            @"%@ frame=%@ hidden=%d alpha=%.2f sub=%lu superview=%@",
+                            NSStringFromClass([bv class]),
+                            NSStringFromCGRect(bv.frame),
+                            bv.hidden ? 1 : 0,
+                            bv.alpha,
+                            (unsigned long)bv.subviews.count,
+                            bv.superview ? NSStringFromClass([bv.superview class]) : @"nil"];
+        }
     } @catch (__unused NSException *e) {}
     LBAppendOpenReaderTrace([NSString stringWithFormat:
-                             @"G6 %@ bottom=%@ header=%@ hidden=%@ subviews=%lu",
+                             @"G6 %@ bottom=%@ header=%@ hidden=%@ viewSubs=%lu | %@",
                              phase ?: @"?",
                              bottom ? NSStringFromClass([bottom class]) : @"nil",
                              header ? NSStringFromClass([header class]) : @"nil",
                              hidden,
-                             (unsigned long)sub]);
+                             (unsigned long)sub,
+                             bottomDetail]);
+}
+
+static void LBG6ChangeToolBarHook(id self, SEL _cmd) {
+    NSTimeInterval now = [NSDate date].timeIntervalSince1970;
+    if (sG6LastChangeToolBarTs > 0 && (now - sG6LastChangeToolBarTs) < 0.20) {
+        LBAppendOpenReaderTrace(@"G6 changeToolBar debounce skip");
+        return;
+    }
+    sG6LastChangeToolBarTs = now;
+    LBAppendOpenReaderTrace(@"G6 changeToolBar enter");
+    if (LBOrig_changeToolBar) {
+        LBOrig_changeToolBar(self, _cmd);
+    }
+    LBG6LogToolbarState(self, @"afterChangeToolBar");
+}
+
+static void LBG6InstallMidTapToggle(id reader) {
+    if (!reader || ![reader isKindOfClass:[UIViewController class]]) return;
+    UIViewController *vc = (UIViewController *)reader;
+    if (!vc.isViewLoaded || !vc.view) return;
+    if (objc_getAssociatedObject(reader, &kLBG6MidTapInstalledKey)) return;
+    LBG6MidTapProxy *proxy = [[LBG6MidTapProxy alloc] init];
+    proxy.reader = reader;
+
+    NSMutableArray<UIView *> *hosts = [NSMutableArray arrayWithObject:vc.view];
+    @try {
+        id pageB = nil;
+        @try { pageB = [reader valueForKey:@"pageContainerB"]; } @catch (__unused NSException *e) {}
+        if (!pageB) {
+            @try { pageB = [reader valueForKey:@"_pageContainerB"]; } @catch (__unused NSException *e2) {}
+        }
+        if ([pageB isKindOfClass:[UIViewController class]] && ((UIViewController *)pageB).isViewLoaded) {
+            UIView *pv = ((UIViewController *)pageB).view;
+            if (pv) [hosts addObject:pv];
+        } else if ([pageB isKindOfClass:[UIView class]]) {
+            [hosts addObject:(UIView *)pageB];
+        }
+        for (UIView *sub in vc.view.subviews) {
+            NSString *cn = NSStringFromClass([sub class]);
+            if ([cn containsString:@"Scroll"] || [cn containsString:@"Page"] || [cn containsString:@"Read"]) {
+                [hosts addObject:sub];
+            }
+        }
+    } @catch (__unused NSException *e) {}
+
+    NSInteger added = 0;
+    for (UIView *host in hosts) {
+        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:proxy
+                                                                              action:@selector(onMidTap:)];
+        tap.cancelsTouchesInView = NO;
+        tap.numberOfTapsRequired = 1;
+        tap.delegate = proxy;
+        [host addGestureRecognizer:tap];
+        added++;
+    }
+    objc_setAssociatedObject(reader, &kLBG6MidTapProxyKey, proxy, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(reader, &kLBG6MidTapInstalledKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    LBAppendOpenReaderTrace([NSString stringWithFormat:@"G6 midTap gesture installed hosts=%ld", (long)added]);
 }
 
 static id LBG6ToolBarCreatorShared(void) {
@@ -7268,6 +7401,8 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
             (void)LBG6EnsureReaderToolbar(self, @"didAppear");
             // 无论首轮是否已有 bottom，挂 0.8/2.0s 探测：nil 才补建，已有则 skip
             LBG6ScheduleToolbarRetry(self);
+            // b82 真机：bottom 非 nil 且 hide 后 hidden=1，但中点不触发 changeToolBar → 补中区手势
+            LBG6InstallMidTapToggle(self);
         }
         // 假设 J：UIKitSuper 门控后若仍有 pending（onReset 已跑完），补 flush
         if (sDidAppearUIKit && sHypothesisJPendingAddChild.count + sHypothesisJPendingInsertSubview.count > 0) {
@@ -7286,6 +7421,15 @@ static void LBInstallSafeTextReadShellHooks(void) {
     dispatch_once(&once, ^{
         LBInstallHypothesisHPageContainerHook();
         LBInstallHypothesisJHooks();
+        Class base2 = NSClassFromString(@"ReadVCBase2");
+        if (base2) {
+            Method mChange = class_getInstanceMethod(base2, NSSelectorFromString(@"changeToolBar"));
+            if (mChange && !LBOrig_changeToolBar) {
+                LBOrig_changeToolBar = (void (*)(id, SEL))method_getImplementation(mChange);
+                method_setImplementation(mChange, (IMP)LBG6ChangeToolBarHook);
+                LBAppendOpenReaderTrace(@"G6 changeToolBar hooked on ReadVCBase2");
+            }
+        }
         for (NSString *cn in @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1"]) {
             Class cls = NSClassFromString(cn);
             if (!cls) continue;
