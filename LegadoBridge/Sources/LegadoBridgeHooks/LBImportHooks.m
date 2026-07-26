@@ -276,6 +276,9 @@ void LBLegadoImportData(NSData *data) {
 /// 异步下载并导入 Legado 书源 JSON（超时 15 秒，主线程回调提示）
 void LBLegadoFetchAndImport(NSURL *url) {
     if (!url) { LBLegadoShowResult(@"URL 为空"); return; }
+    NSString *markPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_import_fetch.txt"];
+    [[NSString stringWithFormat:@"fetch begin %@", url.absoluteString ?: @""]
+        writeToFile:markPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
     config.timeoutIntervalForRequest = 15.0;
     config.timeoutIntervalForResource = 15.0;
@@ -283,6 +286,8 @@ void LBLegadoFetchAndImport(NSURL *url) {
     [[session dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (error) {
+                [[NSString stringWithFormat:@"fetch err %@", error.localizedDescription ?: @""]
+                    writeToFile:markPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 LBLegadoShowResult([NSString stringWithFormat:@"下载失败: %@", error.localizedDescription]);
                 return;
             }
@@ -291,10 +296,13 @@ void LBLegadoFetchAndImport(NSURL *url) {
                 httpResp = (NSHTTPURLResponse *)response;
             }
             if (httpResp && httpResp.statusCode != 200) {
+                [[NSString stringWithFormat:@"fetch http %ld", (long)httpResp.statusCode]
+                    writeToFile:markPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 LBLegadoShowResult([NSString stringWithFormat:@"HTTP 错误: %ld", (long)httpResp.statusCode]);
                 return;
             }
             if (!data || data.length == 0) {
+                [@"fetch empty" writeToFile:markPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 LBLegadoShowResult(@"下载成功但数据为空");
                 return;
             }
@@ -302,6 +310,7 @@ void LBLegadoFetchAndImport(NSURL *url) {
             NSError *jsonErr = nil;
             id jsonObj = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonErr];
             if (jsonErr || !jsonObj) {
+                [@"fetch not-json" writeToFile:markPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 LBLegadoShowResult(@"非 JSON 格式，无法解析");
                 return;
             }
@@ -314,6 +323,7 @@ void LBLegadoFetchAndImport(NSURL *url) {
                 isLegado = ((BOOL (*)(Class, SEL, NSData *))objc_msgSend)(coreClass, probeSel, data);
             }
             if (!isLegado) {
+                [@"fetch not-legado" writeToFile:markPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 LBLegadoShowResult(@"JSON 格式正确，但不是书源格式");
                 return;
             }
@@ -328,8 +338,12 @@ void LBLegadoFetchAndImport(NSURL *url) {
                 core, @selector(importLegadoJSONData:error:), data, &importError
             );
             if (importError) {
+                [[NSString stringWithFormat:@"import err %@", importError.localizedDescription ?: @""]
+                    writeToFile:markPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 LBLegadoShowResult([NSString stringWithFormat:@"导入失败: %@", importError.localizedDescription]);
             } else {
+                [[NSString stringWithFormat:@"import ok count=%ld", (long)count]
+                    writeToFile:markPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 LBLegadoShowResult([NSString stringWithFormat:@"导入 %ld 个书源", (long)count]);
             }
         });

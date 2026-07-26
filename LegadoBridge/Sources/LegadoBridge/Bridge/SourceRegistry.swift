@@ -243,7 +243,39 @@ final class SourceRegistry {
         subscriptionUrl: String?,
         clearRemoteMissing: Bool
     ) -> MemoryBridgeBookSource {
-        let source = try! MemoryBridgeBookSource(json: json)
+        // yckceo 等仓常见 lastUpdateTime/respondTime 写成字符串；try! 解码失败会直接崩进程
+        let sanitized = Self.sanitizeSourceJSON(json)
+        let source: MemoryBridgeBookSource
+        do {
+            source = try MemoryBridgeBookSource(json: sanitized)
+        } catch {
+            // 再剥数值字段兜底一次，避免坏源拖垮冷启动
+            var stripped = sanitized
+            for key in ["lastUpdateTime", "respondTime", "weight", "customOrder", "bookSourceType"] {
+                if stripped[key] is String { stripped.removeValue(forKey: key) }
+            }
+            do {
+                source = try MemoryBridgeBookSource(json: stripped)
+            } catch {
+                // 最小可注册壳：仅 URL/名称/search，保证冷启动不崩
+                let shell: [String: Any] = [
+                    "bookSourceUrl": (json["bookSourceUrl"] as? String) ?? "",
+                    "bookSourceName": (json["bookSourceName"] as? String) ?? "未命名书源",
+                    "searchUrl": (json["searchUrl"] as? String) ?? "",
+                    "ruleSearch": (json["ruleSearch"] as? [String: Any]) ?? ["bookList": ""],
+                ]
+                source = (try? MemoryBridgeBookSource(json: shell))
+                    ?? {
+                        // 极端兜底：构造最小 part，避免 try! 再崩
+                        var part = BookSourcePart(
+                            bookSourceUrl: (json["bookSourceUrl"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "legado://invalid",
+                            bookSourceName: (json["bookSourceName"] as? String) ?? "未命名书源"
+                        )
+                        part.searchUrl = json["searchUrl"] as? String
+                        return MemoryBridgeBookSource(part: part)
+                    }()
+            }
+        }
         lock.lock()
         let url = source.bookSourceUrl
         let previousEnabled = enabledByUrl[url]
@@ -251,7 +283,7 @@ final class SourceRegistry {
         let previousMissing = remoteMissingByUrl[url]
 
         sourcesByUrl[url] = source
-        var mutableJson = json
+        var mutableJson = sanitized
 
         let resolvedEnabled: Bool
         if preserveLocalEnabled, let previousEnabled {
@@ -523,6 +555,24 @@ final class SourceRegistry {
         }
         _ = try updateSourceJSON(data, forUrl: url)
         return true
+    }
+
+    /// 将仓源常见的字符串数值字段收成 Int64，避免 JSONDecoder 类型不匹配触发 try! 崩进程。
+    private static func sanitizeSourceJSON(_ json: [String: Any]) -> [String: Any] {
+        var out = json
+        for key in ["lastUpdateTime", "respondTime", "weight", "customOrder", "bookSourceType"] {
+            guard let raw = out[key] else { continue }
+            if raw is Int || raw is Int64 || raw is NSNumber { continue }
+            if let s = raw as? String {
+                let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let v = Int64(trimmed) {
+                    out[key] = v
+                } else {
+                    out.removeValue(forKey: key)
+                }
+            }
+        }
+        return out
     }
 
     static func isLegadoSource(_ dict: [String: Any]) -> Bool {
