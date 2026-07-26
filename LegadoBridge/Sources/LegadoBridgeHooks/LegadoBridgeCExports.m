@@ -6503,6 +6503,13 @@ LB_INJECT_FINISH:
         // F2/acceptance：正文已上屏后去掉磁盘 open_once，内存占坑仍挡二次 push
         LBClearNativeOpenOnceMarker();
         LBAppendOpenReaderTrace(@"nativeOpen diskOpenOnce cleared after nativePagedOk");
+    } else {
+        BOOL hasDivision = NO;
+        BOOL hasNativeDR = NO;
+        for (NSString *p in okPaths) {
+            if ([p hasPrefix:@"divisionText@"]) hasDivision = YES;
+            if ([p hasPrefix:@"divisionResponse"]) hasNativeDR = YES;
+        }
         if (hasDivision && !hasNativeDR) {
             LBAppendOpenReaderTrace(@"contentInject native-page-miss (divisionText ok, display pending)");
             LBTryShowPage0Once(readerVC, okPaths, @"showPage0");
