@@ -709,6 +709,8 @@ static NSMutableDictionary *sPendingNativeFullBook = nil;
 static int sLegadoReaderMode = 0;
 /// 假设 E：mode=1 下 viewDidAppear 已走 UIKit super 一次（onReset 门控）
 static BOOL sDidAppearUIKit = NO;
+/// G6：nativeFull 旁路 ReadVCBase2.viewDidAppear 后需补 createToolbar（每阅读页实例一次）
+static __weak id sG6ToolbarCreatedForReader = nil;
 static BOOL sReaderContentAppearHooked = NO;
 static BOOL sCatalogUIAppearHooked = NO;
 static BOOL sCatalogInjectReentrant = NO;
@@ -7123,6 +7125,29 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
         } else {
             LBAppendOpenReaderTrace(@"hypothesis_E didAppear skip (already UIKitSuper)");
         }
+        // G6：原版 ReadVCBase2.viewDidAppear = super → createToolbar → hideToolBar。
+        // nativeFull 为避崩只走 UIKitSuper，导致 ToolBarCreator 底栏从未创建；
+        // 中点 changeToolBar 只能动到导航顶栏，看不到「目录/字号/主题」。
+        // 大脑已批：仅补 createToolbar/hideToolBar（不恢复完整 ORIG appear）。
+        if (sG6ToolbarCreatedForReader != self) {
+            sG6ToolbarCreatedForReader = self;
+            @try {
+                SEL createSel = NSSelectorFromString(@"createToolbar");
+                SEL hideSel = NSSelectorFromString(@"hideToolBar");
+                if ([self respondsToSelector:createSel]) {
+                    ((void (*)(id, SEL))objc_msgSend)(self, createSel);
+                    LBAppendOpenReaderTrace(@"G6 createToolbar OK");
+                } else {
+                    LBAppendOpenReaderTrace(@"G6 createToolbar miss selector");
+                }
+                if ([self respondsToSelector:hideSel]) {
+                    ((void (*)(id, SEL))objc_msgSend)(self, hideSel);
+                }
+            } @catch (NSException *ex) {
+                LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                         @"G6 createToolbar EX %@", ex.reason ?: @""]);
+            }
+        }
         // 假设 J：UIKitSuper 门控后若仍有 pending（onReset 已跑完），补 flush
         if (sDidAppearUIKit && sHypothesisJPendingAddChild.count + sHypothesisJPendingInsertSubview.count > 0) {
             LBHypothesisJFlushDeferred(self);
@@ -7207,6 +7232,7 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
     // 假设 B2：push 入口最早 seed，先于 hooks/alloc/loadViewIfNeeded
     sHypothesisB2LoggedFirstContainer = NO;
     sDidAppearUIKit = NO;
+    sG6ToolbarCreatedForReader = nil;
     LBHypothesisJResetPending();
     LBSeedTurnPageTypeScrollBranch();
     NSTimeInterval nowPush = CFAbsoluteTimeGetCurrent();
