@@ -78,28 +78,36 @@
 3. 中点不进 `changeToolBar` → midTap 手势（`7805520`）**已 PASS**
 4. **当前**：底栏只有章导航（上一章/滑块/下一章），缺 `mulu`/`zihao` 等图标按钮行；二进制有 `arrToolBarBtn` / `showToolBarFont` / `showToolBarTheme` / `onToolBarEvent:`；下一步 dump bottom 子视图 + `arrToolBarBtn` 再决定是否补建
 
-## 4. 已改待进下一包
+## 4. `5caf570` dump 结论（已装 run `30185070965`）
+
+- `bottomSubs`：**已有** `UIButton title=目录/缓存/设置/换源`（含 img 45×45），不是缺建
+- `arrBtn=0`（ivar 空，按钮直接挂在 `toolBarBottom`）
+- `toolBarPageSlider` 独立一层（上一章/滑块/下一章）
+- 截图/AX/`tap_element` 仍看不到「目录」：`get_element_at_point(49,800)` 命中全屏 `AXElement`（加载层/正文层盖住底栏）
+- 下一步：显示态 `bringSubviewToFront` 工具栏各层
+
+## 5. 已改待进下一包
 
 **文件**：`LegadoBridge/Sources/LegadoBridgeHooks/LegadoBridgeCExports.m`
 
-- `LBG6LogToolbarState` 增强：bottom 子视图（含一层嵌套）class/frame/hidden/alpha/button title/image size；`arrToolBarBtn` 数量与各按钮；`toolBarFont`/`toolBarTheme`/`toolBarSetting`/`toolBarPageSlider` 等 ivar 状态
+- `LBG6LogToolbarState` 增强（已进 `5caf570`）
+- **新增** `LBG6BringToolbarToFront`：`changeToolBar` 显示后把 header/pageSlider/bottom/left/right 提到最前（已批唤出底栏范围内）
 
 未改计划文件 status。未 launch `StandarReader0`。未重启 SpringBoard。
 
-## 5. 须大脑批准（例外 / 高风险）— 只列不擅自做
+## 6. 须大脑批准（例外 / 高风险）— 只列不擅自做
 
 | 项 | 原因 |
 |---|---|
 | 用原版 `BookDetailController` / Catalog 链替换 `LBLegadoCatalogListVC` | 历史：push/setDicBook 无 ips 回桌面 |
-| 调用/改写 `ToolBarCreator` / `TextReadSettingVC` / `changeToolBar` 私有 API | **G6 底栏：大脑已批**唤出底栏；若需强制 `arrToolBarBtn`/`showToolBarFont` 补图标行，属同批准范围延伸，先用 dump 钉空再补 |
+| 调用/改写 `ToolBarCreator` / `TextReadSettingVC` / `changeToolBar` 私有 API | **G6 底栏：大脑已批**唤出底栏；`bringToFront` 属同范围 |
 | 用原版 `BookSourceManager*` 替换 `LBLegadoSourceManagerVC` | 易污染宿主源列表 |
 | Release 隐藏 Hook 能力区 | 需产品拍板 |
 
-## 6. 下一刀
+## 7. 下一刀
 
-1. commit 本轮 G6 子视图 dump → CI Debug IPA → 只装 StandarReader → 中点一次，读 `G6 afterChangeToolBar bottomSubs` / `arrBtn=`
-2. 若 `arrBtn=0` 或按钮 frame 为零：在已批范围内补 `createToolbar` 后重置 / `onToolBarEvent` 可达性
-3. 若按钮已在但不可见：查 image/alpha/层级，改验收脚本为「截图有图标 + 可点开字号/主题面板」（勿再依赖 AX 文案「目录/字号」）
-4. G2/G3 回归冒烟
+1. commit bringToFront → CI → 只装 StandarReader → 中点后截图应见「目录/缓存/设置/换源」并可点「设置」
+2. 验收脚本关键字改为含「目录/缓存/设置/换源」（原版底栏如此，非「字号/主题」文案）
+3. G2/G3 冒烟
 
-修订：2026-07-26（`7805520`：midTap/章导航 PASS；图标行仍 FAIL；资源在包内；增强 dump 待进包）
+修订：2026-07-26（`5caf570` dump：图标按钮已在、被盖住；bringToFront 待进包）

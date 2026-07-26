@@ -7275,6 +7275,29 @@ static void LBG6LogToolbarState(id reader, NSString *phase) {
     }
 }
 
+/// midTap 唤出后 bottom 上已有「目录/缓存/设置/换源」，但全屏内容/加载层盖住 → 截图只见章导航、点不到图标。
+static void LBG6BringToolbarToFront(id reader) {
+    if (![reader isKindOfClass:[UIViewController class]]) return;
+    UIViewController *vc = (UIViewController *)reader;
+    if (!vc.isViewLoaded || !vc.view) return;
+    NSInteger brought = 0;
+    for (NSString *k in @[ @"toolBarHeader", @"toolBarPageSlider", @"toolBarBottom",
+                           @"toolBarLeft", @"toolBarRight", @"toolBarSpeaker",
+                           @"toolBarSetting", @"toolBarFont", @"toolBarTheme" ]) {
+        id v = LBG6ToolbarIvar(reader, k);
+        if (![v isKindOfClass:[UIView class]]) continue;
+        UIView *bar = (UIView *)v;
+        UIView *host = bar.superview ?: vc.view;
+        if (!host) continue;
+        if (bar.superview != host) {
+            [host addSubview:bar];
+        }
+        [host bringSubviewToFront:bar];
+        brought++;
+    }
+    LBAppendOpenReaderTrace([NSString stringWithFormat:@"G6 bringToolbarFront n=%ld", (long)brought]);
+}
+
 static void LBG6ChangeToolBarHook(id self, SEL _cmd) {
     NSTimeInterval now = [NSDate date].timeIntervalSince1970;
     if (sG6LastChangeToolBarTs > 0 && (now - sG6LastChangeToolBarTs) < 0.20) {
@@ -7285,6 +7308,16 @@ static void LBG6ChangeToolBarHook(id self, SEL _cmd) {
     LBAppendOpenReaderTrace(@"G6 changeToolBar enter");
     if (LBOrig_changeToolBar) {
         LBOrig_changeToolBar(self, _cmd);
+    }
+    // 仅在显示态前置；隐藏态不强拉，避免挡住正文
+    id hidden = LBG6ToolbarIvar(self, @"toolBarHidden");
+    BOOL isHidden = YES;
+    @try {
+        if ([hidden respondsToSelector:@selector(boolValue)]) isHidden = [hidden boolValue];
+        else if (hidden) isHidden = NO;
+    } @catch (__unused NSException *e) {}
+    if (!isHidden) {
+        LBG6BringToolbarToFront(self);
     }
     LBG6LogToolbarState(self, @"afterChangeToolBar");
 }
