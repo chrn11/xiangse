@@ -112,6 +112,15 @@ static IMP sOrigCellForRow;
 static NSHashTable *sKnownSearchVCs; // weak
 static __strong UIViewController *sCurrentSearchVC; // 短时强引用，防 weak 过早清空
 
+static BOOL LBVCIsBookShelfContext(id selfObj);
+static IMP LBForwardTableRowsIMP(void);
+static IMP LBForwardTableCellIMP(void);
+static void LBInstallHookOnClassOnly(Class targetCls, SEL sel, IMP hookImp, IMP *inoutOrig);
+static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInteger section);
+static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip);
+static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInteger section);
+static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip);
+
 static void LBSetSearchKeywordOnVC(UIViewController *vc, NSString *keyword);
 static NSArray<UIWindow *> *LBAllAppWindows(void);
 
@@ -535,9 +544,22 @@ static void LBSetSearchKeywordOnVC(UIViewController *vc, NSString *keyword) {
 }
 
 static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInteger section) {
+    // 书架列表与搜索共用基类时：绝不能走搜索兜底逻辑改行数
+    if (LBVCIsBookShelfContext(self)) {
+        IMP fwd = LBForwardTableRowsIMP();
+        if (fwd) {
+            return ((NSInteger (*)(id, SEL, UITableView *, NSInteger))fwd)(self, _cmd, tv, section);
+        }
+        return 0;
+    }
     NSInteger orig = 0;
     if (sOrigNumberOfRows) {
         orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))sOrigNumberOfRows)(self, _cmd, tv, section);
+    } else {
+        IMP fwd = LBForwardTableRowsIMP();
+        if (fwd) {
+            orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))fwd)(self, _cmd, tv, section);
+        }
     }
     if (orig > 0) return orig;
     // 仅当 table 的 dataSource 就是 self 时兜底，避免与 FilteredDataSource 行数不一致崩
@@ -557,8 +579,19 @@ static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInte
 
 static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip) {
     // fail-open：不拦截 cell 渲染，避免越界/类型崩
+    if (LBVCIsBookShelfContext(self)) {
+        IMP fwd = LBForwardTableCellIMP();
+        if (fwd) {
+            return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))fwd)(self, _cmd, tv, ip);
+        }
+        return nil;
+    }
     if (sOrigCellForRow) {
         return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCellForRow)(self, _cmd, tv, ip);
+    }
+    IMP fwd = LBForwardTableCellIMP();
+    if (fwd) {
+        return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))fwd)(self, _cmd, tv, ip);
     }
     return nil;
 }
@@ -595,18 +628,13 @@ void LBInstallSearchUIAppearFlush(void) {
         method_setImplementation(m, hook);
     }
     // 兜底：有 arrBaseData+legadoBridge 时强制 numberOfRows / 填 cell
+    // 只挂 BookSearchVCBase1 自身，禁止改写共享基类（否则 BookShelfListVC 列表模式空）
     Class base1 = NSClassFromString(@"BookSearchVCBase1");
     if (base1) {
-        Method rowsM = class_getInstanceMethod(base1, @selector(tableView:numberOfRowsInSection:));
-        if (rowsM && !sOrigNumberOfRows) {
-            sOrigNumberOfRows = method_getImplementation(rowsM);
-            method_setImplementation(rowsM, (IMP)LBHookedNumberOfRows);
-        }
-        Method cellM = class_getInstanceMethod(base1, @selector(tableView:cellForRowAtIndexPath:));
-        if (cellM && !sOrigCellForRow) {
-            sOrigCellForRow = method_getImplementation(cellM);
-            method_setImplementation(cellM, (IMP)LBHookedCellForRow);
-        }
+        LBInstallHookOnClassOnly(base1, @selector(tableView:numberOfRowsInSection:),
+                                 (IMP)LBHookedNumberOfRows, &sOrigNumberOfRows);
+        LBInstallHookOnClassOnly(base1, @selector(tableView:cellForRowAtIndexPath:),
+                                 (IMP)LBHookedCellForRow, &sOrigCellForRow);
     }
 }
 
@@ -747,9 +775,120 @@ static void (*LBOrig_tryOpenRecord)(id, SEL, id, id) = NULL;
 static void (*LBOrig_onResetContentNotify)(id, SEL, NSNotification *) = NULL;
 static IMP sOrigCatalogNumberOfRows = NULL;
 static IMP sOrigCatalogCellForRow = NULL;
+/// 共享基类（LCTableViewControllerBase_*）上 table 方法的真·原生 IMP。
+/// 搜索/目录 Hook 若误 method_setImplementation 到基类，会伤到 BookShelfListVC → 列表模式「空列表」。
+static IMP sTruePlainNumberOfRows = NULL;
+static IMP sTruePlainCellForRow = NULL;
+static IMP sTruePlainDidSelect = NULL;
 static void (*LBOrig_setArrCatalog)(id, SEL, id) = NULL;
 static id (*LBOrig_getArrCatalog)(id, SEL) = NULL;
 static void (*LBOrig_catalogDidSelect)(id, SEL, UITableView *, NSIndexPath *) = NULL;
+
+static BOOL LBVCIsBookShelfContext(id selfObj) {
+    if (!selfObj) return NO;
+    NSString *cn = NSStringFromClass([selfObj class]);
+    return [cn containsString:@"BookShelf"];
+}
+
+static BOOL LBIsSharedTableBaseClass(Class cls) {
+    if (!cls) return NO;
+    NSString *n = NSStringFromClass(cls);
+    return [n containsString:@"LCTableViewControllerBase"] ||
+           [n isEqualToString:@"UITableViewController"];
+}
+
+/// 只在 targetCls 自身挂 IMP；禁止改写共享基类（避免误伤书架列表）。
+static void LBInstallHookOnClassOnly(Class targetCls, SEL sel, IMP hookImp, IMP *inoutOrig) {
+    if (!targetCls || !sel || !hookImp) return;
+    Method any = class_getInstanceMethod(targetCls, sel);
+    if (!any) return;
+    IMP current = method_getImplementation(any);
+    if (current == hookImp) return;
+    const char *types = method_getTypeEncoding(any);
+    if (!types) types = "@@:@q";
+    Class owner = LBClassOwningInstanceMethod(targetCls, sel) ?: targetCls;
+    if (inoutOrig && !*inoutOrig && current != hookImp) {
+        *inoutOrig = current;
+    }
+    if (LBIsSharedTableBaseClass(owner)) {
+        // 记录真原生，并把已被污染的基类 IMP 还原
+        IMP knownSearchRows = (IMP)LBHookedNumberOfRows;
+        IMP knownCatRows = (IMP)LBHookedCatalogNumberOfRows;
+        IMP knownSearchCell = (IMP)LBHookedCellForRow;
+        IMP knownCatCell = (IMP)LBHookedCatalogCellForRow;
+        BOOL isOurRows = (current == knownSearchRows || current == knownCatRows);
+        BOOL isOurCell = (current == knownSearchCell || current == knownCatCell);
+        if (!sTruePlainNumberOfRows && sel == @selector(tableView:numberOfRowsInSection:) && !isOurRows) {
+            sTruePlainNumberOfRows = current;
+        }
+        if (!sTruePlainCellForRow && sel == @selector(tableView:cellForRowAtIndexPath:) && !isOurCell) {
+            sTruePlainCellForRow = current;
+        }
+        if (!sTruePlainDidSelect && sel == @selector(tableView:didSelectRowAtIndexPath:) &&
+            current != hookImp) {
+            sTruePlainDidSelect = current;
+        }
+        IMP restore = NULL;
+        if (sel == @selector(tableView:numberOfRowsInSection:)) {
+            restore = sTruePlainNumberOfRows;
+        } else if (sel == @selector(tableView:cellForRowAtIndexPath:)) {
+            restore = sTruePlainCellForRow;
+        } else if (sel == @selector(tableView:didSelectRowAtIndexPath:)) {
+            restore = sTruePlainDidSelect;
+        }
+        if (restore && restore != hookImp) {
+            Method om = class_getInstanceMethod(owner, sel);
+            if (om && method_getImplementation(om) != restore) {
+                method_setImplementation(om, restore);
+            }
+        }
+        if (!class_addMethod(targetCls, sel, hookImp, types)) {
+            unsigned int count = 0;
+            Method *list = class_copyMethodList(targetCls, &count);
+            Method own = NULL;
+            for (unsigned int i = 0; i < count; i++) {
+                if (method_getName(list[i]) == sel) {
+                    own = list[i];
+                    break;
+                }
+            }
+            if (list) free(list);
+            if (own) method_setImplementation(own, hookImp);
+        }
+        return;
+    }
+    if (owner == targetCls) {
+        method_setImplementation(any, hookImp);
+        return;
+    }
+    if (!class_addMethod(targetCls, sel, hookImp, types)) {
+        unsigned int count = 0;
+        Method *list = class_copyMethodList(targetCls, &count);
+        Method own = NULL;
+        for (unsigned int i = 0; i < count; i++) {
+            if (method_getName(list[i]) == sel) {
+                own = list[i];
+                break;
+            }
+        }
+        if (list) free(list);
+        if (own) method_setImplementation(own, hookImp);
+    }
+}
+
+static IMP LBForwardTableRowsIMP(void) {
+    if (sTruePlainNumberOfRows) return sTruePlainNumberOfRows;
+    if (sOrigCatalogNumberOfRows) return sOrigCatalogNumberOfRows;
+    if (sOrigNumberOfRows) return sOrigNumberOfRows;
+    return NULL;
+}
+
+static IMP LBForwardTableCellIMP(void) {
+    if (sTruePlainCellForRow) return sTruePlainCellForRow;
+    if (sOrigCatalogCellForRow) return sOrigCatalogCellForRow;
+    if (sOrigCellForRow) return sOrigCellForRow;
+    return NULL;
+}
 static NSTimeInterval sLastLegadoChapterOpenTs = 0;
 static NSTimeInterval sLastPushNativeFullTs = 0;
 /// 最近一次原生分页成功（防 deliver 重复 divisionResponse 撞崩）
@@ -1182,10 +1321,11 @@ static void LBScheduleCatalogReapply(NSArray *chapters, NSString *bookUrl) {
 }
 
 static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInteger section) {
-    // 搜索页共用基类 IMP：绝不能用章节 pending 覆盖搜索行数
-    if (LBVCIsSearchTableContext(self) || !LBVCIsCatalogTableContext(self)) {
-        if (sOrigCatalogNumberOfRows) {
-            return ((NSInteger (*)(id, SEL, UITableView *, NSInteger))sOrigCatalogNumberOfRows)(self, _cmd, tv, section);
+    // 书架/搜索/非目录：必须走真原生行数，禁止用章节 pending 覆盖
+    if (LBVCIsBookShelfContext(self) || LBVCIsSearchTableContext(self) || !LBVCIsCatalogTableContext(self)) {
+        IMP fwd = LBForwardTableRowsIMP();
+        if (fwd) {
+            return ((NSInteger (*)(id, SEL, UITableView *, NSInteger))fwd)(self, _cmd, tv, section);
         }
         return 0;
     }
@@ -1210,11 +1350,11 @@ static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv,
             } @catch (__unused NSException *e) {}
         }
     }
-    NSInteger orig = 0;
-    if (sOrigCatalogNumberOfRows) {
-        orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))sOrigCatalogNumberOfRows)(self, _cmd, tv, section);
+    IMP fwd = LBForwardTableRowsIMP();
+    if (fwd) {
+        return ((NSInteger (*)(id, SEL, UITableView *, NSInteger))fwd)(self, _cmd, tv, section);
     }
-    return orig;
+    return 0;
 }
 
 /// TextReadVC viewDidAppear 会对 @[...] 中的 nil 直接 abort。
@@ -2367,10 +2507,11 @@ static LBCatalogCellOpenProxy *LBCatalogCellProxy(void) {
 }
 
 static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip) {
-    // 搜索页：必须走原生 cell，禁止铺 openChapter 透明按钮（点搜索结果否则直接 openReader 崩桌面）
-    if (LBVCIsSearchTableContext(self) || !LBVCIsCatalogTableContext(self)) {
-        if (sOrigCatalogCellForRow) {
-            return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCatalogCellForRow)(self, _cmd, tv, ip);
+    // 书架/搜索页：必须走原生 cell
+    if (LBVCIsBookShelfContext(self) || LBVCIsSearchTableContext(self) || !LBVCIsCatalogTableContext(self)) {
+        IMP fwd = LBForwardTableCellIMP();
+        if (fwd) {
+            return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))fwd)(self, _cmd, tv, ip);
         }
         return nil;
     }
@@ -2391,8 +2532,12 @@ static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView
         else if (LBArrayLooksLikeChapters(base)) use = base;
     }
     BOOL legadoFallback = (use.count > 0);
-    if (!legadoFallback && sOrigCatalogCellForRow) {
-        return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCatalogCellForRow)(self, _cmd, tv, ip);
+    if (!legadoFallback) {
+        IMP fwd = LBForwardTableCellIMP();
+        if (fwd) {
+            return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))fwd)(self, _cmd, tv, ip);
+        }
+        return nil;
     }
     if (legadoFallback && ip.row >= 0 && ip.row < (NSInteger)use.count) {
         id item = use[(NSUInteger)ip.row];
@@ -2426,8 +2571,9 @@ static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView
         objc_setAssociatedObject(btn, &kLBCatIdxKey, @(ip.row), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         return cell;
     }
-    if (sOrigCatalogCellForRow) {
-        return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCatalogCellForRow)(self, _cmd, tv, ip);
+    IMP fwd = LBForwardTableCellIMP();
+    if (fwd) {
+        return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))fwd)(self, _cmd, tv, ip);
     }
     return nil;
 }
@@ -8632,44 +8778,63 @@ void LBInstallReaderContentAppearFlush(void) {
 
 static void LBInstallCatalogTableHooksOnClass(Class cls) {
     if (!cls) return;
-    static NSMutableSet *sHookedOwners = nil;
+    NSString *cn = NSStringFromClass(cls);
+    if ([cn containsString:@"BookShelf"]) return;
+    static NSMutableSet *sHookedTargets = nil;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ sHookedOwners = [NSMutableSet set]; });
+    dispatch_once(&once, ^{ sHookedTargets = [NSMutableSet set]; });
 
-    SEL rowsSel = @selector(tableView:numberOfRowsInSection:);
-    Class rowsOwner = LBClassOwningInstanceMethod(cls, rowsSel) ?: cls;
-    Method rowsM = class_getInstanceMethod(rowsOwner, rowsSel);
-    NSString *rowsKey = [NSString stringWithFormat:@"rows:%@", NSStringFromClass(rowsOwner)];
-    if (rowsM && ![sHookedOwners containsObject:rowsKey]) {
-        // 仅保留首个 orig 指针用于转发；多类共用同一 hooked IMP 时，用 pending/Legado 数组优先
-        if (!sOrigCatalogNumberOfRows) {
-            sOrigCatalogNumberOfRows = method_getImplementation(rowsM);
+    NSString *rowsKey = [@"rows:" stringByAppendingString:cn];
+    if (![sHookedTargets containsObject:rowsKey]) {
+        LBInstallHookOnClassOnly(cls, @selector(tableView:numberOfRowsInSection:),
+                                 (IMP)LBHookedCatalogNumberOfRows, &sOrigCatalogNumberOfRows);
+        if (!sTruePlainNumberOfRows && sOrigCatalogNumberOfRows &&
+            sOrigCatalogNumberOfRows != (IMP)LBHookedCatalogNumberOfRows &&
+            sOrigCatalogNumberOfRows != (IMP)LBHookedNumberOfRows) {
+            sTruePlainNumberOfRows = sOrigCatalogNumberOfRows;
         }
-        method_setImplementation(rowsM, (IMP)LBHookedCatalogNumberOfRows);
-        [sHookedOwners addObject:rowsKey];
+        [sHookedTargets addObject:rowsKey];
     }
-    SEL cellSel = @selector(tableView:cellForRowAtIndexPath:);
-    Class cellOwner = LBClassOwningInstanceMethod(cls, cellSel) ?: cls;
-    Method cellM = class_getInstanceMethod(cellOwner, cellSel);
-    NSString *cellKey = [NSString stringWithFormat:@"cell:%@", NSStringFromClass(cellOwner)];
-    if (cellM && ![sHookedOwners containsObject:cellKey]) {
-        if (!sOrigCatalogCellForRow) {
-            sOrigCatalogCellForRow = method_getImplementation(cellM);
+    NSString *cellKey = [@"cell:" stringByAppendingString:cn];
+    if (![sHookedTargets containsObject:cellKey]) {
+        LBInstallHookOnClassOnly(cls, @selector(tableView:cellForRowAtIndexPath:),
+                                 (IMP)LBHookedCatalogCellForRow, &sOrigCatalogCellForRow);
+        if (!sTruePlainCellForRow && sOrigCatalogCellForRow &&
+            sOrigCatalogCellForRow != (IMP)LBHookedCatalogCellForRow &&
+            sOrigCatalogCellForRow != (IMP)LBHookedCellForRow) {
+            sTruePlainCellForRow = sOrigCatalogCellForRow;
         }
-        method_setImplementation(cellM, (IMP)LBHookedCatalogCellForRow);
-        [sHookedOwners addObject:cellKey];
+        [sHookedTargets addObject:cellKey];
     }
     SEL selSel = @selector(tableView:didSelectRowAtIndexPath:);
-    Class selOwner = LBClassOwningInstanceMethod(cls, selSel) ?: cls;
-    Method selM = class_getInstanceMethod(selOwner, selSel);
-    NSString *selKey = [NSString stringWithFormat:@"sel:%@", NSStringFromClass(selOwner)];
-    if (selM && ![sHookedOwners containsObject:selKey]) {
+    NSString *selKey = [@"sel:" stringByAppendingString:cn];
+    if (![sHookedTargets containsObject:selKey] && class_getInstanceMethod(cls, selSel)) {
+        Method any = class_getInstanceMethod(cls, selSel);
         void (*prev)(id, SEL, UITableView *, NSIndexPath *) =
-            (void (*)(id, SEL, UITableView *, NSIndexPath *))method_getImplementation(selM);
+            (void (*)(id, SEL, UITableView *, NSIndexPath *))method_getImplementation(any);
+        Class owner = LBClassOwningInstanceMethod(cls, selSel) ?: cls;
+        if (LBIsSharedTableBaseClass(owner) && !sTruePlainDidSelect && (IMP)prev != NULL) {
+            sTruePlainDidSelect = (IMP)prev;
+        }
         if (!LBOrig_catalogDidSelect) {
-            LBOrig_catalogDidSelect = prev;
+            LBOrig_catalogDidSelect = sTruePlainDidSelect
+                ? (void (*)(id, SEL, UITableView *, NSIndexPath *))sTruePlainDidSelect
+                : prev;
         }
         IMP hook = imp_implementationWithBlock(^void(id selfObj, UITableView *tv, NSIndexPath *ip) {
+            void (*fwd)(id, SEL, UITableView *, NSIndexPath *) =
+                sTruePlainDidSelect
+                    ? (void (*)(id, SEL, UITableView *, NSIndexPath *))sTruePlainDidSelect
+                    : (LBOrig_catalogDidSelect ?: prev);
+            // 书架：原生点选
+            if (LBVCIsBookShelfContext(selfObj)) {
+                if (fwd) {
+                    @try { fwd(selfObj, selSel, tv, ip); } @catch (NSException *e) {
+                        NSLog(@"[LegadoBridge] shelf didSelect fail-open: %@", e);
+                    }
+                }
+                return;
+            }
             // 搜索/非目录上下文：Legado 书安全推详情；其它原样转发
             if (LBVCIsSearchTableContext(selfObj) || !LBVCIsCatalogTableContext(selfObj)) {
                 if (LBVCIsSearchTableContext(selfObj) && ip) {
@@ -8695,8 +8860,8 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                         NSLog(@"[LegadoBridge] search select fail-open: %@", e);
                     }
                 }
-                if (prev) {
-                    @try { prev(selfObj, selSel, tv, ip); } @catch (NSException *e) {
+                if (fwd) {
+                    @try { fwd(selfObj, selSel, tv, ip); } @catch (NSException *e) {
                         NSLog(@"[LegadoBridge] search/native didSelect fail-open: %@", e);
                     }
                 }
@@ -8719,7 +8884,6 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
             if (use.count > 0 && ip && ip.row >= 0 && ip.row < (NSInteger)use.count) {
                 id rowItem = use[(NSUInteger)ip.row];
                 if (!LBItemLooksLikeChapter(rowItem)) {
-                    // 书行误入：交给原生
                     use = nil;
                 }
             }
@@ -8728,23 +8892,22 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                     sPendingCatalogChapters = [use copy];
                 }
                 LBTrySetArrayKey(selfObj, @"arrCatalog", use);
-                // Legado 点章：走受控原生 openReader（失败 Bridge），不调原生 didSelect
                 LBOpenLegadoChapterAtIndex(ip.row);
                 if (tv && ip) {
                     @try { [tv deselectRowAtIndexPath:ip animated:YES]; } @catch (__unused NSException *e) {}
                 }
                 handled = YES;
             }
-            if (!handled && prev) {
+            if (!handled && fwd) {
                 @try {
-                    prev(selfObj, selSel, tv, ip);
+                    fwd(selfObj, selSel, tv, ip);
                 } @catch (NSException *e) {
                     NSLog(@"[LegadoBridge] catalog didSelect fail-open: %@", e);
                 }
             }
         });
-        method_setImplementation(selM, hook);
-        [sHookedOwners addObject:selKey];
+        LBInstallHookOnClassOnly(cls, selSel, hook, &sTruePlainDidSelect);
+        [sHookedTargets addObject:selKey];
     }
 }
 
