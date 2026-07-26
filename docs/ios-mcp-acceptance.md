@@ -41,7 +41,7 @@ python fixtures/serve_local_mock.py
 ## 操作约定（必读）
 
 1. **锁屏唤醒**：先 `wake_and_home`，再用 `screenshot` / `get_ui_elements` / `get_frontmost_app` 确认已到桌面或解锁界面；勿把单次 `press_home` 当成已进主屏。
-2. **收工熄屏（硬规则）**：本回合凡碰过真机 MCP，结束前最后一步必须 `press_power` 熄屏。会话压缩/换会话不能当借口忘记；项目规则 `.cursor/rules/ios-mcp-screen-off.mdc`（`alwaysApply`）同源。
+2. **收工熄屏（硬规则）**：本回合凡碰过真机 MCP，**全部任务做完后**最后一步才 `press_power` 熄屏（禁止一听「睡觉」就中断未完成项）。会话压缩/换会话不能当借口忘记；项目规则 `.cursor/rules/ios-mcp-screen-off.mdc`（`alwaysApply`）同源。
 3. **点击**：优先 `tap_element`（按文案/无障碍标识），坐标点击仅作兜底。
 4. **输入**：先 `input_text`；失败或超时立即改 `type_text`，不要重复 `input_text`。
 5. **截图**：`screenshot` 返回 MCP image content，取 `content[0].data`（base64）与 `mimeType`。
