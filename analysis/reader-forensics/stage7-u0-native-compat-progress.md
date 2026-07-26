@@ -54,7 +54,7 @@
 
 ## 门禁
 
-- **禁止 U1**：U0 未全 PASS（N06/N09/N11、N07 完整增删、F6 内容等仍开放）。规则：`.cursor/rules/u0-gate-before-u1.mdc`。
+- **禁止 U1**：U0 未全 PASS（N06/N09/N11 等仍开放）。规则：`.cursor/rules/u0-gate-before-u1.mdc`。
 - 日常站点(3)/mock；禁止当测试面恢复 900 站。
 - 计划 todo 完成 ≠ 终局完成。
 
