@@ -515,4 +515,20 @@ final class RuleFixtureTests: XCTestCase {
         let out = RuleWebBook.applyReplaceRegex(raw, regex: "【广告】[\\s\\S]*?【/广告】##")
         XCTAssertEqual(out, "AB", "空 replacement 应整块删除，实际: \(out)")
     }
+
+    func testApplyReplaceRegexLeadingHashHashDoesNotEmitPattern() {
+        // 领域源：##.*?\\(第\\d+/\\d+页\\)## —— 前导 ## 不得把 pattern 当 replacement 写进空正文
+        let raw = ""
+        let out = RuleWebBook.applyReplaceRegex(
+            raw,
+            regex: "##.*?\\(第\\d+/\\d+页\\)##"
+        )
+        XCTAssertEqual(out, "", "空正文应仍为空，不得变成正则串，实际: \(out)")
+        let kept = RuleWebBook.applyReplaceRegex(
+            "正文(第1/2页)继续",
+            regex: "##.*?\\(第\\d+/\\d+页\\)##"
+        )
+        XCTAssertFalse(kept.contains("第1/2页"), "应删分页标记，实际: \(kept)")
+        XCTAssertTrue(kept.contains("正文") && kept.contains("继续"), "正文应保留: \(kept)")
+    }
 }

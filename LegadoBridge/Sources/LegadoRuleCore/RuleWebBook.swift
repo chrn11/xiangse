@@ -376,6 +376,12 @@ public enum RuleWebBook {
             redirectUrl = url
         }
 
+        Self.writeContentBodyProbe(
+            chapterUrl: chapter.url,
+            redirectUrl: redirectUrl,
+            body: body,
+            contentRule: ruleStr
+        )
         guard !body.isEmpty else { throw WebBookError.emptyResponse }
 
         let elementCtx = try makeElementContext(body: body, baseUrl: redirectUrl)
@@ -598,6 +604,34 @@ public enum RuleWebBook {
         redirect=\(redirectUrl)
         bodyLen=\(body.count)
         \(flags)
+        head=\(head)
+
+        """
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
+    private static func writeContentBodyProbe(
+        chapterUrl: String,
+        redirectUrl: String,
+        body: String,
+        contentRule: String
+    ) {
+        let path = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_content_body_probe.txt")
+        let head = String(body.prefix(900))
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        let lower = body.lowercased()
+        let cf = lower.contains("just a moment") || lower.contains("cloudflare") || lower.contains("cf-browser")
+        let hasContentId = body.contains("id=\"content\"") || body.contains("id='content'")
+        let ruleHead = String(contentRule.prefix(120))
+        let line = """
+        ts=\(Date())
+        chapter=\(chapterUrl)
+        redirect=\(redirectUrl)
+        bodyLen=\(body.count)
+        rule=\(ruleHead)
+        cf=\(cf) hasContentId=\(hasContentId)
         head=\(head)
 
         """
@@ -929,27 +963,30 @@ public enum RuleWebBook {
         return "\(words)字"
     }
 
-    /// 供测试与调试：源级 replaceRegex（`pattern##replacement`；`pattern##` 表示替换为空）
+    /// 供测试与调试：源级 replaceRegex。
+    /// 支持 `pattern##replacement`、`pattern##`（替换为空）、`##pattern##` / `##pattern##replacement`（Legado 仓源常见前缀）。
     public static func applyReplaceRegex(_ content: String, regex: String) -> String {
+        var raw = regex.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 前导 `##`：整段是替换规则，不是「空 pattern」
+        if raw.hasPrefix("##") {
+            raw = String(raw.dropFirst(2))
+        }
         let pattern: String
         let replacement: String
         let firstOnly: Bool
-        if let parts = RuleSplitter.splitTopLevel(regex, token: "##"), parts.count >= 2 {
-            pattern = parts[0]
-            replacement = parts[1]
-            firstOnly = parts.count > 2
-        } else if regex.contains("##") {
-            // splitTopLevel 在「pattern##」（空 replacement）时会丢掉空段并返回 nil，
-            // 若把整串（含 ##）当地正则则永远匹配失败。
-            let segs = splitReplaceRegexKeepEmpty(regex)
+        if raw.contains("##") {
+            // 保留空 replacement（`pattern##` / `pattern##` 尾）
+            let segs = splitReplaceRegexKeepEmpty(raw)
             pattern = segs.pattern
             replacement = segs.replacement
             firstOnly = segs.firstOnly
         } else {
-            pattern = regex
+            pattern = raw
             replacement = ""
             firstOnly = false
         }
+        // 空 pattern 时 `replacingOccurrences(of:"")` 会把 replacement 写进正文（领域源 bodyLen=16 即此）
+        guard !pattern.isEmpty else { return content }
         let patternsToTry = [pattern, pattern.replacingOccurrences(of: "[\\s\\S]", with: ".")]
         var reg: NSRegularExpression?
         for p in patternsToTry where !p.isEmpty {
@@ -962,7 +999,7 @@ public enum RuleWebBook {
             }
         }
         guard let reg else {
-            return firstOnly ? replacement : content.replacingOccurrences(of: pattern, with: replacement)
+            return content.replacingOccurrences(of: pattern, with: replacement)
         }
         let range = NSRange(content.startIndex..., in: content)
         if firstOnly {
