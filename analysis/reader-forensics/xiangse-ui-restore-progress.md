@@ -106,8 +106,8 @@
 
 ## 7. 下一刀
 
-1. commit bringToFront → CI → 只装 StandarReader → 中点后截图应见「目录/缓存/设置/换源」并可点「设置」
-2. 验收脚本关键字改为含「目录/缓存/设置/换源」（原版底栏如此，非「字号/主题」文案）
-3. G2/G3 冒烟
+1. **对比度**：`74ff1fe` bringToFront 已跑（`bringToolbarFront n=5`），但底栏图标区像素仍近纯黑 `(22,22,22)`，章导航 `(55,55,55)` 可见 → 判深色图/字画在深色底；补 `LBG6ForceToolbarButtonContrast` + `resetToolBarBtnStatus`
+2. 验收关键字改为「目录/缓存/设置/换源」
+3. 顺手查「章节加载中」卡住（mock 200，可能时序）
 
-修订：2026-07-26（`5caf570` dump：图标按钮已在、被盖住；bringToFront 待进包）
+修订：2026-07-26（`74ff1fe` bringToFront 无效于可见性；对比度修复待进包）

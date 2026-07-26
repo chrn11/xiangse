@@ -7276,6 +7276,52 @@ static void LBG6LogToolbarState(id reader, NSString *phase) {
 }
 
 /// midTap 唤出后 bottom 上已有「目录/缓存/设置/换源」，但全屏内容/加载层盖住 → 截图只见章导航、点不到图标。
+/// 另：按钮/图可能是深色 tint 画在深色底上，像素采样近乎纯黑 → 强制浅色。
+static void LBG6ForceToolbarButtonContrast(UIView *root) {
+    if (!root) return;
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
+    while (stack.count) {
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        for (UIView *ch in v.subviews) [stack addObject:ch];
+        @try {
+            if ([v isKindOfClass:[UIButton class]]) {
+                UIButton *b = (UIButton *)v;
+                UIColor *fg = [UIColor colorWithWhite:0.92 alpha:1.0];
+                [b setTitleColor:fg forState:UIControlStateNormal];
+                [b setTitleColor:fg forState:UIControlStateHighlighted];
+                b.tintColor = fg;
+                if (b.imageView) b.imageView.tintColor = fg;
+                // template 图才吃 tint；若已是原图，仍保证不透明
+                b.alpha = 1.0;
+                b.hidden = NO;
+                b.userInteractionEnabled = YES;
+                if (!b.isAccessibilityElement) {
+                    b.isAccessibilityElement = YES;
+                    if (b.accessibilityLabel.length == 0) {
+                        NSString *t = [b titleForState:UIControlStateNormal];
+                        if (t.length) b.accessibilityLabel = t;
+                    }
+                }
+            } else if ([v isKindOfClass:[UIImageView class]]) {
+                UIImageView *iv = (UIImageView *)v;
+                iv.tintColor = [UIColor colorWithWhite:0.92 alpha:1.0];
+                iv.alpha = 1.0;
+                iv.hidden = NO;
+                UIImage *img = iv.image;
+                if (img && img.renderingMode != UIImageRenderingModeAlwaysTemplate) {
+                    iv.image = [img imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+                }
+            } else if ([v isKindOfClass:[UILabel class]]) {
+                UILabel *lb = (UILabel *)v;
+                lb.textColor = [UIColor colorWithWhite:0.92 alpha:1.0];
+                lb.alpha = 1.0;
+                lb.hidden = NO;
+            }
+        } @catch (__unused NSException *e) {}
+    }
+}
+
 static void LBG6BringToolbarToFront(id reader) {
     if (![reader isKindOfClass:[UIViewController class]]) return;
     UIViewController *vc = (UIViewController *)reader;
@@ -7294,6 +7340,30 @@ static void LBG6BringToolbarToFront(id reader) {
         }
         [host bringSubviewToFront:bar];
         brought++;
+        if ([k isEqualToString:@"toolBarBottom"] || [k isEqualToString:@"toolBarPageSlider"] ||
+            [k isEqualToString:@"toolBarHeader"]) {
+            LBG6ForceToolbarButtonContrast(bar);
+        }
+    }
+    // 原版可能依赖状态刷新才能把图标切到正确渲染模式
+    @try {
+        SEL resetSel = NSSelectorFromString(@"resetToolBarBtnStatus");
+        if ([reader respondsToSelector:resetSel]) {
+            ((void (*)(id, SEL))objc_msgSend)(reader, resetSel);
+            LBAppendOpenReaderTrace(@"G6 resetToolBarBtnStatus OK");
+        }
+    } @catch (__unused NSException *e) {}
+    @try {
+        SEL reset2 = NSSelectorFromString(@"resetToolBarValues");
+        if ([reader respondsToSelector:reset2]) {
+            ((void (*)(id, SEL))objc_msgSend)(reader, reset2);
+            LBAppendOpenReaderTrace(@"G6 resetToolBarValues OK");
+        }
+    } @catch (__unused NSException *e2) {}
+    // reset 后再刷一次对比度，避免被原版改回深色
+    id bottom = LBG6ToolbarIvar(reader, @"toolBarBottom");
+    if ([bottom isKindOfClass:[UIView class]]) {
+        LBG6ForceToolbarButtonContrast((UIView *)bottom);
     }
     LBAppendOpenReaderTrace([NSString stringWithFormat:@"G6 bringToolbarFront n=%ld", (long)brought]);
 }
