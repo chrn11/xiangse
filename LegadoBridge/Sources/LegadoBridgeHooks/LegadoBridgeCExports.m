@@ -1689,22 +1689,61 @@ static void LBClearNativeOpenOnceState(NSString *reason) {
     }
 }
 
+/// F2：离开阅读页时清 open_once（目录盖住时只清磁盘；栈上已无 TextRead 则全清）
+static void LBInstallOpenOnceClearOnReaderLeave(void) {
+    static BOOL sOnce = NO;
+    if (sOnce) return;
+    sOnce = YES;
+    for (NSString *cn in @[@"TextReadVC3", @"TextReadVC2", @"TextReadVC1"]) {
+        Class cls = NSClassFromString(cn);
+        if (!cls) continue;
+        SEL sel = @selector(viewDidDisappear:);
+        if (!class_getInstanceMethod(cls, sel)) continue;
+        Method any = class_getInstanceMethod(cls, sel);
+        IMP orig = method_getImplementation(any);
+        IMP *slot = (IMP *)malloc(sizeof(IMP));
+        if (!slot) continue;
+        *slot = orig;
+        IMP hook = imp_implementationWithBlock(^void(id self, BOOL animated) {
+            IMP fwd = *slot;
+            if (fwd) ((void (*)(id, SEL, BOOL))fwd)(self, sel, animated);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (LBNavStackHasTextReader()) {
+                    if (LBReadNativeOpenOnceMarker().length > 0) {
+                        LBClearNativeOpenOnceMarker();
+                        LBAppendOpenReaderTrace(@"nativeOpen diskOpenOnce cleared readerCovered");
+                    }
+                    return;
+                }
+                if (sNativeOpenOnceKey.length > 0 || LBReadNativeOpenOnceMarker().length > 0) {
+                    LBClearNativeOpenOnceState(@"readerLeave");
+                }
+            });
+        });
+        LBInstallHookOnClassOnly(cls, sel, hook, slot);
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"openOnceClearOnReaderLeave hooked %@", cn]);
+    }
+}
+
 /// F2：回书架时清 open_once 磁盘标记（acceptance：最终不存在）
 static void LBInstallOpenOnceClearOnShelfAppear(void) {
     static BOOL sOnce = NO;
     if (sOnce) return;
     sOnce = YES;
-    static IMP sOrigShelfDidAppear = NULL;
-    for (NSString *cn in @[@"BookShelfController", @"BookShelfVCBase1", @"BookShelfVCBase2"]) {
+    LBInstallOpenOnceClearOnReaderLeave();
+    for (NSString *cn in @[@"BookShelfController", @"BookShelfListVC",
+                           @"BookShelfVCBase1", @"BookShelfVCBase2"]) {
         Class cls = NSClassFromString(cn);
         if (!cls) continue;
         SEL sel = @selector(viewDidAppear:);
         if (!class_getInstanceMethod(cls, sel)) continue;
         Method any = class_getInstanceMethod(cls, sel);
         IMP cur = method_getImplementation(any);
-        if (!sOrigShelfDidAppear) sOrigShelfDidAppear = cur;
+        IMP *slot = (IMP *)malloc(sizeof(IMP));
+        if (!slot) continue;
+        *slot = cur;
         IMP hook = imp_implementationWithBlock(^void(id self, BOOL animated) {
-            IMP fwd = sOrigShelfDidAppear;
+            IMP fwd = *slot;
             if (fwd) {
                 ((void (*)(id, SEL, BOOL))fwd)(self, sel, animated);
             }
@@ -1712,9 +1751,8 @@ static void LBInstallOpenOnceClearOnShelfAppear(void) {
                 LBClearNativeOpenOnceState(@"shelfAppear");
             }
         });
-        LBInstallHookOnClassOnly(cls, sel, hook, &sOrigShelfDidAppear);
+        LBInstallHookOnClassOnly(cls, sel, hook, slot);
         LBAppendOpenReaderTrace([NSString stringWithFormat:@"openOnceClearOnShelf hooked %@", cn]);
-        break;
     }
 }
 
@@ -8110,6 +8148,11 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
             LBAppendOpenReaderTrace([NSString stringWithFormat:
                                     @"pushNativeFull settle vis=%d mode=%d",
                                     vis ? 1 : 0, sLegadoReaderMode]);
+            // F2/acceptance：阅读页已可见则清磁盘 open_once（内存占坑仍挡二次 push）
+            if (vis && LBReadNativeOpenOnceMarker().length > 0) {
+                LBClearNativeOpenOnceMarker();
+                LBAppendOpenReaderTrace(@"nativeOpen diskOpenOnce cleared after pushSettle");
+            }
             (void)vcRef;
         });
     };
