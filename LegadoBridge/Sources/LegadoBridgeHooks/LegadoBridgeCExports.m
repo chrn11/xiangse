@@ -7363,7 +7363,26 @@ static void LBG6BringToolbarToFront(id reader) {
     // reset 后再刷一次对比度，避免被原版改回深色
     id bottom = LBG6ToolbarIvar(reader, @"toolBarBottom");
     if ([bottom isKindOfClass:[UIView class]]) {
-        LBG6ForceToolbarButtonContrast((UIView *)bottom);
+        UIView *bv = (UIView *)bottom;
+        LBG6ForceToolbarButtonContrast(bv);
+        // 诊断：底栏容器刷成可辨颜色，确认是否在屏上
+        bv.backgroundColor = [UIColor colorWithRed:0.75 green:0.12 blue:0.12 alpha:0.95];
+        bv.opaque = YES;
+        CGRect winF = [bv convertRect:bv.bounds toView:nil];
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"G6 bottomWin=%@ bg=red sub=%lu",
+                                 NSStringFromCGRect(winF), (unsigned long)bv.subviews.count]);
+        for (UIView *ch in bv.subviews) {
+            if (![ch isKindOfClass:[UIButton class]]) continue;
+            UIButton *b = (UIButton *)ch;
+            b.backgroundColor = [UIColor colorWithRed:0.1 green:0.45 blue:0.85 alpha:0.9];
+            NSString *t = [b titleForState:UIControlStateNormal] ?: @"";
+            UIColor *tc = [b titleColorForState:UIControlStateNormal];
+            CGRect bw = [b convertRect:b.bounds toView:nil];
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"G6 btnWin title=%@ frame=%@ tint=%@ titleColor=%@ alpha=%.2f hidden=%d",
+                                     t, NSStringFromCGRect(bw), b.tintColor, tc, b.alpha, b.hidden ? 1 : 0]);
+        }
     }
     LBAppendOpenReaderTrace([NSString stringWithFormat:@"G6 bringToolbarFront n=%ld", (long)brought]);
 }
