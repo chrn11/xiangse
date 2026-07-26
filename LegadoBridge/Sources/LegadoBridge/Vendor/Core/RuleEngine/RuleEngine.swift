@@ -858,12 +858,14 @@ class RuleEngine {
 
         var elements: [SwiftSoup.Element] = [root]
         for part in parts {
-            // 末段若是 text/html/href 等属性，列表规则不应走到这里；防御性跳过
-            if Self.isTerminalAttr(part),
-               !part.lowercased().hasPrefix("class."),
-               !part.lowercased().hasPrefix("tag."),
-               !part.lowercased().hasPrefix("id."),
-               !part.lowercased().hasPrefix("text.") {
+            let lower = part.lowercased()
+            // 列表规则末段若是 text/html/href，不再当选择器（属性由 chapterName/Url 另取）
+            let looksLikeSelector =
+                lower.hasPrefix("class.") || lower.hasPrefix("tag.") || lower.hasPrefix("id.")
+                || lower.hasPrefix("text.") || part.hasPrefix(".") || part.hasPrefix("#")
+                || part.contains("[") || part.contains(">") || part.contains(" ")
+            if !looksLikeSelector,
+               ["text", "html", "href", "src", "owntext", "all"].contains(lower) {
                 break
             }
             var next: [SwiftSoup.Element] = []
