@@ -1,46 +1,61 @@
 # 阶段七 U0：原生功能兼容回归（2026-07-26）
 
 计划：`.cursor/plans/香色Legado书源原生呈现总计划_20260726.plan.md` §12.2 U0。  
-硬规则 12：Hook 不得破坏香色原生 XBS / 本地书等；清单全 PASS 前 U1 不得开工。
+终局：XBS + Legado JSON **双源并存**，一律香色原生 UI；硬规则 12；**U0 全 PASS 前禁止 U1**。
 
-## 已确认症状
+## 终局口径（2026-07-27 对齐）
 
-- 注入后原生「检测站点」不可用（`onSourceCheckEvent` → `ConfigSourceCheckVC`）
-- 用户：其他功能可能也有问题，须全面普查，不许只修一点收工
+- 香色原生 XBS 功能不被 Hook 破坏
+- Legado JSON 书源及书源相关功能可用
+- 呈现层全是香色原生 UI（非桥接页终态）
+- 两套源同时正常、互不吞数据
 
 ## 对照基线
 
 | 包 | 用途 |
 |---|---|
-| 未注入基线 IPA（同 2.56.1） | 「坏没坏」对照 |
-| 当前注入包 `2c1cf80` Debug/Release | 缺陷复现 |
+| 未注入基线 / `StandarReader0` | 「坏没坏」对照 |
+| 当前注入包 `e685ff5` legado-debug（run `30210873340`） | U0 推进中 |
 
-## 普查清单
+## F / R / P 缺陷板
 
 | ID | 项 | 状态 | 证据 |
 |---|---|---|---|
-| N01 | XBS 书源导入 | 待测 | |
-| N02 | XBS 搜索 | 待测 | |
-| N03 | **检测站点** | **FAIL（用户报告）** | 待复现+根因 |
-| N04 | XBS 目录 | 待测 | |
-| N05 | XBS 正文阅读 | 待测 | |
-| N06 | 本地 TXT 导入与阅读 | 待测 | |
-| N07 | 书架增删与进度 | 待测 | |
-| N08 | 阅读设置（字体/主题/翻页） | 待测 | |
-| N09 | 分享导出 | 待测 | |
-| N10 | AudioRead 听书 | 待测 | |
-| N11 | 云同步（若有） | 待测 | |
+| R | 斗破目录点章 | **PASS** | `verify_u0_r_doupo/`，`1340b3c` |
+| F1 | 书架列表模式空 | **PASS** | `verify_u0_f1_list/`，`773ee29` |
+| F2 | open_once 残留 | **PASS** | `verify_u0_f2_strict/SUMMARY.json`，`e685ff5`：阅读页与回书架后文件均不存在；trace 有 `diskOpenOnce cleared`；正文 `bodyLen=764` |
+| F3 | 站点数据策略 | **策略闭合** | 日常站点(3)；全量 aside；禁 replace 保留 |
+| F4 | 换源选择器 | **PASS** | `verify_u0_f4/` |
+| F5 | 检测站点入口 | **PASS_ENTRY** | `verify_u0_cont/f5_04_check.png` |
+| F6 | 发现页 | 壳 OK；内容空归书源 | 不记 Hook FAIL |
+| F7 | 品牌/调试泄漏 | debug **PASS_NO_LEAK**；**release 待验** | 设置页冒烟 |
+| P | 搜索 trace | **PASS** | `legado_search_last` enter/ok |
 
-## 可疑 Hook（先取证后定罪）
+## 普查清单 N
 
-1. `LBSearchHooks` — `BookSourceManager`
-2. `LBSourceListHooks` — `BookSourceModelManager` / 站点栏
-3. `LBImportHooks` — `NSJSONSerialization`
-4. `LegadoBridgeCExports.m` / `LBLoadCurCpBridge.m`
+| ID | 项 | 状态 | 证据 |
+|---|---|---|---|
+| N01 | 书源导入 | 待 N 冒烟刷新（JSON 深链） | |
+| N02 | 搜索 | **PASS**（深链） | `verify_u0_cont/N02.json` |
+| N03 | 检测站点 | **PASS_ENTRY**（同 F5） | |
+| N04 | 目录 | 待 N 冒烟 | |
+| N05 | 正文阅读 | mock 斗破链 PASS（同 R/F2） | |
+| N06 | 本地 TXT | **PENDING** | 需夹具 |
+| N07 | 书架增删与进度 | 列表可见 PASS；增删待测 | F1 |
+| N08 | 阅读设置 | 待 N 冒烟 | |
+| N09 | 分享导出 | **PENDING** | |
+| N10 | AudioRead | **PENDING**（总计划例外不开发 TTS） | |
+| N11 | 云同步 | **PENDING** | |
 
-## 进行中
+## 门禁
 
-- **U0-R**：斗破苍穹真机复验 **PASS**（包 `1340b3c`）。证据 `fixtures/_devkit/verify_u0_r_doupo/`：目录点「第一章 陨落的天才」→`03_after_tap.png` 正文含萧炎；`cellTap`+`didSelect …/book/doupo.html`+`openOnce commit`+`pushNativeFull visible`。排除 openOnce 吞点 / 点错行 / 内容拉取失败。见 `u0-sr0-site-forensics.md`。
-- **F5**：对照 SR0 后作废「入口没了」——路径为 整理→站点管理→更多→检测站点（注入包同样有）。见 `u0-sr0-site-forensics.md`。
-- **F3**：**根因修正**——`addModels replace=true` 是**替罪羊**（误诊）。MCP `stat` 注入包沙盒目录创建时间 = `Jul 25 15:05:48`（7/25 首次装注入包，沙盒新建；7/26 覆盖装保留旧沙盒）；拷回前 `.xbs.bak_u0f3`=12,124B，按 SR0 比例（22MB/960≈23KB/源）连 1 个原生站点都装不下，`strings` grep 常见源名 0 匹配——**注入包沙盒从未导入过 SR0 的 960 站点**，`.xbs` 一直只有 3 个 Legado 源。真正的 F3 修复 = 从 SR0 拷 `.xbs` 进注入包（已做，现 22MB，显示 站点(963)）。`aae202d` 的 `replace=false` + `if replace { continue }` 改动**虽基于误诊，但属正确的防御性改动**（`replace=true` 本身是危险设计，未来若导入 960 站点会截断），**保留不回滚**。
-- F4：换源选择器行交互仍待测；F6 发现页随站点恢复后复测。
+- **禁止 U1**：直至 F1–F7 + R/P + N 可测项全 PASS（PENDING 项须有登记理由，不得静默跳过）。
+- 日常只用站点(3)/mock；禁止当测试面恢复全量 900 站。
+- 真机收工：全部任务完成后 `press_power`；执行中不批量删文件。
+
+## 本夜进展（2026-07-27）
+
+1. 总计划第一节补强「双源并存」。
+2. F2 修复：`pushSettle` / `readerLeave` / 多书架 VC `viewDidAppear` 清 open_once（`e685ff5`）。
+3. F2 严验 PASS：`fixtures/_devkit/verify_u0_f2_strict/`。
+4. 下一步：N 清单冒烟留证 → 更新本表 → 可做项耗尽后熄屏。
