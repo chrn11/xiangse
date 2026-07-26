@@ -919,6 +919,7 @@ static void LBHypothesisEScheduleOnResetNoArg(UIViewController *vc, SEL sel,
                                               void (^onDone)(void));
 static BOOL LBNativeOpenGateBlocked(NSString **outReason);
 static void LBClearNativeOpenOnceState(NSString *reason);
+static void LBInstallOpenOnceClearOnShelfAppear(void);
 static BOOL LBBridgeDebugLoaded(void);
 static BOOL LBInjectOkPathsCountAsSuccess(NSArray *paths, BOOL nativePaged);
 static const char kLBCatIdxKey;
@@ -1584,6 +1585,7 @@ static void LBInstallNativeOpenCrashGuards(void) {
     signal(SIGSEGV, LBNativeOpenSignalHandler);
     signal(SIGBUS, LBNativeOpenSignalHandler);
     signal(SIGILL, LBNativeOpenSignalHandler);
+    LBInstallOpenOnceClearOnShelfAppear();
 }
 
 static NSMutableDictionary *LBBookDictForOpenReader(NSString *bookUrl,
@@ -1684,6 +1686,35 @@ static void LBClearNativeOpenOnceState(NSString *reason) {
         if (reason.length > 0) {
             LBAppendOpenReaderTrace([NSString stringWithFormat:@"nativeOpen clearLocks reason=%@", reason]);
         }
+    }
+}
+
+/// F2：回书架时清 open_once 磁盘标记（acceptance：最终不存在）
+static void LBInstallOpenOnceClearOnShelfAppear(void) {
+    static BOOL sOnce = NO;
+    if (sOnce) return;
+    sOnce = YES;
+    static IMP sOrigShelfDidAppear = NULL;
+    for (NSString *cn in @[@"BookShelfController", @"BookShelfVCBase1", @"BookShelfVCBase2"]) {
+        Class cls = NSClassFromString(cn);
+        if (!cls) continue;
+        SEL sel = @selector(viewDidAppear:);
+        if (!class_getInstanceMethod(cls, sel)) continue;
+        Method any = class_getInstanceMethod(cls, sel);
+        IMP cur = method_getImplementation(any);
+        if (!sOrigShelfDidAppear) sOrigShelfDidAppear = cur;
+        IMP hook = imp_implementationWithBlock(^void(id self, BOOL animated) {
+            IMP fwd = sOrigShelfDidAppear;
+            if (fwd) {
+                ((void (*)(id, SEL, BOOL))fwd)(self, sel, animated);
+            }
+            if (sNativeOpenOnceKey.length > 0 || LBReadNativeOpenOnceMarker().length > 0) {
+                LBClearNativeOpenOnceState(@"shelfAppear");
+            }
+        });
+        LBInstallHookOnClassOnly(cls, sel, hook, &sOrigShelfDidAppear);
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"openOnceClearOnShelf hooked %@", cn]);
+        break;
     }
 }
 
@@ -6469,13 +6500,9 @@ LB_INJECT_FINISH:
         sLastNativePagedKey = [dedupeKey copy];
         sNativeOpenChapterDone = YES;
         sDeferredNativeOpenIdx = -1;
-    } else {
-        BOOL hasDivision = NO;
-        BOOL hasNativeDR = NO;
-        for (NSString *p in okPaths) {
-            if ([p hasPrefix:@"divisionText@"]) hasDivision = YES;
-            if ([p hasPrefix:@"divisionResponse"]) hasNativeDR = YES;
-        }
+        // F2/acceptance：正文已上屏后去掉磁盘 open_once，内存占坑仍挡二次 push
+        LBClearNativeOpenOnceMarker();
+        LBAppendOpenReaderTrace(@"nativeOpen diskOpenOnce cleared after nativePagedOk");
         if (hasDivision && !hasNativeDR) {
             LBAppendOpenReaderTrace(@"contentInject native-page-miss (divisionText ok, display pending)");
             LBTryShowPage0Once(readerVC, okPaths, @"showPage0");
@@ -6533,6 +6560,8 @@ LB_INJECT_FINISH:
                     sLastNativePagedKey = [dedupeKey copy];
                     sNativeOpenChapterDone = YES;
                     sDeferredNativeOpenIdx = -1;
+                    LBClearNativeOpenOnceMarker();
+                    LBAppendOpenReaderTrace(@"nativeOpen diskOpenOnce cleared after nativePagedOk(dr)");
                 }
             }
         } else if (!hasNativeDR) {
