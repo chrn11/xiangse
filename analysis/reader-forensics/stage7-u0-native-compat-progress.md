@@ -42,5 +42,5 @@
 
 - **U0-R**：`1340b3c` 已推/已装；真机点章 → `cellTap` + `openOnce commit` + `preferNativeFull` + 阅读页可见。**点章断链已修**；个别书正文空另记。
 - **F5**：对照 SR0 后作废「入口没了」——路径为 整理→站点管理→更多→检测站点（注入包同样有）。见 `u0-sr0-site-forensics.md`。
-- **F3（下一刀）**：注入包 `站点(3)` vs SR0 `站点(960)`——修站点列表数据/合并 Hook。
-- F4：换源选择器行交互仍待测。
+- **F3**：根因 `addModels replace=true` 整表覆盖；`aae202d` 已禁 replace。设备侧从 SR0 拷回 `.xbs` 后注入包显示 **站点(963)**（证据 `forensics_sr0_sites` 会话日志）。新装包后勿再 replace。
+- F4：换源选择器行交互仍待测；F6 发现页随站点恢复后复测。
