@@ -34,6 +34,12 @@ public struct BookSourcePart: Codable, Identifiable {
     public var ruleReview: ReviewRulePart?
     public var variable: String?
 
+    /// 解码失败时的最小壳，避免 try! 崩进程
+    public init(bookSourceUrl: String, bookSourceName: String) {
+        self.bookSourceUrl = bookSourceUrl
+        self.bookSourceName = bookSourceName
+    }
+
     public struct SearchRulePart: Codable {
         public var checkKeyWord: String?
         public var bookList: String?

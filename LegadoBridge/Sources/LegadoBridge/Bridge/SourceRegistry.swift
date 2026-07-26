@@ -257,23 +257,24 @@ final class SourceRegistry {
             do {
                 source = try MemoryBridgeBookSource(json: stripped)
             } catch {
-                // 最小可注册壳：仅 URL/名称/search，保证冷启动不崩
-                let shell: [String: Any] = [
-                    "bookSourceUrl": (json["bookSourceUrl"] as? String) ?? "",
-                    "bookSourceName": (json["bookSourceName"] as? String) ?? "未命名书源",
-                    "searchUrl": (json["searchUrl"] as? String) ?? "",
-                    "ruleSearch": (json["ruleSearch"] as? [String: Any]) ?? ["bookList": ""],
+                // 最小可注册壳：仅 URL/名称，保证冷启动不崩
+                let url = (json["bookSourceUrl"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "legado://invalid"
+                let name = (json["bookSourceName"] as? String) ?? "未命名书源"
+                var shell: [String: Any] = [
+                    "bookSourceUrl": url,
+                    "bookSourceName": name,
                 ]
-                source = (try? MemoryBridgeBookSource(json: shell))
-                    ?? {
-                        // 极端兜底：构造最小 part，避免 try! 再崩
-                        var part = BookSourcePart(
-                            bookSourceUrl: (json["bookSourceUrl"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "legado://invalid",
-                            bookSourceName: (json["bookSourceName"] as? String) ?? "未命名书源"
-                        )
-                        part.searchUrl = json["searchUrl"] as? String
-                        return MemoryBridgeBookSource(part: part)
-                    }()
+                if let searchUrl = json["searchUrl"] as? String, !searchUrl.isEmpty {
+                    shell["searchUrl"] = searchUrl
+                }
+                if let ruleSearch = json["ruleSearch"] as? [String: Any] {
+                    shell["ruleSearch"] = ruleSearch
+                }
+                if let s = try? MemoryBridgeBookSource(json: shell) {
+                    source = s
+                } else {
+                    source = MemoryBridgeBookSource(part: BookSourcePart(bookSourceUrl: url, bookSourceName: name))
+                }
             }
         }
         lock.lock()
