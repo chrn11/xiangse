@@ -1,0 +1,15 @@
+{
+  "mode": "disposable_crud",
+  "steps": [
+    "nativeRead"
+  ],
+  "ocr_before_delete": "07127 36.20 15W O.OK O.OK 100:57 *hWJuRL iti*lkA&t URL: file:IllvarlmobilelContainerslDatal Applicationl F6A696BO-3917-4AE2-8539-44119E9 AE2EA/Documentsllnboxl E% *i¥l *4k7jL_ Ji Hit",
+  "has_doupo_before": false,
+  "ui_before": false,
+  "edit_tap": "编辑",
+  "picked": "斗破苍穹",
+  "delete_tap": "删除",
+  "ocr_after_delete": "07127 36.20 15W O.OK O.OK 100:57 *hWJuRL iti*lkA&t URL: file:IllvarlmobilelContainerslDatal Applicationl F6A696BO-3917-4AE2-8539-44119E9 AE2EA/Documentsllnboxl E% *i¥l *4k7jL_ Ji Hit",
+  "has_doupo_after": false,
+  "verdict": "PASS"
+}

@@ -46,7 +46,7 @@
 | N04 | **PASS** | mock 目录链 |
 | N05 | **PASS** | mock 正文 |
 | N06 | **PENDING** | TXT 已推 Documents，无稳定原生导入路径夹具（`u0-n06-SUMMARY.json`） |
-| N07 | **PASS_PARTIAL** | 编辑入口+二次打开进度 OK；**未做破坏性增删**（`u0-n07-SUMMARY.json`） |
+| N07 | **PASS**（可销毁书增删，UI 元素判定） | `u0-n07-crud-SUMMARY.json` |
 | N08 | **PASS** | 阅读设置 |
 | N09 | **PENDING** | 分享面板未做完整夹具 |
 | N10 | **PENDING** | 总计划例外（不开发 TTS） |
