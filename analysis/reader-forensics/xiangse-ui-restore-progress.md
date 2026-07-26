@@ -1,8 +1,8 @@
 # 香色原生样式还原（xiangse-ui-restore）进度
 
 日期：2026-07-26  
-设备包：`1fd3c15` / run `30165507011` / variant `legado-debug`（已装真机，manifest 一致）  
-工作区：与发包提交一致（`a@text` 修复已进包）  
+设备包：`27c1ed6` / run `30183832647` / variant `legado-debug`（已装真机，manifest 一致）  
+工作区：含 G6 加强补丁（**已改待 commit**，未进当前真机包）  
 真机证据目录：`fixtures/_devkit/ui_restore/`（gitignore，不入库）  
 对照矩阵旧稿：`xiangse-ui-restore-matrix.md`
 
@@ -22,25 +22,26 @@
 
 登录 WebView / browserAwait 已在延后总验备忘里 PASS，**不纳入本阶段主缺口**。
 
-## 2. 真机验收（包 `1fd3c15` / run `30165507011`）
+## 2. 真机验收（包 `27c1ed6` / run `30183832647`）
 
 ### 2.0 装包身份
 
-- IPA：`.test_tools/ci-ipa-30165507011/dist/StandarReader-legado-bridge-debug.ipa`
-- SHA256：`1de140ba52575bc72ef1affbedb866d8e6f4e68d6c2731aae97045b54b37f8f7`
+- IPA：`.test_tools/ci-ipa-30183832647/dist/StandarReader-legado-bridge-debug.ipa`
+- SHA256：`62ddf6ce94970ca778bc8067f306d3c270d429955b5dcfe0475ba6bca2323dd7`
 - artifact：`LegadoBridge-IPA-Debug`
-- `reader-build-manifest.json`：`git_commit=1fd3c154f968b0…`，`github_run_id=30165507011`，`variant=legado-debug` → **PASS**
+- `reader-build-manifest.json`：`git_commit=27c1ed6a7e5ceed0…`，`github_run_id=30183832647`，`variant=legado-debug` → **PASS**
+- 只装 `com.appbox.StandarReader`；未碰 `StandarReader0`；未重启 SpringBoard
 
 ### 2.1 验收表（诚实）
 
 | ID | 项 | 结果 | 证据 |
 |---|---|---|---|
-| G2 | 冷开无错误目录缓存：不得「上架感言」，期望「第一章 陨落的天才」，`chapters>0` | **PASS** | 清 doupo 缓存后 `NO_DOUPO_CACHE`；`catalog_last`=`chapters=2 first=第一章 陨落的天才`；UI=`返回`+`第一章 陨落的天才`；无「上架感言」。`v_1fd_doupo_cold*` |
-| G3 | 用户可见无「Legado」品牌字 | **PASS** | 导入 Alert=`导入 1 个书源`；站点栏=`书源`；管理页 title=`书源管理`（`v_1fd_after_import*` / `v_1fd_sites*` / `v_1fd_source_manager*`） |
-| G6 | 底栏图标工具栏干净截图 | **FAIL（根因已定位，代码已改待新包）** | `1fd3c15` 中点仍只有顶栏「返回」+章题。静态对照：`ReadVCBase2.viewDidAppear` = super → `createToolbar` → `hideToolBar`；`ToolBarCreator.createBottom:` 含 mulu/zihao 等。nativeFull 的 `viewDidAppear` 旁路未调 ORIG → `createToolbar` 从未执行。已在 `LegadoBridgeCExports.m` 补一次 `createToolbar`+`hideToolBar`。**需新 IPA 真机复验**。旧证：`v_1fd_g6_toolbar_*` |
+| G2 | 冷开无错误目录缓存：不得「上架感言」，期望「第一章 陨落的天才」，`chapters>0` | **PASS** | `catalog_last`=`chapters=2 first=第一章 陨落的天才`；probe `chapterCount=2`；UI=`返回`+`第一章 陨落的天才`；无「上架感言」。`v_27c_doupo_cold*` |
+| G3 | 用户可见无「Legado」品牌字 | **PASS** | 导入 Alert=`导入 1 个书源`；站点栏=`书源`；管理页 title=`书源管理`（`v_27c_after_import*` / `v_27c_sites*` / `v_27c_source_manager*`） |
+| G6 | 底栏图标工具栏干净截图 | **FAIL** | `27c1ed6` trace 已有 `G6 createToolbar OK`，中点截图仍只有顶栏「返回」+章题，无「目录/字号/主题」。dump：`ToolBarCreator.createBottom:` / `createHeader:sourceType:` 为**实例方法**，另有 `+sharedInstance`。证：`v_27c_g6_toolbar_*` / `v_27c_midtap_after.jpg` / `accept_ui_restore_27c1ed6.json` |
 | A | 阅读壳仍为宿主 | 保持 | 冷开章题「返回」+「第一章 陨落的天才」 |
 
-对照上一包 `e51cab5`：G2 冷开 `chapters=0` FAIL；本包 `a@text` 修复后冷开网络 TOC 解析成功，无需种缓存。
+对照上一包 `1fd3c15`：G2/G3 仍 PASS；G6 在「已调 createToolbar」后仍 FAIL（不只是「从未调用」）。
 
 ### 2.2 G2 探针（本轮）
 
@@ -55,50 +56,46 @@
 `legado_catalog_last.txt`：`ok … chapters=2 first=第一章 陨落的天才`  
 `legado_catalog_select.txt`：`title=第一章 陨落的天才`
 
-### 2.3 截图/元数据索引（本轮）
+### 2.3 截图/元数据索引（本轮 `27c1ed6`）
 
 | 文件 | 含义 |
 |---|---|
-| `v_1fd_shelf0*` | 冷启书架 |
-| `v_1fd_after_import*` | 导入 Alert（无 Legado） |
-| `v_1fd_sites*` / `v_1fd_source_manager*` | 站点栏「书源」+「书源管理」 |
-| `v_1fd_doupo_cold*` | G2 PASS：无缓存冷开章题陨落的天才 |
-| `v_1fd_g6_reader*` / `v_1fd_g6_toolbar_*` | G6 重试仍未出底栏图标 |
-| `.test_tools/mcp-evidence/accept_ui_restore_1fd3c15.json` | 验收汇总 |
-| `.test_tools/mcp-evidence/ipa_upload_1fd3c15.json` / `ipa_install_1fd3c15.json` | 装包 |
-| `.test_tools/mcp-evidence/g6_retry_1fd3c15.json` | G6 单独重试 |
+| `v_27c_shelf0*` | 冷启书架 |
+| `v_27c_after_import*` | 导入 Alert（无 Legado） |
+| `v_27c_sites*` / `v_27c_source_manager*` | 站点栏「书源」+「书源管理」 |
+| `v_27c_doupo_cold*` | G2 PASS：冷开章题陨落的天才 |
+| `v_27c_g6_toolbar_*` / `v_27c_midtap_after.jpg` | G6 FAIL：中点无底栏图标 |
+| `.test_tools/mcp-evidence/accept_ui_restore_27c1ed6.json` | 验收汇总 |
+| `.test_tools/mcp-evidence/ipa_upload_27c1ed6.json` / `ipa_install_27c1ed6.json` | 装包 |
+| `.test_tools/mcp-evidence/class_ToolBarCreator.json` | dump 只读（未 launch Reader0） |
 
 ## 3. 本轮代码状态
 
-`1fd3c15` 已包含并真机验证：
+`27c1ed6` 已装真机并验证：
 
-1. **`RuleEngine.swift`（CSSParser.executeAtChain）**  
-   非末段仅把「像属性」的名字当属性；不再把标签名 `a`/`div`/`li` 当属性 → mock TOC `a@text` 章题可解析。
-2. **`RuleWebBook.swift`**  
-   `legado_catalog_body_probe.txt`（bodyLen / ddApprox / chapterCount）已在真机写出且 `chapterCount=2`。
+1. nativeFull `viewDidAppear` 补 `createToolbar`+`hideToolBar` → trace **`G6 createToolbar OK`**
+2. G2/G3 不回归（PASS）
+3. G6 仍 FAIL：中点无底栏
 
-更早已进包、仍有效：
-
-- http(s) 禁止 xsfolder 填 pending 目录  
-- `LBGuessBookKeyForUrl` 未知 URL 不再默认斗破 key  
-- http(s) 禁止 `LBReadXsfolderChapterBody`
-
-### 已改待 commit（G6 底栏）
+### 已改待 commit（G6 底栏加强）
 
 **文件**：`LegadoBridge/Sources/LegadoBridgeHooks/LegadoBridgeCExports.m`
 
-**根因（只对 `com.appbox.StandarReader` 静态对照 + 现包行为，未用 Reader0）**：
+**新发现（`27c1ed6` 真机 + Plus dump 只读，未 launch Reader0）**：
 
-1. 原版 `ReadVCBase2.viewDidAppear:`：`super` → `createToolbar` → `hideToolBar`
-2. `createToolbar` 经 `ToolBarCreator` 调 `createHeader:` / `createBottom:`（底栏图 mulu/zihao/…）
-3. 中点手势 `TextReadVC2.onTapGestureEvent:` 区域类型 1 → `changeToolBar`
-4. Bridge nativeFull 的 `LBTextRead_viewDidAppear_Safe` 为避崩只走 UIKit super，**从不执行**上述 `createToolbar` → 底栏视图不存在；中点只能看到导航顶栏
+1. `createToolbar` **已执行**（不再是「从未调用」），但中点仍无底栏
+2. `ToolBarCreator`：`+sharedInstance`；`-createBottom:` / `-createHeader:sourceType:` 为实例方法（返回 `UIView`）
+3. `ReadVCBase2` ivar：`toolBarBottom` / `toolBarHeader` / `toolBarHidden`
 
-**改动**：nativeFull `viewDidAppear` 在 UIKitSuper 之后，对当前阅读页实例补一次 `createToolbar` + `hideToolBar`（不恢复完整 ORIG appear；`LBPushTextReaderNativeFull` 入口清零实例标记）。
+**改动（工作区，未进真机包）**：`LBG6EnsureReaderToolbar`
 
-**真机复验**：需父代理 commit → CI 出 Debug IPA → 只装 `com.appbox.StandarReader` → nativeRead 中点截「目录/字号/主题」；并回归 G2/G3。
+1. 调 `createToolbar` 后 KVC 探测 `toolBarBottom`/`toolBarHeader`
+2. 若 nil：`ToolBarCreator.sharedInstance` → `createBottom:` / `createHeader:sourceType:`，写入 ivar 并 `addSubview`
+3. 再 `hideToolBar`；`toolBarBottom` 仍 nil 则 0.8s / 2.0s 主线程重试
 
-未改计划文件 status。未 commit。未 push。未再 launch `com.appbox.StandarReader0`。
+**真机复验**：需 commit → CI Debug IPA → 只装 `com.appbox.StandarReader` → 中点截底栏并可点一项；回归 G2/G3。
+
+未改计划文件 status。未 commit。未 push。未 launch `StandarReader0`。未重启 SpringBoard。
 
 ## 4. 须大脑批准（例外 / 高风险）— 只列不擅自做
 
@@ -115,15 +112,15 @@
 
 ## 5. 完成定义（仍未宣称总 PASS）
 
-1. mock 书：搜索 → 目录（章名正确、无串书）→ 点章 → 原版阅读；中点「菜单」出现原版底栏，截图命中正文夹具字 — **冷开点章/章名 `1fd3c15` PASS；底栏 G6 仍 FAIL，待新包复验**。
+1. mock 书：搜索 → 目录（章名正确、无串书）→ 点章 → 原版阅读；中点「菜单」出现原版底栏，截图命中正文夹具字 — **冷开点章/章名 `27c1ed6` PASS；底栏 G6 仍 FAIL**。
 2. 用户可见入口不再出现「Legado」品牌字（内部类名/日志可保留）— **G3 PASS**。
 3. 不恢复 BookDetail 杀进程路径。
 4. 本阶段 **不** 开全能书源总验收。
 
 ## 6. 下一步可执行
 
-1. **父代理 commit G6 补丁 → CI Debug IPA → 只装 StandarReader → 复验 G6 + G2/G3**。
+1. **commit G6 加强补丁（ToolBarCreator 回退）→ CI Debug IPA → 只装 StandarReader → 复验 G6 + G2/G3**。
 2. 可选：干净正文夹具字 OCR 断言（完成定义第 1 条后半）。
 3. 例外项：BookDetail / 书源管理整页等仍勿擅自做。
 
-修订：2026-07-26（G6 根因：nativeFull 跳过 `createToolbar`；已改待 commit；禁碰 StandarReader0）
+修订：2026-07-26（`27c1ed6` G6 FAIL：createToolbar OK 仍无底栏；已加强 ToolBarCreator 回退待 commit；禁 Reader0 / 禁 SpringBoard 重启）

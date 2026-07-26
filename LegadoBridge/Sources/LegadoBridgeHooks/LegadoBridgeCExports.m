@@ -7092,6 +7092,141 @@ static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
     }
 }
 
+/// G6：读 toolBar* ivar（无 property 时仍走 KVC）
+static id LBG6ToolbarIvar(id reader, NSString *key) {
+    if (!reader || key.length == 0) return nil;
+    id v = nil;
+    @try { v = [reader valueForKey:key]; } @catch (__unused NSException *e) {}
+    return v;
+}
+
+static void LBG6LogToolbarState(id reader, NSString *phase) {
+    id bottom = LBG6ToolbarIvar(reader, @"toolBarBottom");
+    id header = LBG6ToolbarIvar(reader, @"toolBarHeader");
+    id hidden = LBG6ToolbarIvar(reader, @"toolBarHidden");
+    NSUInteger sub = 0;
+    @try {
+        if ([reader isKindOfClass:[UIViewController class]] && ((UIViewController *)reader).isViewLoaded) {
+            sub = ((UIViewController *)reader).view.subviews.count;
+        }
+    } @catch (__unused NSException *e) {}
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"G6 %@ bottom=%@ header=%@ hidden=%@ subviews=%lu",
+                             phase ?: @"?",
+                             bottom ? NSStringFromClass([bottom class]) : @"nil",
+                             header ? NSStringFromClass([header class]) : @"nil",
+                             hidden,
+                             (unsigned long)sub]);
+}
+
+static id LBG6ToolBarCreatorShared(void) {
+    Class cls = NSClassFromString(@"ToolBarCreator");
+    if (!cls) return nil;
+    SEL sharedSel = @selector(sharedInstance);
+    if ([(id)cls respondsToSelector:sharedSel]) {
+        return ((id (*)(id, SEL))objc_msgSend)(cls, sharedSel);
+    }
+    return [[cls alloc] init];
+}
+
+static void LBG6AttachToolbarView(id reader, id bar, NSString *ivarKey) {
+    if (!reader || !bar || ivarKey.length == 0) return;
+    @try { [reader setValue:bar forKey:ivarKey]; } @catch (__unused NSException *e) {}
+    @try {
+        if (![reader isKindOfClass:[UIViewController class]] || ![bar isKindOfClass:[UIView class]]) return;
+        UIView *host = ((UIViewController *)reader).view;
+        UIView *barV = (UIView *)bar;
+        if (host && barV.superview != host) {
+            [host addSubview:barV];
+        }
+    } @catch (__unused NSException *e) {}
+}
+
+/// 大脑已批：nativeRead 阅读页唤出底栏。createToolbar 后若 toolBarBottom 仍 nil，
+/// 经 ToolBarCreator.sharedInstance createBottom:/createHeader:sourceType: 补建（实例方法，非类方法）。
+static BOOL LBG6EnsureReaderToolbar(id reader, NSString *reason) {
+    if (!reader) return NO;
+    @try {
+        SEL createSel = NSSelectorFromString(@"createToolbar");
+        SEL hideSel = NSSelectorFromString(@"hideToolBar");
+        if ([reader respondsToSelector:createSel]) {
+            ((void (*)(id, SEL))objc_msgSend)(reader, createSel);
+            LBAppendOpenReaderTrace([NSString stringWithFormat:@"G6 createToolbar OK via=%@", reason ?: @"?"]);
+        } else {
+            LBAppendOpenReaderTrace(@"G6 createToolbar miss selector");
+        }
+        LBG6LogToolbarState(reader, [NSString stringWithFormat:@"afterCreate(%@)", reason ?: @"?"]);
+
+        id bottom = LBG6ToolbarIvar(reader, @"toolBarBottom");
+        id header = LBG6ToolbarIvar(reader, @"toolBarHeader");
+        if (!bottom || !header) {
+            id creator = LBG6ToolBarCreatorShared();
+            if (!creator) {
+                LBAppendOpenReaderTrace(@"G6 ToolBarCreator miss");
+            } else {
+                if (!bottom) {
+                    SEL bottomSel = NSSelectorFromString(@"createBottom:");
+                    if ([creator respondsToSelector:bottomSel]) {
+                        id bar = ((id (*)(id, SEL, id))objc_msgSend)(creator, bottomSel, reader);
+                        LBG6AttachToolbarView(reader, bar, @"toolBarBottom");
+                        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                 @"G6 ToolBarCreator createBottom: -> %@",
+                                                 bar ? NSStringFromClass([bar class]) : @"nil"]);
+                    }
+                }
+                if (!header) {
+                    SEL headerSel = NSSelectorFromString(@"createHeader:sourceType:");
+                    if ([creator respondsToSelector:headerSel]) {
+                        id srcType = nil;
+                        @try {
+                            id dic = [reader valueForKey:@"dicBook"];
+                            if (![dic isKindOfClass:[NSDictionary class]]) dic = sPendingNativeFullBook;
+                            if ([dic isKindOfClass:[NSDictionary class]]) {
+                                srcType = dic[@"sourceType"] ?: dic[@"type"];
+                            }
+                        } @catch (__unused NSException *e) {}
+                        if (!srcType) srcType = @"文本/小说";
+                        id bar = ((id (*)(id, SEL, id, id))objc_msgSend)(creator, headerSel, reader, srcType);
+                        LBG6AttachToolbarView(reader, bar, @"toolBarHeader");
+                        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                 @"G6 ToolBarCreator createHeader: -> %@",
+                                                 bar ? NSStringFromClass([bar class]) : @"nil"]);
+                    }
+                }
+            }
+            LBG6LogToolbarState(reader, [NSString stringWithFormat:@"afterCreator(%@)", reason ?: @"?"]);
+        }
+
+        if ([reader respondsToSelector:hideSel]) {
+            ((void (*)(id, SEL))objc_msgSend)(reader, hideSel);
+        }
+        return LBG6ToolbarIvar(reader, @"toolBarBottom") != nil;
+    } @catch (NSException *ex) {
+        LBAppendOpenReaderTrace([NSString stringWithFormat:@"G6 ensure EX %@", ex.reason ?: @""]);
+        return NO;
+    }
+}
+
+static void LBG6ScheduleToolbarRetry(id reader) {
+    if (!reader) return;
+    __weak id weakReader = reader;
+    NSArray<NSNumber *> *delays = @[ @0.8, @2.0 ];
+    for (NSNumber *sec in delays) {
+        double delay = sec.doubleValue;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            id strong = weakReader;
+            if (!strong || sLegadoReaderMode != 1) return;
+            if (LBG6ToolbarIvar(strong, @"toolBarBottom")) {
+                LBG6LogToolbarState(strong, [NSString stringWithFormat:@"retrySkip_t%.1f", delay]);
+                return;
+            }
+            BOOL ok = LBG6EnsureReaderToolbar(strong, [NSString stringWithFormat:@"retry_t%.1f", delay]);
+            LBAppendOpenReaderTrace([NSString stringWithFormat:@"G6 retry_t%.1f ok=%d", delay, ok ? 1 : 0]);
+        });
+    }
+}
+
 static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
     if (sTRViewDidAppearDepth > 0) {
         LBAppendOpenReaderTrace(@"TR viewDidAppear reenter-skip");
@@ -7126,27 +7261,13 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
             LBAppendOpenReaderTrace(@"hypothesis_E didAppear skip (already UIKitSuper)");
         }
         // G6：原版 ReadVCBase2.viewDidAppear = super → createToolbar → hideToolBar。
-        // nativeFull 为避崩只走 UIKitSuper，导致 ToolBarCreator 底栏从未创建；
-        // 中点 changeToolBar 只能动到导航顶栏，看不到「目录/字号/主题」。
-        // 大脑已批：仅补 createToolbar/hideToolBar（不恢复完整 ORIG appear）。
+        // 27c1ed6 真机：createToolbar 已调且 trace OK，但中点仍无底栏 → 补探测/ToolBarCreator 回退 + 延迟重试。
+        // 大脑已批：仅限 nativeRead 阅读页唤出底栏（createToolbar/hideToolBar/ToolBarCreator）。
         if (sG6ToolbarCreatedForReader != self) {
             sG6ToolbarCreatedForReader = self;
-            @try {
-                SEL createSel = NSSelectorFromString(@"createToolbar");
-                SEL hideSel = NSSelectorFromString(@"hideToolBar");
-                if ([self respondsToSelector:createSel]) {
-                    ((void (*)(id, SEL))objc_msgSend)(self, createSel);
-                    LBAppendOpenReaderTrace(@"G6 createToolbar OK");
-                } else {
-                    LBAppendOpenReaderTrace(@"G6 createToolbar miss selector");
-                }
-                if ([self respondsToSelector:hideSel]) {
-                    ((void (*)(id, SEL))objc_msgSend)(self, hideSel);
-                }
-            } @catch (NSException *ex) {
-                LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                         @"G6 createToolbar EX %@", ex.reason ?: @""]);
-            }
+            (void)LBG6EnsureReaderToolbar(self, @"didAppear");
+            // 无论首轮是否已有 bottom，挂 0.8/2.0s 探测：nil 才补建，已有则 skip
+            LBG6ScheduleToolbarRetry(self);
         }
         // 假设 J：UIKitSuper 门控后若仍有 pending（onReset 已跑完），补 flush
         if (sDidAppearUIKit && sHypothesisJPendingAddChild.count + sHypothesisJPendingInsertSubview.count > 0) {
