@@ -498,16 +498,17 @@ public enum RuleWebBook {
         executionContext.variables["url"] = url
 
         let jsContext = executionContext.jsContext
-        // Legado 仓源写 result.body()/result.url()；字典桥接没有方法，会导致整段 loginCheckJs 空跑
-        jsContext.setValue(body, forKey: "__lbLoginBody")
-        jsContext.setValue(url, forKey: "__lbLoginUrl")
-        _ = jsContext.evaluateScript("""
-        var result = {
-          body: function() { return __lbLoginBody; },
-          url: function() { return __lbLoginUrl; },
-          header: function() { return ''; }
-        };
-        """)
+        // Legado 仓源写 result.body()/result.url()；用 block 闭包，避免全局变量被 JSC/禁令清掉
+        let bodyCopy = body
+        let urlCopy = url
+        let resultObj = JSValue(newObjectIn: jsContext)!
+        let bodyBlock: @convention(block) () -> String = { bodyCopy }
+        let urlBlock: @convention(block) () -> String = { urlCopy }
+        let headerBlock: @convention(block) () -> String = { "" }
+        resultObj.setObject(bodyBlock, forKeyedSubscript: "body" as NSString)
+        resultObj.setObject(urlBlock, forKeyedSubscript: "url" as NSString)
+        resultObj.setObject(headerBlock, forKeyedSubscript: "header" as NSString)
+        jsContext.setObject(resultObj, forKeyedSubscript: "result" as NSString)
         jsContext.setValue(body, forKey: "body")
         jsContext.setValue(url, forKey: "url")
 

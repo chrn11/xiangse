@@ -16,10 +16,10 @@
 | L0 | 领域源冷启动闪退 | **PASS**（`1d4936f`：`lastUpdateTime` 持久化为 int；冷启 UI 书架） |
 | L1 | 领域：导入 | **PASS**（`legado_import_fetch.txt`=`import ok count=1`；深链 `legado://import/bookSource?src=`） |
 | L2 | 领域：搜索 | **PASS**（`ok total=50`；probe 含 `/html/79750/`） |
-| L3 | 领域：目录 | **FAIL**（`SwiftSoup.Exception错误0`；疑 `loginCheckJs` 的 `result.body()` 字典桥接空跑，CF/坏 HTML 未走 browserAwait） |
+| L3 | 领域：目录 | **修中**：探针 `cf=false hasSection=true bodyLen=15070`；根因是 `chapterList` 含 `@` 被整串 select + `.-1` 负下标未支持 |
 | L4 | 领域：正文 | 阻塞于 L3 |
 | L5 | 领域：发现 | 待 L3 后 |
-| L6 | 领域：CF / browserAwait | 代码已改 `result.body()`/`url()`；待新包复验 |
+| L6 | 领域：CF / browserAwait | `result.body()` 改 block 闭包注入；待新包 |
 | B1 | 笔趣读：导入 + 打开 loginUi | 待跑 |
 | B2 | 笔趣读：真实账号登录→搜索→正文 | **阻塞：等用户提供账号** |
 | R1 | Release IPA mock+起点冒烟 | 待跑 |

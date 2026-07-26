@@ -53,8 +53,10 @@ enum LegadoCSSSelect {
                 found = try root.select("[class~=\"\(className)\"]").array()
             }
             if let index {
-                guard index >= 0, index < found.count else { return [] }
-                return [found[index]]
+                // Android：.-1 取最后一个
+                let resolved = index >= 0 ? index : found.count + index
+                guard resolved >= 0, resolved < found.count else { return [] }
+                return [found[resolved]]
             }
             return found
         }
@@ -62,7 +64,11 @@ enum LegadoCSSSelect {
             let (idName, index) = parseClassRule(String(s.dropFirst(3)))
             guard !idName.isEmpty else { return [] }
             if let el = try root.getElementById(idName) {
-                return index == nil || index == 0 ? [el] : []
+                if let index {
+                    let resolved = index >= 0 ? index : (index == -1 ? 0 : -1)
+                    return resolved == 0 ? [el] : []
+                }
+                return [el]
             }
             return []
         }
@@ -71,8 +77,9 @@ enum LegadoCSSSelect {
             guard !tagName.isEmpty else { return [] }
             var found = try root.getElementsByTag(tagName).array()
             if let index {
-                guard index >= 0, index < found.count else { return [] }
-                return [found[index]]
+                let resolved = index >= 0 ? index : found.count + index
+                guard resolved >= 0, resolved < found.count else { return [] }
+                return [found[resolved]]
             }
             return found
         }
@@ -812,7 +819,7 @@ class RuleEngine {
         if rule.hasPrefix("+") {
             rule = String(rule.dropFirst())
         }
-        
+
         // 支持 XPath 和 CSS
         var elements: [ElementContext]
         if rule.hasPrefix("//") {
@@ -822,14 +829,52 @@ class RuleEngine {
                 guard let html = node.toHTML else { return nil }
                 return ElementContext(element: html, baseUrl: baseUrl)
             }
+        } else if rule.contains("@"),
+                  !rule.lowercased().hasPrefix("@css:"),
+                  !rule.hasPrefix("@@") {
+            // `class.section-box.-1@class.section-list@tag.li` 必须按段选；
+            // 整串丢给 LegadoCSSSelect 会把 `@…` 拼进 class 名再 select → SwiftSoup.Exception
+            elements = try getHtmlElementsAtChain(rule: rule, root: doc, baseUrl: baseUrl)
         } else {
             // CSS（含 Legado text./class./id./tag.）
             let selected = try LegadoCSSSelect.elements(in: doc, selector: rule)
             elements = selected.map { ElementContext(element: $0, baseUrl: baseUrl) }
         }
-        
+
         if reverse { elements.reverse() }
         return elements
+    }
+
+    /// 列表规则 `@` 链：逐段 LegadoCSSSelect，保留元素列表（末段勿当 text 属性）
+    private func getHtmlElementsAtChain(
+        rule: String,
+        root: SwiftSoup.Element,
+        baseUrl: String?
+    ) throws -> [ElementContext] {
+        let parts = (RuleSplitter.splitTopLevel(rule, token: "@") ?? [rule])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return [] }
+
+        var elements: [SwiftSoup.Element] = [root]
+        for part in parts {
+            // 末段若是 text/html/href 等属性，列表规则不应走到这里；防御性跳过
+            if Self.isTerminalAttr(part),
+               !part.lowercased().hasPrefix("class."),
+               !part.lowercased().hasPrefix("tag."),
+               !part.lowercased().hasPrefix("id."),
+               !part.lowercased().hasPrefix("text.") {
+                break
+            }
+            var next: [SwiftSoup.Element] = []
+            next.reserveCapacity(elements.count)
+            for el in elements {
+                next.append(contentsOf: try LegadoCSSSelect.elements(in: el, selector: part))
+            }
+            elements = next
+            if elements.isEmpty { break }
+        }
+        return elements.map { ElementContext(element: $0, baseUrl: baseUrl) }
     }
     
     /// 从 JSON 提取元素列表
