@@ -104,16 +104,24 @@
 | 用原版 `BookSourceManager*` 替换 `LBLegadoSourceManagerVC` | 易污染宿主源列表 |
 | Release 隐藏 Hook 能力区 | 需产品拍板 |
 
-## 7. 根因钉死（`654871f` 红底诊断）
+## 7. 根因钉死与修复（`2f50f81` / run `30185697330`）
 
-- `G6 bottomWin={{0, 847}, {390, 88}}`，屏高 `844` → **整条图标底栏在屏外**
-- 章导航 `toolBarPageSlider` 仍在可见区 → 截图只见「上一章/下一章」
-- 红底几乎不上屏（`red_hits≈0`）与 dump 一致
+- `654871f`：`bottomWin.y=847` > 屏高 `844` → 图标行在屏外
+- `2f50f81`：`reposition up=91` → `winAfter.y=756`；UI 出现 **目录/缓存/设置/换源**
+- 点「设置」弹出原版面板：`护眼/舒适/翻页/排版/字体` → **可点 PASS**
+- 证：`v_2f50_g6_toolbar.jpg` / `v_2f50_g6_tap_设置.jpg` / `.test_tools/mcp-evidence/accept_g6_2f50f81.json`
+
+| 分项 | 结果 |
+|---|---|
+| midTap → changeToolBar | PASS |
+| 目录/缓存/设置/换源可见 | **PASS**（`2f50f81`） |
+| 点设置开面板 | **PASS** |
+| G2/G3 | 此前 PASS；本包未重跑全量（仅 G6 针） |
 
 ## 8. 下一刀
 
-1. `LBG6RepositionToolbarOnScreen`：显示态若 bottom 底边超出屏幕，把 pageSlider/bottom/left/right 上移 overflow（已去红底诊断）
-2. CI → 装包 → 中点应见「目录/缓存/设置/换源」并可点
-3. 验收关键字改为上述四字；G2/G3 冒烟
+1. 用 `accept_ui_restore_*` 对 `2f50f81` 跑 G2/G3 + G6 全量（关键字含目录/设置）
+2. 去掉/收敛对比度强制里非必要项（保留 reposition）
+3. 查「章节加载中」偶发卡住
 
-修订：2026-07-26（钉死屏外 y=847；上移修复待进包）
+修订：2026-07-26（`2f50f81` G6 图标行+设置面板 PASS）
