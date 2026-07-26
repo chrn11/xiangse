@@ -1,0 +1,130 @@
+{
+  "steps": [
+    {
+      "tag": "close_0",
+      "x": 195.0,
+      "y": 501.0,
+      "text": "关闭"
+    },
+    "no_close_round_1"
+  ],
+  "ui_rounds": [
+    [
+      "07/27  六月十四  周一  01:01",
+      "🌡34.8° 15W",
+      "中国电信",
+      "中国移动",
+      "SSID, 3（共3格无线局域网信号）",
+      "电池电量：95%",
+      "arrow.left.and.right",
+      "1.3K 0.0K",
+      "不支持的URL",
+      "尚未载入此URL： file:///var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/Inbox/",
+      "关闭"
+    ],
+    [
+      "整理",
+      "书架",
+      "发现",
+      "搜索",
+      "添加",
+      "文本|小说示例, 香色闺阁, 新•隐私政策",
+      "图片|漫画|壁纸示例, 香色闺阁, 新•第三话",
+      "视频|电影|电视剧示例, 香色闺阁, 新•视频示例",
+      "音频|音乐|听书示例, 香色闺阁, 新•Love Is Blue",
+      "下拉可以刷新"
+    ]
+  ],
+  "screenshot_dismissed": "D:\\soft\\xiangse\\analysis\\reader-forensics\\u0-n06-dismissed.png",
+  "ui_after": [
+    "整理",
+    "书架",
+    "发现",
+    "搜索",
+    "添加",
+    "文本|小说示例, 香色闺阁, 新•隐私政策",
+    "图片|漫画|壁纸示例, 香色闺阁, 新•第三话",
+    "视频|电影|电视剧示例, 香色闺阁, 新•视频示例",
+    "音频|音乐|听书示例, 香色闺阁, 新•Love Is Blue",
+    "下拉可以刷新"
+  ],
+  "unsupported_still_visible": false,
+  "plist_grep": {
+    "exitCode": 0,
+    "output": "Converted 1 files to XML format\n11:\t<key>CFBundleDocumentTypes</key>\n16:\t\t\t<key>CFBundleTypeName</key>\n22:\t\t\t<key>LSItemContentTypes</key>\n26:\t\t\t\t<string>xsreader.config.xbs</string>\n27:\t\t\t\t<string>public.text</string>\n28:\t\t\t\t<string>public.opentype-font</string>\n29:\t\t\t\t<string>public.truetype-ttf-font</string>\n188:\t\t\t\t<string>public.data</string>\n195:\t\t\t<string>xsreader.config.xbs</string>\n198:\t\t\t\t<key>public.filename-extension</key>\n199:\t\t\t\t<string>xbs</string>\n200:\t\t\t\t<key>public.mime-type</key>\n207:\t\t\t\t<string>public.data</string>\n217:\t\t\t\t<key>public.filename-extension</key>\n219:\t\t\t\t<key>public.mime-type</key>\n226:\t\t\t\t<string>public.data</string>\n236:\t\t\t\t<key>public.filename-extension</key>\n238:\t\t\t\t<key>public.mime-type</key>\n"
+  },
+  "screenshot_clean_shelf": "D:\\soft\\xiangse\\analysis\\reader-forensics\\u0-n06-clean-shelf.png",
+  "ui_clean": [
+    "整理",
+    "书架",
+    "发现",
+    "搜索",
+    "添加",
+    "文本|小说示例, 香色闺阁, 新•隐私政策",
+    "图片|漫画|壁纸示例, 香色闺阁, 新•第三话",
+    "视频|电影|电视剧示例, 香色闺阁, 新•视频示例",
+    "音频|音乐|听书示例, 香色闺阁, 新•Love Is Blue",
+    "下拉可以刷新"
+  ],
+  "open_file_with_app": "Opened file /var/mobile/Library/Caches/ios-mcp-uploads/26A187EE-60A1-4A18-A44C-732AB508EAF3-u0_local_smoke.txt with app com.appbox.StandarReader",
+  "frontmost": {
+    "pid": 42141,
+    "contextId": 1102227855,
+    "bundleId": "com.appbox.StandarReader",
+    "sceneIdentifier": "com.appbox.StandarReader",
+    "processName": "StandarReader",
+    "displayId": 1,
+    "name": "StandarReader"
+  },
+  "openurl_hit": "No such file or directory: /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_openurl_hit.txt",
+  "islegado": "No such file or directory: /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_islegado_result.txt",
+  "screenshot_after_open": "D:\\soft\\xiangse\\analysis\\reader-forensics\\u0-n06-clean-after-open.png",
+  "ui_after_open": [
+    "整理",
+    "书架",
+    "发现",
+    "搜索",
+    "添加",
+    "文本|小说示例, 香色闺阁, 新•隐私政策",
+    "图片|漫画|壁纸示例, 香色闺阁, 新•第三话",
+    "视频|电影|电视剧示例, 香色闺阁, 新•视频示例",
+    "音频|音乐|听书示例, 香色闺阁, 新•Love Is Blue",
+    "下拉可以刷新"
+  ],
+  "ocr": [
+    "07127",
+    "34.7• 15W",
+    "2.8K 1.4K",
+    "101:03",
+    "éÈiiia",
+    "Èi*i",
+    "¥fi. Love Is Blue"
+  ],
+  "needles_hit": [],
+  "plus_taps": [
+    {
+      "xy": [
+        366,
+        54
+      ],
+      "ui": [
+        "搜索",
+        "添加",
+        "文本|小说示例, 香色闺阁, 新•隐私政策",
+        "图片|漫画|壁纸示例, 香色闺阁, 新•第三话",
+        "视频|电影|电视剧示例, 香色闺阁, 新•视频示例",
+        "音频|音乐|听书示例, 香色闺阁, 新•Love Is Blue",
+        "搜索",
+        "广场",
+        "书本分类",
+        "精选书单",
+        "足迹",
+        "通过微信/浏览器等App导入txt文件：\n     1. 在微信中点击要导入的txt文件\n     2. 选择\"用其他应用打开\"\n     3. 选择\"香色闺阁\"",
+        "下拉可以刷新"
+      ]
+    }
+  ],
+  "screenshot_import_menu": "D:\\soft\\xiangse\\analysis\\reader-forensics\\u0-n06-import-menu.png",
+  "verdict": "INBOX_COPIED_OPENURL_NOT_FIRED",
+  "note": "弹窗已清或未挡；open_file_with_app 仍未触发 AppDelegate openURL 标记。"
+}

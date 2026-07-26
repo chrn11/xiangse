@@ -1,0 +1,254 @@
+{
+  "steps": [
+    "tap_书架",
+    {
+      "tap_plus_guess": {
+        "x": 362,
+        "y": 56
+      }
+    }
+  ],
+  "doctypes_py": {
+    "exitCode": 127,
+    "output": "Converted 1 files to XML format\nsh: 1: python3: not found\n"
+  },
+  "screenshot_dismiss": "D:\\soft\\xiangse\\analysis\\reader-forensics\\u0-n06-after-dismiss.png",
+  "ui_after_dismiss": [
+    "07/27  六月十四  周一  01:01",
+    "🌡34.9° 15W",
+    "中国电信",
+    "中国移动",
+    "SSID, 3（共3格无线局域网信号）",
+    "电池电量：95%",
+    "arrow.left.and.right",
+    "0.0K 0.0K",
+    "iOS MCP · screenshot",
+    "不支持的URL",
+    "尚未载入此URL： file:///var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/Inbox/",
+    "关闭"
+  ],
+  "ui_rects": [
+    {
+      "text": "07/27  六月十四  周一  01:01",
+      "rect": {
+        "y": -14,
+        "x": 31,
+        "width": 81,
+        "height": 60
+      },
+      "type": "control"
+    },
+    {
+      "text": "🌡34.9° 15W",
+      "rect": {
+        "y": -2,
+        "x": 286,
+        "width": 120,
+        "height": 15
+      },
+      "type": "control"
+    },
+    {
+      "text": "中国电信",
+      "rect": {
+        "y": 19,
+        "x": 285,
+        "width": 19,
+        "height": 8
+      },
+      "type": "control"
+    },
+    {
+      "text": "中国移动",
+      "rect": {
+        "y": 29,
+        "x": 285,
+        "width": 19,
+        "height": 4
+      },
+      "type": "control"
+    },
+    {
+      "text": "SSID, 3（共3格无线局域网信号）",
+      "rect": {
+        "y": 20,
+        "x": 312,
+        "width": 17,
+        "height": 12
+      },
+      "type": "control"
+    },
+    {
+      "text": "电池电量：95%",
+      "rect": {
+        "y": 19,
+        "x": 336,
+        "width": 27,
+        "height": 14
+      },
+      "type": "control"
+    },
+    {
+      "text": "arrow.left.and.right",
+      "rect": {
+        "y": 286,
+        "x": 0,
+        "width": 390,
+        "height": 66
+      },
+      "type": "control"
+    },
+    {
+      "text": "0.0K 0.0K",
+      "rect": {
+        "y": 8,
+        "x": 283,
+        "width": 74,
+        "height": 11
+      },
+      "type": "control"
+    },
+    {
+      "text": "iOS MCP · screenshot",
+      "rect": {
+        "y": 93,
+        "x": 125,
+        "width": 140,
+        "height": 30
+      },
+      "type": "control"
+    },
+    {
+      "text": "不支持的URL",
+      "rect": {
+        "y": 354,
+        "x": 76,
+        "width": 238,
+        "height": 20
+      },
+      "type": "control"
+    },
+    {
+      "text": "尚未载入此URL： file:///var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/Inbox/",
+      "rect": {
+        "y": 378,
+        "x": 76,
+        "width": 238,
+        "height": 80
+      },
+      "type": "control"
+    },
+    {
+      "text": "关闭",
+      "rect": {
+        "y": 479,
+        "x": 60,
+        "width": 270,
+        "height": 44
+      },
+      "type": "control"
+    },
+    {
+      "text": null,
+      "rect": {
+        "y": 0,
+        "x": 0,
+        "width": 390,
+        "height": 844
+      },
+      "type": "element"
+    }
+  ],
+  "screen_info": {
+    "height": 844,
+    "pixel_width": 1170,
+    "locked": false,
+    "screen_on": true,
+    "device_state": {
+      "locked": false,
+      "lock_screen_visible": false,
+      "screen_on_known": true,
+      "screen_on": true,
+      "raw_lock_state": 0,
+      "protected_data_available": true,
+      "locked_known": true,
+      "automation_hint": "If locked or the screen is off, do not assume one Home press reaches the Home screen. Use wake_and_home, or press Power then Home, or press Home twice, then verify with screenshot/get_ui_elements."
+    },
+    "pixel_height": 2532,
+    "width": 390,
+    "orientation": "portrait",
+    "scale": 3
+  },
+  "screenshot_plus": "D:\\soft\\xiangse\\analysis\\reader-forensics\\u0-n06-after-plus.png",
+  "ui_after_plus": [
+    "07/27  六月十四  周一  01:01",
+    "🌡34.9° 15W",
+    "中国电信",
+    "中国移动",
+    "SSID, 3（共3格无线局域网信号）",
+    "电池电量：95%",
+    "arrow.left.and.right",
+    "0.0K 0.0K",
+    "iOS MCP · screenshot",
+    "不支持的URL",
+    "尚未载入此URL： file:///var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/Inbox/",
+    "关闭"
+  ],
+  "ocr_after_plus": [
+    "07127",
+    "34.9¢ 15W",
+    "O.OK O.OK",
+    "101:02",
+    "éÈi£ia",
+    "Èi*i",
+    "l Rii IEII",
+    "*hWJuRL",
+    "URL:",
+    "file:IllvarlmobilelContainerslDatal",
+    "Applicationl",
+    "F6A696BO-3917-4AE2-8539-44119E9",
+    "AE2EA/Documentsllnboxl",
+    "*i¥l"
+  ],
+  "import_ui_candidates": [],
+  "screenshot_final": "D:\\soft\\xiangse\\analysis\\reader-forensics\\u0-n06-plus-flow-final.png",
+  "ui_final": [
+    "07/27  六月十四  周一  01:01",
+    "🌡34.9° 15W",
+    "中国电信",
+    "中国移动",
+    "SSID, 3（共3格无线局域网信号）",
+    "电池电量：95%",
+    "arrow.left.and.right",
+    "0.0K 0.0K",
+    "iOS MCP · screenshot",
+    "iOS MCP · ocr_screen",
+    "iOS MCP · get_ui_elements",
+    "不支持的URL",
+    "尚未载入此URL： file:///var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/Inbox/",
+    "关闭"
+  ],
+  "ocr_final": [
+    "07127",
+    "34.9¢ 15W",
+    "O.OK O.OK",
+    "101:02",
+    "éÈi£ia",
+    "Èi*i",
+    "l Rii IEII",
+    "*hWJuRL",
+    "URL:",
+    "file:IllvarlmobilelContainerslDatal",
+    "Applicationl",
+    "F6A696BO-3917-4AE2-8539-44119E9",
+    "AE2EA/Documentsllnboxl",
+    "*i¥l"
+  ],
+  "needles_hit": [],
+  "inbox_txt": [
+    "002C0DC3-7FB5-4FF4-9E13-CBC17175AE9F-u0_local_smoke.txt",
+    "36F14849-D7D0-4DD0-963C-CADCD0A1B8CC-u0_local_smoke.txt",
+    "70BAA363-4D0E-420A-815D-94874E2FE707-u0_local_smoke.txt"
+  ],
+  "verdict": "UI_IMPORT_PATH_PROBE"
+}

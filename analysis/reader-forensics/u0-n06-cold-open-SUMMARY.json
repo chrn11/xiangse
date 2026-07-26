@@ -1,0 +1,158 @@
+{
+  "steps": [
+    "start_capture",
+    "open_file_with_app"
+  ],
+  "health": {
+    "status": "ok",
+    "port": 8090,
+    "protocolVersion": "2025-11-25",
+    "supportedProtocolVersions": [
+      "2025-11-25",
+      "2025-06-18",
+      "2025-03-26"
+    ],
+    "server": "ios-mcp",
+    "version": "1.2.2"
+  },
+  "app_paths": {
+    "documents": "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents",
+    "caches": "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Library/Caches",
+    "tmp": "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/tmp",
+    "preferences": "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Library/Preferences",
+    "library": "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Library",
+    "bundle_path": "/var/containers/Bundle/Application/01F17131-5227-420D-BA88-975999B876B0/StandarReader.app",
+    "bundle": "/var/containers/Bundle/Application/01F17131-5227-420D-BA88-975999B876B0/StandarReader.app",
+    "data_container": "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA",
+    "executable_path": "/var/containers/Bundle/Application/01F17131-5227-420D-BA88-975999B876B0/StandarReader.app/StandarReader"
+  },
+  "doctypes": {
+    "exitCode": 255,
+    "output": "Error: setting output file is not supported, please copy then convert\n---URLTYPES---\nError: setting output file is not supported, please copy then convert\n---LSOPEN---\nError: setting output file is not supported, please copy then convert\n\nError: setting output file is not supported, please copy then convert\n"
+  },
+  "strings_hits": {
+    "exitCode": 0,
+    "output": "sh: 1: strings: not found\n"
+  },
+  "upload": {
+    "path": "/var/mobile/Library/Caches/ios-mcp-uploads/002C0DC3-7FB5-4FF4-9E13-CBC17175AE9F-u0_local_smoke.txt",
+    "filename": "u0_local_smoke.txt",
+    "size": 120
+  },
+  "open_file_with_app": "Opened file /var/mobile/Library/Caches/ios-mcp-uploads/002C0DC3-7FB5-4FF4-9E13-CBC17175AE9F-u0_local_smoke.txt with app com.appbox.StandarReader",
+  "frontmost": {
+    "pid": 41886,
+    "contextId": 1102227855,
+    "bundleId": "com.apple.springboard",
+    "sceneIdentifier": "com.apple.springboard",
+    "processName": "SpringBoard",
+    "displayId": 1,
+    "name": "SpringBoard"
+  },
+  "screenshot": "D:\\soft\\xiangse\\analysis\\reader-forensics\\u0-n06-cold-open.png",
+  "ocr": [
+    "07127",
+    "35.90 15W",
+    "O.OK O.OK",
+    "100:59",
+    "éÈi£ia",
+    "Èi*i",
+    "l Rii IEII",
+    "*hWJuRL",
+    "URL:",
+    "file:IllvarlmobilelContainerslDatal",
+    "Applicationl",
+    "F6A696BO-3917-4AE2-8539-44119E9",
+    "AE2EA/Documentsllnboxl",
+    "*i¥l"
+  ],
+  "needles_hit": [],
+  "sandbox_marks": {
+    "legado_openurl_hit.txt": "No such file or directory: /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_openurl_hit.txt",
+    "legado_islegado_result.txt": "No such file or directory: /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_islegado_result.txt",
+    "legado_import_result.txt": "No such file or directory: /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_import_result.txt",
+    "legado_openurl_install.txt": "OK: hooked on AppDelegate"
+  },
+  "ui_texts": [
+    "07/27  六月十四  周一  00:59",
+    "🌡35.9° 15W",
+    "中国电信",
+    "中国移动",
+    "SSID, 3（共3格无线局域网信号）",
+    "电池电量：93%",
+    "arrow.left.and.right",
+    "0.0K 0.0K",
+    "iOS MCP · read_file",
+    "iOS MCP · get_app_info",
+    "iOS MCP · read_file",
+    "不支持的URL",
+    "尚未载入此URL： file:///var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/Inbox/",
+    "关闭"
+  ],
+  "inbox_txt": [
+    {
+      "name": "002C0DC3-7FB5-4FF4-9E13-CBC17175AE9F-u0_local_smoke.txt",
+      "size": 120
+    },
+    {
+      "name": "36F14849-D7D0-4DD0-963C-CADCD0A1B8CC-u0_local_smoke.txt",
+      "size": 120
+    },
+    {
+      "name": "u0_local_smoke.txt",
+      "size": 115
+    }
+  ],
+  "tail_log": {
+    "capture_seconds": 10,
+    "truncated": false,
+    "mode": "live_stream",
+    "bundle_id": "com.appbox.StandarReader",
+    "count": 0,
+    "process_name": "StandarReader",
+    "since_capture_id": 1785085150,
+    "process": "StandarReader",
+    "entries": []
+  },
+  "find_scene:openURLContexts:": "no injected agent marker found for bundle com.appbox.StandarReader; use TrollFools to inject mcp-dumpagent.dylib and launch the app first",
+  "find_application:openURL:options:": "no injected agent marker found for bundle com.appbox.StandarReader; use TrollFools to inject mcp-dumpagent.dylib and launch the app first",
+  "open_file_with_app_2": "Opened file /var/mobile/Library/Caches/ios-mcp-uploads/002C0DC3-7FB5-4FF4-9E13-CBC17175AE9F-u0_local_smoke.txt with app com.appbox.StandarReader",
+  "screenshot_2": "D:\\soft\\xiangse\\analysis\\reader-forensics\\u0-n06-cold-open-2.png",
+  "ocr_2": [
+    "07127",
+    "35.50 15W",
+    "O.OK O.OK",
+    "101:00",
+    "éÈi£ia",
+    "Èi*i",
+    "l Rii IEII",
+    "*hWJuRL",
+    "URL:",
+    "file:IllvarlmobilelContainerslDatal",
+    "Applicationl",
+    "F6A696BO-3917-4AE2-8539-44119E9",
+    "AE2EA/Documentsllnboxl",
+    "*i¥l"
+  ],
+  "sandbox_marks_2": {
+    "legado_openurl_hit.txt": "No such file or directory: /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_openurl_hit.txt",
+    "legado_islegado_result.txt": "No such file or directory: /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_islegado_result.txt"
+  },
+  "ui_texts_2": [
+    "07/27  六月十四  周一  00:59",
+    "🌡35.5° 15W",
+    "中国电信",
+    "中国移动",
+    "SSID, 3（共3格无线局域网信号）",
+    "电池电量：94%",
+    "arrow.left.and.right",
+    "0.0K 0.0K",
+    "iOS MCP · read_file",
+    "iOS MCP · get_app_info",
+    "iOS MCP · read_file",
+    "不支持的URL",
+    "尚未载入此URL： file:///var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/Inbox/",
+    "关闭"
+  ],
+  "verdict": "PATH_REACHED_NO_BODY"
+}

@@ -1,0 +1,82 @@
+{
+  "docs": "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents",
+  "plist_grep": {
+    "exitCode": 0,
+    "output": "cp: 更新 '/tmp/sr_info.plist' 的时间: No such file or directory\nError: File not found at path /tmp/sr_info.plist\nConverted 0 files to XML format\ngrep: /tmp/sr_info.plist: No such file or directory\n"
+  },
+  "bin_string_grep": {
+    "exitCode": 0,
+    "output": ""
+  },
+  "inbox_file": "/var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/Inbox/u0_local_smoke.txt",
+  "openurl_install_before": "OK: hooked on AppDelegate",
+  "open_file_with_app": "Opened file /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/Inbox/u0_local_smoke.txt with app com.appbox.StandarReader",
+  "frontmost": {
+    "pid": 41886,
+    "contextId": 1102227855,
+    "bundleId": "com.apple.springboard",
+    "sceneIdentifier": "com.apple.springboard",
+    "processName": "SpringBoard",
+    "displayId": 1,
+    "name": "SpringBoard"
+  },
+  "openurl_hit": "No such file or directory: /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_openurl_hit.txt",
+  "islegado": "No such file or directory: /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_islegado_result.txt",
+  "ui_texts": [
+    "07/27  六月十四  周一  01:01",
+    "🌡35.2° 15W",
+    "中国电信",
+    "中国移动",
+    "SSID, 3（共3格无线局域网信号）",
+    "电池电量：94%",
+    "arrow.left.and.right",
+    "0.0K 0.0K",
+    "iOS MCP · read_file",
+    "iOS MCP · get_app_info",
+    "iOS MCP · read_file",
+    "不支持的URL",
+    "尚未载入此URL： file:///var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/Inbox/",
+    "关闭"
+  ],
+  "screenshot": "D:\\soft\\xiangse\\analysis\\reader-forensics\\u0-n06-inbox-direct-open.png",
+  "ocr": [
+    "07127",
+    "35.20 15W",
+    "142.OK 3.2K",
+    "101:01",
+    "éÈi£ia",
+    "Èi*i",
+    "l Rii IEII",
+    "*hWJuRL",
+    "URL:",
+    "file:IllvarlmobilelContainerslDatal",
+    "Applicationl",
+    "F6A696BO-3917-4AE2-8539-44119E9",
+    "AE2EA/Documentsllnboxl",
+    "*i¥l"
+  ],
+  "needles_hit": [],
+  "shelf_has_smoke": false,
+  "open_file_with_app_upload": "Opened file /var/mobile/Library/Caches/ios-mcp-uploads/70BAA363-4D0E-420A-815D-94874E2FE707-u0_local_smoke.txt with app com.appbox.StandarReader",
+  "openurl_hit_after_upload_open": "No such file or directory: /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_openurl_hit.txt",
+  "islegado_after_upload_open": "No such file or directory: /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_islegado_result.txt",
+  "screenshot_upload_reopen": "D:\\soft\\xiangse\\analysis\\reader-forensics\\u0-n06-upload-reopen.png",
+  "ui_texts_2": [
+    "07/27  六月十四  周一  01:01",
+    "🌡35.1° 15W",
+    "中国电信",
+    "中国移动",
+    "SSID, 3（共3格无线局域网信号）",
+    "电池电量：94%",
+    "arrow.left.and.right",
+    "0.0K 0.0K",
+    "iOS MCP · screenshot",
+    "iOS MCP · read_file",
+    "iOS MCP · get_app_info",
+    "不支持的URL",
+    "尚未载入此URL： file:///var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/Inbox/",
+    "关闭"
+  ],
+  "verdict": "INBOX_READY_OPENURL_NOT_FIRED",
+  "note": "Inbox 内已有 TXT；open_file_with_app 返回成功，但 Documents/legado_openurl_hit.txt 未写入，说明未进入 AppDelegate application:openURL:options: Hook。"
+}

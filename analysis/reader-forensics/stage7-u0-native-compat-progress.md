@@ -45,7 +45,7 @@
 | N03 | **PASS_ENTRY** | 检测站点入口 |
 | N04 | **PASS** | mock 目录链 |
 | N05 | **PASS** | mock 正文 |
-| N06 | **PENDING** | TXT 已推 Documents，无稳定原生导入路径夹具（`u0-n06-SUMMARY.json`） |
+| N06 | **BLOCKED** | Inbox 可拷贝但 `open_file_with_app` 不触发 openURL；无正文针。取证：`u0-n06-path-forensics.md`；人工「用其他应用打开」待验 |
 | N07 | **PASS**（可销毁书增删，UI 元素判定） | `u0-n07-crud-SUMMARY.json` |
 | N08 | **PASS** | 阅读设置 |
 | N09 | **PENDING** | 分享面板未做完整夹具 |
@@ -61,4 +61,6 @@
 ## 本夜真实结论（2026-07-27）
 
 已推进：双源终局表述、F2 严验、F7 release 冒烟、N 可测项留证。  
-**未完成**：U0 全 PASS、U1–U3、双源终局验收。下一步优先：N06 原生 TXT 导入路径取证、N07 可重建书库下的真增删、N09 分享。
+**未完成**：U0 全 PASS、U1–U3、双源终局验收。  
+**N06**：BLOCKED（[N06 TXT导入路径取证](39f65e19-6885-4c43-a7c0-fb5047aa554f)）。MCP `open_file_with_app` 只拷 Inbox 不进 openURL；`file://` MCP 拒识；设备锁屏需密码。人工：「用其他应用打开」TXT → 香色。  
+**下一步（需解锁）**：N09 分享；N06 人工 Open In 验证后若通再修 MCP document-open。
