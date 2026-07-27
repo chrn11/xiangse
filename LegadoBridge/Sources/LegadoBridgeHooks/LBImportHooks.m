@@ -515,6 +515,18 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                 );
                 return YES;
             }
+            // legado://nativeImport — U3：打开原版导入（ConfigSourceModelSyncCon / UIAlert 回退）
+            BOOL wantNativeImport = [host isEqualToString:@"nativeimport"]
+                || [host isEqualToString:@"importui"]
+                || [pathLower containsString:@"/nativeimport"]
+                || [pathLower containsString:@"/importui"];
+            if (wantNativeImport) {
+                [[NSString stringWithFormat:@"openURL nativeImport host=%@", host]
+                    writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_deeplink.txt"]
+                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                LBLegadoShowImportAlert();
+                return YES;
+            }
             // legado://browserAwaitDone — 页内「完成验证」深链，解除 startBrowserAwait 等待
             BOOL wantAwaitDone = [host isEqualToString:@"browserawaitdone"]
                 || [host isEqualToString:@"awaitdone"]

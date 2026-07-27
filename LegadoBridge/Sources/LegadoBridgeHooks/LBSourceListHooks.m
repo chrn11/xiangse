@@ -611,11 +611,34 @@ void LBInstallSourceListHooks(void) {
 }
 - (void)onNativeImportTapped {
     // U3：原版「导入」→ ConfigSourceModelSyncCon；失败再 UIAlert（含 Legado URL/粘贴）
+    [@"tap onNativeImportTapped" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_tap.txt"]
+                                  atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     if (!LBLegadoPresentNativeImport()) {
         LBShowLegadoImportAlert();
     }
 }
 @end
+
+static void LBRebindImportButtonsInView(UIView *view) {
+    if (!view) return;
+    if ([view isKindOfClass:[UIButton class]]) {
+        UIButton *btn = (UIButton *)view;
+        NSString *t = btn.currentTitle ?: [btn titleForState:UIControlStateNormal] ?: @"";
+        // 无障碍标签有时比 title 更准
+        NSString *acc = btn.accessibilityLabel ?: @"";
+        if ([t isEqualToString:@"导入"] || [acc isEqualToString:@"导入"]) {
+            [btn removeTarget:nil action:NULL forControlEvents:UIControlEventTouchUpInside];
+            [btn addTarget:[LBLegadoBarButtonTarget shared]
+                    action:@selector(onNativeImportTapped)
+          forControlEvents:UIControlEventTouchUpInside];
+            [@"rebind import navbar-btn" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_rebind.txt"]
+                                          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        }
+    }
+    for (UIView *sub in view.subviews) {
+        LBRebindImportButtonsInView(sub);
+    }
+}
 
 static void LBInstallNativeSourceListLegadoButton(void) {
     static NSMutableSet *installed;
@@ -647,12 +670,35 @@ static void LBInstallNativeSourceListLegadoButton(void) {
                 if ([bi.accessibilityIdentifier isEqualToString:@"legado.manage.entry"]) {
                     hasLegadoBtn = YES;
                 }
-                // U3：把原版「导入」接到 SyncCon / Legado 导入链（标识防重复绑）
-                if ([bi.title isEqualToString:@"导入"] &&
-                    ![bi.accessibilityIdentifier isEqualToString:@"legado.import.entry"]) {
+                // U3：把原版「导入」接到 SyncCon / Legado 导入链（标题或 customView UIButton）
+                if ([bi.accessibilityIdentifier isEqualToString:@"legado.import.entry"]) {
+                    continue;
+                }
+                BOOL isImport = [bi.title isEqualToString:@"导入"];
+                if (!isImport && [bi.customView isKindOfClass:[UIButton class]]) {
+                    UIButton *btn = (UIButton *)bi.customView;
+                    NSString *t = btn.currentTitle ?: @"";
+                    if (t.length == 0) {
+                        t = [btn titleForState:UIControlStateNormal] ?: @"";
+                    }
+                    isImport = [t isEqualToString:@"导入"];
+                    if (isImport) {
+                        [btn removeTarget:nil action:NULL forControlEvents:UIControlEventTouchUpInside];
+                        [btn addTarget:[LBLegadoBarButtonTarget shared]
+                                action:@selector(onNativeImportTapped)
+                      forControlEvents:UIControlEventTouchUpInside];
+                        bi.accessibilityIdentifier = @"legado.import.entry";
+                        [@"rebind import customView" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_rebind.txt"]
+                                                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                        continue;
+                    }
+                }
+                if (isImport) {
                     bi.target = [LBLegadoBarButtonTarget shared];
                     bi.action = @selector(onNativeImportTapped);
                     bi.accessibilityIdentifier = @"legado.import.entry";
+                    [@"rebind import bar" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_rebind.txt"]
+                                           atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 }
             }
             if (!hasLegadoBtn) {
@@ -665,6 +711,11 @@ static void LBInstallNativeSourceListLegadoButton(void) {
                 NSMutableArray *rights = [item.rightBarButtonItems mutableCopy] ?: [NSMutableArray array];
                 [rights insertObject:legadoBtn atIndex:0];
                 item.rightBarButtonItems = rights;
+            }
+            // 导航栏子视图再扫一遍（部分构建「导入」是自定义 UIButton）
+            UINavigationController *nav = vc.navigationController;
+            if (nav.navigationBar) {
+                LBRebindImportButtonsInView(nav.navigationBar);
             }
         });
         method_setImplementation(m, hook);
