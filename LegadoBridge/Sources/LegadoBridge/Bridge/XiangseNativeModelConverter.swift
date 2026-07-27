@@ -11,8 +11,8 @@ enum XiangseNativeModelConverter {
         let template = domTemplate(from: manager)
         let overlay = overlayFields(for: source)
         let merged = deepMerge(base: template, overlay: overlay)
-        // bookWorld 段优先用专用模板（createCons 依赖），再叠 Legado 标记
-        if let bw = bookWorldTemplate(from: manager) {
+        // bookWorld：专用模板键数过少时保留 base 模板段（真机常见只有 actionID/parserID）
+        if let bw = bookWorldTemplate(from: manager), bw.count >= 3 {
             merged["bookWorld"] = bw
             dumpBookWorldKeysIfNeeded(bw)
         }

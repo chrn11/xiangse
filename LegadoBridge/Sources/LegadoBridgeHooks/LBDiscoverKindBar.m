@@ -188,7 +188,39 @@ static void LBAppendNativeHostState(UIViewController *host, NSString *tag) {
                           childNames.count ? [childNames componentsJoinedByString:@","] : @"-"]);
 }
 
-/// 把 Legado 源模型灌进宿主（含 bookWorld 模板），供 createCons 建子页
+/// 从原生表挑一个带完整 bookWorld 的 donor（非 Legado）
+static NSDictionary *LBFindDonorBookWorld(id mgr) {
+    if (!mgr) return nil;
+    id list = nil;
+    @try { list = [mgr valueForKey:@"dicModelList"]; } @catch (__unused NSException *e) {}
+    if (![list isKindOfClass:[NSDictionary class]]) return nil;
+    __block NSDictionary *best = nil;
+    __block NSUInteger bestN = 0;
+    __block NSString *bestName = nil;
+    [(NSDictionary *)list enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+        if (![obj isKindOfClass:[NSDictionary class]]) return;
+        NSDictionary *m = (NSDictionary *)obj;
+        id marker = m[@"legadoBridge"];
+        if ([marker isKindOfClass:[NSString class]] && [marker isEqualToString:@"1"]) return;
+        if ([marker isKindOfClass:[NSNumber class]] && [marker boolValue]) return;
+        id bw = m[@"bookWorld"];
+        if (![bw isKindOfClass:[NSDictionary class]]) return;
+        NSUInteger n = [(NSDictionary *)bw count];
+        if (n > bestN) {
+            bestN = n;
+            best = (NSDictionary *)bw;
+            bestName = [key isKindOfClass:[NSString class]] ? key : nil;
+        }
+    }];
+    if (bestN >= 3 && best) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"bwDonor name=%@ keys=%lu",
+                              bestName ?: @"?", (unsigned long)bestN]);
+        return best;
+    }
+    return nil;
+}
+
+/// 把 Legado 源模型灌进宿主（含 bookWorld donor），供 createCons 建子页
 static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString *srcName, NSArray *titles) {
     NSMutableDictionary *model = nil;
     NSDictionary *base = nil;
@@ -208,24 +240,25 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
         model[@"enabled"] = @YES;
     }
 
-    // Manager 的 dicBookWorldTemplateDom 比 base.bookWorld 骨架更完整
     Class mgrCls = NSClassFromString(@"BookSourceModelManager");
     id mgr = nil;
     if (mgrCls && [mgrCls respondsToSelector:@selector(sharedInstance)]) {
         mgr = ((id (*)(id, SEL))objc_msgSend)(mgrCls, @selector(sharedInstance));
     }
+
+    // 优先：原生表里真正丰富的 bookWorld；模板常只有 actionID/parserID，不够建页
+    NSDictionary *donorBW = LBFindDonorBookWorld(mgr);
     id bwDom = nil;
     @try { bwDom = [mgr valueForKey:@"dicBookWorldTemplateDom"]; } @catch (__unused NSException *e) {}
-    if ([bwDom isKindOfClass:[NSDictionary class]] && [(NSDictionary *)bwDom count] > 0) {
+    NSUInteger tmplN = [bwDom isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)bwDom count] : 0;
+    if (donorBW) {
+        model[@"bookWorld"] = donorBW;
+    } else if (tmplN >= 3) {
         model[@"bookWorld"] = bwDom;
-        LBAppendNativeMarker([NSString stringWithFormat:@"bwTemplate keys=%lu",
-                              (unsigned long)[(NSDictionary *)bwDom count]]);
-    } else if (!model[@"bookWorld"]) {
-        model[@"bookWorld"] = @{
-            @"actionID": @"bookWorld",
-            @"parserID": @"DOM"
-        };
-        LBAppendNativeMarker(@"bwTemplate missing → minimal bookWorld");
+        LBAppendNativeMarker([NSString stringWithFormat:@"bwTemplate keys=%lu", (unsigned long)tmplN]);
+    } else {
+        LBAppendNativeMarker([NSString stringWithFormat:@"bw weak tmpl=%lu keepBase=%d",
+                              (unsigned long)tmplN, model[@"bookWorld"] ? 1 : 0]);
     }
 
     if (titles.count > 0) {
@@ -236,6 +269,7 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
         model[@"cf_title"] = srcName;
     }
 
+    // 只 setDicModel，不调 openConfigByName（表内无 Legado 键时会杀进程）
     @try {
         if ([host respondsToSelector:@selector(setDicModel:)]) {
             ((void (*)(id, SEL, id))objc_msgSend)(host, @selector(setDicModel:), model);
@@ -246,16 +280,6 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
         }
     } @catch (NSException *ex) {
         LBAppendNativeMarker([NSString stringWithFormat:@"setDicModel EX %@", ex.reason ?: @""]);
-    }
-
-    // openConfigByName：若表内有该源则走完整装载；失败忽略（已直灌 dicModel）
-    if (srcName.length > 0 && [host respondsToSelector:@selector(openConfigByName:)]) {
-        @try {
-            ((void (*)(id, SEL, id))objc_msgSend)(host, @selector(openConfigByName:), srcName);
-            LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName %@", srcName]);
-        } @catch (NSException *ex) {
-            LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName EX %@", ex.reason ?: @""]);
-        }
     }
     return model;
 }
