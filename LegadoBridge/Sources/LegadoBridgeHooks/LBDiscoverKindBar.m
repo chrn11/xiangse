@@ -201,6 +201,7 @@ static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
     __block NSDictionary *best = nil;
     __block NSUInteger bestN = 0;
     __block NSString *bestName = nil;
+    __block NSMutableArray *topLog = [NSMutableArray array];
     [(NSDictionary *)list enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
         if (![obj isKindOfClass:[NSDictionary class]]) return;
         NSDictionary *m = (NSDictionary *)obj;
@@ -217,36 +218,51 @@ static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
         NSString *stype = @"";
         id st = m[@"sourceType"];
         if ([st isKindOfClass:[NSString class]]) stype = [(NSString *)st lowercaseString];
-        if (stype.length && ![stype containsString:@"dom"] && ![stype containsString:@"text"] &&
-            ![stype isEqualToString:@"0"]) {
-            // 非文本类降权：仍可作候选但分数减半
-        }
         id bw = m[@"bookWorld"];
         if (![bw isKindOfClass:[NSDictionary class]]) return;
-        NSUInteger n = [(NSDictionary *)bw count];
-        if (n < 3) return;
-        NSUInteger score = n;
+        NSDictionary *bwd = (NSDictionary *)bw;
+        NSUInteger topKeys = bwd.count;
+        if (topKeys < 6) return; // 过薄（如仅 actionID/parserID）会建空 SGPage 后崩
+        NSUInteger nested = 0;
+        for (id v in bwd.allValues) {
+            if ([v isKindOfClass:[NSArray class]]) nested += [(NSArray *)v count] * 5;
+            else if ([v isKindOfClass:[NSDictionary class]]) nested += [(NSDictionary *)v count];
+        }
+        NSUInteger score = topKeys * 10 + nested;
         if ([stype containsString:@"dom"] || [stype containsString:@"text"] || stype.length == 0) {
             score += 100;
         }
-        // Reader0 对照源：优先番茄，分类数适中更稳
-        if ([name containsString:@"番茄"]) score += 500;
-        if ([name containsString:@"小说"]) score += 50;
-        if (n >= 5 && n <= 40) score += 80;
-        else if (n > 80) score = score > 40 ? score - 40 : 0;
+        // Reader0 对照：番茄小说2025*；带 emoji 装饰名且结构薄的降权
+        if ([name containsString:@"番茄小说2025"] || [name containsString:@"番茄小说20"]) {
+            score += 400;
+        } else if ([name containsString:@"番茄"] && topKeys >= 10) {
+            score += 150;
+        }
+        if ([name containsString:@"有毒"] || [name containsString:@"笔趣"]) score += 40;
+        if (nested >= 20) score += 80;
+        if (topLog.count < 8) {
+            [topLog addObject:[NSString stringWithFormat:@"%@:k%lu+n%lu=%lu",
+                               name, (unsigned long)topKeys, (unsigned long)nested,
+                               (unsigned long)score]];
+        }
         if (score > bestN) {
             bestN = score;
-            best = (NSDictionary *)bw;
+            best = bwd;
             bestName = name;
         }
     }];
-    if (bestN >= 3 && best) {
+    if (topLog.count > 0) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"bwDonorCand %@",
+                              [topLog componentsJoinedByString:@"; "]]);
+    }
+    if (bestN >= 60 && best) {
         if (outName) *outName = bestName;
         LBAppendNativeMarker([NSString stringWithFormat:@"bwDonor name=%@ score=%lu keys=%lu",
                               bestName ?: @"?", (unsigned long)bestN,
                               (unsigned long)[(NSDictionary *)best count]]);
         return best;
     }
+    LBAppendNativeMarker(@"bwDonor none (need keys>=6 weight>=60)");
     return nil;
 }
 
@@ -427,6 +443,28 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
 
         LBPrepareDiscoverDicModel(host, srcName, titles);
 
+        // 无可用 donor bookWorld 时禁止 resetContent（空/薄模型会建空 SGPage 后杀进程）
+        id curModel = nil;
+        @try { curModel = [host valueForKey:@"dicModel"]; } @catch (__unused NSException *e) {}
+        NSDictionary *bwCheck = nil;
+        if ([curModel isKindOfClass:[NSDictionary class]]) {
+            id bw = curModel[@"bookWorld"];
+            if ([bw isKindOfClass:[NSDictionary class]]) bwCheck = bw;
+        }
+        if (!bwCheck || bwCheck.count < 6) {
+            if (srcName.length > 0) {
+                @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
+                @try { host.title = srcName; } @catch (__unused NSException *e) {}
+            }
+            @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+            sCachedKinds = [kinds copy];
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"shellFallback noDonorBW keys=%lu",
+                                  (unsigned long)(bwCheck ? bwCheck.count : 0)]);
+            LBAppendNativeHostState(host, @"shellFallback");
+            return;
+        }
+
         NSString *consName = sDiscoverUseSourceName.length ? sDiscoverUseSourceName : (srcName ?: @"");
         @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
         @try { [host setValue:consName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
@@ -453,8 +491,26 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
         @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
         BOOL hasPageChrome = (titleView != nil && scroll != nil);
+        NSUInteger childN = host.childViewControllers.count;
 
-        // createCons 仅作诊断/兜底：有 cons 也不二次 reset（二次 rebuild 易杀进程）
+        // 空 chrome（有 SGPage 无子页）会随后杀进程：立刻拆掉
+        if (hasPageChrome && childN == 0) {
+            @try {
+                if ([titleView isKindOfClass:[UIView class]]) {
+                    [(UIView *)titleView removeFromSuperview];
+                }
+                if ([scroll isKindOfClass:[UIView class]]) {
+                    [(UIView *)scroll removeFromSuperview];
+                }
+                [host setValue:nil forKey:@"pageTitleView"];
+                [host setValue:nil forKey:@"pageContentScrollView"];
+            } @catch (__unused NSException *e) {}
+            hasPageChrome = NO;
+            LBAppendNativeMarker(@"teardownEmptyChrome child=0");
+            LBAppendNativeHostState(host, @"afterTeardown");
+        }
+
+        // createCons 仅作诊断：有 cons 也不二次 reset / 不手工 SGPage
         if (!hasPageChrome &&
             host.childViewControllers.count == 0 &&
             [host respondsToSelector:@selector(createCons:titles:sourceName:)]) {
