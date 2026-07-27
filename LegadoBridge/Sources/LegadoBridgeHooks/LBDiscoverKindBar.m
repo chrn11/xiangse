@@ -335,94 +335,22 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
 
     sFeedingDiscoverHeader = YES;
     @try {
-        // 已有原生 SGPage 时禁止再 resetContent（反复重建会杀进程）
-        id existTitle = nil;
-        id existScroll = nil;
-        @try { existTitle = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-        @try { existScroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
-        if (existTitle && existScroll) {
-            if (srcName.length > 0) {
-                @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
-                @try { host.title = srcName; } @catch (__unused NSException *e) {}
-            }
-            sCachedKinds = [kinds copy];
-            LBAppendNativeMarker(@"pageChrome exists skipReset");
-            LBAppendNativeHostState(host, @"keepChrome");
-            return;
-        }
-
-        LBPrepareDiscoverDicModel(host, srcName, titles);
-
-        NSString *consName = sDiscoverUseSourceName.length ? sDiscoverUseSourceName : (srcName ?: @"");
-        @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
-        @try { [host setValue:consName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
-        @try { [host setValue:consName forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
-        @try { [host setValue:consName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
-
-        if (host.isViewLoaded && CGRectIsEmpty(host.view.bounds)) {
-            [host.view setNeedsLayout];
-            [host.view layoutIfNeeded];
-        }
-
-        BOOL didReset = NO;
-        if ([host respondsToSelector:@selector(resetContent)]) {
-            @try {
-                ((void (*)(id, SEL))objc_msgSend)(host, @selector(resetContent));
-                didReset = YES;
-                LBAppendNativeMarker(@"resetContent ok");
-            } @catch (NSException *ex) {
-                LBAppendNativeMarker([NSString stringWithFormat:@"resetContent EX %@", ex.reason ?: @""]);
-            }
-        }
-        LBAppendNativeHostState(host, didReset ? @"afterReset" : @"noReset");
-
-        id titleView = nil;
-        id scroll = nil;
-        @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-        @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
-        BOOL hasPageChrome = (titleView != nil && scroll != nil);
-
-        // createCons 能填 OUT 数组；禁止再手工 init SGPage（会触发 BookListCon viewDidLoad SIGABRT）
-        if (!hasPageChrome &&
-            host.childViewControllers.count == 0 &&
-            [host respondsToSelector:@selector(createCons:titles:sourceName:)]) {
-            @try {
-                NSMutableArray *cons = [NSMutableArray array];
-                ((void (*)(id, SEL, id, id, id))objc_msgSend)(
-                    host, @selector(createCons:titles:sourceName:), cons, titles, consName);
-                LBAppendNativeMarker([NSString stringWithFormat:@"createCons fallback titles=%lu cons=%lu src=%@",
-                                      (unsigned long)titles.count, (unsigned long)cons.count, consName]);
-                if (cons.count > 0) {
-                    // 交给原生再走一遍 resetContent 挂页（勿手工 SGPage wire）
-                    if ([host respondsToSelector:@selector(resetContent)]) {
-                        @try {
-                            ((void (*)(id, SEL))objc_msgSend)(host, @selector(resetContent));
-                            LBAppendNativeMarker(@"resetContent afterCons");
-                        } @catch (NSException *ex) {
-                            LBAppendNativeMarker([NSString stringWithFormat:@"resetContent afterCons EX %@",
-                                                  ex.reason ?: @""]);
-                        }
-                    }
-                    LBAppendNativeHostState(host, @"afterConsReset");
-                }
-            } @catch (NSException *ex) {
-                LBAppendNativeMarker([NSString stringWithFormat:@"createCons EX %@", ex.reason ?: @""]);
-            }
-        } else if (hasPageChrome) {
-            LBAppendNativeMarker(@"pageChrome ready skipCreateConsWire");
-        }
-
-        sCachedKinds = [kinds copy];
-        if (sSelectedKindIndex >= (NSInteger)titles.count) sSelectedKindIndex = 0;
-
+        // 存活优先：暂不 resetContent / setDicModel（donor bookWorld 在真机会杀进程）
+        // 只保证原生 BookWorld 壳 + 导航标题；分类/书列表下一轮再挂
         if (srcName.length > 0) {
+            sDiscoverUseSourceName = [srcName copy];
             @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
             @try { host.title = srcName; } @catch (__unused NSException *e) {}
+            @try { [host setValue:srcName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
         }
-
-        LBAppendNativeMarker([NSString stringWithFormat:@"nativeHeader host=%@ src=%@ kinds=%lu sel=%ld",
+        @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+        sCachedKinds = [kinds copy];
+        if (sSelectedKindIndex >= (NSInteger)titles.count) sSelectedKindIndex = 0;
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"shellOnly host=%@ src=%@ kinds=%lu (no resetContent)",
                               NSStringFromClass([host class]), srcName ?: @"",
-                              (unsigned long)titles.count, (long)sSelectedKindIndex]);
+                              (unsigned long)titles.count]);
+        LBAppendNativeHostState(host, @"shellOnly");
     } @finally {
         sFeedingDiscoverHeader = NO;
     }
