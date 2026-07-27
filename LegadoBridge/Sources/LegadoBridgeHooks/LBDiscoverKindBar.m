@@ -454,6 +454,29 @@ static void LBDestroyDiscoverListConsKeepTitle(UIViewController *host, id scroll
         }
     } @catch (__unused NSException *e) {}
     @try { [host setValue:nil forKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+    // 保活分类条：销毁 scroll 后 titleView 可能被连带摘掉，强制挂回
+    id titleView = nil;
+    @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+    if ([titleView isKindOfClass:[UIView class]] && host.isViewLoaded && host.view) {
+        UIView *tv = (UIView *)titleView;
+        if (!tv.superview) {
+            CGFloat w = host.view.bounds.size.width;
+            if (w < 1) w = [UIScreen mainScreen].bounds.size.width;
+            CGFloat top = 0;
+            if (@available(iOS 11.0, *)) {
+                top = host.view.safeAreaInsets.top;
+            }
+            // 导航栏下方
+            if (top < 64) top = 64;
+            tv.frame = CGRectMake(0, top, w, 44);
+            [host.view addSubview:tv];
+            LBAppendNativeMarker(@"titleView reattached");
+        } else {
+            LBAppendNativeMarker(@"titleView stillInHierarchy");
+        }
+    } else {
+        LBAppendNativeMarker(@"titleView missing afterDestroy");
+    }
     LBAppendNativeMarker([NSString stringWithFormat:@"destroyListCons killed=%lu keepTitle=1",
                           (unsigned long)killed]);
 }
