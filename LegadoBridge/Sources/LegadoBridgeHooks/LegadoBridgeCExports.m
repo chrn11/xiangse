@@ -2983,7 +2983,8 @@ static void LBReloadLegadoCatalogListIfVisible(void) {
     }
 }
 
-/// 搜索点书：推自建目录页（不碰原生 BookDetail）
+/// 搜索点书：U1 优先原版 CatalogCon（与本地书目录同构）；失败回退 LBLegadoCatalogListVC。
+/// 禁区：不要把 BookDetailController 推进导航栈（历史无 ips 回桌面）。
 static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic) {
     void (^mark)(NSString *) = ^(NSString *s) {
         [s writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_select.txt"]
@@ -3041,18 +3042,60 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
     }
     if (su.length == 0) su = sPendingCatalogSourceUrl;
 
-    LBLegadoCatalogListVC *list = [[LBLegadoCatalogListVC alloc] initWithStyle:UITableViewStylePlain];
-    list.bookUrl = bu;
-    list.sourceUrl = su;
-    list.bookTitle = title ?: @"目录";
     if (sPendingCatalogChapters.count > 0 &&
         sPendingCatalogBookUrl.length > 0 &&
-        [sPendingCatalogBookUrl isEqualToString:bu]) {
-        list.chapters = sPendingCatalogChapters;
-    } else if (sPendingCatalogChapters.count > 0 &&
-               ![sPendingCatalogBookUrl isEqualToString:bu]) {
+        ![sPendingCatalogBookUrl isEqualToString:bu]) {
         // 换书时丢弃串书 pending，避免目录页展示他书章节名
         sPendingCatalogChapters = nil;
+    }
+
+    // 强制桥接回退：Documents/legado_u1_catalog_bridge_only.txt 存在则不走 CatalogCon
+    BOOL forceBridge = [[NSFileManager defaultManager]
+        fileExistsAtPath:[NSHomeDirectory() stringByAppendingPathComponent:
+                          @"Documents/legado_u1_catalog_bridge_only.txt"]];
+
+    UIViewController *targetVC = nil;
+    NSString *via = @"LBLegadoCatalogListVC";
+
+    if (!forceBridge) {
+        Class catCls = NSClassFromString(@"CatalogCon");
+        if (catCls) {
+            @try {
+                id cat = [[catCls alloc] init];
+                if ([cat isKindOfClass:[UIViewController class]]) {
+                    targetVC = (UIViewController *)cat;
+                    via = @"CatalogCon";
+                    @try { [targetVC setValue:safe forKey:@"dicBook"]; } @catch (__unused NSException *e) {}
+                    @try { [targetVC setValue:bu forKey:@"bookUrl"]; } @catch (__unused NSException *e) {}
+                    @try { [targetVC setValue:(su ?: @"") forKey:@"sourceUrl"]; } @catch (__unused NSException *e) {}
+                    if (title.length > 0) {
+                        @try { targetVC.title = title; } @catch (__unused NSException *e) {}
+                    }
+                    if (sPendingCatalogChapters.count > 0) {
+                        LBWriteChaptersOntoObject(targetVC, sPendingCatalogChapters);
+                    }
+                    LBInstallCatalogUIAppearFlush();
+                }
+            } @catch (NSException *e) {
+                mark([NSString stringWithFormat:@"searchPush CatalogCon alloc fail: %@", e.reason ?: @""]);
+                targetVC = nil;
+                via = @"LBLegadoCatalogListVC";
+            }
+        }
+    }
+
+    if (!targetVC) {
+        LBLegadoCatalogListVC *list = [[LBLegadoCatalogListVC alloc] initWithStyle:UITableViewStylePlain];
+        list.bookUrl = bu;
+        list.sourceUrl = su;
+        list.bookTitle = title ?: @"目录";
+        if (sPendingCatalogChapters.count > 0 &&
+            sPendingCatalogBookUrl.length > 0 &&
+            [sPendingCatalogBookUrl isEqualToString:bu]) {
+            list.chapters = sPendingCatalogChapters;
+        }
+        targetVC = list;
+        via = @"LBLegadoCatalogListVC";
     }
 
     UINavigationController *nav = [(UIViewController *)searchVC navigationController];
@@ -3062,11 +3105,11 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
     BOOL presentedWrap = NO;
     @try {
         if (nav && [nav.viewControllers containsObject:(UIViewController *)searchVC]) {
-            [nav pushViewController:list animated:NO];
+            [nav pushViewController:targetVC animated:NO];
         } else if (nav) {
             // 搜索页不在该 nav 栈内时，勿推到隐藏栈；改 present
             UINavigationController *wrap =
-                [[UINavigationController alloc] initWithRootViewController:list];
+                [[UINavigationController alloc] initWithRootViewController:targetVC];
             UIViewController *host = (UIViewController *)searchVC;
             while (host.presentedViewController) host = host.presentedViewController;
             [host presentViewController:wrap animated:NO completion:nil];
@@ -3074,7 +3117,7 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
             nav = wrap;
         } else {
             UINavigationController *wrap =
-                [[UINavigationController alloc] initWithRootViewController:list];
+                [[UINavigationController alloc] initWithRootViewController:targetVC];
             UIViewController *host = (UIViewController *)searchVC;
             while (host.presentedViewController) host = host.presentedViewController;
             [host presentViewController:wrap animated:NO completion:nil];
@@ -3088,15 +3131,18 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
 
     LBHandleCatalogRequest(bu, su);
     mark([NSString stringWithFormat:
-          @"searchPushDetail book=%@ src=%@ on=LBLegadoCatalogListVC wrap=%d nav=%@ phase=catalogList",
-          bu, su ?: @"", presentedWrap ? 1 : 0,
-          nav ? NSStringFromClass([nav class]) : @"nil"]);
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+          @"searchPushDetail book=%@ src=%@ on=%@ wrap=%d nav=%@ phase=u1catalog forceBridge=%d",
+          bu, su ?: @"", via, presentedWrap ? 1 : 0,
+          nav ? NSStringFromClass([nav class]) : @"nil", forceBridge ? 1 : 0]);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
+        if (sPendingCatalogChapters.count > 0) {
+            LBApplyCatalogToUI(sPendingCatalogChapters, bu);
+        }
         LBReloadLegadoCatalogListIfVisible();
         NSString *alive = [NSString stringWithFormat:
-                           @"searchPush alive book=%@ ch=%lu",
-                           bu, (unsigned long)sPendingCatalogChapters.count];
+                           @"searchPush alive via=%@ book=%@ ch=%lu",
+                           via, bu, (unsigned long)sPendingCatalogChapters.count];
         [alive writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_select.txt"]
                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     });

@@ -5,7 +5,8 @@
 
 ## 状态（勿误读）
 
-**U0 仍未全 PASS。** D0–D3 与 N06 已过；D4 **PARTIAL**（表级双源 + Legado 链 + 检测抽样过；原生本地示例书打开会杀进程）。禁止称「全部完成」、禁止开 U1。
+**U0 阶段 D 已收口（D0–D4）。** 当前包待升 `U1 CatalogCon`；真机全量双源面。  
+**U1 进行中**：同相位差分 PASS（`u1-catalog-phase-diff.md`）→ 搜索点书优先 push 原版 `CatalogCon`（BookDetail 不上栈；`legado_u1_catalog_bridge_only.txt` 可强制回退桥接页）。
 
 ## 终局口径
 
@@ -19,7 +20,7 @@
 | 包 | 用途 |
 |---|---|
 | 未注入基线 / `StandarReader0` | 「坏没坏」对照 |
-| `4c80bb8` legado-debug（run `30237844324`） | 当前推进包（D0 守卫 + nativeOpenFile） |
+| `c9b9ae1` legado-debug（run `30240818802`） | 当前推进包（关 forensics TextRead early wrap + AB 探针延迟 + dicModelList 缓存） |
 
 ## F / R / P
 
@@ -59,22 +60,20 @@
 | 混合搜索 | **PASS** | `ok total=50 sources=4`；books 含「领域书库」等。`u0-d4-full-SUMMARY.json` |
 | Legado 四步 | **PASS_ENTRY** | nativeRead 命中；目录 UI 有「第一章/第二章」；正文曾「章节加载中」（mock 8765 设备侧间歇断连）。`u0-d4-legado-*.png` |
 | 检测站点抽样 | **PASS** | `10/961` 进行中可停。`u0-d4-check-*.png` |
-| 原生本地书打开 | **FAIL（修中）** | A/B：961/三源均杀 → 非 jetsam。根因嫌疑：`LBLoadCurCpBridgeRegisterOrig` 启动即装 `LBABInstallProbes`（全局 `stringWithContentsOfFile` 等）+ Debug early wrap `loadCurCp`。已改：探针仅 Legado 命中再装；去掉 forensics early wrap loadCurCp。待新包复验。 |
-| 表文件 | **PASS（终验）** | 终验面 aside `22659944`；日常测面 `12124`（三源） |
+| 原生本地书打开 | **PASS** | `c9b9ae1` 全量 22MB 面：点「文本\|小说示例」进程存活，UI「使用示例」「1/5」。根因：Debug forensics early wrap `viewDidLoad`（死前仅 `early before viewDidLoad TextReadVC3`）。`u0-d4-openbook-after-earlywrap-off-SUMMARY.json`、`u0-d4-openbook-PASS.jpg` |
+| 表文件 | **PASS** | 全程/复验 `sourceModelList.xbs`=22659944；aside 保留 |
 
-## 测面策略（性能）
+## 测面策略
 
-- **日常开发/冒烟**：三源 `sourceModelList.xbs`≈12KB（`.test_tools/trim_to_3sites.py`）；水位 `hwm=11`
-- **D4 终验 / 吞表验收**：再从 `sourceModelList.xbs.full_22m_aside` 恢复全量（`.test_tools/restore_full_xbs.py`）
-- aside **勿删**（22659944）
+- **双源终验面（计划 D2–D4）**：全量 22MB / `站点(96x)` + 三 Legado（aside 勿删）
+- **日常冒烟**（计划允许验完切回）：`.test_tools/trim_to_3sites.py` → 12KB；恢复用 `.test_tools/restore_full_xbs.py`
 
 ## 门禁
 
-- **U0 门禁**：D4 未全 PASS（原生本地书打开 FAIL）→ **禁止 U1**。
-- **仍禁止宣称终局完成**。
-- 当前真机：**日常三源测面**（非 961）；终验再恢复 aside。
+- **U0 门禁**：本地书打开已过；开 U1 前再扫一眼 D4 清单无回退。
+- **仍禁止宣称整包终局完成**（U1–U3 未开）。
+- 当前真机：**双源终验面**（22659944）。
 
 ## 本午结论（2026-07-27）
 
-`4c80bb8` / CI `30237844324` 已装机。D0–D3、N06、混合搜索、检测抽样过。  
-**阻塞**：打开「文本|小说示例」杀进程 → 已改 RegisterOrig / forensics，待 CI 新包装机复验。
+按计划恢复全量面；`c9b9ae1` / CI `30240818802` 关掉 forensics TextRead early wrap 后，原生本地示例书打开 **PASS**。D4 阻塞解除。

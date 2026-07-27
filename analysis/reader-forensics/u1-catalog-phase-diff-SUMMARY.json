@@ -1,0 +1,43 @@
+{
+  "goal": "U1 TXT catalog same-phase dump",
+  "package": "c9b9ae1",
+  "alive": true,
+  "reader_labs_B_note": "see shots",
+  "catalog_labs": [
+    "StandarReader",
+    "返回",
+    "目录",
+    "书签",
+    "到底部",
+    "搜索栏",
+    "1. 使用示例",
+    "点击或上拉加载更多"
+  ],
+  "front": {
+    "pid": 46351,
+    "contextId": 904276217,
+    "bundleId": "com.appbox.StandarReader",
+    "sceneIdentifier": "com.appbox.StandarReader",
+    "processName": "StandarReader",
+    "displayId": 1,
+    "name": "StandarReader"
+  },
+  "tap_catalog": {
+    "text": "目录",
+    "x": 48.5,
+    "y": 800.0
+  },
+  "owners_static": {
+    "setDicBook:": "BookDetail*/TextReadVC* (hook103 + LBReadingHooks owners)",
+    "loadCatalog:ignoringCache:": "selector in objc-selectors.txt; runtime owner via LBFindClassImplementing",
+    "setArrCatalog:": "CatalogCon (hook-map + CExports LBApplyCatalogToUI)",
+    "CatalogCon": "Reader module class",
+    "BookDetailController": "Other module class",
+    "historical_kill": "push BookDetail onto nav + setDicBook -> SpringBoard no ips"
+  },
+  "u1_hypothesis": [
+    "Native local-book catalog UI is CatalogCon (not LBLegadoCatalogListVC)",
+    "BookDetailController push on nav is historically lethal; keep off-stack",
+    "U1 safe path: feed Legado chapters into CatalogCon via setArrCatalog:/pending appear flush; keep LBLegadoCatalogListVC as fallback"
+  ]
+}
