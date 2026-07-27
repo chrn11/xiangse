@@ -5,8 +5,7 @@
 
 ## 状态（勿误读）
 
-**U0 未关闭终局。** 板子上多项已过，N06 仍 BLOCKED；终局（U1–U3 / 双源终验）未达成。禁止称「全部完成」。  
-计划里几条文档/严验 todo 做完 ≠ 终局交付完成。
+**U0 仍未全 PASS。** D0–D3 与 N06 已过；D4 **PARTIAL**（表级双源 + Legado 链 + 检测抽样过；原生本地示例书打开会杀进程）。禁止称「全部完成」、禁止开 U1。
 
 ## 终局口径
 
@@ -20,7 +19,7 @@
 | 包 | 用途 |
 |---|---|
 | 未注入基线 / `StandarReader0` | 「坏没坏」对照 |
-| `e685ff5` legado-debug / release（run `30210873340`） | 当前推进包 |
+| `4c80bb8` legado-debug（run `30237844324`） | 当前推进包（D0 守卫 + nativeOpenFile） |
 
 ## F / R / P
 
@@ -29,12 +28,12 @@
 | R | **PASS** | `verify_u0_r_doupo/` |
 | F1 | **PASS** | `verify_u0_f1_list/`，`773ee29` |
 | F2 | **PASS** | `u0-f2-strict-SUMMARY.json`，`e685ff5` |
-| F3 | **待 D 阶段** | 双源共存未实测；当前日常仍站点(3)；全量 aside 待 D2 恢复后验收。D4 未过不得开 U1 |
+| F3 | **PASS（表级）** | D2/D3：五次冷启均 22659944；`站点(961)`+搜索可见三 Legado。`u0-d3-coldstart-SUMMARY.json`、`u0-d4-sites-SUMMARY.json` |
 | F4 | **PASS** | `verify_u0_f4/` |
-| F5 | **PASS_ENTRY** | `f5_04_check.png`；早间 `u0-desc-nav-SUMMARY.json` 复证检测站点 |
+| F5 | **PASS_ENTRY→本轮升** | 检测站点入口 `检测站点(961)`+开始，抽样至 `10/961` 后停。`u0-d4-full-SUMMARY.json` |
 | F6 | 壳 OK；内容空归书源 | 不记 Hook FAIL |
-| F7 | debug **PASS_NO_LEAK**；release **PASS_NO_LEAK**（OCR 弱，无拉丁泄漏词） | `u0-f7-release-SUMMARY.json` |
-| P | **PASS** | search_last |
+| F7 | debug **PASS_NO_LEAK**；release **PASS_NO_LEAK** | `u0-f7-release-SUMMARY.json` |
+| P | **PASS** | search_last 今日复证 `ok total=50 sources=4` |
 
 ## 普查清单 N
 
@@ -42,34 +41,40 @@
 |---|---|---|
 | N01 | **PASS** | JSON 深链 import |
 | N02 | **PASS** | 深链搜索 |
-| N03 | **PASS_ENTRY** | 检测站点入口；早间复证 `检测站点(3)`+开始 |
+| N03 | **PASS** | 本轮 `检测站点(961)`+开始抽样 `10/961` |
 | N04 | **PASS** | mock 目录链 |
 | N05 | **PASS** | mock 正文 |
-| N06 | **BLOCKED→修中** | MCP `open_file_with_app` 只拷 Inbox；`uiopen`/`file://`/`objc_invoke`(无 dumpagent) 均不投递。**自动化解法**：Bridge 已加 `legado://nativeOpenFile?path=`（`LBImportHooks.m`），装新包后用 MCP `open_url` 自测（`.test_tools/verify_u0_n06_deeplink.py`）。**不再甩人工 Open In** |
-| N07 | **PASS**（可销毁书增删，UI 元素判定） | `u0-n07-crud-SUMMARY.json` |
+| N06 | **PASS** | `legado://nativeOpenFile`→原生导入；书架有 `n06_deeplink_…, 新•第1章`。`u0-n06-deeplink-SUMMARY.json` |
+| N07 | **PASS** | `u0-n07-crud-SUMMARY.json` |
 | N08 | **PASS** | 阅读设置 |
-| N09 | **PASS** | 站点管理→更多→导出站点 → 系统分享板（`sourceModelList` 12KB，隔空投送/拷贝）。`u0-n09-SUMMARY.json`、`u0-n09f-after-export.png`。旧「微信」PASS 作废（导入说明假阳性） |
+| N09 | **PASS** | 站点导出分享板 |
 | N10 | **PENDING** | 总计划例外（不开发 TTS） |
-| N11 | **PASS_ENTRY** | 整理→云备份入口可达；无账号夹具不做完整同步。`u0-n11-SUMMARY.json` |
+| N11 | **PASS_ENTRY** | 云备份入口 |
 
-## 双源 UI（U0 旁证，非 U1）
+## 双源 / D4
 
 | 项 | 状态 | 证据 |
 |---|---|---|
-| 原生站点页 | **PASS** | `站点(3)` + 本地静态测试源/笔趣读/领域书库；`u0-dual-source-ui-SUMMARY.json`、`u0-dual-site-mgr.png` |
-| Legado 搜索 | **PASS** | search_last 仍通 |
+| 原生站点页 | **PASS** | `站点(961)`；搜索可见三 Legado |
+| 混合搜索 | **PASS** | `ok total=50 sources=4`；books 含「领域书库」等。`u0-d4-full-SUMMARY.json` |
+| Legado 四步 | **PASS_ENTRY** | nativeRead 命中；目录 UI 有「第一章/第二章」；正文曾「章节加载中」（mock 8765 设备侧间歇断连）。`u0-d4-legado-*.png` |
+| 检测站点抽样 | **PASS** | `10/961` 进行中可停。`u0-d4-check-*.png` |
+| 原生本地书打开 | **FAIL（修中）** | A/B：961/三源均杀 → 非 jetsam。根因嫌疑：`LBLoadCurCpBridgeRegisterOrig` 启动即装 `LBABInstallProbes`（全局 `stringWithContentsOfFile` 等）+ Debug early wrap `loadCurCp`。已改：探针仅 Legado 命中再装；去掉 forensics early wrap loadCurCp。待新包复验。 |
+| 表文件 | **PASS（终验）** | 终验面 aside `22659944`；日常测面 `12124`（三源） |
 
-导航必须以 `describe_screen.rect` / `tap_screen` 点「整理」；`tap_element` 常假成功。
+## 测面策略（性能）
+
+- **日常开发/冒烟**：三源 `sourceModelList.xbs`≈12KB（`.test_tools/trim_to_3sites.py`）；水位 `hwm=11`
+- **D4 终验 / 吞表验收**：再从 `sourceModelList.xbs.full_22m_aside` 恢复全量（`.test_tools/restore_full_xbs.py`）
+- aside **勿删**（22659944）
 
 ## 门禁
 
-- **U0 门禁**：以本板 F/R/P/N 表为准；N06 仍 BLOCKED（有根因）；N09 PASS；N10 PENDING；N11 PASS_ENTRY。未显式批准前禁止 U1。
-- **D4 前置**：双源共存验收（计划 `双源共存到终局` D4）未过，不得开 U1。
-- **仍禁止宣称终局完成**；U1 启动须另开任务并显式确认。
-- 日常站点(3)/mock；禁止当测试面恢复 900 站。**双源终验期间显式破例**恢复全量，验完可切回三源测试面。
+- **U0 门禁**：D4 未全 PASS（原生本地书打开 FAIL）→ **禁止 U1**。
+- **仍禁止宣称终局完成**。
+- 当前真机：**日常三源测面**（非 961）；终验再恢复 aside。
 
-## 本晨结论（2026-07-27）
+## 本午结论（2026-07-27）
 
-已推进：N09 真分享板 PASS；双源站点页 PASS；N11 云备份入口 PASS_ENTRY。  
-**N06**：不甩人工 Open In。MCP 已证实 `open_file_with_app`/uiopen/objc 均缺投递；Bridge 已实现 `legado://nativeOpenFile?path=`（待 commit→CI→装包→`verify_u0_n06_deeplink.py`）。  
-**未完成**：终局 U1–U3；N06 新包装机验收；N10 TTS 例外。
+`4c80bb8` / CI `30237844324` 已装机。D0–D3、N06、混合搜索、检测抽样过。  
+**阻塞**：打开「文本|小说示例」杀进程 → 已改 RegisterOrig / forensics，待 CI 新包装机复验。

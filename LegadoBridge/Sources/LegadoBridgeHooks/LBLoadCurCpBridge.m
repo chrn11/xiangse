@@ -2138,7 +2138,10 @@ void LBLoadCurCpBridgeRegisterOrig(void (*orig)(id, SEL)) {
     if (!orig) return;
     sOrigLoadCurCp = orig;
     LBStateLog([NSString stringWithFormat:@"register_orig imp=%p", orig]);
-    LBABInstallProbes();
+    // U0-D4：禁止在 RegisterOrig（启动/装钩时）就装 AB 探针。
+    // LBABInstallProbes 会挂钩 NSString stringWithContentsOfFile / QF / ICU 等，
+    // 真机已证：三源与 961 站下点「文本|小说示例」均回 SpringBoard（非 jetsam）。
+    // 探针仅在 Legado loadCurCp 真正命中时再装（见 HandleHook）。
     LBInstallPageProgressHooks();
 }
 
@@ -4301,6 +4304,9 @@ BOOL LBLoadCurCpBridgeHandleHook(id self, SEL _cmd,
                                  NSString *sourceUrl,
                                  NSString *chapterUrl) {
     if (!isLegado) return NO;
+
+    // 仅 Legado 正文路径才装 AB 探针，避免误伤原生本地书
+    LBABInstallProbes();
 
     if (self) {
         sWeakHookReceiver = self;

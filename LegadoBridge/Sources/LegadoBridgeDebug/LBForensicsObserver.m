@@ -415,12 +415,13 @@ static void LBFEarlyWrapDiscoverAndInstall(void) {
         @"TextReadVC3", @"TextReadVC2", @"TextReadVC1",
         @"ReadVCBase2", @"ReadVCBase1", @"ReadVCBase",
     ];
+    // U0-D4：不再 early wrap loadCurCp（BC2/BC3 已证 baseline 点书即崩）。
+    // 只保留 viewDidLoad（BC4 main drain 对照仍需要）。
     for (NSString *cn in names) {
         Class cls = objc_getClass(cn.UTF8String);
         if (!cls) cls = NSClassFromString(cn);
         if (!cls) continue;
         LBFEnsureEarlyWrap(cls, @"viewDidLoad");
-        LBFEnsureEarlyWrap(cls, @"loadCurCp");
     }
     int n = objc_getClassList(NULL, 0);
     if (n <= 0) return;
@@ -432,7 +433,6 @@ static void LBFEarlyWrapDiscoverAndInstall(void) {
         if (!name) continue;
         if (strstr(name, "TextReadVC") == NULL && strstr(name, "ReadVCBase") == NULL) continue;
         LBFEnsureEarlyWrap(buf[i], @"viewDidLoad");
-        LBFEnsureEarlyWrap(buf[i], @"loadCurCp");
     }
     free(buf);
 }
