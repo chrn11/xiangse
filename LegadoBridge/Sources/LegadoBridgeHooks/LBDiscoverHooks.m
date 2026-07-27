@@ -36,7 +36,8 @@ BOOL LBIsDiscoverTabActive(void) {
 void LBSetDiscoverTabActive(BOOL active) {
     sDiscoverTabActive = active;
     if (active) {
-        sPreferDiscoverInjectUntil = [[NSDate date] timeIntervalSince1970] + 25.0;
+        // 人手点发现后需足够长窗口，避免 World 空白页盖住后 sticky 失效
+        sPreferDiscoverInjectUntil = [[NSDate date] timeIntervalSince1970] + 120.0;
     }
     NSString *line = [NSString stringWithFormat:@"discoverTab active=%d stickyUntil=%.0f",
                       active ? 1 : 0, sPreferDiscoverInjectUntil];
@@ -145,11 +146,43 @@ static void LBPopBookSearchIfNeeded(UINavigationController *nav) {
     }
 }
 
+static void LBPopBlankDiscoverCovers(UINavigationController *nav, UIViewController *keep) {
+    if (!nav) return;
+    NSArray *stack = nav.viewControllers;
+    if (stack.count <= 1) return;
+    NSMutableArray *kept = [NSMutableArray array];
+    for (UIViewController *vc in stack) {
+        if (keep && vc == keep) {
+            [kept addObject:vc];
+            continue;
+        }
+        NSString *cn = NSStringFromClass([vc class]);
+        // 空白广场/站点壳：盖住 BookSearch 发现列表
+        BOOL blankCover = [cn containsString:@"BookWorld"]
+            || [cn containsString:@"BookStore"]
+            || [cn containsString:@"Shudan"]
+            || [cn containsString:@"BookList"];
+        if (blankCover) {
+            LBDiscoverAppendMarker([NSString stringWithFormat:@"discoverHost pop cover %@", cn]);
+            continue;
+        }
+        [kept addObject:vc];
+    }
+    if (keep && ![kept containsObject:keep]) {
+        [kept addObject:keep];
+    }
+    if (kept.count == 0 || kept.count == stack.count) return;
+    @try {
+        [nav setViewControllers:kept animated:NO];
+    } @catch (__unused NSException *e) {}
+}
+
 static void LBBringPinnedDiscoverHostToFront(void) {
     UIViewController *pin = sPinnedDiscoverHost;
     if (!pin) return;
     UINavigationController *nav = pin.navigationController ?: LBDiscoverActiveNav();
     if (!nav) return;
+    LBPopBlankDiscoverCovers(nav, pin);
     if ([nav.viewControllers containsObject:pin]) {
         if (nav.topViewController != pin) {
             [nav popToViewController:pin animated:NO];
@@ -161,6 +194,18 @@ static void LBBringPinnedDiscoverHostToFront(void) {
         [nav pushViewController:pin animated:NO];
         LBDiscoverAppendMarker(@"discoverHost bringFront re-push pin");
     } @catch (__unused NSException *e) {}
+}
+
+static void LBScheduleDiscoverHostRescue(void) {
+    for (NSNumber *sec in @[ @0.15, @0.45, @1.0, @2.0 ]) {
+        double d = sec.doubleValue;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(d * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            if (!LBIsDiscoverTabActive()) return;
+            LBEnsureNativeDiscoverHostPresented();
+            LBBringPinnedDiscoverHostToFront();
+        });
+    }
 }
 
 /// 确保发现列表宿主在导航栈。
@@ -314,18 +359,15 @@ static void LBDiscover_setSquare(id self, SEL _cmd, BOOL square) {
     }
     LBSetDiscoverTabActive(square);
     if (square) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
+        LBDiscoverAppendMarker(@"discoverTab setSquare=1 → Legado host");
+        // 原生 square 会推空白 World/站点页；立刻盖 BookSearch 并多次抢救
+        dispatch_async(dispatch_get_main_queue(), ^{
             if (!LBIsDiscoverTabActive()) return;
             LBEnsureNativeDiscoverHostPresented();
             LBTriggerLegadoExploreForDiscoverTab();
             LBBringPinnedDiscoverHostToFront();
         });
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            if (!LBIsDiscoverTabActive()) return;
-            LBBringPinnedDiscoverHostToFront();
-        });
+        LBScheduleDiscoverHostRescue();
     }
 }
 
@@ -333,17 +375,45 @@ static void LBDiscover_onSegmentChanged(id self, SEL _cmd) {
     if (sOrig_onSegmentChanged) {
         sOrig_onSegmentChanged(self, _cmd);
     }
-    // 委托给分段标题扫描（与 setSelectedSegmentIndex 一致）
-    LBSelectDiscoverSegmentIfPresent();
     @try {
         id sq = [self valueForKey:@"square"];
-        if ([sq respondsToSelector:@selector(boolValue)] && [sq boolValue]) {
+        BOOL isSquare = [sq respondsToSelector:@selector(boolValue)] && [sq boolValue];
+        // 也直接看分段标题，避免 square KVC 滞后
+        BOOL segDiscover = NO;
+        @try {
+            UIView *tv = self;
+            if ([self isKindOfClass:[UIViewController class]]) {
+                UIViewController *vc = (UIViewController *)self;
+                if (vc.navigationItem.titleView) tv = vc.navigationItem.titleView;
+                else if (vc.isViewLoaded) tv = vc.view;
+            }
+            NSMutableArray *views = [NSMutableArray arrayWithObject:tv];
+            while (views.count > 0) {
+                UIView *cur = views.lastObject;
+                [views removeLastObject];
+                if ([cur isKindOfClass:[UISegmentedControl class]]) {
+                    UISegmentedControl *sc = (UISegmentedControl *)cur;
+                    NSInteger idx = sc.selectedSegmentIndex;
+                    if (idx >= 0 && idx < (NSInteger)sc.numberOfSegments) {
+                        NSString *t = [sc titleForSegmentAtIndex:(NSUInteger)idx] ?: @"";
+                        if ([t containsString:@"发现"]) segDiscover = YES;
+                    }
+                }
+                for (UIView *sub in cur.subviews) [views addObject:sub];
+            }
+        } @catch (__unused NSException *e) {}
+        if (isSquare || segDiscover) {
             LBSetDiscoverTabActive(YES);
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
+            LBDiscoverAppendMarker(@"discoverTab onSegmentChanged → explore");
+            dispatch_async(dispatch_get_main_queue(), ^{
                 if (!LBIsDiscoverTabActive()) return;
+                LBEnsureNativeDiscoverHostPresented();
                 LBTriggerLegadoExploreForDiscoverTab();
+                LBBringPinnedDiscoverHostToFront();
             });
+            LBScheduleDiscoverHostRescue();
+        } else {
+            sDiscoverTabActive = NO;
         }
     } @catch (__unused NSException *e) {}
 }
@@ -372,9 +442,12 @@ static void LBDiscover_worldAppear(id self, SEL _cmd, BOOL animated) {
         LBInstallSearchUIAppearFlush();
         if ([cn containsString:@"BookSearch"]) {
             LBTriggerLegadoExploreForDiscoverTab();
+            LBBringPinnedDiscoverHostToFront();
         } else {
-            // World/其它广场壳出现时改推 BookSearch 发现列表
+            // World/站点空白壳出现：弹出并盖 BookSearch
             LBEnsureNativeDiscoverHostPresented();
+            LBBringPinnedDiscoverHostToFront();
+            LBScheduleDiscoverHostRescue();
         }
     });
 }
@@ -456,18 +529,21 @@ static void LBDiscover_setSelectedSegmentIndex(id self, SEL _cmd, NSInteger idx)
     // 分段切回书架时不要清 sticky：deeplink/发现触发窗口内仍允许注入
     if (discover) {
         LBSetDiscoverTabActive(YES);
+        LBDiscoverAppendMarker([NSString stringWithFormat:
+                                @"discoverTab setSelectedSegmentIndex idx=%ld title=%@ discover=1 sticky=%d",
+                                (long)idx, title, LBIsDiscoverTabActive() ? 1 : 0]);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!LBIsDiscoverTabActive()) return;
+            LBEnsureNativeDiscoverHostPresented();
+            LBTriggerLegadoExploreForDiscoverTab();
+            LBBringPinnedDiscoverHostToFront();
+        });
+        LBScheduleDiscoverHostRescue();
     } else {
         sDiscoverTabActive = NO;
-    }
-    LBDiscoverAppendMarker([NSString stringWithFormat:
-                            @"discoverTab setSelectedSegmentIndex idx=%ld title=%@ discover=%d sticky=%d",
-                            (long)idx, title, discover ? 1 : 0, LBIsDiscoverTabActive() ? 1 : 0]);
-    if (discover) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            if (!LBIsDiscoverTabActive()) return;
-            LBTriggerLegadoExploreForDiscoverTab();
-        });
+        LBDiscoverAppendMarker([NSString stringWithFormat:
+                                @"discoverTab setSelectedSegmentIndex idx=%ld title=%@ discover=0 sticky=%d",
+                                (long)idx, title, LBIsDiscoverTabActive() ? 1 : 0]);
     }
 }
 
