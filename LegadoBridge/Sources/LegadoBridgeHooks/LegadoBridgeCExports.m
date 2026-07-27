@@ -7743,17 +7743,30 @@ static void LBG6RepositionToolbarOnScreen(id reader) {
     LBAppendOpenReaderTrace(@"G6 reposition disabled (keep native layout)");
 }
 
-/// pageSlider 子视图常带负 y / 超高黑底，溢出到正文成「黑块」。夹紧并 clipsToBounds。
+/// pageSlider 子视图常带负 y 气泡（进度 tip），画出父外成「黑块」。
+/// 越界子视图直接藏；禁止把空 intersection 扩成整块 bounds（曾把 tip 拉成 390×44 黑条）。
 static void LBG6SanitizePageSliderOverflow(id reader) {
     id sliderObj = LBG6ToolbarIvar(reader, @"toolBarPageSlider");
     if (![sliderObj isKindOfClass:[UIView class]]) return;
     UIView *slider = (UIView *)sliderObj;
     if (slider.hidden || slider.alpha < 0.05) return;
     slider.clipsToBounds = YES;
+
+    // 纯黑不透明底会在进度条上方「渗」出一块硬边黑
+    @try {
+        UIColor *sbg = slider.backgroundColor;
+        CGFloat r = 1, g = 1, b = 1, a = 0;
+        if (sbg && [sbg getRed:&r green:&g blue:&b alpha:&a]) {
+            if (a > 0.7 && (r + g + b) / 3.0 < 0.18) {
+                slider.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55];
+                LBAppendOpenReaderTrace(@"G6 pageSlider softBg");
+            }
+        }
+    } @catch (__unused NSException *e) {}
+
     NSMutableString *dump = [NSMutableString stringWithFormat:
-                             @"G6 pageSlider frame=%@ bg=%@ clips=1 subs=",
-                             NSStringFromCGRect(slider.frame),
-                             slider.backgroundColor ? @"set" : @"nil"];
+                             @"G6 pageSlider frame=%@ clips=1 subs=",
+                             NSStringFromCGRect(slider.frame)];
     NSInteger fixed = 0;
     NSUInteger lim = MIN(slider.subviews.count, (NSUInteger)12);
     for (NSUInteger i = 0; i < lim; i++) {
@@ -7762,58 +7775,33 @@ static void LBG6SanitizePageSliderOverflow(id reader) {
         [dump appendFormat:@" [%lu]%@ f=%@ a=%.2f",
          (unsigned long)i, NSStringFromClass([ch class]),
          NSStringFromCGRect(f), ch.alpha];
-        // 子视图顶边跑到 slider 外（负 y）或高度明显大于父：裁进父 bounds
         BOOL overflowUp = (f.origin.y < -0.5);
+        CGRect inter = CGRectIntersection(f, slider.bounds);
+        BOOL outside = CGRectIsEmpty(inter) || inter.size.height < 0.5;
+        // 进度 tip UILabel（常 y=-64）或任何完全在父外的子视图：藏掉
+        if (overflowUp || outside) {
+            ch.hidden = YES;
+            ch.alpha = 0;
+            // 收回 frame，避免下次再溢出
+            if (overflowUp) {
+                CGRect nf = f;
+                nf.origin.y = 0;
+                if (nf.size.height > slider.bounds.size.height)
+                    nf.size.height = slider.bounds.size.height;
+                ch.frame = nf;
+            }
+            fixed++;
+            [dump appendString:@"*hideOut"];
+            continue;
+        }
         BOOL tooTall = (f.size.height > slider.bounds.size.height + 8.0);
-        if (overflowUp || tooTall) {
-            CGRect nf = CGRectIntersection(f, slider.bounds);
-            if (CGRectIsEmpty(nf) || nf.size.height < 1) {
-                nf = slider.bounds;
-            }
-            ch.frame = nf;
+        if (tooTall) {
+            ch.frame = inter;
             fixed++;
-            [dump appendString:@"*clip"];
-        }
-        // 全宽深色垫层若高于父，清背景（保留按钮/滑条）
-        NSString *cn = NSStringFromClass([ch class]);
-        BOOL isCtrl = [ch isKindOfClass:[UIControl class]] ||
-                      [cn containsString:@"Slider"] ||
-                      [cn containsString:@"Button"] ||
-                      [cn containsString:@"Label"];
-        if (!isCtrl && f.size.width >= slider.bounds.size.width * 0.9) {
-            UIColor *bg = ch.backgroundColor;
-            CGFloat r = 1, g = 1, b = 1, a = 0;
-            if (bg) [bg getRed:&r green:&g blue:&b alpha:&a];
-            BOOL dark = (a > 0.2) && (r + g + b) / 3.0 < 0.25;
-            if (!dark && ch.layer.backgroundColor) {
-                UIColor *lc = [UIColor colorWithCGColor:ch.layer.backgroundColor];
-                [lc getRed:&r green:&g blue:&b alpha:&a];
-                dark = (a > 0.2) && (r + g + b) / 3.0 < 0.25;
-            }
-            // 仅当该层实际画出父外（或高度异常）才清色，避免弄没合法底
-            if (dark && (overflowUp || tooTall || f.origin.y < 0 ||
-                         CGRectGetMaxY(f) > slider.bounds.size.height + 1)) {
-                ch.backgroundColor = [UIColor clearColor];
-                ch.layer.backgroundColor = [UIColor clearColor].CGColor;
-                fixed++;
-                [dump appendString:@"*clearBg"];
-            }
+            [dump appendString:@"*clipH"];
         }
     }
-    // slider 自身若是纯黑底且盖住正文：保留半透明即可，过黑则略透明
-    @try {
-        UIColor *sbg = slider.backgroundColor;
-        CGFloat r = 1, g = 1, b = 1, a = 0;
-        if (sbg) [sbg getRed:&r green:&g blue:&b alpha:&a];
-        if (a > 0.85 && (r + g + b) / 3.0 < 0.12) {
-            slider.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55];
-            [dump appendString:@" *softSliderBg"];
-            fixed++;
-        }
-    } @catch (__unused NSException *e) {}
-    if (fixed > 0 || lim > 0) {
-        LBAppendOpenReaderTrace([NSString stringWithFormat:@"%@ fixed=%ld", dump, (long)fixed]);
-    }
+    LBAppendOpenReaderTrace([NSString stringWithFormat:@"%@ fixed=%ld", dump, (long)fixed]);
 }
 
 static BOOL LBG6ViewIsUnderChrome(id reader, UIView *v) {
@@ -7873,6 +7861,48 @@ static void LBG6HideMisplacedSidePanels(id reader) {
             chromeTop = MIN(CGRectGetMinY(bf), CGRectGetMinY(sf));
         } else {
             chromeTop = CGRectGetMinY(bf);
+        }
+    }
+
+    // 正文容器（rootSubs[0] 常为满屏 UIView）底部贴 chrome 的全宽深色条
+    if (vc.view.subviews.count > 0 && chromeTop < content.size.height) {
+        UIView *contentRoot = vc.view.subviews[0];
+        NSMutableArray<UIView *> *cstack = [NSMutableArray arrayWithObject:contentRoot];
+        NSInteger nfix = 0;
+        while (cstack.count && nfix < 4) {
+            UIView *v = cstack.lastObject;
+            [cstack removeLastObject];
+            for (UIView *ch in v.subviews) [cstack addObject:ch];
+            if (v == contentRoot) continue;
+            if (v.hidden || v.alpha < 0.15) continue;
+            if (LBG6ViewIsUnderChrome(reader, v)) continue;
+            CGRect inRoot = [v convertRect:v.bounds toView:vc.view];
+            if (inRoot.size.width < content.size.width * 0.7) continue;
+            if (inRoot.size.height < 16 || inRoot.size.height > 120) continue;
+            // 底边贴着进度条顶（±12）
+            if (fabs(CGRectGetMaxY(inRoot) - chromeTop) > 12.0 &&
+                !(CGRectGetMaxY(inRoot) > chromeTop - 4 && CGRectGetMinY(inRoot) < chromeTop)) {
+                continue;
+            }
+            UIColor *bg = v.backgroundColor;
+            CGFloat r = 1, g = 1, b = 1, a = 0;
+            BOOL dark = NO;
+            if (bg && [bg getRed:&r green:&g blue:&b alpha:&a]) {
+                dark = (a > 0.4) && (r + g + b) / 3.0 < 0.28;
+            }
+            if (!dark && v.layer.backgroundColor) {
+                UIColor *lc = [UIColor colorWithCGColor:v.layer.backgroundColor];
+                if ([lc getRed:&r green:&g blue:&b alpha:&a]) {
+                    dark = (a > 0.4) && (r + g + b) / 3.0 < 0.28;
+                }
+            }
+            if (!dark) continue;
+            v.hidden = YES;
+            v.alpha = 0;
+            nfix++;
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"G6 hideContentBlack class=%@ frame=%@",
+                                     NSStringFromClass([v class]), NSStringFromCGRect(inRoot)]);
         }
     }
 
@@ -7952,6 +7982,22 @@ static void LBG6BringToolbarToFront(id reader) {
          NSStringFromCGRect(ch.frame), ch.hidden ? 1 : 0, ch.alpha];
     }
     LBAppendOpenReaderTrace(rootDump);
+    // 正文容器近底子视图
+    if (vc.view.subviews.count > 0) {
+        UIView *cr = vc.view.subviews[0];
+        NSMutableString *cd = [NSMutableString stringWithFormat:
+                               @"G6 contentNearBottom n=%lu", (unsigned long)cr.subviews.count];
+        NSUInteger shown = 0;
+        for (UIView *ch in cr.subviews.reverseObjectEnumerator) {
+            CGRect f = ch.frame;
+            if (f.origin.y + f.size.height < 500) continue;
+            [cd appendFormat:@" [%@ f=%@ h=%d a=%.2f bg=%d]",
+             NSStringFromClass([ch class]), NSStringFromCGRect(f),
+             ch.hidden ? 1 : 0, ch.alpha, ch.backgroundColor ? 1 : 0];
+            if (++shown >= 10) break;
+        }
+        LBAppendOpenReaderTrace(cd);
+    }
     LBAppendOpenReaderTrace(@"G6 bringToolbarFront light");
 }
 
