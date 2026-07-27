@@ -7752,19 +7752,14 @@ static void LBG6SanitizePageSliderOverflow(id reader) {
     if (slider.hidden || slider.alpha < 0.05) return;
     slider.clipsToBounds = YES;
 
-    // 黑块正体：pageSlider 不透明黑底盖住正文末行。对齐 bottom 半透明，禁止纯黑实底。
+    // 黑块正体候选：pageSlider 实黑底。直接透明，只留子控件（上一章/滑条/下一章）。
     @try {
-        UIColor *matched = nil;
-        id bottomObj = LBG6ToolbarIvar(reader, @"toolBarBottom");
-        if ([bottomObj isKindOfClass:[UIView class]]) {
-            matched = ((UIView *)bottomObj).backgroundColor;
-        }
-        if (!matched) {
-            matched = [[UIColor blackColor] colorWithAlphaComponent:0.40];
-        }
-        slider.backgroundColor = matched;
+        slider.backgroundColor = [UIColor clearColor];
         slider.opaque = NO;
-        LBAppendOpenReaderTrace(@"G6 pageSlider matchBottomBg");
+        if (slider.layer.backgroundColor) {
+            slider.layer.backgroundColor = [UIColor clearColor].CGColor;
+        }
+        LBAppendOpenReaderTrace(@"G6 pageSlider clearBg");
     } @catch (__unused NSException *e) {}
 
     // 菜单显示时藏正文底栏页码条 TextRWidgetViewB；并把 UITableView 深色底改成浅色，
@@ -7916,6 +7911,58 @@ static void LBG6HideMisplacedSidePanels(id reader) {
         } else {
             chromeTop = CGRectGetMinY(bf);
         }
+    }
+
+    // 正文容器近底：扫 chromeTop 上方 100pt 带状区内所有深色垫层（真机黑条落在进度条正上方）
+    if (vc.view.subviews.count > 0 && chromeTop < content.size.height && chromeTop > 80) {
+        UIView *cr = vc.view.subviews[0];
+        CGRect band = CGRectMake(0, chromeTop - 100.0, content.size.width, 100.0);
+        NSMutableArray<UIView *> *cstack = [NSMutableArray arrayWithObject:cr];
+        NSInteger nfix = 0;
+        NSMutableString *bandDump = [NSMutableString stringWithFormat:
+                                     @"G6 band y=%.0f..%.0f", chromeTop - 100.0, chromeTop];
+        while (cstack.count && nfix < 8) {
+            UIView *v = cstack.lastObject;
+            [cstack removeLastObject];
+            for (UIView *ch in v.subviews) [cstack addObject:ch];
+            if (v == cr) continue;
+            if (v.hidden || v.alpha < 0.05) continue;
+            CGRect inRoot = [v convertRect:v.bounds toView:vc.view];
+            if (!CGRectIntersectsRect(inRoot, band)) continue;
+            NSString *cn = NSStringFromClass([v class]);
+            UIColor *bg = v.backgroundColor;
+            CGFloat r = 1, g = 1, b = 1, a = 0;
+            BOOL dark = NO;
+            if (bg && [bg getRed:&r green:&g blue:&b alpha:&a]) {
+                dark = (a > 0.25) && (r + g + b) / 3.0 < 0.40;
+            }
+            if (!dark && v.layer.backgroundColor) {
+                UIColor *lc = [UIColor colorWithCGColor:v.layer.backgroundColor];
+                if ([lc getRed:&r green:&g blue:&b alpha:&a]) {
+                    dark = (a > 0.25) && (r + g + b) / 3.0 < 0.40;
+                }
+            }
+            [bandDump appendFormat:@" [%@ f=%@ dark=%d a=%.2f]",
+             cn, NSStringFromCGRect(inRoot), dark ? 1 : 0, v.alpha];
+            // 全宽深色条：清底或藏（跳过文字控件）
+            BOOL wide = inRoot.size.width >= content.size.width * 0.55;
+            BOOL isTextish = [cn containsString:@"Label"] || [cn containsString:@"Button"] ||
+                             [cn containsString:@"TextField"] || [cn containsString:@"TextView"];
+            if (dark && wide && !isTextish) {
+                v.backgroundColor = [UIColor clearColor];
+                v.layer.backgroundColor = [UIColor clearColor].CGColor;
+                // 若高度像黑块（20~120）直接藏
+                if (inRoot.size.height >= 20 && inRoot.size.height <= 120) {
+                    v.hidden = YES;
+                    v.alpha = 0;
+                    nfix++;
+                    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                             @"G6 clearBandDark class=%@ frame=%@",
+                                             cn, NSStringFromCGRect(inRoot)]);
+                }
+            }
+        }
+        LBAppendOpenReaderTrace(bandDump);
     }
 
     // 正文容器（rootSubs[0] 常为满屏 UIView）底部贴 chrome 的全宽深色条
