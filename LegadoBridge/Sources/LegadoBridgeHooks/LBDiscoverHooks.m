@@ -66,15 +66,29 @@ static void LBCollectDiscoverHostVCs(UIViewController *vc, NSMutableArray *out) 
 }
 
 NSArray *LBFindDiscoverHostVCs(void) {
-    NSMutableArray *out = [NSMutableArray array];
+    // 发现注入只打 pinned BookListCon，避免灌进不会画 arrBaseData 的 BookWorld 空壳
     if (sPinnedDiscoverHost) {
-        [out addObject:sPinnedDiscoverHost];
+        UIViewController *pin = sPinnedDiscoverHost;
+        if (pin.isViewLoaded || pin.viewIfLoaded) {
+            return @[pin];
+        }
+        return @[pin];
     }
+    NSMutableArray *out = [NSMutableArray array];
     UIWindow *win = LBLegadoKeyWindow();
     if (win.rootViewController) {
         LBCollectDiscoverHostVCs(win.rootViewController, out);
     }
-    return out;
+    // 优先 BookListCon
+    NSMutableArray *lists = [NSMutableArray array];
+    NSMutableArray *others = [NSMutableArray array];
+    for (UIViewController *vc in out) {
+        NSString *cn = NSStringFromClass([vc class]);
+        if ([cn containsString:@"BookList"]) [lists addObject:vc];
+        else [others addObject:vc];
+    }
+    if (lists.count > 0) return lists;
+    return others;
 }
 
 static id LBLegadoManagerCore(void) {
@@ -118,12 +132,18 @@ static void LBPopBookSearchIfNeeded(UINavigationController *nav) {
     }
 }
 
-/// 确保原生发现列表宿主在导航栈（BookListCon / BookWorldHomeCon）
+/// 确保原生发现列表宿主在导航栈（仅 BookListCon，不用空白 BookWorld）
 BOOL LBEnsureNativeDiscoverHostPresented(void) {
-    NSArray *existing = LBFindDiscoverHostVCs();
-    for (UIViewController *vc in existing) {
-        if (vc.isViewLoaded && vc.view.window) {
-            sPinnedDiscoverHost = vc;
+    // 清掉误 pin 的 BookWorld
+    if (sPinnedDiscoverHost) {
+        NSString *pcn = NSStringFromClass([sPinnedDiscoverHost class]);
+        if (![pcn containsString:@"BookList"]) {
+            sPinnedDiscoverHost = nil;
+        }
+    }
+    if (sPinnedDiscoverHost) {
+        UIViewController *pin = sPinnedDiscoverHost;
+        if (pin.navigationController || (pin.isViewLoaded && pin.view.window)) {
             return YES;
         }
     }
@@ -136,12 +156,13 @@ BOOL LBEnsureNativeDiscoverHostPresented(void) {
     }
     LBPopBookSearchIfNeeded(nav);
 
-    // 栈内已有宿主则 pop 到它
+    // 栈内已有 BookList 则复用
     for (UIViewController *vc in nav.viewControllers.reverseObjectEnumerator) {
-        if (LBClassNameLooksDiscoverHost(NSStringFromClass([vc class]))) {
+        NSString *cn = NSStringFromClass([vc class]);
+        if ([cn containsString:@"BookList"]) {
             [nav popToViewController:vc animated:NO];
             sPinnedDiscoverHost = vc;
-            [@"discoverHost reuse stacked host"
+            [@"discoverHost reuse stacked BookList"
                 writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
             return YES;
@@ -149,11 +170,11 @@ BOOL LBEnsureNativeDiscoverHostPresented(void) {
     }
 
     Class cls = NSClassFromString(@"BookListCon");
-    if (!cls) cls = NSClassFromString(@"BookWorldHomeCon");
-    if (!cls) cls = NSClassFromString(@"BookStoreBaseCon");
-    if (!cls) cls = NSClassFromString(@"ShudanHomeCon");
     if (!cls) {
-        [@"discoverHost miss: no BookList/World class"
+        cls = NSClassFromString(@"BookListController");
+    }
+    if (!cls) {
+        [@"discoverHost miss: BookListCon absent"
             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         return NO;
@@ -161,12 +182,18 @@ BOOL LBEnsureNativeDiscoverHostPresented(void) {
     UIViewController *host = nil;
     @try { host = [[cls alloc] init]; } @catch (__unused NSException *e) { host = nil; }
     if (!host) {
-        [@"discoverHost miss: alloc failed"
+        @try {
+            host = [[cls alloc] initWithNibName:nil bundle:nil];
+        } @catch (__unused NSException *e) { host = nil; }
+    }
+    if (!host) {
+        [@"discoverHost miss: BookListCon alloc failed"
             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         return NO;
     }
     @try { host.title = @"发现"; } @catch (__unused NSException *e) {}
+    @try { [host setValue:@"发现" forKey:@"title"]; } @catch (__unused NSException *e) {}
     [nav pushViewController:host animated:YES];
     sPinnedDiscoverHost = host;
     NSString *line = [NSString stringWithFormat:@"discoverHost push %@", NSStringFromClass(cls)];

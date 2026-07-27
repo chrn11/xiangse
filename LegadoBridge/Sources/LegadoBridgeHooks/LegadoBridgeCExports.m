@@ -636,12 +636,13 @@ void LBInstallSearchUIAppearFlush(void) {
         method_setImplementation(m, hook);
     }
     // 兜底：有 arrBaseData+legadoBridge 时强制 numberOfRows / 填 cell
-    // 只挂 BookSearchVCBase1 自身，禁止改写共享基类（否则 BookShelfListVC 列表模式空）
-    Class base1 = NSClassFromString(@"BookSearchVCBase1");
-    if (base1) {
-        LBInstallHookOnClassOnly(base1, @selector(tableView:numberOfRowsInSection:),
+    // BookSearchVCBase1 + 发现宿主 BookListCon（World 不画 arrBaseData，不挂行数兜底以免乱）
+    for (NSString *cn in @[@"BookSearchVCBase1", @"BookListCon", @"BookListController"]) {
+        Class cls = NSClassFromString(cn);
+        if (!cls) continue;
+        LBInstallHookOnClassOnly(cls, @selector(tableView:numberOfRowsInSection:),
                                  (IMP)LBHookedNumberOfRows, &sOrigNumberOfRows);
-        LBInstallHookOnClassOnly(base1, @selector(tableView:cellForRowAtIndexPath:),
+        LBInstallHookOnClassOnly(cls, @selector(tableView:cellForRowAtIndexPath:),
                                  (IMP)LBHookedCellForRow, &sOrigCellForRow);
     }
 }
