@@ -38,3 +38,5 @@ dist/
 dist-ci/
 __pycache__/
 
+
+.audit/

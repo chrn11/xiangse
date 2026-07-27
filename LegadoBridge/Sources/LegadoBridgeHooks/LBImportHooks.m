@@ -410,6 +410,44 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                 LBOpenNativeChapterAtIndex(bookUrl, sourceUrl, idx);
                 return YES;
             }
+            // legado://nativeOpenFile?src=file://... 或 ?path=/var/.../Inbox/x.txt
+            // MCP 无法可靠触发系统 document-open；用深链把 file:// 交给本 Hook 的原生 TXT/xbs 分流。
+            BOOL wantNativeOpenFile = [host isEqualToString:@"nativeopenfile"]
+                || [host isEqualToString:@"openlocalfile"]
+                || [pathLower containsString:@"/nativeopenfile"]
+                || [pathLower containsString:@"/openlocalfile"];
+            if (wantNativeOpenFile) {
+                NSString *srcParam = LBQueryParameterFromURL(url, @"src");
+                if (srcParam.length == 0) srcParam = LBQueryParameterFromURL(url, @"path");
+                if (srcParam.length == 0) srcParam = LBQueryParameterFromURL(url, @"file");
+                NSString *decoded = srcParam.length
+                    ? ([srcParam stringByRemovingPercentEncoding] ?: srcParam)
+                    : nil;
+                NSURL *fileURL = nil;
+                if (decoded.length > 0) {
+                    if ([decoded hasPrefix:@"file:"]) {
+                        fileURL = [NSURL URLWithString:decoded];
+                        if (!fileURL) {
+                            // 容错：file:///path 解析失败时退回 path
+                            NSString *p = [decoded hasPrefix:@"file://"]
+                                ? [decoded substringFromIndex:7] : decoded;
+                            if ([p hasPrefix:@"//"]) p = [p substringFromIndex:1];
+                            fileURL = [NSURL fileURLWithPath:p];
+                        }
+                    } else if ([decoded hasPrefix:@"/"]) {
+                        fileURL = [NSURL fileURLWithPath:decoded];
+                    }
+                }
+                if (!fileURL.isFileURL) {
+                    LBLegadoShowResult(@"nativeOpenFile 缺少有效 src/path（file:// 或绝对路径）");
+                    return YES;
+                }
+                [[NSString stringWithFormat:@"openURL nativeOpenFile -> %@", fileURL.absoluteString]
+                    writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_nativeopenfile.txt"]
+                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                // 递归进入 file:// 分支：JSON→Legado 导入；TXT/xbs→原 IMP 原生分流
+                return LBAppDelegate_openURL_options_IMP(self, _cmd, application, fileURL, options ?: @{});
+            }
             // legado://read?chapterUrl=...&bookUrl=...&title=... — 直达 Bridge 阅读页（验收/旁路）
             BOOL wantRead = [host isEqualToString:@"read"] || [pathLower containsString:@"/read"];
             if (wantRead) {

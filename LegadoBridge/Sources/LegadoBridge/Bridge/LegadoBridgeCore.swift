@@ -38,7 +38,8 @@ import LegadoBridgeHooks
             let enabled = SourceRegistry.shared.allSources().filter {
                 SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl)
             }
-            NativeSourceInjector.syncToNativeManager(sources: enabled)
+            // D0：延后 sync，等原生站点表就绪后再 merge；超时放弃而非空表 save
+            NativeSourceInjector.syncToNativeManagerWhenReady(sources: enabled)
         }
         return count
     }

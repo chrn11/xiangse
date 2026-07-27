@@ -5,8 +5,8 @@
 
 ## 状态（勿误读）
 
-**U0 未关闭。终局未达成。禁止称「全部完成」。**  
-计划里几条文档/严验 todo 做完 ≠ U0 交付完成。下列待验/PENDING 仍在。
+**U0 未关闭终局。** 板子上多项已过，N06 仍 BLOCKED；终局（U1–U3 / 双源终验）未达成。禁止称「全部完成」。  
+计划里几条文档/严验 todo 做完 ≠ 终局交付完成。
 
 ## 终局口径
 
@@ -29,9 +29,9 @@
 | R | **PASS** | `verify_u0_r_doupo/` |
 | F1 | **PASS** | `verify_u0_f1_list/`，`773ee29` |
 | F2 | **PASS** | `u0-f2-strict-SUMMARY.json`，`e685ff5` |
-| F3 | **策略闭合** | 站点(3)；全量 aside |
+| F3 | **待 D 阶段** | 双源共存未实测；当前日常仍站点(3)；全量 aside 待 D2 恢复后验收。D4 未过不得开 U1 |
 | F4 | **PASS** | `verify_u0_f4/` |
-| F5 | **PASS_ENTRY** | `f5_04_check.png` |
+| F5 | **PASS_ENTRY** | `f5_04_check.png`；早间 `u0-desc-nav-SUMMARY.json` 复证检测站点 |
 | F6 | 壳 OK；内容空归书源 | 不记 Hook FAIL |
 | F7 | debug **PASS_NO_LEAK**；release **PASS_NO_LEAK**（OCR 弱，无拉丁泄漏词） | `u0-f7-release-SUMMARY.json` |
 | P | **PASS** | search_last |
@@ -42,25 +42,34 @@
 |---|---|---|
 | N01 | **PASS** | JSON 深链 import |
 | N02 | **PASS** | 深链搜索 |
-| N03 | **PASS_ENTRY** | 检测站点入口 |
+| N03 | **PASS_ENTRY** | 检测站点入口；早间复证 `检测站点(3)`+开始 |
 | N04 | **PASS** | mock 目录链 |
 | N05 | **PASS** | mock 正文 |
-| N06 | **BLOCKED** | Inbox 可拷贝但 `open_file_with_app` 不触发 openURL；无正文针。取证：`u0-n06-path-forensics.md`；人工「用其他应用打开」待验 |
+| N06 | **BLOCKED→修中** | MCP `open_file_with_app` 只拷 Inbox；`uiopen`/`file://`/`objc_invoke`(无 dumpagent) 均不投递。**自动化解法**：Bridge 已加 `legado://nativeOpenFile?path=`（`LBImportHooks.m`），装新包后用 MCP `open_url` 自测（`.test_tools/verify_u0_n06_deeplink.py`）。**不再甩人工 Open In** |
 | N07 | **PASS**（可销毁书增删，UI 元素判定） | `u0-n07-crud-SUMMARY.json` |
 | N08 | **PASS** | 阅读设置 |
-| N09 | **PENDING** | 分享面板未做完整夹具 |
+| N09 | **PASS** | 站点管理→更多→导出站点 → 系统分享板（`sourceModelList` 12KB，隔空投送/拷贝）。`u0-n09-SUMMARY.json`、`u0-n09f-after-export.png`。旧「微信」PASS 作废（导入说明假阳性） |
 | N10 | **PENDING** | 总计划例外（不开发 TTS） |
-| N11 | **PENDING** | 云同步未测 |
+| N11 | **PASS_ENTRY** | 整理→云备份入口可达；无账号夹具不做完整同步。`u0-n11-SUMMARY.json` |
+
+## 双源 UI（U0 旁证，非 U1）
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| 原生站点页 | **PASS** | `站点(3)` + 本地静态测试源/笔趣读/领域书库；`u0-dual-source-ui-SUMMARY.json`、`u0-dual-site-mgr.png` |
+| Legado 搜索 | **PASS** | search_last 仍通 |
+
+导航必须以 `describe_screen.rect` / `tap_screen` 点「整理」；`tap_element` 常假成功。
 
 ## 门禁
 
-- **禁止 U1**：U0 未全 PASS（N06/N09/N11 等仍开放）。规则：`.cursor/rules/u0-gate-before-u1.mdc`。
-- 日常站点(3)/mock；禁止当测试面恢复 900 站。
-- 计划 todo 完成 ≠ 终局完成。
+- **U0 门禁**：以本板 F/R/P/N 表为准；N06 仍 BLOCKED（有根因）；N09 PASS；N10 PENDING；N11 PASS_ENTRY。未显式批准前禁止 U1。
+- **D4 前置**：双源共存验收（计划 `双源共存到终局` D4）未过，不得开 U1。
+- **仍禁止宣称终局完成**；U1 启动须另开任务并显式确认。
+- 日常站点(3)/mock；禁止当测试面恢复 900 站。**双源终验期间显式破例**恢复全量，验完可切回三源测试面。
 
-## 本夜真实结论（2026-07-27）
+## 本晨结论（2026-07-27）
 
-已推进：双源终局表述、F2 严验、F7 release 冒烟、N 可测项留证。  
-**未完成**：U0 全 PASS、U1–U3、双源终局验收。  
-**N06**：BLOCKED（[N06 TXT导入路径取证](39f65e19-6885-4c43-a7c0-fb5047aa554f)）。MCP `open_file_with_app` 只拷 Inbox 不进 openURL；`file://` MCP 拒识；设备锁屏需密码。人工：「用其他应用打开」TXT → 香色。  
-**下一步（需解锁）**：N09 分享；N06 人工 Open In 验证后若通再修 MCP document-open。
+已推进：N09 真分享板 PASS；双源站点页 PASS；N11 云备份入口 PASS_ENTRY。  
+**N06**：不甩人工 Open In。MCP 已证实 `open_file_with_app`/uiopen/objc 均缺投递；Bridge 已实现 `legado://nativeOpenFile?path=`（待 commit→CI→装包→`verify_u0_n06_deeplink.py`）。  
+**未完成**：终局 U1–U3；N06 新包装机验收；N10 TTS 例外。
