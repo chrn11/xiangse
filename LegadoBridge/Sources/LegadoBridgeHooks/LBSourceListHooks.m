@@ -22,16 +22,21 @@ static NSArray *LBBSM_getSortedSourceNamesByPriority_IMP(id self, SEL _cmd, id p
         ? LBOrig_BSM_getSortedSourceNamesByPriority(self, _cmd, priorityType)
         : @[];
     NSArray *merged = LBMergeLegadoNames(orig);
-    NSString *priDesc = @"nil";
-    if ([priorityType isKindOfClass:[NSString class]]) priDesc = (NSString *)priorityType;
-    else if ([priorityType isKindOfClass:[NSNumber class]]) priDesc = [(NSNumber *)priorityType stringValue];
-    else if (priorityType) priDesc = NSStringFromClass([priorityType class]);
-    NSString *dbg = [NSString stringWithFormat:@"pri=%@ orig=%lu legadoMerged=%lu",
-                     priDesc,
-                     (unsigned long)(orig.count),
-                     (unsigned long)merged.count];
-    [dbg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_sorted_by_pri.txt"]
-          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+#if DEBUG
+    static dispatch_once_t onceDbg;
+    dispatch_once(&onceDbg, ^{
+        NSString *priDesc = @"nil";
+        if ([priorityType isKindOfClass:[NSString class]]) priDesc = (NSString *)priorityType;
+        else if ([priorityType isKindOfClass:[NSNumber class]]) priDesc = [(NSNumber *)priorityType stringValue];
+        else if (priorityType) priDesc = NSStringFromClass([priorityType class]);
+        NSString *dbg = [NSString stringWithFormat:@"pri=%@ orig=%lu legadoMerged=%lu",
+                         priDesc,
+                         (unsigned long)(orig.count),
+                         (unsigned long)merged.count];
+        [dbg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_sorted_by_pri.txt"]
+              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    });
+#endif
     return merged;
 }
 
@@ -39,13 +44,27 @@ static NSDictionary *LBBSM_dicModelList_IMP(id self, SEL _cmd) {
     NSDictionary *orig = LBOrig_BSM_dicModelList ? LBOrig_BSM_dicModelList(self, _cmd) : @{};
     NSArray *legadoNames = LBLegadoGetSourceNames();
     if (legadoNames.count == 0) return orig ?: @{};
+
+    // 性能：UI 会高频调 getter；同 orig 指针 + 同 Legado 名集时复用合并结果
+    static __weak NSDictionary *sCachedOrig;
+    static NSArray *sCachedLegadoNames;
+    static NSDictionary *sCachedMerged;
+    if (sCachedMerged && orig == sCachedOrig &&
+        sCachedLegadoNames.count == legadoNames.count &&
+        [sCachedLegadoNames isEqualToArray:legadoNames]) {
+        return sCachedMerged;
+    }
+
     NSMutableDictionary *merged = [orig mutableCopy];
     if (!merged) merged = [NSMutableDictionary dictionary];
     for (NSString *name in legadoNames) {
         NSDictionary *model = LBLegadoNativeModel(name);
         if (model) merged[name] = model;
     }
-    return merged;
+    sCachedOrig = orig;
+    sCachedLegadoNames = [legadoNames copy];
+    sCachedMerged = [merged copy];
+    return sCachedMerged;
 }
 
 static NSString *LBBSM_sourceTypeBySourceName_IMP(id self, SEL _cmd, NSString *name) {
@@ -72,20 +91,25 @@ static id (*LBOrig_Config_getGroupData)(id, SEL) = NULL;
 static id LBConfig_getGroupData_IMP(id self, SEL _cmd) {
     id orig = LBOrig_Config_getGroupData ? LBOrig_Config_getGroupData(self, _cmd) : nil;
     NSArray *legadoNames = LBLegadoGetSourceNames();
-    NSUInteger origNameCount = 0;
-    if ([orig isKindOfClass:[NSArray class]]) {
-        for (id section in (NSArray *)orig) {
-            if ([section isKindOfClass:[NSArray class]]) {
-                origNameCount += [(NSArray *)section count];
+#if DEBUG
+    static dispatch_once_t onceDbg;
+    dispatch_once(&onceDbg, ^{
+        NSUInteger origNameCount = 0;
+        if ([orig isKindOfClass:[NSArray class]]) {
+            for (id section in (NSArray *)orig) {
+                if ([section isKindOfClass:[NSArray class]]) {
+                    origNameCount += [(NSArray *)section count];
+                }
             }
         }
-    }
-    NSString *dbg = [NSString stringWithFormat:@"origClass=%@ origNames=%lu legado=%lu",
-                     orig ? NSStringFromClass([orig class]) : @"(nil)",
-                     (unsigned long)origNameCount,
-                     (unsigned long)legadoNames.count];
-    [dbg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_getgroupdata_hook.txt"]
-          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        NSString *dbg = [NSString stringWithFormat:@"origClass=%@ origNames=%lu legado=%lu",
+                         orig ? NSStringFromClass([orig class]) : @"(nil)",
+                         (unsigned long)origNameCount,
+                         (unsigned long)legadoNames.count];
+        [dbg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_getgroupdata_hook.txt"]
+              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    });
+#endif
     if (legadoNames.count == 0) return orig;
     // getGroupData 返回 5 段 NSArray（TOP/文本/图片/音频/视频），Legado DOM 源归入「文本/小说」段（index 1）
     if ([orig isKindOfClass:[NSArray class]]) {
