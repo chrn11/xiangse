@@ -51,6 +51,30 @@ final class RuleFixtureTests: XCTestCase {
         )
     }
 
+    func testParseExploreKindsMultilineAllTitles() {
+        let raw = """
+        玄幻魔法::http://www.kkbiquge.net/class/xuanhuanmofa/{{page}}/
+        仙侠修真::http://www.kkbiquge.net/class/xianxiaxiuzhen/{{page}}/
+        都市言情::http://www.kkbiquge.net/class/dushuyanqing/{{page}}/
+        """
+        let kinds = RuleWebBook.parseExploreKinds(raw)
+        XCTAssertEqual(kinds.count, 3)
+        XCTAssertEqual(kinds[0].title, "玄幻魔法")
+        XCTAssertEqual(kinds[1].title, "仙侠修真")
+        XCTAssertEqual(kinds[2].url, "http://www.kkbiquge.net/class/dushuyanqing/{{page}}/")
+    }
+
+    func testParseExploreKindsJSONPreservesOrder() {
+        let raw = """
+        [
+          {"title":"男生","url":"/nan/{{page}}.html"},
+          {"title":"女频","url":"/nv/{{page}}.html"}
+        ]
+        """
+        let kinds = RuleWebBook.parseExploreKinds(raw)
+        XCTAssertEqual(kinds.map(\.title), ["男生", "女频"])
+    }
+
     // MARK: - CSS
 
     func testCSSSelectorExtractsBookName() throws {

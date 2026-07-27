@@ -48,7 +48,7 @@
     },
     "_lb_remoteMissing": false,
     "eventListener": false,
-    "exploreUrl": "/zuixin/{{page}}.html",
+    "exploreUrl": "最近更新::/zuixin/{{page}}.html\n热门小说::/paihang/{{page}}.html\n连载小说::/lianzai/{{page}}.html\n完结小说::/wanjie/{{page}}.html\n玄幻小说::/xuanhuan/{{page}}.html\n仙侠小说::/xianxia/{{page}}.html\n都市小说::/dushi/{{page}}.html\n历史小说::/lishi/{{page}}.html\n科幻小说::/kehuan/{{page}}.html\n轻小说::/qing/{{page}}.html\n悬疑小说::/xuanyi/{{page}}.html\n游戏小说::/youxi/{{page}}.html\n奇幻小说::/qihuan/{{page}}.html\n诸天无限::/zhutianwuxian/{{page}}.html\n军事小说::/junshi/{{page}}.html\n重生小说::/chongsheng/{{page}}.html\n武侠小说::/wuxia/{{page}}.html\n体育小说::/tiyu/{{page}}.html\n言情小说::/yanqing/{{page}}.html",
     "ruleExplore": {
       "bookList": ".item",
       "name": "a.1@text||h2@text",
@@ -211,7 +211,7 @@
     "weight": 0,
     "lastUpdateTime": 1784180257492,
     "bookSourceUrl": "http://www.kkbiquge.net",
-    "exploreUrl": "http://www.kkbiquge.net/class/xuanhuanmofa/{{page}}/",
+    "exploreUrl": "玄幻魔法::http://www.kkbiquge.net/class/xuanhuanmofa/{{page}}/\n仙侠修真::http://www.kkbiquge.net/class/xianxiaxiuzhen/{{page}}/\n都市言情::http://www.kkbiquge.net/class/dushuyanqing/{{page}}/\n历史军事::http://www.kkbiquge.net/class/lishijunshi/{{page}}/\n网游动漫::http://www.kkbiquge.net/class/wangyoudongman/{{page}}/\n科幻小说::http://www.kkbiquge.net/class/kehuanxiaoshuo/{{page}}/\n女生小说::http://www.kkbiquge.net/class/nvshengxiaoshuo/{{page}}/\n其他小说::http://www.kkbiquge.net/class/qitaxiaoshuo/{{page}}/\n总排行榜::http://www.kkbiquge.net/rank/allvisit/{{page}}/\n月排行榜::http://www.kkbiquge.net/rank/monthvisit/{{page}}/\n周排行榜::http://www.kkbiquge.net/rank/weekvisit/{{page}}/\n收藏榜::http://www.kkbiquge.net/rank/goodnum/{{page}}/\n全本小说::http://www.kkbiquge.net/quanben/class/{{page}}/",
     "ruleToc": {
       "chapterUrl": "@href",
       "chapterName": "dd@text",
@@ -220,11 +220,11 @@
     "ruleExplore": {
       "author": ".btm a.0@text",
       "bookList": ".item",
-      "wordCount": ".btm em.orange@text",
-      "intro": "dd@text",
-      "coverUrl": ".image img@data-original",
       "bookUrl": "dt a@href",
-      "name": "dt a@text"
+      "coverUrl": ".image img@data-original",
+      "intro": "dd@text",
+      "name": "dt a@text",
+      "wordCount": ".btm em.orange@text"
     },
     "_lb_remoteMissing": false,
     "searchUrl": "{{cookie.removeCookie(source.getKey())}}http://www.kkbiquge.net/search2c.html?searchkey={{key}}",

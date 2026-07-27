@@ -285,14 +285,41 @@ static void LBTriggerLegadoExploreForDiscoverTab(void) {
         LBDiscoverAppendMarker(@"discoverTab explore skip: core/API missing");
         return;
     }
-    LBDiscoverAppendMarker([NSString stringWithFormat:@"discoverTab explore trigger hostOk=%d", hostOk ? 1 : 0]);
+    // 先画分类标签栏（Reader0：标签在上）
+    LBRefreshDiscoverKindBar();
+    // 取当前源第一分类 URL，再拉书（不再扫全部源摊平）
+    NSString *src = nil;
+    @try {
+        if ([core respondsToSelector:@selector(selectedExploreSourceUrl)]) {
+            src = [core valueForKey:@"selectedExploreSourceUrl"];
+        }
+    } @catch (__unused NSException *e) {}
+    NSString *kindUrl = nil;
+    if ([core respondsToSelector:@selector(exploreKindsJSONForSourceUrl:)]) {
+        NSString *kj = ((NSString *(*)(id, SEL, NSString *))objc_msgSend)(
+            core, @selector(exploreKindsJSONForSourceUrl:), src);
+        NSData *data = [kj dataUsingEncoding:NSUTF8StringEncoding];
+        id arr = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
+        if ([arr isKindOfClass:[NSArray class]] && [arr count] > 0) {
+            id u = arr[0][@"url"];
+            if ([u isKindOfClass:[NSString class]]) kindUrl = u;
+        }
+    }
+    LBDiscoverAppendMarker([NSString stringWithFormat:
+                            @"discoverTab explore trigger hostOk=%d src=%@ kind=%@",
+                            hostOk ? 1 : 0, src ?: @"", kindUrl ?: @"(default)"]);
     ((void (*)(id, SEL, NSString *, NSString *, NSInteger))objc_msgSend)(
         core,
         @selector(handleExploreRequestWithSourceUrl:exploreUrl:page:),
-        nil,
-        nil,
+        src,
+        kindUrl,
         1
     );
+    // 书列表灌入后再排一次布局
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        LBRefreshDiscoverKindBar();
+    });
 }
 
 static void LBSelectDiscoverSegmentIfPresent(void) {

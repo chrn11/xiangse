@@ -491,6 +491,52 @@ import LegadoBridgeHooks
 
     // MARK: - 发现
 
+    /// 当前发现源（点「切换」后写入）；空则用第一个可发现源
+    @objc public var selectedExploreSourceUrl: String? {
+        get { UserDefaults.standard.string(forKey: "legado_selected_explore_source") }
+        set {
+            if let newValue, !newValue.isEmpty {
+                UserDefaults.standard.set(newValue, forKey: "legado_selected_explore_source")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "legado_selected_explore_source")
+            }
+        }
+    }
+
+    /// 某源 exploreUrl 解析出的分类标签：[{title,url},…]
+    @objc(exploreKindsJSONForSourceUrl:)
+    public func exploreKindsJSON(forSourceUrl sourceUrl: String?) -> String {
+        let src: MemoryBridgeBookSource?
+        if let sourceUrl, !sourceUrl.isEmpty {
+            src = SourceRegistry.shared.source(forUrl: sourceUrl)
+        } else if let sel = selectedExploreSourceUrl, !sel.isEmpty {
+            src = SourceRegistry.shared.source(forUrl: sel)
+        } else {
+            src = SourceRegistry.shared.exploreCapableSources().first
+        }
+        guard let src, let raw = src.exploreUrl, !raw.isEmpty else {
+            return "[]"
+        }
+        let kinds = RuleWebBook.parseExploreKinds(raw).map { ["title": $0.title, "url": $0.url] }
+        guard let data = try? JSONSerialization.data(withJSONObject: kinds),
+              let s = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return s
+    }
+
+    /// 可发现源摘要：[{name,url},…]
+    @objc public var exploreCapableSourcesJSON: String {
+        let rows = SourceRegistry.shared.exploreCapableSources().map {
+            ["name": $0.bookSourceName ?? $0.bookSourceUrl, "url": $0.bookSourceUrl]
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: rows),
+              let s = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return s
+    }
+
     /// 触发发现请求；结果走搜索响应通知（带 fromExplore）
     @objc(handleExploreRequestWithSourceUrl:exploreUrl:page:)
     public func handleExploreRequest(sourceUrl: String?, exploreUrl: String?, page: Int) {
@@ -500,8 +546,20 @@ import LegadoBridgeHooks
                let one = SourceRegistry.shared.source(forUrl: sourceUrl),
                SourceRegistry.shared.isEnabled(url: one.bookSourceUrl) {
                 targets = [one]
+                selectedExploreSourceUrl = one.bookSourceUrl
+            } else if let sel = selectedExploreSourceUrl, !sel.isEmpty,
+                      let one = SourceRegistry.shared.source(forUrl: sel),
+                      SourceRegistry.shared.isEnabled(url: one.bookSourceUrl),
+                      one.supportsExplore {
+                targets = [one]
             } else {
-                targets = SourceRegistry.shared.exploreCapableSources()
+                // 发现页按「当前源」拉书，不再一次扫全部源摊平
+                if let first = SourceRegistry.shared.exploreCapableSources().first {
+                    targets = [first]
+                    selectedExploreSourceUrl = first.bookSourceUrl
+                } else {
+                    targets = []
+                }
             }
             guard !targets.isEmpty else {
                 postNotification(
@@ -514,6 +572,10 @@ import LegadoBridgeHooks
                     ]
                 )
                 return
+            }
+            // 换分类/换源：先清空再灌，避免旧书残留
+            await MainActor.run {
+                LBClearDiscoverExploreBooks()
             }
             var total = 0
             for source in targets {
@@ -545,21 +607,27 @@ import LegadoBridgeHooks
                         )
                     }
                     total += results.count
-                    // 逐本 post，键对齐原生 queryBook；避免 searchBook=数组导致 UI 空列表
-                    for r in results {
-                        let book = XiangseAdapter.searchBookDict(r, binding: bindings[r.bookUrl])
-                        var payload = XiangseAdapter.searchResultNotifyPayload(
-                            book: book,
-                            keyword: "explore",
-                            sourceUrl: source.bookSourceUrl,
-                            sourceName: r.sourceName
-                        )
-                        payload["fromExplore"] = true
-                        postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
-                        LBApplySearchResultsToUI([book], "explore")
+                    // 批量灌入，避免逐本 merge 刷屏
+                    let books: [[String: Any]] = results.map { r in
+                        XiangseAdapter.searchBookDict(r, binding: bindings[r.bookUrl])
+                    }
+                    if !books.isEmpty {
+                        for r in results {
+                            let book = XiangseAdapter.searchBookDict(r, binding: bindings[r.bookUrl])
+                            var payload = XiangseAdapter.searchResultNotifyPayload(
+                                book: book,
+                                keyword: "explore",
+                                sourceUrl: source.bookSourceUrl,
+                                sourceName: r.sourceName
+                            )
+                            payload["fromExplore"] = true
+                            postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
+                        }
+                        await MainActor.run {
+                            LBApplySearchResultsToUI(books, "explore")
+                        }
                     }
                     if results.isEmpty {
-                        // 空结果不 post searchBook=[]，避免原生 objectForKey 闪退
                         writeSearchMarker("explore empty src=\(source.bookSourceUrl)")
                     }
                 } catch {

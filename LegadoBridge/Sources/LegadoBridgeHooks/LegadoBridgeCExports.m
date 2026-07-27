@@ -529,8 +529,13 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                     ov.rowHeight = 64.0;
                     [host addSubview:ov];
                 }
-                ov.frame = host.bounds;
+                CGFloat topInset = 0;
+                UIView *kindBar = [host viewWithTag:0x4C424B42];
+                if (kindBar) topInset = MAX(kindBar.bounds.size.height, 40);
+                ov.frame = CGRectMake(0, topInset, host.bounds.size.width,
+                                      MAX(0, host.bounds.size.height - topInset));
                 [host bringSubviewToFront:ov];
+                if (kindBar) [host bringSubviewToFront:kindBar];
                 tv = ov;
             }
         }
@@ -545,6 +550,7 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 || [dsCls containsString:@"FilteredDataSource"]
                 || overlay;
             if (needOwnDS) {
+                LBEnsurePlazaTableDataSourceMethods([vc class]);
                 // World 原先无 DS 方法：上面已 class_addMethod，这里强制挂上
                 tv.dataSource = (id<UITableViewDataSource>)vc;
                 tv.delegate = (id<UITableViewDelegate>)vc;
@@ -925,6 +931,38 @@ static BOOL LBEnsureBookSearchVCPresented(NSString *keyword) {
     return YES;
 }
 
+void LBClearDiscoverExploreBooks(void) {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ LBClearDiscoverExploreBooks(); });
+        return;
+    }
+    @try {
+        if (sPendingSearchBooks) [sPendingSearchBooks removeAllObjects];
+        if (sLastAppliedSearchBooks) [sLastAppliedSearchBooks removeAllObjects];
+        NSArray *hosts = LBFindDiscoverHostVCs() ?: @[];
+        for (UIViewController *vc in hosts) {
+            @try { [vc setValue:[NSMutableArray array] forKey:@"arrBaseData"]; } @catch (__unused NSException *e) {}
+            @try { [vc setValue:[NSMutableArray array] forKey:@"arrSearchItems"]; } @catch (__unused NSException *e) {}
+            @try { [vc setValue:[NSMutableDictionary dictionary] forKey:@"dicSearchItems"]; } @catch (__unused NSException *e) {}
+            @try { [vc setValue:[NSMutableDictionary dictionary] forKey:@"dicAllBookList"]; } @catch (__unused NSException *e) {}
+            if (!vc.isViewLoaded || !vc.view) continue;
+            for (UIView *sub in vc.view.subviews) {
+                if (sub.tag == 0x4C425056 && [sub isKindOfClass:[UITableView class]]) {
+                    [(UITableView *)sub reloadData];
+                }
+            }
+            UITableView *tv = nil;
+            @try { tv = [vc valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
+            if ([tv isKindOfClass:[UITableView class]]) {
+                @try { [tv reloadData]; } @catch (__unused NSException *e) {}
+            }
+        }
+        [@"uiInject clear discover books"
+            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    } @catch (__unused NSException *e) {}
+}
+
 void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
     if (![books isKindOfClass:[NSArray class]] || books.count == 0) return;
     if (![NSThread isMainThread]) {
@@ -1020,13 +1058,22 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
                         [vcNames componentsJoinedByString:@","], LBIsDiscoverTabActive() ? 1 : 0];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    if (LBIsDiscoverTabActive()) {
+        LBRefreshDiscoverKindBar();
+    }
     // 原生搜索结束常回写空 FilteredDS；延迟再灌两次，并再次置顶发现壳
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (LBIsDiscoverTabActive()) LBEnsureNativeDiscoverHostPresented();
+        if (LBIsDiscoverTabActive()) {
+            LBEnsureNativeDiscoverHostPresented();
+            LBRefreshDiscoverKindBar();
+        }
         LBReapplyLastSearchBooks();
     });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (LBIsDiscoverTabActive()) LBEnsureNativeDiscoverHostPresented();
+        if (LBIsDiscoverTabActive()) {
+            LBEnsureNativeDiscoverHostPresented();
+            LBRefreshDiscoverKindBar();
+        }
         LBReapplyLastSearchBooks();
     });
     } @catch (NSException *e) {

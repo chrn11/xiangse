@@ -97,48 +97,72 @@ public enum RuleWebBook {
 
     // MARK: - 发现
 
-    /// 把 exploreUrl 收成可请求的单条地址。
-    /// 支持：单 URL；`名::url` 多行；JSON 数组 `[{title,url},…]`（取第一条有 url）。
-    public static func resolveExploreFetchURL(_ raw: String) -> String? {
+    /// 发现分类项：标签名 + 请求 URL（对齐香色/Legado explore 分类标签）
+    public struct ExploreKind: Equatable {
+        public let title: String
+        public let url: String
+        public init(title: String, url: String) {
+            self.title = title
+            self.url = url
+        }
+    }
+
+    /// 解析 exploreUrl 为全部分类（名::url 多行 / JSON kinds / 单 URL）。
+    public static func parseExploreKinds(_ raw: String) -> [ExploreKind] {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        guard !trimmed.isEmpty else { return [] }
 
         // JSON kinds：[{ "title":"…", "url":"/path/{{page}}.html" }, …]
         if trimmed.hasPrefix("[") {
+            var out: [ExploreKind] = []
             if let data = trimmed.data(using: .utf8),
                let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
                 for item in arr {
-                    if let u = item["url"] as? String {
-                        let uu = u.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !uu.isEmpty { return uu }
-                    }
+                    let u = ((item["url"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !u.isEmpty else { continue }
+                    let tRaw = (item["title"] as? String)
+                        ?? (item["name"] as? String)
+                        ?? (item["style"] as? String)
+                        ?? ""
+                    let t = tRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    out.append(ExploreKind(title: t.isEmpty ? "分类\(out.count + 1)" : t, url: u))
                 }
             }
-            return nil
+            return out
         }
 
         // 经典多行：分类名::url
         if trimmed.contains("::") && (trimmed.contains("\n") || trimmed.contains("\r")) {
+            var out: [ExploreKind] = []
             for line in trimmed.components(separatedBy: CharacterSet.newlines) {
                 let l = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !l.isEmpty, !l.hasPrefix("°"), !l.hasPrefix("☆") else { continue }
-                if let range = l.range(of: "::") {
-                    let u = String(l[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !u.isEmpty { return u }
-                }
+                guard let range = l.range(of: "::") else { continue }
+                let title = String(l[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let u = String(l[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !u.isEmpty else { continue }
+                out.append(ExploreKind(title: title.isEmpty ? "分类\(out.count + 1)" : title, url: u))
             }
-            return nil
+            return out
         }
 
         // 单行 名::url
         if trimmed.contains("::"), !trimmed.lowercased().hasPrefix("http"), !trimmed.hasPrefix("/") {
             if let range = trimmed.range(of: "::") {
+                let title = String(trimmed[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
                 let u = String(trimmed[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !u.isEmpty { return u }
+                if !u.isEmpty {
+                    return [ExploreKind(title: title.isEmpty ? "发现" : title, url: u)]
+                }
             }
         }
 
-        return trimmed
+        return [ExploreKind(title: "发现", url: trimmed)]
+    }
+
+    /// 把 exploreUrl 收成可请求的单条地址（取 parseExploreKinds 第一项）。
+    public static func resolveExploreFetchURL(_ raw: String) -> String? {
+        parseExploreKinds(raw).first?.url
     }
 
     /// 发现页列表；`url` 为空时使用源的 `exploreUrl`（自动展开分类表）
