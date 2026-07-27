@@ -7752,13 +7752,19 @@ static void LBG6SanitizePageSliderOverflow(id reader) {
     if (slider.hidden || slider.alpha < 0.05) return;
     slider.clipsToBounds = YES;
 
-    // 进度条容器纯黑底会在上一章行上方显出硬边黑条；legado 原生壳统一半透明
+    // 黑块正体：pageSlider 不透明黑底盖住正文末行。对齐 bottom 半透明，禁止纯黑实底。
     @try {
-        slider.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55];
-        if (slider.layer.backgroundColor) {
-            slider.layer.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55].CGColor;
+        UIColor *matched = nil;
+        id bottomObj = LBG6ToolbarIvar(reader, @"toolBarBottom");
+        if ([bottomObj isKindOfClass:[UIView class]]) {
+            matched = ((UIView *)bottomObj).backgroundColor;
         }
-        LBAppendOpenReaderTrace(@"G6 pageSlider forceSoftBg");
+        if (!matched) {
+            matched = [[UIColor blackColor] colorWithAlphaComponent:0.40];
+        }
+        slider.backgroundColor = matched;
+        slider.opaque = NO;
+        LBAppendOpenReaderTrace(@"G6 pageSlider matchBottomBg");
     } @catch (__unused NSException *e) {}
 
     // 菜单显示时藏正文底栏页码条 TextRWidgetViewB；并把 UITableView 深色底改成浅色，
