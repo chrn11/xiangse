@@ -495,7 +495,7 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                 [[NSString stringWithFormat:@"openURL discoverTab force explore"]
                     writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                // 尝试把顶栏分段切到「发现」
+                // 只切「书架|发现」分段到发现，并推出原生 BookList/World 宿主
                 @try {
                     UIWindow *win = LBLegadoKeyWindow();
                     UIViewController *root = win.rootViewController;
@@ -504,25 +504,27 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                     while (stack.count > 0) {
                         UIViewController *vc = stack.lastObject;
                         [stack removeLastObject];
-                        UIView *view = vc.isViewLoaded ? vc.view : nil;
-                        NSMutableArray *vstack = [NSMutableArray array];
-                        if (view) [vstack addObject:view];
-                        if (vc.navigationItem.titleView) [vstack addObject:vc.navigationItem.titleView];
-                        while (vstack.count > 0) {
-                            UIView *cur = vstack.lastObject;
-                            [vstack removeLastObject];
+                        NSMutableArray *views = [NSMutableArray array];
+                        if (vc.isViewLoaded && vc.view) [views addObject:vc.view];
+                        if (vc.navigationItem.titleView) [views addObject:vc.navigationItem.titleView];
+                        while (views.count > 0) {
+                            UIView *cur = views.lastObject;
+                            [views removeLastObject];
                             if ([cur isKindOfClass:[UISegmentedControl class]]) {
                                 UISegmentedControl *sc = (UISegmentedControl *)cur;
+                                BOOL hasShelf = NO;
+                                NSInteger discoverIdx = -1;
                                 for (NSUInteger i = 0; i < sc.numberOfSegments; i++) {
                                     NSString *t = [sc titleForSegmentAtIndex:i] ?: @"";
-                                    if ([t containsString:@"发现"]) {
-                                        sc.selectedSegmentIndex = (NSInteger)i;
-                                        [sc sendActionsForControlEvents:UIControlEventValueChanged];
-                                        break;
-                                    }
+                                    if ([t containsString:@"书架"]) hasShelf = YES;
+                                    if ([t containsString:@"发现"]) discoverIdx = (NSInteger)i;
+                                }
+                                if (hasShelf && discoverIdx >= 0) {
+                                    sc.selectedSegmentIndex = discoverIdx;
+                                    [sc sendActionsForControlEvents:UIControlEventValueChanged];
                                 }
                             }
-                            for (UIView *sub in cur.subviews) [vstack addObject:sub];
+                            for (UIView *sub in cur.subviews) [views addObject:sub];
                         }
                         if ([vc respondsToSelector:@selector(setSquare:)]) {
                             ((void (*)(id, SEL, BOOL))objc_msgSend)(vc, @selector(setSquare:), YES);
@@ -536,7 +538,8 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                         }
                     }
                 } @catch (__unused NSException *e) {}
-                wantExplore = YES; // 接着走 explore（全源）
+                LBEnsureNativeDiscoverHostPresented();
+                wantExplore = YES;
             }
             if (wantExplore) {
                 NSString *sourceUrl = LBQueryParameterFromURL(url, @"sourceUrl");

@@ -64,6 +64,8 @@ void LBInstallRuntimeValidateHooks(void);
 BOOL LBIsDiscoverTabActive(void);
 void LBSetDiscoverTabActive(BOOL active);
 NSArray *LBFindDiscoverHostVCs(void);
+/// 推出/复用原生 BookList/BookWorld 作为发现列表宿主
+BOOL LBEnsureNativeDiscoverHostPresented(void);
 /// Legado 阅读护栏：消毒 dicBook/站点后走原生 openReader；点章失败再 Bridge
 void LBInstallLegadoReaderKillSwitch(void);
 

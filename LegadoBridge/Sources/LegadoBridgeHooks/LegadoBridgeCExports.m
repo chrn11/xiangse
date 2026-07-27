@@ -646,43 +646,32 @@ void LBInstallSearchUIAppearFlush(void) {
     }
 }
 
-/// 发现/搜索有结果但尚未打开原生搜索页时：push BookSearchController，避免「引擎有书、界面空白」。
-/// 顶栏「发现」激活时优先灌 BookWorld/书单等宿主，不抢 push 搜索页。
+/// 发现态：只灌原生 BookList/BookWorld，禁止抢 push BookSearch。
 static BOOL LBEnsureBookSearchVCPresented(NSString *keyword) {
     if (LBIsDiscoverTabActive()) {
+        BOOL hostOk = LBEnsureNativeDiscoverHostPresented();
         NSArray *hosts = LBFindDiscoverHostVCs();
-        if (hosts.count > 0) {
-            for (UIViewController *vc in hosts) {
-                LBSetSearchKeywordOnVC(vc, keyword.length > 0 ? keyword : @"explore");
-            }
-            [@"ensureSearch prefer discover hosts (no BookSearch push)"
-                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
-                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-            return YES;
+        for (UIViewController *vc in hosts) {
+            LBSetSearchKeywordOnVC(vc, keyword.length > 0 ? keyword : @"explore");
         }
-        // 发现 Tab 已亮但宿主尚未入树：先挂 pending，等 BookWorld appear；勿抢 push 搜索页
-        [@"ensureSearch defer: discover active, wait host appear"
-            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        // 2.5s 后仍无宿主则回退 push 搜索页，避免顶栏发现永久空白
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            if (!LBIsDiscoverTabActive()) return;
-            if (LBFindDiscoverHostVCs().count > 0) return;
-            if (sPendingSearchBooks.count == 0 && sLastAppliedSearchBooks.count == 0) return;
-            LBSetDiscoverTabActive(NO); // 临时允许 push
-            LBEnsureBookSearchVCPresented(keyword.length ? keyword : @"explore");
-            LBSetDiscoverTabActive(YES);
-            if (sPendingSearchBooks.count > 0) {
-                LBApplySearchResultsToUI([sPendingSearchBooks copy], keyword.length ? keyword : @"explore");
-            } else if (sLastAppliedSearchBooks.count > 0) {
-                LBApplySearchResultsToUI([sLastAppliedSearchBooks copy], keyword.length ? keyword : @"explore");
-            }
-            [@"ensureSearch fallback push BookSearch after discover wait"
-                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
-                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        });
-        return YES;
+        NSString *marker = [NSString stringWithFormat:
+                            @"ensureSearch discover-native hostOk=%d hosts=%lu key=%@",
+                            hostOk ? 1 : 0, (unsigned long)hosts.count, keyword ?: @""];
+        [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        // 宿主刚 push 可能尚未入树：短延迟再 Apply 一次 pending
+        if (hostOk) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                if (sPendingSearchBooks.count > 0) {
+                    LBApplySearchResultsToUI([sPendingSearchBooks copy],
+                                            keyword.length ? keyword : @"explore");
+                } else if (sLastAppliedSearchBooks.count > 0) {
+                    LBReapplyLastSearchBooks();
+                }
+            });
+        }
+        return hostOk || hosts.count > 0;
     }
     NSArray *existing = LBFindBookSearchVCs();
     for (UIViewController *vc in existing) {
@@ -9741,7 +9730,8 @@ void LBInstallCatalogUIAppearFlush(void) {
     static dispatch_once_t onceSearchSel;
     dispatch_once(&onceSearchSel, ^{ sSearchSelHooked = [NSMutableSet set]; });
     SEL selSel = @selector(tableView:didSelectRowAtIndexPath:);
-    for (NSString *cn in @[@"BookSearchController", @"BookSearchVCBase1", @"BookSearchVCBase2"]) {
+    for (NSString *cn in @[@"BookSearchController", @"BookSearchVCBase1", @"BookSearchVCBase2",
+                           @"BookListCon", @"BookWorldHomeCon", @"BookStoreBaseCon", @"ShudanHomeCon"]) {
         Class cls = NSClassFromString(cn);
         if (!cls) continue;
         Class owner = LBClassOwningInstanceMethod(cls, selSel) ?: cls;
