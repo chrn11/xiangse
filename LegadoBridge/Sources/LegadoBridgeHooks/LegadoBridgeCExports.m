@@ -489,7 +489,13 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
 
 static void LBReapplyLastSearchBooks(void) {
     if (sLastAppliedSearchBooks.count == 0) return;
-    NSArray *vcs = LBFindBookSearchVCs();
+    NSMutableArray *vcs = [NSMutableArray array];
+    [vcs addObjectsFromArray:LBFindBookSearchVCs() ?: @[]];
+    if (LBIsDiscoverTabActive()) {
+        for (id h in (LBFindDiscoverHostVCs() ?: @[])) {
+            if (![vcs containsObject:h]) [vcs addObject:h];
+        }
+    }
     if (vcs.count == 0) return;
     NSString *kw = sPendingSearchKeyword;
     for (UIViewController *vc in vcs) {
@@ -641,7 +647,43 @@ void LBInstallSearchUIAppearFlush(void) {
 }
 
 /// 发现/搜索有结果但尚未打开原生搜索页时：push BookSearchController，避免「引擎有书、界面空白」。
+/// 顶栏「发现」激活时优先灌 BookWorld/书单等宿主，不抢 push 搜索页。
 static BOOL LBEnsureBookSearchVCPresented(NSString *keyword) {
+    if (LBIsDiscoverTabActive()) {
+        NSArray *hosts = LBFindDiscoverHostVCs();
+        if (hosts.count > 0) {
+            for (UIViewController *vc in hosts) {
+                LBSetSearchKeywordOnVC(vc, keyword.length > 0 ? keyword : @"explore");
+            }
+            [@"ensureSearch prefer discover hosts (no BookSearch push)"
+                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            return YES;
+        }
+        // 发现 Tab 已亮但宿主尚未入树：先挂 pending，等 BookWorld appear；勿抢 push 搜索页
+        [@"ensureSearch defer: discover active, wait host appear"
+            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        // 2.5s 后仍无宿主则回退 push 搜索页，避免顶栏发现永久空白
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            if (!LBIsDiscoverTabActive()) return;
+            if (LBFindDiscoverHostVCs().count > 0) return;
+            if (sPendingSearchBooks.count == 0 && sLastAppliedSearchBooks.count == 0) return;
+            LBSetDiscoverTabActive(NO); // 临时允许 push
+            LBEnsureBookSearchVCPresented(keyword.length ? keyword : @"explore");
+            LBSetDiscoverTabActive(YES);
+            if (sPendingSearchBooks.count > 0) {
+                LBApplySearchResultsToUI([sPendingSearchBooks copy], keyword.length ? keyword : @"explore");
+            } else if (sLastAppliedSearchBooks.count > 0) {
+                LBApplySearchResultsToUI([sLastAppliedSearchBooks copy], keyword.length ? keyword : @"explore");
+            }
+            [@"ensureSearch fallback push BookSearch after discover wait"
+                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        });
+        return YES;
+    }
     NSArray *existing = LBFindBookSearchVCs();
     for (UIViewController *vc in existing) {
         if (LBVCIsVisibleInWindow(vc)) {
@@ -723,25 +765,39 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
     if (keyword.length > 0) sPendingSearchKeyword = [keyword copy];
 
     NSArray *vcs = LBFindBookSearchVCs();
+    NSArray *discoverHosts = LBIsDiscoverTabActive() ? LBFindDiscoverHostVCs() : @[];
     // 每次 Apply 都 dump，便于对照「空列表」实际持有者
     LBDumpVisibleVCTree();
-    if (vcs.count == 0) {
+    if (vcs.count == 0 && discoverHosts.count == 0) {
         BOOL ensured = LBEnsureBookSearchVCPresented(keyword);
         vcs = LBFindBookSearchVCs();
-        if (vcs.count == 0) {
+        if (LBIsDiscoverTabActive()) {
+            discoverHosts = LBFindDiscoverHostVCs();
+        }
+        if (vcs.count == 0 && discoverHosts.count == 0) {
             NSString *marker = [NSString stringWithFormat:
-                                @"uiInject pending n=%lu key=%@ (no BookSearchVC yet ensure=%d)",
-                                (unsigned long)sPendingSearchBooks.count, keyword ?: @"", ensured ? 1 : 0];
+                                @"uiInject pending n=%lu key=%@ (no BookSearchVC/discoverHost yet ensure=%d discover=%d)",
+                                (unsigned long)sPendingSearchBooks.count, keyword ?: @"",
+                                ensured ? 1 : 0, LBIsDiscoverTabActive() ? 1 : 0];
             [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
             return;
         }
     }
+    NSMutableArray *targets = [NSMutableArray array];
+    if (discoverHosts.count > 0) {
+        [targets addObjectsFromArray:discoverHosts];
+    }
+    if (targets.count == 0 && vcs.count > 0) {
+        [targets addObjectsFromArray:vcs];
+    } else if (discoverHosts.count > 0 && vcs.count > 0 && !LBIsDiscoverTabActive()) {
+        [targets addObjectsFromArray:vcs];
+    }
     NSUInteger applied = 0;
     if (!sLastAppliedSearchBooks) sLastAppliedSearchBooks = [NSMutableArray array];
     [sLastAppliedSearchBooks removeAllObjects];
     NSMutableArray *vcNames = [NSMutableArray array];
-    for (UIViewController *vc in vcs) {
+    for (UIViewController *vc in targets) {
         [vcNames addObject:[NSString stringWithFormat:@"%@%@",
                             NSStringFromClass([vc class]),
                             LBVCIsVisibleInWindow(vc) ? @"*" : @""]];
@@ -758,9 +814,9 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
         }
     }
     [sPendingSearchBooks removeAllObjects];
-    NSString *marker = [NSString stringWithFormat:@"uiInject ok vcs=%lu applied=%lu key=%@ targets=%@",
-                        (unsigned long)vcs.count, (unsigned long)applied, keyword ?: @"",
-                        [vcNames componentsJoinedByString:@","]];
+    NSString *marker = [NSString stringWithFormat:@"uiInject ok vcs=%lu applied=%lu key=%@ targets=%@ discover=%d",
+                        (unsigned long)targets.count, (unsigned long)applied, keyword ?: @"",
+                        [vcNames componentsJoinedByString:@","], LBIsDiscoverTabActive() ? 1 : 0];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     // 原生搜索结束常回写空 FilteredDS；延迟再灌两次

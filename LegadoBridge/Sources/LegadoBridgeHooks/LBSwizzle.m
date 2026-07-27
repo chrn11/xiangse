@@ -20,6 +20,7 @@ void LBInstallHooks(void) {
         LBInstallSearchHooks();
         LBInstallSourceListHooks();
         LBInstallReadingHooks();
+        LBInstallDiscoverTabHooks();
         LBCapabilityPersistMarker();
         NSLog(@"[LegadoBridge] hooks installed, version=%@ diag=%d",
               LBBridgeVersion(), (int)LBDiagProbesEnabled());

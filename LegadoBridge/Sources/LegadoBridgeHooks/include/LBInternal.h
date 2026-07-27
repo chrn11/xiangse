@@ -58,7 +58,12 @@ void LBInstallOpenURLHook(void);
 void LBInstallSearchHooks(void);
 void LBInstallSourceListHooks(void);
 void LBInstallReadingHooks(void);
+void LBInstallDiscoverTabHooks(void);
 void LBInstallRuntimeValidateHooks(void);
+/// 顶栏「发现」是否处于激活（setSquare / segment）
+BOOL LBIsDiscoverTabActive(void);
+void LBSetDiscoverTabActive(BOOL active);
+NSArray *LBFindDiscoverHostVCs(void);
 /// Legado 阅读护栏：消毒 dicBook/站点后走原生 openReader；点章失败再 Bridge
 void LBInstallLegadoReaderKillSwitch(void);
 
