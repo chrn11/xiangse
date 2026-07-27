@@ -78,9 +78,16 @@
 
 U1 **PASS**：`8a41b73` 搜索点书走 CatalogCon（禁 BookDetail 上栈），灌入 1914 章后点章进原生正文。
 
-### U2（进行中）
+### U2 **PASS**（2026-07-27）
 
-- **取证**：原版 `ConfigSourceModelListCon` 已能搜到三 Legado；点行旧路径进桥接管理列表。见 `u2-site-mgr-phase-diff.md`。
-- **实现**：点行改 `LBLegadoPresentSourceEditor`（返回落原版列表）；「书源」按钮保留完整管理页回退。
-- **门禁**：待本轮 CI 装机后按 diff 文末 4 条验收；**U2 未 PASS 前不开 U3**。
-- **U0 仍未宣称整包终局**（U2/U3 未过）。
+- **取证**：原版 `ConfigSourceModelListCon` 搜得到三 Legado；旧点行经桥接管理列表。见 `u2-site-mgr-phase-diff.md`。
+- **实现**：`d6a945d` 点行 `LBLegadoPresentSourceEditor`；返回落原版站点列表；「书源」按钮保留完整管理页。
+- **CI**：`30244810390`；IPA `dist-ci-run-30244810390/.../StandarReader-legado-bridge-debug.ipa`。
+- **真机门禁**：`u2-gate-SUMMARY.json` → **PASS**（搜笔趣读 / 进编辑 / 返回原版列表 / 「书源」回退）。
+- **下一刀 U3**（原版导入入口替换 UIAlert）；**U3 未 PASS 前不开终局宣称**。
+- **U0 仍未宣称整包终局**（U3 未过）。
+
+### U3（进行中）
+
+- **取证**：原版「导入」点后 a11y 无变化；UIAlert 仅桥接 `+`。见 `u3-import-phase-diff.md`。
+- **实现**：`LBLegadoPresentNativeImport` → `ConfigSourceModelSyncCon`；「导入」按钮与 ShowImportAlert 优先走原版；UIAlert 回退。

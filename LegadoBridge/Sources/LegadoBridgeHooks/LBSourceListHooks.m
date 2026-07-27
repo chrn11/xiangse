@@ -596,6 +596,7 @@ void LBInstallSourceListHooks(void) {
 @interface LBLegadoBarButtonTarget : NSObject
 + (instancetype)shared;
 - (void)onLegadoTapped;
+- (void)onNativeImportTapped;
 @end
 
 @implementation LBLegadoBarButtonTarget
@@ -607,6 +608,12 @@ void LBInstallSourceListHooks(void) {
 }
 - (void)onLegadoTapped {
     LBPresentLegadoSourceManager(nil);
+}
+- (void)onNativeImportTapped {
+    // U3：原版「导入」→ ConfigSourceModelSyncCon；失败再 UIAlert（含 Legado URL/粘贴）
+    if (!LBLegadoPresentNativeImport()) {
+        LBShowLegadoImportAlert();
+    }
 }
 @end
 
@@ -635,18 +642,30 @@ static void LBInstallNativeSourceListLegadoButton(void) {
             if (![selfObj isKindOfClass:[UIViewController class]]) return;
             UIViewController *vc = (UIViewController *)selfObj;
             UINavigationItem *item = vc.navigationItem;
+            BOOL hasLegadoBtn = NO;
             for (UIBarButtonItem *bi in item.rightBarButtonItems ?: @[]) {
-                if ([bi.accessibilityIdentifier isEqualToString:@"legado.manage.entry"]) return;
+                if ([bi.accessibilityIdentifier isEqualToString:@"legado.manage.entry"]) {
+                    hasLegadoBtn = YES;
+                }
+                // U3：把原版「导入」接到 SyncCon / Legado 导入链（标识防重复绑）
+                if ([bi.title isEqualToString:@"导入"] &&
+                    ![bi.accessibilityIdentifier isEqualToString:@"legado.import.entry"]) {
+                    bi.target = [LBLegadoBarButtonTarget shared];
+                    bi.action = @selector(onNativeImportTapped);
+                    bi.accessibilityIdentifier = @"legado.import.entry";
+                }
             }
-            UIBarButtonItem *legadoBtn = [[UIBarButtonItem alloc]
-                initWithTitle:@"书源"
-                style:UIBarButtonItemStylePlain
-                target:[LBLegadoBarButtonTarget shared]
-                action:@selector(onLegadoTapped)];
-            legadoBtn.accessibilityIdentifier = @"legado.manage.entry";
-            NSMutableArray *rights = [item.rightBarButtonItems mutableCopy] ?: [NSMutableArray array];
-            [rights insertObject:legadoBtn atIndex:0];
-            item.rightBarButtonItems = rights;
+            if (!hasLegadoBtn) {
+                UIBarButtonItem *legadoBtn = [[UIBarButtonItem alloc]
+                    initWithTitle:@"书源"
+                    style:UIBarButtonItemStylePlain
+                    target:[LBLegadoBarButtonTarget shared]
+                    action:@selector(onLegadoTapped)];
+                legadoBtn.accessibilityIdentifier = @"legado.manage.entry";
+                NSMutableArray *rights = [item.rightBarButtonItems mutableCopy] ?: [NSMutableArray array];
+                [rights insertObject:legadoBtn atIndex:0];
+                item.rightBarButtonItems = rights;
+            }
         });
         method_setImplementation(m, hook);
         [installed addObject:ownerKey];

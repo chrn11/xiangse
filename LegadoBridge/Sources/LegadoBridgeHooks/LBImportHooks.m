@@ -166,6 +166,10 @@ void LBLegadoShowImportAlert(void) {
         });
         return;
     }
+    // U3：优先原版 ConfigSourceModelSyncCon；失败或 force_alert 再 UIAlert
+    if (LBLegadoPresentNativeImport()) {
+        return;
+    }
     UIWindow *window = LBLegadoKeyWindow();
     if (!window) {
         // 冷启动窗口未就绪时短暂重试，避免弹窗静默失败

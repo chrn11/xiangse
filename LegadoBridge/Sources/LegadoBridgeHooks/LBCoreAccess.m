@@ -283,6 +283,74 @@ void LBLegadoPresentSourceEditor(NSString *sourceUrl) {
     }
 }
 
+BOOL LBLegadoPresentNativeImport(void) {
+    if (![NSThread isMainThread]) {
+        __block BOOL ok = NO;
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            ok = LBLegadoPresentNativeImport();
+        });
+        return ok;
+    }
+    // 回退：Documents/legado_u3_force_alert.txt 强制 UIAlert
+    NSString *forceAlert = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_force_alert.txt"];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:forceAlert]) {
+        [@"SKIP force_alert" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_import.txt"]
+                              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return NO;
+    }
+    Class syncCls = NSClassFromString(@"ConfigSourceModelSyncCon");
+    if (!syncCls) {
+        [@"FAIL no ConfigSourceModelSyncCon" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_import.txt"]
+                                              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return NO;
+    }
+    UIViewController *vc = nil;
+    @try {
+        vc = [[syncCls alloc] init];
+    } @catch (NSException *e) {
+        NSString *msg = [NSString stringWithFormat:@"FAIL init exception %@", e.reason ?: @""];
+        [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_import.txt"]
+              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return NO;
+    }
+    if (!vc) {
+        [@"FAIL init nil" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_import.txt"]
+                           atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return NO;
+    }
+    UINavigationController *nav = LBLegadoVisibleNavigationController();
+    if (nav) {
+        // 避免重复叠同一页
+        for (UIViewController *top in nav.viewControllers) {
+            if ([top isKindOfClass:syncCls]) {
+                [@"OK already_on_stack" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_import.txt"]
+                                         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                return YES;
+            }
+        }
+        [nav pushViewController:vc animated:YES];
+        [@"OK push ConfigSourceModelSyncCon" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_import.txt"]
+                                               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return YES;
+    }
+    UIWindow *window = LBLegadoKeyWindow();
+    UIViewController *rootVC = window.rootViewController;
+    while (rootVC.presentedViewController) {
+        rootVC = rootVC.presentedViewController;
+    }
+    if (!rootVC) {
+        [@"FAIL no rootVC" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_import.txt"]
+                            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return NO;
+    }
+    UINavigationController *wrapNav = [[UINavigationController alloc] initWithRootViewController:vc];
+    wrapNav.modalPresentationStyle = UIModalPresentationFullScreen;
+    [rootVC presentViewController:wrapNav animated:YES completion:nil];
+    [@"OK present ConfigSourceModelSyncCon" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_import.txt"]
+                                              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    return YES;
+}
+
 Class LBClassOwningInstanceMethod(Class cls, SEL sel) {
     while (cls) {
         unsigned int count = 0;
