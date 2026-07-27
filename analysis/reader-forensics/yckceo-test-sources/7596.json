@@ -1,0 +1,61 @@
+[
+  {
+    "bookSourceComment": "搜索间隔5秒",
+    "bookSourceGroup": "",
+    "bookSourceName": "圣墟小说网",
+    "bookSourceType": 0,
+    "bookSourceUrl": "http://www.shengxuxu.net",
+    "bookUrlPattern": "http.*shengxuxu.net/book_\\d+/",
+    "customButton": false,
+    "customOrder": 2,
+    "enabled": true,
+    "enabledCookieJar": true,
+    "enabledExplore": true,
+    "eventListener": false,
+    "header": "{\"User-Agent\": \"Mozilla/5.0 (Linux; Android 9) Mobile Safari/537.36\"}",
+    "lastUpdateTime": "1784359593955",
+    "respondTime": 180000,
+    "ruleBookInfo": {
+      "author": "@get:{a}",
+      "coverUrl": "@get:{c}",
+      "init": "@put:{n:\"[property$=book_name]@content\",\n\ta:\"[property$=author]@content\",\nk:\"[property~=category|status|update_time]@content\",\nl:\"[property$=lastest_chapter_name]@content\",\ni:\"[property$=description]@content\",\nc:\"[property$=image]@content\"}",
+      "intro": "@get:{i}",
+      "kind": "@get:{k}",
+      "lastChapter": "@get:{l}",
+      "name": "@get:{n}"
+    },
+    "ruleContent": {
+      "content": ".content@html##.本章完.|^一秒记住ｈｔｔｐs://ｍ\\.\\/?$",
+      "nextContentUrl": "text.下一页@href"
+    },
+    "ruleExplore": {
+      "author": ".s4@text",
+      "bookList": ".librarylist li",
+      "bookUrl": "a:nth-child(1)@href",
+      "coverUrl": "tag.img@src",
+      "intro": "@get:{i}",
+      "kind": ".info span:nth-child(2)@text",
+      "lastChapter": "a:nth-child(1)@text",
+      "name": ".info span:nth-child(1)@text ##.*《|》.*"
+    },
+    "ruleSearch": {
+      "author": ".info span:nth-child(2)@text",
+      "bookList": ".librarylist li ",
+      "bookUrl": "a:nth-child(1)@href",
+      "coverUrl": "a.0@href##\\D((\\d+)\\d{3})##http://www.shengxuxu.net/headimgs/$2/$1/s$1.jpg###\na.0@href##\\/(\\d+)$##$1###",
+      "intro": "@get:{i}",
+      "kind": ".info span:nth-child(3) a@text",
+      "lastChapter": ".last@text",
+      "name": ".info span:nth-child(1)@text ##.*《|》.*"
+    },
+    "ruleToc": {
+      "chapterList": ".dirlist@li",
+      "chapterName": "a@text",
+      "chapterUrl": "a@href",
+      "nextTocUrl": "option@value||text.下一页@href"
+    },
+    "searchUrl": "/search.html?/,{\n \"body\": \"searchkey={{key}}\",\n \"method\": \"POST\"\n}",
+    "weight": 0,
+    "exploreUrl": "总点击榜::/top/allvisit/{{page}}.html\n月点击榜::/top/monthvisit/{{page}}.html\n周点击榜::/top/weekvisit/{{page}}.html\n收藏榜::/top/marknum/{{page}}.html\n推荐榜::/top/votenum/{{page}}.html\n全部小说::/sort/all/{{page}}.html\n玄幻小说::/sort/xuanhuan/{{page}}.html\n奇幻小说::/sort/qihuan/{{page}}.html\n武侠小说::/sort/wuxia/{{page}}.html\n仙侠小说::/sort/xianxia/{{page}}.html\n都市小说::/sort/dushi/{{page}}.html\n历史小说::/sort/lishi/{{page}}.html\n军事小说::/sort/junshi/{{page}}.html\n游戏小说::/sort/youxi/{{page}}.html\n科幻小说::/sort/kehuan/{{page}}.html\n灵异小说::/sort/lingyi/{{page}}.html\n其他小说::/sort/qita/{{page}}.html"
+  }
+]

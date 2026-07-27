@@ -18,6 +18,39 @@ final class RuleFixtureTests: XCTestCase {
         json = try String(contentsOf: jsonURL, encoding: .utf8)
     }
 
+    // MARK: - 发现 URL 展开
+
+    func testResolveExploreFetchURLClassicMultiline() {
+        let raw = """
+        玄幻::/fenlei/xuanhuan/{{page}}/
+        都市::/fenlei/dushi/{{page}}/
+        """
+        XCTAssertEqual(
+            RuleWebBook.resolveExploreFetchURL(raw),
+            "/fenlei/xuanhuan/{{page}}/"
+        )
+    }
+
+    func testResolveExploreFetchURLJSONKindsSkipsEmpty() {
+        let raw = """
+        [
+          {"title":"榜单","url":""},
+          {"title":"总点击榜","url":"/top/allvisit/{{page}}.html"}
+        ]
+        """
+        XCTAssertEqual(
+            RuleWebBook.resolveExploreFetchURL(raw),
+            "/top/allvisit/{{page}}.html"
+        )
+    }
+
+    func testResolveExploreFetchURLPlainHttp() {
+        XCTAssertEqual(
+            RuleWebBook.resolveExploreFetchURL("https://example.com/explore"),
+            "https://example.com/explore"
+        )
+    }
+
     // MARK: - CSS
 
     func testCSSSelectorExtractsBookName() throws {

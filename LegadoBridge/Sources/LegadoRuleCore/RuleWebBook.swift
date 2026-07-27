@@ -97,17 +97,64 @@ public enum RuleWebBook {
 
     // MARK: - 发现
 
-    /// 发现页列表；`url` 为空时使用源的 `exploreUrl`
+    /// 把 exploreUrl 收成可请求的单条地址。
+    /// 支持：单 URL；`名::url` 多行；JSON 数组 `[{title,url},…]`（取第一条有 url）。
+    public static func resolveExploreFetchURL(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        // JSON kinds：[{ "title":"…", "url":"/path/{{page}}.html" }, …]
+        if trimmed.hasPrefix("[") {
+            if let data = trimmed.data(using: .utf8),
+               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                for item in arr {
+                    if let u = item["url"] as? String {
+                        let uu = u.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !uu.isEmpty { return uu }
+                    }
+                }
+            }
+            return nil
+        }
+
+        // 经典多行：分类名::url
+        if trimmed.contains("::") && (trimmed.contains("\n") || trimmed.contains("\r")) {
+            for line in trimmed.components(separatedBy: CharacterSet.newlines) {
+                let l = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !l.isEmpty, !l.hasPrefix("°"), !l.hasPrefix("☆") else { continue }
+                if let range = l.range(of: "::") {
+                    let u = String(l[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !u.isEmpty { return u }
+                }
+            }
+            return nil
+        }
+
+        // 单行 名::url
+        if trimmed.contains("::"), !trimmed.lowercased().hasPrefix("http"), !trimmed.hasPrefix("/") {
+            if let range = trimmed.range(of: "::") {
+                let u = String(trimmed[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !u.isEmpty { return u }
+            }
+        }
+
+        return trimmed
+    }
+
+    /// 发现页列表；`url` 为空时使用源的 `exploreUrl`（自动展开分类表）
     public static func exploreBook(
         source: any BridgeSourceProtocol,
         url: String? = nil,
         page: Int = 1
     ) async throws -> [SearchBookResult] {
-        let exploreTarget = (url?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
+        let rawTarget = (url?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
             $0.isEmpty ? nil : $0
         } ?? source.exploreUrl
-        guard let exploreTarget, !exploreTarget.isEmpty else {
+        guard let rawTarget, !rawTarget.isEmpty else {
             throw WebBookError.noRule("发现 URL（exploreUrl）")
+        }
+        guard let exploreTarget = resolveExploreFetchURL(rawTarget), !exploreTarget.isEmpty else {
+            throw WebBookError.noRule("发现 URL（exploreUrl 分类表无可用地址）")
         }
 
         let analyzedUrl = AnalyzeUrl.analyze(

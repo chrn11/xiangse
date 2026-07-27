@@ -50,11 +50,13 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
         ruleContent = part.ruleContent.map(Self.mapContent)
     }
 
-    /// 是否具备发现能力（exploreUrl 或 explore 规则）
+    /// 是否具备发现能力：开启且 exploreUrl 可解析出可请求地址
     var supportsExplore: Bool {
-        let urlOk = !(exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        let listOk = !(ruleExplore?.exploreList?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        return enabledExplore && (urlOk || listOk)
+        guard enabledExplore else { return false }
+        guard let raw = exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return false
+        }
+        return RuleWebBook.resolveExploreFetchURL(raw) != nil
     }
 
     convenience init(json: [String: Any]) throws {
