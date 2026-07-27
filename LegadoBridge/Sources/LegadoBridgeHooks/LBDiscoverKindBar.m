@@ -239,7 +239,12 @@ static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
         } else if ([name containsString:@"番茄"] && topKeys >= 10) {
             score += 150;
         }
-        if ([name containsString:@"有毒"] || [name containsString:@"笔趣"]) score += 40;
+        if ([name containsString:@"笔趣"]) score += 40;
+        if ([name containsString:@"有毒"] || [name hasPrefix:@"FZ-"]) score = score > 80 ? score - 80 : 0;
+        if ([name containsString:@"起点"] || [name containsString:@"息壤"] ||
+            [name containsString:@"长佩"]) {
+            score += 120; // 文本站优先于 FZ 系，降低 BookListCon 拉网崩概率
+        }
         if (nested >= 20) score += 80;
         if (topLog.count < 8) {
             [topLog addObject:[NSString stringWithFormat:@"%@:k%lu+n%lu=%lu",
@@ -414,6 +419,34 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
     return model;
 }
 
+/// 清空原生子页数据，避免 BookListCon 带着 donor 原生请求/cell 崩
+static void LBSanitizeDiscoverListCons(UIViewController *host, id scroll) {
+    NSMutableArray *kids = [NSMutableArray array];
+    @try {
+        id cv = [scroll valueForKey:@"childVCs"];
+        if ([cv isKindOfClass:[NSArray class]]) [kids addObjectsFromArray:cv];
+    } @catch (__unused NSException *e) {}
+    if (kids.count == 0) {
+        [kids addObjectsFromArray:host.childViewControllers ?: @[]];
+    }
+    NSUInteger n = 0;
+    for (id c in kids) {
+        if (![c isKindOfClass:[UIViewController class]]) continue;
+        UIViewController *vc = (UIViewController *)c;
+        for (NSString *k in @[@"arrBaseData", @"itemList", @"arrData", @"dataArray", @"books"]) {
+            @try { [vc setValue:@[] forKey:k]; } @catch (__unused NSException *e) {}
+        }
+        @try {
+            UITableView *tv = nil;
+            id v = [vc valueForKey:@"tableView"];
+            if ([v isKindOfClass:[UITableView class]]) tv = v;
+            if (tv) [tv reloadData];
+        } @catch (__unused NSException *e) {}
+        n++;
+    }
+    LBAppendNativeMarker([NSString stringWithFormat:@"sanitizeListCons n=%lu", (unsigned long)n]);
+}
+
 /// 用 Legado 分类灌原生发现：donor bookWorld + 一次性 resetContent（禁手工 SGPage）
 static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, NSString *srcName) {
     if (!host) return;
@@ -576,9 +609,20 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
             LBAppendNativeHostState(host, @"afterTeardown");
         } else if (hasPageChrome && (childN > 0 || scrollKids > 0)) {
             sNativeChromeBuilt = YES;
+            LBSanitizeDiscoverListCons(host, scroll);
             LBAppendNativeMarker([NSString stringWithFormat:
                                   @"pageChrome keep hostChild=%lu scrollKids=%lu",
                                   (unsigned long)childN, (unsigned long)scrollKids]);
+            __weak UIViewController *weakHost = host;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                UIViewController *h = weakHost;
+                if (!h) return;
+                LBAppendNativeMarker([NSString stringWithFormat:
+                                      @"stillAlive host=%@ child=%lu",
+                                      NSStringFromClass([h class]),
+                                      (unsigned long)h.childViewControllers.count]);
+            });
         }
 
         // createCons：reset 未挂子页时先造 cons，再交给原生 resetContent 挂页（禁手工 SGPage）
