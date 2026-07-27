@@ -84,10 +84,12 @@ U1 **PASS**：`8a41b73` 搜索点书走 CatalogCon（禁 BookDetail 上栈），
 - **实现**：`d6a945d` 点行 `LBLegadoPresentSourceEditor`；返回落原版站点列表；「书源」按钮保留完整管理页。
 - **CI**：`30244810390`；IPA `dist-ci-run-30244810390/.../StandarReader-legado-bridge-debug.ipa`。
 - **真机门禁**：`u2-gate-SUMMARY.json` → **PASS**（搜笔趣读 / 进编辑 / 返回原版列表 / 「书源」回退）。
-- **下一刀 U3**（原版导入入口替换 UIAlert）；**U3 未 PASS 前不开终局宣称**。
-- **U0 仍未宣称整包终局**（U3 未过）。
+- **U1–U3 本轮均 PASS**；整包终局仍须按计划做回归抽验后再宣称。
+- **U0 门禁口径不变**：本地书已过；F7 release 等项维持进度板原状。
 
-### U3（进行中）
+### U3 **PASS**（2026-07-27）
 
-- **取证**：原版「导入」点后 a11y 无变化；UIAlert 仅桥接 `+`。见 `u3-import-phase-diff.md`。
-- **实现**：`LBLegadoPresentNativeImport` → `ConfigSourceModelSyncCon`；「导入」按钮与 ShowImportAlert 优先走原版；UIAlert 回退。
+- **取证**：原版「导入」曾无响应；宿主为 `ConfigSourceModelSyncCon`（标题「导入站点」）。见 `u3-import-phase-diff.md`。
+- **实现**：`d9fd9c2` 导航栏 UIButton 重绑「导入」→ push SyncCon；`legado://nativeImport`；UIAlert 仅 force_alert / 失败回退。
+- **CI**：`30245854363`；真机 `u3-gate-SUMMARY.json` → **PASS**（深链+点导入进「导入站点」，非 UIAlert，返回站点列表）。
+- **备注**：SyncCon 文案面向 xbs 链接；Legado JSON 仍走 openURL / 分享 / force_alert UIAlert。

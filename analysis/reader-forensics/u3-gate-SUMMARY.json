@@ -1,0 +1,78 @@
+{
+  "run": "30245854363",
+  "commit": "d9fd9c2",
+  "deeplink_labs": [
+    "StandarReader",
+    "返回",
+    "导入站点",
+    "搜索站点",
+    "书源",
+    "网址",
+    "导入",
+    "输入网址获取站点信息：\n- xbs文件链接(支持多个链接)\n- 其他链接会自动搜索以http开头，xbs结尾的链接",
+    "历史记录",
+    "也可通过微信等App导入\n导入后建议第一时间备份，方便以后使用",
+    "空列表"
+  ],
+  "deeplink_markers": {
+    "legado_u3_import.txt": "OK already_on_stack",
+    "legado_u3_rebind.txt": "No such file or directory: /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_u3_rebind.txt",
+    "legado_u3_tap.txt": "No such file or directory: /var/mobile/Containers/Data/Application/F6A696B0-3917-4AE2-8539-44119E9AE2EA/Documents/legado_u3_tap.txt",
+    "legado_u3_deeplink.txt": "openURL nativeImport host=nativeimport"
+  },
+  "deeplink_alert": false,
+  "deeplink_left_shelf": true,
+  "sites": [
+    "站点(961)"
+  ],
+  "rebind_before_tap": "rebind import navbar-btn",
+  "after_import": [
+    "StandarReader",
+    "站点(961)",
+    "导入站点",
+    "搜索站点",
+    "书源",
+    "网址",
+    "导入",
+    "输入网址获取站点信息：\n- xbs文件链接(支持多个链接)\n- 其他链接会自动搜索以http开头，xbs结尾的链接",
+    "历史记录",
+    "也可通过微信等App导入\n导入后建议第一时间备份，方便以后使用",
+    "空列表"
+  ],
+  "after_markers": {
+    "legado_u3_import.txt": "OK push ConfigSourceModelSyncCon",
+    "legado_u3_rebind.txt": "rebind import navbar-btn",
+    "legado_u3_tap.txt": "tap onNativeImportTapped",
+    "legado_u3_deeplink.txt": "openURL nativeImport host=nativeimport"
+  },
+  "is_alert": false,
+  "back_sites": true,
+  "after_back": [
+    "StandarReader",
+    "返回",
+    "站点(961)",
+    "导入",
+    "更多",
+    "书源",
+    "节索引",
+    "全部",
+    "启用",
+    "禁用",
+    "搜索栏",
+    "TOP",
+    "番茄小说(晴天)(2年前)",
+    "番茄官网(2年前)",
+    "番茄小说官方api(自用)(2年前)",
+    "🦁️纵横中文网(索引源,QQ频道:香色闺阁)(2年前)",
+    "x-优书网(索引源)(3年前)",
+    "x-追书神器(索引源)(3年前)",
+    "推书君⛄(索引源)(4年前)",
+    "天天书吧(💫)(3年前)",
+    "努努书坊小说(3年前)",
+    "文本/小说",
+    "书旗小说(只用于看榜单)(2年前)",
+    "69书吧shux(2年前)",
+    "ALL Novel⛄(5年前)"
+  ],
+  "verdict": "PASS"
+}
