@@ -457,6 +457,9 @@ static void LBDestroyDiscoverListConsKeepTitle(UIViewController *host, id scroll
     LBAppendNativeMarker([NSString stringWithFormat:@"destroyListCons killed=%lu keepTitle=1",
                           (unsigned long)killed]);
 }
+
+/// 清空原生子页数据，避免 BookListCon 带着 donor 原生请求/cell 崩
+static void LBSanitizeDiscoverListCons(UIViewController *host, id scroll) {
     NSMutableArray *kids = [NSMutableArray array];
     @try {
         for (NSString *k in @[@"childVCs", @"childViewControllers", @"arrChildVCs", @"vcs"]) {
