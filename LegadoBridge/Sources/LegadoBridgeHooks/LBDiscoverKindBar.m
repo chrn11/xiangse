@@ -212,7 +212,8 @@ static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
         // 听书/漫画 donor 易在文本发现页 viewDidLoad 崩
         if ([name containsString:@"喜马拉雅"] || [name containsString:@"FM"] ||
             [name containsString:@"漫画"] || [name containsString:@"听书"] ||
-            [name containsString:@"有声"]) {
+            [name containsString:@"有声"] || [name containsString:@"动漫"] ||
+            [name containsString:@"语音"]) {
             return;
         }
         NSString *stype = @"";
@@ -302,7 +303,40 @@ static BOOL LBInvokeOpenConfigByName(id host, NSString *cfgName) {
     return NO;
 }
 
+static BOOL LBForceSetDicModel(UIViewController *host, NSDictionary *model) {
+    if (!host || !model) return NO;
+    SEL setSel = @selector(setDicModel:);
+    Class cls = object_getClass(host);
+    while (cls && cls != [NSObject class]) {
+        Method m = class_getInstanceMethod(cls, setSel);
+        if (m) {
+            @try {
+                ((void (*)(id, SEL, id))method_getImplementation(m))(host, setSel, model);
+                return YES;
+            } @catch (__unused NSException *ex) {
+                return NO;
+            }
+        }
+        cls = class_getSuperclass(cls);
+    }
+    if ([host respondsToSelector:setSel]) {
+        @try {
+            ((void (*)(id, SEL, id))objc_msgSend)(host, setSel, model);
+            return YES;
+        } @catch (__unused NSException *ex) {
+            return NO;
+        }
+    }
+    @try {
+        [host setValue:model forKey:@"dicModel"];
+        return YES;
+    } @catch (__unused NSException *ex) {
+        return NO;
+    }
+}
+
 /// 用真实 XBS donor 打开原生配置；成功后只改 titles，勿再 setDicModel 覆盖
+/// 返回含可用 bookWorld 的模型；无可用 donor 时返回 nil
 static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString *srcName, NSArray *titles) {
     Class mgrCls = NSClassFromString(@"BookSourceModelManager");
     id mgr = nil;
@@ -321,39 +355,62 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
     BOOL opened = NO;
     if (cfgName.length > 0) {
         opened = LBInvokeOpenConfigByName(host, cfgName);
-        // 不调 onBookSourceSwitch: —— 参数语义不明，曾导致发现宿主推不出来
     }
 
-    // openConfig 已装好完整 dicModel 时禁止再 setDicModel（会冲掉原生 bookWorld 配置）
     if (opened) {
         if (titles.count > 0) {
             @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
         }
         id cur = nil;
         @try { cur = [host valueForKey:@"dicModel"]; } @catch (__unused NSException *e) {}
-        LBAppendNativeMarker([NSString stringWithFormat:@"keepOpenConfigModel hasDic=%d",
-                              [cur isKindOfClass:[NSDictionary class]] ? 1 : 0]);
-        return [cur isKindOfClass:[NSDictionary class]] ? cur : nil;
+        NSUInteger bwKeys = 0;
+        if ([cur isKindOfClass:[NSDictionary class]]) {
+            id bw = cur[@"bookWorld"];
+            if ([bw isKindOfClass:[NSDictionary class]]) bwKeys = [(NSDictionary *)bw count];
+        }
+        LBAppendNativeMarker([NSString stringWithFormat:@"keepOpenConfigModel hasDic=%d bwKeys=%lu",
+                              [cur isKindOfClass:[NSDictionary class]] ? 1 : 0,
+                              (unsigned long)bwKeys]);
+        if (bwKeys >= 6 && [cur isKindOfClass:[NSDictionary class]]) {
+            return (NSDictionary *)cur;
+        }
+        if (donorBW.count >= 6 && [cur isKindOfClass:[NSDictionary class]]) {
+            NSMutableDictionary *fixed = [cur mutableCopy];
+            fixed[@"bookWorld"] = donorBW;
+            if (titles.count > 0) fixed[@"arrHeaderBtnTitle"] = titles;
+            LBForceSetDicModel(host, fixed);
+            return fixed;
+        }
+        if (donorBW.count >= 6) {
+            NSMutableDictionary *model = [NSMutableDictionary dictionary];
+            model[@"bookWorld"] = donorBW;
+            if (titles.count > 0) model[@"arrHeaderBtnTitle"] = titles;
+            if (donorName.length) model[@"cf_title"] = donorName;
+            LBForceSetDicModel(host, model);
+            return model;
+        }
+        return nil;
     }
 
-    // 无 openConfig：退回手工灌模型
+    if (donorBW.count < 6) {
+        LBAppendNativeMarker(@"prepare skip: no usable donorBW");
+        return nil;
+    }
+
     NSMutableDictionary *model = nil;
     NSDictionary *base = srcName.length ? LBLegadoNativeModel(srcName) : nil;
     model = [base isKindOfClass:[NSDictionary class]] ? [base mutableCopy] : [NSMutableDictionary dictionary];
-    if (donorBW) model[@"bookWorld"] = donorBW;
+    model[@"bookWorld"] = donorBW;
     if (titles.count > 0) model[@"arrHeaderBtnTitle"] = titles;
-    if (srcName.length > 0) model[@"cf_title"] = srcName;
-    @try {
-        if ([host respondsToSelector:@selector(setDicModel:)]) {
-            ((void (*)(id, SEL, id))objc_msgSend)(host, @selector(setDicModel:), model);
-            LBAppendNativeMarker(@"setDicModel ok");
-        } else {
-            [host setValue:model forKey:@"dicModel"];
-            LBAppendNativeMarker(@"setValue dicModel ok");
-        }
-    } @catch (NSException *ex) {
-        LBAppendNativeMarker([NSString stringWithFormat:@"setDicModel EX %@", ex.reason ?: @""]);
+    if (donorName.length > 0) {
+        model[@"cf_title"] = donorName;
+    } else if (srcName.length > 0) {
+        model[@"cf_title"] = srcName;
     }
+    BOOL setOk = LBForceSetDicModel(host, model);
+    LBAppendNativeMarker([NSString stringWithFormat:@"setDicModel %@ donorBW=%lu",
+                          setOk ? @"ok" : @"fail", (unsigned long)donorBW.count]);
+    // 以构造模型为准（KVC 读回可能丢 bookWorld）
     return model;
 }
 
@@ -441,17 +498,10 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
             return;
         }
 
-        LBPrepareDiscoverDicModel(host, srcName, titles);
-
-        // 无可用 donor bookWorld 时禁止 resetContent（空/薄模型会建空 SGPage 后杀进程）
-        id curModel = nil;
-        @try { curModel = [host valueForKey:@"dicModel"]; } @catch (__unused NSException *e) {}
-        NSDictionary *bwCheck = nil;
-        if ([curModel isKindOfClass:[NSDictionary class]]) {
-            id bw = curModel[@"bookWorld"];
-            if ([bw isKindOfClass:[NSDictionary class]]) bwCheck = bw;
-        }
-        if (!bwCheck || bwCheck.count < 6) {
+        NSDictionary *prepared = LBPrepareDiscoverDicModel(host, srcName, titles);
+        id bwObj = prepared[@"bookWorld"];
+        NSUInteger bwKeys = [bwObj isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)bwObj count] : 0;
+        if (!prepared || bwKeys < 6) {
             if (srcName.length > 0) {
                 @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
                 @try { host.title = srcName; } @catch (__unused NSException *e) {}
@@ -460,10 +510,12 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
             sCachedKinds = [kinds copy];
             LBAppendNativeMarker([NSString stringWithFormat:
                                   @"shellFallback noDonorBW keys=%lu",
-                                  (unsigned long)(bwCheck ? bwCheck.count : 0)]);
+                                  (unsigned long)bwKeys]);
             LBAppendNativeHostState(host, @"shellFallback");
             return;
         }
+        LBAppendNativeMarker([NSString stringWithFormat:@"preparedBW keys=%lu useReset=1",
+                              (unsigned long)bwKeys]);
 
         NSString *consName = sDiscoverUseSourceName.length ? sDiscoverUseSourceName : (srcName ?: @"");
         @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
