@@ -50,6 +50,7 @@ static BOOL LBClassNameLooksDiscoverHost(NSString *cn) {
     if ([cn containsString:@"Shudan"]) return YES;
     if ([cn containsString:@"BookListCon"]) return YES;
     if ([cn containsString:@"BookList"]) return YES;
+    if ([cn containsString:@"BookSearch"]) return YES;
     if ([cn containsString:@"Square"]) return YES;
     return NO;
 }
@@ -78,10 +79,10 @@ static void LBCollectDiscoverHostVCs(UIViewController *vc, NSMutableArray *out) 
 }
 
 NSArray *LBFindDiscoverHostVCs(void) {
-    // 发现注入只打 BookList；清掉误 pin 的 World
+    // 发现注入：优先 pin（现为 BookSearch 发现壳）；清掉会崩的 BookList pin
     if (sPinnedDiscoverHost) {
         NSString *pcn = NSStringFromClass([sPinnedDiscoverHost class]);
-        if (![pcn containsString:@"BookList"]) {
+        if ([pcn containsString:@"BookList"]) {
             sPinnedDiscoverHost = nil;
         }
     }
@@ -93,12 +94,14 @@ NSArray *LBFindDiscoverHostVCs(void) {
     if (win.rootViewController) {
         LBCollectDiscoverHostVCs(win.rootViewController, out);
     }
-    NSMutableArray *lists = [NSMutableArray array];
+    // 发现态也接受已呈现的 BookSearch（标题可能是「发现」）
+    NSMutableArray *hosts = [NSMutableArray array];
     for (UIViewController *vc in out) {
         NSString *cn = NSStringFromClass([vc class]);
-        if ([cn containsString:@"BookList"]) [lists addObject:vc];
+        if ([cn containsString:@"BookSearch"]) [hosts addObject:vc];
+        else if ([cn containsString:@"BookList"]) [hosts addObject:vc];
     }
-    return lists;
+    return hosts;
 }
 
 static id LBLegadoManagerCore(void) {
@@ -142,19 +145,20 @@ static void LBPopBookSearchIfNeeded(UINavigationController *nav) {
     }
 }
 
-/// 确保原生发现列表宿主在导航栈（仅 BookListCon，不用空白 BookWorld）
+/// 确保发现列表宿主在导航栈。
+/// 注意：裸 push BookListCon 会在 viewDidLoad/布局期 SIGABRT（真机已证）；
+/// 发现态改用原生 BookSearchController 作列表壳，标题显示「发现」。
 BOOL LBEnsureNativeDiscoverHostPresented(void) {
-    // 清掉误 pin 的 BookWorld
-    if (sPinnedDiscoverHost) {
-        NSString *pcn = NSStringFromClass([sPinnedDiscoverHost class]);
-        if (![pcn containsString:@"BookList"]) {
-            sPinnedDiscoverHost = nil;
-        }
-    }
     if (sPinnedDiscoverHost) {
         UIViewController *pin = sPinnedDiscoverHost;
-        if (pin.navigationController || (pin.isViewLoaded && pin.view.window)) {
+        NSString *pcn = NSStringFromClass([pin class]);
+        // 旧 pin 若是会崩的 BookListCon，丢掉
+        if ([pcn containsString:@"BookList"]) {
+            sPinnedDiscoverHost = nil;
+        } else if (pin.navigationController || (pin.isViewLoaded && pin.view.window)) {
             return YES;
+        } else {
+            sPinnedDiscoverHost = nil;
         }
     }
     UINavigationController *nav = LBDiscoverActiveNav();
@@ -162,27 +166,30 @@ BOOL LBEnsureNativeDiscoverHostPresented(void) {
         LBDiscoverAppendMarker(@"discoverHost miss: no nav");
         return NO;
     }
-    LBPopBookSearchIfNeeded(nav);
+    // 发现宿主就是 BookSearch：不要 LBPopBookSearchIfNeeded
 
-    // 栈内已有 BookList 则复用
+    // 栈内已有搜索列表则复用并改标题
     for (UIViewController *vc in nav.viewControllers.reverseObjectEnumerator) {
         NSString *cn = NSStringFromClass([vc class]);
-        if ([cn containsString:@"BookList"]) {
+        if ([cn containsString:@"BookSearch"]) {
             [nav popToViewController:vc animated:NO];
+            @try { vc.title = @"发现"; } @catch (__unused NSException *e) {}
+            @try { [vc setValue:@"explore" forKey:@"searchTextOutSide"]; } @catch (__unused NSException *e) {}
+            @try { [vc setValue:@"explore" forKey:@"searchText"]; } @catch (__unused NSException *e) {}
             sPinnedDiscoverHost = vc;
-            LBDiscoverAppendMarker(@"discoverHost reuse stacked BookList");
+            LBInstallSearchUIAppearFlush();
+            LBDiscoverAppendMarker(@"discoverHost reuse stacked BookSearch");
             return YES;
         }
     }
 
-    Class cls = NSClassFromString(@"BookListCon");
+    Class cls = NSClassFromString(@"BookSearchController");
+    if (!cls) cls = NSClassFromString(@"BookSearchVCBase1");
     if (!cls) {
-        cls = NSClassFromString(@"BookListController");
-    }
-    if (!cls) {
-        LBDiscoverAppendMarker(@"discoverHost miss: BookListCon absent");
+        LBDiscoverAppendMarker(@"discoverHost miss: BookSearch class absent");
         return NO;
     }
+    LBInstallSearchUIAppearFlush();
     UIViewController *host = nil;
     @try { host = [[cls alloc] init]; } @catch (__unused NSException *e) { host = nil; }
     if (!host) {
@@ -190,18 +197,14 @@ BOOL LBEnsureNativeDiscoverHostPresented(void) {
             host = [[cls alloc] initWithNibName:nil bundle:nil];
         } @catch (__unused NSException *e) { host = nil; }
     }
-    if (!host && [cls instancesRespondToSelector:@selector(initWithStyle:)]) {
-        @try {
-            host = ((id (*)(id, SEL, NSInteger))objc_msgSend)(
-                [cls alloc], @selector(initWithStyle:), UITableViewStylePlain);
-        } @catch (__unused NSException *e) { host = nil; }
-    }
     if (!host) {
-        LBDiscoverAppendMarker(@"discoverHost miss: BookListCon alloc failed");
+        LBDiscoverAppendMarker(@"discoverHost miss: BookSearch alloc failed");
         return NO;
     }
     @try { host.title = @"发现"; } @catch (__unused NSException *e) {}
     @try { [host setValue:@"发现" forKey:@"title"]; } @catch (__unused NSException *e) {}
+    @try { [host setValue:@"explore" forKey:@"searchTextOutSide"]; } @catch (__unused NSException *e) {}
+    @try { [host setValue:@"explore" forKey:@"searchText"]; } @catch (__unused NSException *e) {}
     @try {
         [nav pushViewController:host animated:YES];
     } @catch (NSException *ex) {
@@ -334,17 +337,17 @@ static void LBDiscover_worldAppear(id self, SEL _cmd, BOOL animated) {
         ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
     }
     NSString *cn = NSStringFromClass([self class]);
-    // 只 pin BookList；BookWorld 不画 arrBaseData，pin 它会导致整页空白
-    if ([cn containsString:@"BookList"]) {
+    // BookListCon 裸 push 会崩；不再 pin。BookSearch 发现壳可 pin。
+    if ([cn containsString:@"BookSearch"]) {
         sPinnedDiscoverHost = (UIViewController *)self;
     }
     if (!LBIsDiscoverTabActive()) return;
     dispatch_async(dispatch_get_main_queue(), ^{
         LBInstallSearchUIAppearFlush();
-        if ([cn containsString:@"BookList"]) {
+        if ([cn containsString:@"BookSearch"]) {
             LBTriggerLegadoExploreForDiscoverTab();
         } else {
-            // World 出现时改推 BookList
+            // World/其它广场壳出现时改推 BookSearch 发现列表
             LBEnsureNativeDiscoverHostPresented();
         }
     });
