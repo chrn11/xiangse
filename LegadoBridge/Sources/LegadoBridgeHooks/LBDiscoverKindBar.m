@@ -343,7 +343,15 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         }
         LBAppendNativeHostState(host, didReset ? @"afterReset" : @"noReset");
 
-        if (host.childViewControllers.count == 0 &&
+        id titleView = nil;
+        id scroll = nil;
+        @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+        @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+        BOOL hasPageChrome = (titleView != nil && scroll != nil);
+
+        // createCons 能填 OUT 数组；禁止再手工 init SGPage（会触发 BookListCon viewDidLoad SIGABRT）
+        if (!hasPageChrome &&
+            host.childViewControllers.count == 0 &&
             [host respondsToSelector:@selector(createCons:titles:sourceName:)]) {
             @try {
                 NSMutableArray *cons = [NSMutableArray array];
@@ -352,48 +360,23 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                 LBAppendNativeMarker([NSString stringWithFormat:@"createCons fallback titles=%lu cons=%lu src=%@",
                                       (unsigned long)titles.count, (unsigned long)cons.count, consName]);
                 if (cons.count > 0) {
-                    Class titleCls = NSClassFromString(@"SGPageTitleView");
-                    Class scrollCls = NSClassFromString(@"SGPageContentScrollView");
-                    Class confCls = NSClassFromString(@"SGPageTitleViewConfigure");
-                    id configure = nil;
-                    if (confCls && [confCls respondsToSelector:@selector(pageTitleViewConfigure)]) {
-                        configure = ((id (*)(id, SEL))objc_msgSend)(confCls, @selector(pageTitleViewConfigure));
-                    }
-                    CGFloat w = host.view.bounds.size.width;
-                    CGFloat h = host.view.bounds.size.height;
-                    CGFloat titleH = 44.0;
-                    if (titleCls && [titleCls respondsToSelector:@selector(pageTitleViewWithFrame:delegate:titleNames:configure:)]) {
-                        CGRect tf = CGRectMake(0, 0, w, titleH);
-                        id tv = ((id (*)(id, SEL, CGRect, id, id, id))objc_msgSend)(
-                            titleCls,
-                            @selector(pageTitleViewWithFrame:delegate:titleNames:configure:),
-                            tf, host, titles, configure);
-                        if (tv) {
-                            @try { [host setValue:tv forKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-                            if ([tv isKindOfClass:[UIView class]] && ![(UIView *)tv superview]) {
-                                [host.view addSubview:(UIView *)tv];
-                            }
+                    // 交给原生再走一遍 resetContent 挂页（勿手工 SGPage wire）
+                    if ([host respondsToSelector:@selector(resetContent)]) {
+                        @try {
+                            ((void (*)(id, SEL))objc_msgSend)(host, @selector(resetContent));
+                            LBAppendNativeMarker(@"resetContent afterCons");
+                        } @catch (NSException *ex) {
+                            LBAppendNativeMarker([NSString stringWithFormat:@"resetContent afterCons EX %@",
+                                                  ex.reason ?: @""]);
                         }
                     }
-                    if (scrollCls) {
-                        SEL initSel = @selector(initWithFrame:parentVC:childVCs:);
-                        if ([scrollCls instancesRespondToSelector:initSel]) {
-                            CGRect cf = CGRectMake(0, titleH, w, MAX(0, h - titleH));
-                            id sc = ((id (*)(id, SEL, CGRect, id, id))objc_msgSend)(
-                                [scrollCls alloc], initSel, cf, host, cons);
-                            if (sc) {
-                                @try { [host setValue:sc forKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
-                                if ([sc isKindOfClass:[UIView class]] && ![(UIView *)sc superview]) {
-                                    [host.view addSubview:(UIView *)sc];
-                                }
-                            }
-                        }
-                    }
-                    LBAppendNativeHostState(host, @"afterCreateConsWire");
+                    LBAppendNativeHostState(host, @"afterConsReset");
                 }
             } @catch (NSException *ex) {
                 LBAppendNativeMarker([NSString stringWithFormat:@"createCons EX %@", ex.reason ?: @""]);
             }
+        } else if (hasPageChrome) {
+            LBAppendNativeMarker(@"pageChrome ready skipCreateConsWire");
         }
 
         sCachedKinds = [kinds copy];
