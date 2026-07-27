@@ -66,29 +66,27 @@ static void LBCollectDiscoverHostVCs(UIViewController *vc, NSMutableArray *out) 
 }
 
 NSArray *LBFindDiscoverHostVCs(void) {
-    // 发现注入只打 pinned BookListCon，避免灌进不会画 arrBaseData 的 BookWorld 空壳
+    // 发现注入只打 BookList；清掉误 pin 的 World
     if (sPinnedDiscoverHost) {
-        UIViewController *pin = sPinnedDiscoverHost;
-        if (pin.isViewLoaded || pin.viewIfLoaded) {
-            return @[pin];
+        NSString *pcn = NSStringFromClass([sPinnedDiscoverHost class]);
+        if (![pcn containsString:@"BookList"]) {
+            sPinnedDiscoverHost = nil;
         }
-        return @[pin];
+    }
+    if (sPinnedDiscoverHost) {
+        return @[sPinnedDiscoverHost];
     }
     NSMutableArray *out = [NSMutableArray array];
     UIWindow *win = LBLegadoKeyWindow();
     if (win.rootViewController) {
         LBCollectDiscoverHostVCs(win.rootViewController, out);
     }
-    // 优先 BookListCon
     NSMutableArray *lists = [NSMutableArray array];
-    NSMutableArray *others = [NSMutableArray array];
     for (UIViewController *vc in out) {
         NSString *cn = NSStringFromClass([vc class]);
         if ([cn containsString:@"BookList"]) [lists addObject:vc];
-        else [others addObject:vc];
     }
-    if (lists.count > 0) return lists;
-    return others;
+    return lists;
 }
 
 static id LBLegadoManagerCore(void) {
@@ -326,11 +324,20 @@ static void LBDiscover_worldAppear(id self, SEL _cmd, BOOL animated) {
         struct objc_super sup = { self, class_getSuperclass(object_getClass(self)) };
         ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
     }
-    sPinnedDiscoverHost = (UIViewController *)self;
+    NSString *cn = NSStringFromClass([self class]);
+    // 只 pin BookList；BookWorld 不画 arrBaseData，pin 它会导致整页空白
+    if ([cn containsString:@"BookList"]) {
+        sPinnedDiscoverHost = (UIViewController *)self;
+    }
     if (!LBIsDiscoverTabActive()) return;
     dispatch_async(dispatch_get_main_queue(), ^{
         LBInstallSearchUIAppearFlush();
-        LBTriggerLegadoExploreForDiscoverTab();
+        if ([cn containsString:@"BookList"]) {
+            LBTriggerLegadoExploreForDiscoverTab();
+        } else {
+            // World 出现时改推 BookList
+            LBEnsureNativeDiscoverHostPresented();
+        }
     });
 }
 
