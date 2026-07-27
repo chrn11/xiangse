@@ -9,6 +9,8 @@ static NSInteger sSelectedKindIndex = 0;
 static NSArray *sCachedKinds = nil;
 static NSString *sLastFeedSig = nil;
 static CFAbsoluteTime sLastFeedAt = 0;
+static BOOL sNativeChromeBuilt = NO;
+static BOOL sNativeChromeBuildScheduled = NO;
 
 static void (*sOrig_pageTitleSelected)(id, SEL, id, NSInteger) = NULL;
 static void (*sOrig_onSwitchBtn)(id, SEL) = NULL;
@@ -227,6 +229,11 @@ static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
         if ([stype containsString:@"dom"] || [stype containsString:@"text"] || stype.length == 0) {
             score += 100;
         }
+        // Reader0 对照源：优先番茄，分类数适中更稳
+        if ([name containsString:@"番茄"]) score += 500;
+        if ([name containsString:@"小说"]) score += 50;
+        if (n >= 5 && n <= 40) score += 80;
+        else if (n > 80) score = score > 40 ? score - 40 : 0;
         if (score > bestN) {
             bestN = score;
             best = (NSDictionary *)bw;
@@ -235,11 +242,48 @@ static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
     }];
     if (bestN >= 3 && best) {
         if (outName) *outName = bestName;
-        LBAppendNativeMarker([NSString stringWithFormat:@"bwDonor name=%@ score=%lu",
-                              bestName ?: @"?", (unsigned long)bestN]);
+        LBAppendNativeMarker([NSString stringWithFormat:@"bwDonor name=%@ score=%lu keys=%lu",
+                              bestName ?: @"?", (unsigned long)bestN,
+                              (unsigned long)[(NSDictionary *)best count]]);
         return best;
     }
     return nil;
+}
+
+/// respondsToSelector 在部分宿主上对 openConfig 不可靠；沿继承链找 IMP
+static BOOL LBInvokeOpenConfigByName(id host, NSString *cfgName) {
+    if (!host || cfgName.length == 0) return NO;
+    SEL openSel = @selector(openConfigByName:);
+    Class cls = object_getClass(host);
+    while (cls && cls != [NSObject class]) {
+        Method m = class_getInstanceMethod(cls, openSel);
+        if (m) {
+            @try {
+                ((void (*)(id, SEL, id))method_getImplementation(m))(host, openSel, cfgName);
+                LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName %@ via %@",
+                                      cfgName, NSStringFromClass(cls)]);
+                return YES;
+            } @catch (NSException *ex) {
+                LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName EX %@",
+                                      ex.reason ?: @""]);
+                return NO;
+            }
+        }
+        cls = class_getSuperclass(cls);
+    }
+    if ([host respondsToSelector:openSel]) {
+        @try {
+            ((void (*)(id, SEL, id))objc_msgSend)(host, openSel, cfgName);
+            LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName %@ responds", cfgName]);
+            return YES;
+        } @catch (NSException *ex) {
+            LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName EX %@",
+                                  ex.reason ?: @""]);
+            return NO;
+        }
+    }
+    LBAppendNativeMarker(@"openConfigByName noSel");
+    return NO;
 }
 
 /// 用真实 XBS donor 打开原生配置；成功后只改 titles，勿再 setDicModel 覆盖
@@ -259,19 +303,8 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
 
     NSString *cfgName = donorName.length ? donorName : srcName;
     BOOL opened = NO;
-    SEL openSel = @selector(openConfigByName:);
     if (cfgName.length > 0) {
-        if ([host respondsToSelector:openSel]) {
-            @try {
-                ((void (*)(id, SEL, id))objc_msgSend)(host, openSel, cfgName);
-                LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName %@", cfgName]);
-                opened = YES;
-            } @catch (NSException *ex) {
-                LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName EX %@", ex.reason ?: @""]);
-            }
-        } else {
-            LBAppendNativeMarker(@"openConfigByName noSel");
-        }
+        opened = LBInvokeOpenConfigByName(host, cfgName);
         // 不调 onBookSourceSwitch: —— 参数语义不明，曾导致发现宿主推不出来
     }
 
@@ -308,7 +341,7 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
     return model;
 }
 
-/// 用 Legado 分类灌原生发现：先灌 dicModel/bookWorld，再 resetContent
+/// 用 Legado 分类灌原生发现：donor bookWorld + 一次性 resetContent（禁手工 SGPage）
 static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, NSString *srcName) {
     if (!host) return;
     LBRemoveDiscoverOverlays(host);
@@ -320,37 +353,139 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
     }
     if (titles.count == 0) [titles addObject:@"全部"];
 
+    // 已建成原生 chrome：只改导航标题，禁止再 reset
+    if (sNativeChromeBuilt) {
+        id existTitle = nil;
+        id existScroll = nil;
+        @try { existTitle = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+        @try { existScroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+        if (existTitle && existScroll) {
+            if (srcName.length > 0) {
+                @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
+                @try { host.title = srcName; } @catch (__unused NSException *e) {}
+            }
+            sCachedKinds = [kinds copy];
+            return;
+        }
+        // chrome 丢失则允许再试一次
+        sNativeChromeBuilt = NO;
+    }
+
     NSString *sig = [NSString stringWithFormat:@"%@|%@", srcName ?: @"", [titles componentsJoinedByString:@","]];
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    if (sLastFeedSig && [sLastFeedSig isEqualToString:sig] && (now - sLastFeedAt) < 1.2) {
+    if (sLastFeedSig && [sLastFeedSig isEqualToString:sig] && (now - sLastFeedAt) < 2.0) {
         return;
     }
+
+    // 窗口未就绪：延后一次再建，避免 frame=0 / 空 push 立刻 reset 崩
+    if (!host.isViewLoaded || !host.view.window || CGRectIsEmpty(host.view.bounds)) {
+        if (!sNativeChromeBuildScheduled) {
+            sNativeChromeBuildScheduled = YES;
+            LBAppendNativeMarker(@"deferFeed waitWindow");
+            __weak UIViewController *weakHost = host;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                sNativeChromeBuildScheduled = NO;
+                UIViewController *h = weakHost ?: LBPrimaryDiscoverHost();
+                if (!h || !LBIsDiscoverTabActive()) return;
+                LBFeedNativeDiscoverHeader(h, kinds, srcName);
+            });
+        }
+        // 仍先保证顶栏源名可见
+        if (srcName.length > 0) {
+            @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
+            @try { host.title = srcName; } @catch (__unused NSException *e) {}
+        }
+        @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+        return;
+    }
+
     sLastFeedSig = [sig copy];
     sLastFeedAt = now;
 
     if (srcName.length > 0) {
-        // 默认先记 Legado 名；openConfig 成功后会改成 donor 名供 createCons
         sDiscoverUseSourceName = [srcName copy];
     }
 
     sFeedingDiscoverHeader = YES;
     @try {
-        // 存活优先：暂不 resetContent / setDicModel（donor bookWorld 在真机会杀进程）
-        // 只保证原生 BookWorld 壳 + 导航标题；分类/书列表下一轮再挂
-        if (srcName.length > 0) {
-            sDiscoverUseSourceName = [srcName copy];
-            @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
-            @try { host.title = srcName; } @catch (__unused NSException *e) {}
-            @try { [host setValue:srcName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
+        id existTitle = nil;
+        id existScroll = nil;
+        @try { existTitle = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+        @try { existScroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+        if (existTitle && existScroll) {
+            sNativeChromeBuilt = YES;
+            if (srcName.length > 0) {
+                @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
+                @try { host.title = srcName; } @catch (__unused NSException *e) {}
+            }
+            sCachedKinds = [kinds copy];
+            LBAppendNativeMarker(@"pageChrome exists skipReset");
+            LBAppendNativeHostState(host, @"keepChrome");
+            return;
         }
+
+        LBPrepareDiscoverDicModel(host, srcName, titles);
+
+        NSString *consName = sDiscoverUseSourceName.length ? sDiscoverUseSourceName : (srcName ?: @"");
         @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+        @try { [host setValue:consName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
+        @try { [host setValue:consName forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
+        @try { [host setValue:consName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
+
+        [host.view setNeedsLayout];
+        [host.view layoutIfNeeded];
+
+        BOOL didReset = NO;
+        if ([host respondsToSelector:@selector(resetContent)]) {
+            @try {
+                ((void (*)(id, SEL))objc_msgSend)(host, @selector(resetContent));
+                didReset = YES;
+                LBAppendNativeMarker(@"resetContent ok");
+            } @catch (NSException *ex) {
+                LBAppendNativeMarker([NSString stringWithFormat:@"resetContent EX %@", ex.reason ?: @""]);
+            }
+        }
+        LBAppendNativeHostState(host, didReset ? @"afterReset" : @"noReset");
+
+        id titleView = nil;
+        id scroll = nil;
+        @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+        @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+        BOOL hasPageChrome = (titleView != nil && scroll != nil);
+
+        // createCons 仅作诊断/兜底：有 cons 也不二次 reset（二次 rebuild 易杀进程）
+        if (!hasPageChrome &&
+            host.childViewControllers.count == 0 &&
+            [host respondsToSelector:@selector(createCons:titles:sourceName:)]) {
+            @try {
+                NSMutableArray *cons = [NSMutableArray array];
+                ((void (*)(id, SEL, id, id, id))objc_msgSend)(
+                    host, @selector(createCons:titles:sourceName:), cons, titles, consName);
+                LBAppendNativeMarker([NSString stringWithFormat:
+                                      @"createCons fallback titles=%lu cons=%lu src=%@",
+                                      (unsigned long)titles.count, (unsigned long)cons.count, consName]);
+            } @catch (NSException *ex) {
+                LBAppendNativeMarker([NSString stringWithFormat:@"createCons EX %@", ex.reason ?: @""]);
+            }
+        } else if (hasPageChrome) {
+            sNativeChromeBuilt = YES;
+            LBAppendNativeMarker(@"pageChrome ready skipCreateConsWire");
+        }
+
         sCachedKinds = [kinds copy];
         if (sSelectedKindIndex >= (NSInteger)titles.count) sSelectedKindIndex = 0;
-        LBAppendNativeMarker([NSString stringWithFormat:
-                              @"shellOnly host=%@ src=%@ kinds=%lu (no resetContent)",
+
+        // 顶栏仍显示 Legado 源名（donor 只用于建壳）
+        if (srcName.length > 0) {
+            @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
+            @try { host.title = srcName; } @catch (__unused NSException *e) {}
+        }
+
+        LBAppendNativeMarker([NSString stringWithFormat:@"nativeHeader host=%@ src=%@ kinds=%lu sel=%ld",
                               NSStringFromClass([host class]), srcName ?: @"",
-                              (unsigned long)titles.count]);
-        LBAppendNativeHostState(host, @"shellOnly");
+                              (unsigned long)titles.count, (long)sSelectedKindIndex]);
+        LBAppendNativeHostState(host, @"feedDone");
     } @finally {
         sFeedingDiscoverHeader = NO;
     }
