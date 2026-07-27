@@ -7752,18 +7752,66 @@ static void LBG6SanitizePageSliderOverflow(id reader) {
     if (slider.hidden || slider.alpha < 0.05) return;
     slider.clipsToBounds = YES;
 
-    // 纯黑不透明底会在进度条上方「渗」出一块硬边黑
+    // 进度条容器纯黑底会在上一章行上方显出硬边黑条；legado 原生壳统一半透明
     @try {
-        UIColor *sbg = slider.backgroundColor;
-        CGFloat r = 1, g = 1, b = 1, a = 0;
-        if (sbg && [sbg getRed:&r green:&g blue:&b alpha:&a]) {
-            if (a > 0.7 && (r + g + b) / 3.0 < 0.18) {
-                slider.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55];
-                LBAppendOpenReaderTrace(@"G6 pageSlider softBg");
-            }
+        slider.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55];
+        if (slider.layer.backgroundColor) {
+            slider.layer.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55].CGColor;
         }
+        LBAppendOpenReaderTrace(@"G6 pageSlider forceSoftBg");
     } @catch (__unused NSException *e) {}
 
+    // 菜单显示时藏正文底栏页码条 TextRWidgetViewB；并把 UITableView 深色底改成浅色，
+    // 避免 chrome 顶开后正文与进度条之间露出黑底（真机菜单态全宽黑条主因）。
+    @try {
+        if ([reader isKindOfClass:[UIViewController class]]) {
+            UIView *root = ((UIViewController *)reader).view;
+            if (root.subviews.count > 0) {
+                UIView *cr = root.subviews[0];
+                UIColor *paper = [UIColor colorWithRed:0.93 green:0.92 blue:0.90 alpha:1.0];
+                for (UIView *ch in cr.subviews) {
+                    NSString *cn = NSStringFromClass([ch class]);
+                    if ([cn containsString:@"TextRWidget"]) {
+                        if (!ch.hidden) {
+                            ch.hidden = YES;
+                            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                                     @"G6 hideWidget %@", cn]);
+                        }
+                        continue;
+                    }
+                    if (![ch isKindOfClass:[UITableView class]]) continue;
+                    UITableView *tv = (UITableView *)ch;
+                    UIColor *bg = tv.backgroundColor;
+                    CGFloat r = 1, g = 1, b = 1, a = 1;
+                    BOOL dark = NO;
+                    if (bg && [bg getRed:&r green:&g blue:&b alpha:&a]) {
+                        dark = (a > 0.5) && (r + g + b) / 3.0 < 0.35;
+                    }
+                    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                             @"G6 tableBg r=%.2f g=%.2f b=%.2f a=%.2f dark=%d",
+                                             r, g, b, a, dark ? 1 : 0]);
+                    // 不论是否已判暗：菜单态强制浅底，堵住黑缝
+                    tv.backgroundColor = paper;
+                    if (tv.backgroundView) tv.backgroundView.backgroundColor = paper;
+                    if (tv.tableFooterView) {
+                        tv.tableFooterView.backgroundColor = [UIColor clearColor];
+                    }
+                    if (tv.tableHeaderView) {
+                        // 不改 header 内容，只防纯黑垫
+                        UIColor *hb = tv.tableHeaderView.backgroundColor;
+                        CGFloat hr = 1, hg = 1, hb2 = 1, ha = 0;
+                        if (hb && [hb getRed:&hr green:&hg blue:&hb2 alpha:&ha] &&
+                            ha > 0.5 && (hr + hg + hb2) / 3.0 < 0.2) {
+                            tv.tableHeaderView.backgroundColor = paper;
+                        }
+                    }
+                    LBAppendOpenReaderTrace(@"G6 tableBg forcePaper");
+                }
+            }
+        }
+    } @catch (__unused NSException *e2) {}
+
+    // 纯黑不透明底会在进度条上方「渗」出一块硬边黑 — 已 forceSoftBg
     NSMutableString *dump = [NSMutableString stringWithFormat:
                              @"G6 pageSlider frame=%@ clips=1 subs=",
                              NSStringFromCGRect(slider.frame)];
