@@ -7,6 +7,8 @@ static const NSInteger kLBKindBarTag = 0x4C424B42; // 'LBKB' — 仅用于清除
 static const NSInteger kLBOverlayTVTag = 0x4C425056; // 'LBPV' — 仅用于清除历史 overlay
 static NSInteger sSelectedKindIndex = 0;
 static NSArray *sCachedKinds = nil;
+static NSString *sLastFeedSig = nil;
+static CFAbsoluteTime sLastFeedAt = 0;
 
 static void (*sOrig_pageTitleSelected)(id, SEL, id, NSInteger) = NULL;
 static void (*sOrig_onSwitchBtn)(id, SEL) = NULL;
@@ -158,7 +160,33 @@ static void LBPresentExploreSourcePicker(UIViewController *host) {
     [presenter presentViewController:ac animated:YES completion:nil];
 }
 
-/// 用 Legado 分类重建原生 SGPageTitleView（arrHeaderBtnTitle + createCons）
+/// 验收：子页 / SGPageTitle / SGPageContent 是否挂上
+static void LBAppendNativeHostState(UIViewController *host, NSString *tag) {
+    if (!host) return;
+    NSUInteger childN = host.childViewControllers.count;
+    id titleView = nil;
+    id scroll = nil;
+    id list = nil;
+    @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+    @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+    @try { list = [host valueForKey:@"listCon"]; } @catch (__unused NSException *e) {}
+    NSMutableArray *childNames = [NSMutableArray array];
+    for (UIViewController *c in host.childViewControllers) {
+        [childNames addObject:NSStringFromClass([c class])];
+        if (childNames.count >= 8) break;
+    }
+    LBAppendNativeMarker([NSString stringWithFormat:
+                          @"%@ host=%@ child=%lu titleView=%@ scroll=%@ listCon=%@ kids=%@",
+                          tag ?: @"state",
+                          NSStringFromClass([host class]),
+                          (unsigned long)childN,
+                          titleView ? NSStringFromClass([titleView class]) : @"nil",
+                          scroll ? NSStringFromClass([scroll class]) : @"nil",
+                          list ? NSStringFromClass([list class]) : @"nil",
+                          childNames.count ? [childNames componentsJoinedByString:@","] : @"-"]);
+}
+
+/// 用 Legado 分类灌原生发现：写 arrHeaderBtnTitle/源名后走宿主 resetContent（内含 clear+createCons+挂 SGPage）
 static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, NSString *srcName) {
     if (!host) return;
     LBRemoveDiscoverOverlays(host);
@@ -170,17 +198,82 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
     }
     if (titles.count == 0) [titles addObject:@"全部"];
 
+    NSString *sig = [NSString stringWithFormat:@"%@|%@", srcName ?: @"", [titles componentsJoinedByString:@","]];
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (sLastFeedSig && [sLastFeedSig isEqualToString:sig] && (now - sLastFeedAt) < 1.2) {
+        return;
+    }
+    sLastFeedSig = [sig copy];
+    sLastFeedAt = now;
+
     @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
     @try { [host setValue:srcName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
     @try { [host setValue:srcName forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
+    @try { [host setValue:srcName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
 
-    if ([host respondsToSelector:@selector(createCons:titles:sourceName:)]) {
+    // 正确入口：resetContent（clear → createCons → pageTitleView + contentScroll）
+    BOOL didReset = NO;
+    if ([host respondsToSelector:@selector(resetContent)]) {
+        @try {
+            ((void (*)(id, SEL))objc_msgSend)(host, @selector(resetContent));
+            didReset = YES;
+            LBAppendNativeMarker(@"resetContent ok");
+        } @catch (NSException *ex) {
+            LBAppendNativeMarker([NSString stringWithFormat:@"resetContent EX %@", ex.reason ?: @""]);
+        }
+    }
+    LBAppendNativeHostState(host, didReset ? @"afterReset" : @"noReset");
+
+    // reset 后仍无子页时，再显式 createCons（仍禁止裸 alloc BookListCon）
+    if (host.childViewControllers.count == 0 &&
+        [host respondsToSelector:@selector(createCons:titles:sourceName:)]) {
         @try {
             NSMutableArray *cons = [NSMutableArray array];
             ((void (*)(id, SEL, id, id, id))objc_msgSend)(
                 host, @selector(createCons:titles:sourceName:), cons, titles, srcName ?: @"");
-            LBAppendNativeMarker([NSString stringWithFormat:@"createCons ok titles=%lu cons=%lu",
+            LBAppendNativeMarker([NSString stringWithFormat:@"createCons fallback titles=%lu cons=%lu",
                                   (unsigned long)titles.count, (unsigned long)cons.count]);
+            // 若 createCons 填了 cons 但 reset 没挂页，尝试用原生 SGPage 构造器挂上
+            if (cons.count > 0) {
+                Class titleCls = NSClassFromString(@"SGPageTitleView");
+                Class scrollCls = NSClassFromString(@"SGPageContentScrollView");
+                Class confCls = NSClassFromString(@"SGPageTitleViewConfigure");
+                id configure = nil;
+                if (confCls && [confCls respondsToSelector:@selector(pageTitleViewConfigure)]) {
+                    configure = ((id (*)(id, SEL))objc_msgSend)(confCls, @selector(pageTitleViewConfigure));
+                }
+                CGFloat w = host.view.bounds.size.width;
+                CGFloat h = host.view.bounds.size.height;
+                CGFloat titleH = 44.0;
+                if (titleCls && [titleCls respondsToSelector:@selector(pageTitleViewWithFrame:delegate:titleNames:configure:)]) {
+                    CGRect tf = CGRectMake(0, 0, w, titleH);
+                    id tv = ((id (*)(id, SEL, CGRect, id, id, id))objc_msgSend)(
+                        titleCls,
+                        @selector(pageTitleViewWithFrame:delegate:titleNames:configure:),
+                        tf, host, titles, configure);
+                    if (tv) {
+                        @try { [host setValue:tv forKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+                        if ([tv isKindOfClass:[UIView class]] && ![(UIView *)tv superview]) {
+                            [host.view addSubview:(UIView *)tv];
+                        }
+                    }
+                }
+                if (scrollCls) {
+                    SEL initSel = @selector(initWithFrame:parentVC:childVCs:);
+                    if ([scrollCls instancesRespondToSelector:initSel]) {
+                        CGRect cf = CGRectMake(0, titleH, w, MAX(0, h - titleH));
+                        id sc = ((id (*)(id, SEL, CGRect, id, id))objc_msgSend)(
+                            [scrollCls alloc], initSel, cf, host, cons);
+                        if (sc) {
+                            @try { [host setValue:sc forKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+                            if ([sc isKindOfClass:[UIView class]] && ![(UIView *)sc superview]) {
+                                [host.view addSubview:(UIView *)sc];
+                            }
+                        }
+                    }
+                }
+                LBAppendNativeHostState(host, @"afterCreateConsWire");
+            }
         } @catch (NSException *ex) {
             LBAppendNativeMarker([NSString stringWithFormat:@"createCons EX %@", ex.reason ?: @""]);
         }
@@ -199,16 +292,34 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                           (unsigned long)titles.count, (long)sSelectedKindIndex]);
 }
 
-/// 书列表灌入后刷新原生子页（resetContent / showContent）
+/// 书列表灌入后刷新原生子页（禁止再 resetContent，避免拆掉刚建好的 SGPage）
 void LBReloadDiscoverNativeList(UIViewController *host) {
     if (!host) return;
     UIViewController *listVC = LBActiveDiscoverListVC(host);
     if (!listVC) listVC = host;
-    SEL reset = @selector(resetContent);
-    if ([listVC respondsToSelector:reset]) {
-        @try { ((void (*)(id, SEL))objc_msgSend)(listVC, reset); } @catch (__unused NSException *e) {}
+
+    UITableView *tv = nil;
+    for (NSString *k in @[@"tableView", @"tv", @"listTableView", @"mainTableView", @"myTableView"]) {
+        @try {
+            id v = [listVC valueForKey:k];
+            if ([v isKindOfClass:[UITableView class]]) { tv = (UITableView *)v; break; }
+        } @catch (__unused NSException *e) {}
+    }
+    if (!tv && listVC.isViewLoaded && listVC.view) {
+        NSMutableArray *q = [NSMutableArray arrayWithObject:listVC.view];
+        NSInteger budget = 60;
+        while (q.count > 0 && budget-- > 0) {
+            UIView *cur = q.firstObject;
+            [q removeObjectAtIndex:0];
+            if ([cur isKindOfClass:[UITableView class]]) { tv = (UITableView *)cur; break; }
+            for (UIView *sub in cur.subviews) [q addObject:sub];
+        }
+    }
+    if (tv) {
+        @try { [tv reloadData]; } @catch (__unused NSException *e) {}
         return;
     }
+
     SEL show = @selector(showContent:title:);
     if ([listVC respondsToSelector:show]) {
         NSString *title = @"";
