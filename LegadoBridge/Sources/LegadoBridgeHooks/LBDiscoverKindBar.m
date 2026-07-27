@@ -419,8 +419,44 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
     return model;
 }
 
-/// 清空原生子页数据，避免 BookListCon 带着 donor 原生请求/cell 崩
-static void LBSanitizeDiscoverListCons(UIViewController *host, id scroll) {
+/// 毁掉 BookListCon 子页，只留分类条（避免 viewDidLoad/拉网杀进程）
+static void LBDestroyDiscoverListConsKeepTitle(UIViewController *host, id scroll) {
+    NSArray *kids = nil;
+    @try {
+        id cv = [scroll valueForKey:@"childViewControllers"];
+        if ([cv isKindOfClass:[NSArray class]]) kids = [cv copy];
+    } @catch (__unused NSException *e) {}
+    if (kids.count == 0) {
+        @try {
+            id cv = [scroll valueForKey:@"childVCs"];
+            if ([cv isKindOfClass:[NSArray class]]) kids = [cv copy];
+        } @catch (__unused NSException *e) {}
+    }
+    NSUInteger killed = 0;
+    for (id c in kids ?: @[]) {
+        UIViewController *vc = nil;
+        if ([c isKindOfClass:[UIViewController class]]) vc = c;
+        if (!vc) continue;
+        @try {
+            [vc.view removeFromSuperview];
+            if (vc.parentViewController) {
+                [vc willMoveToParentViewController:nil];
+                [vc removeFromParentViewController];
+            }
+            killed++;
+        } @catch (__unused NSException *e) {}
+    }
+    @try { [scroll setValue:@[] forKey:@"childViewControllers"]; } @catch (__unused NSException *e) {}
+    @try { [scroll setValue:@[] forKey:@"childVCs"]; } @catch (__unused NSException *e) {}
+    @try {
+        if ([scroll isKindOfClass:[UIView class]]) {
+            [(UIView *)scroll removeFromSuperview];
+        }
+    } @catch (__unused NSException *e) {}
+    @try { [host setValue:nil forKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+    LBAppendNativeMarker([NSString stringWithFormat:@"destroyListCons killed=%lu keepTitle=1",
+                          (unsigned long)killed]);
+}
     NSMutableArray *kids = [NSMutableArray array];
     @try {
         for (NSString *k in @[@"childVCs", @"childViewControllers", @"arrChildVCs", @"vcs"]) {
@@ -629,13 +665,7 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         } else if (hasPageChrome && (childN > 0 || scrollKids > 0)) {
             sNativeChromeBuilt = YES;
             LBSanitizeDiscoverListCons(host, scroll);
-            // 先拆内容 scroll，只留 SGPageTitleView 分类条，避开 BookListCon 拉网/cell 杀进程
-            @try {
-                if ([scroll isKindOfClass:[UIView class]] && [(UIView *)scroll superview]) {
-                    [(UIView *)scroll removeFromSuperview];
-                    LBAppendNativeMarker(@"detachScroll keepTitleOnly");
-                }
-            } @catch (__unused NSException *e) {}
+            LBDestroyDiscoverListConsKeepTitle(host, scroll);
             LBAppendNativeMarker([NSString stringWithFormat:
                                   @"pageChrome keep hostChild=%lu scrollKids=%lu titleOnly=1",
                                   (unsigned long)childN, (unsigned long)scrollKids]);
