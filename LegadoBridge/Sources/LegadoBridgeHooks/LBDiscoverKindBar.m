@@ -13,6 +13,8 @@ static CFAbsoluteTime sLastFeedAt = 0;
 static void (*sOrig_pageTitleSelected)(id, SEL, id, NSInteger) = NULL;
 static void (*sOrig_onSwitchBtn)(id, SEL) = NULL;
 static void (*sOrig_onSwitchBtnArg)(id, SEL, id) = NULL;
+static NSString *(*sOrig_getUseSourceName)(id, SEL) = NULL;
+static NSString *sDiscoverUseSourceName = nil;
 
 static id LBKindCore(void) {
     return LBLegadoCoreIfReady();
@@ -186,7 +188,79 @@ static void LBAppendNativeHostState(UIViewController *host, NSString *tag) {
                           childNames.count ? [childNames componentsJoinedByString:@","] : @"-"]);
 }
 
-/// 用 Legado 分类灌原生发现：写 arrHeaderBtnTitle/源名后走宿主 resetContent（内含 clear+createCons+挂 SGPage）
+/// 把 Legado 源模型灌进宿主（含 bookWorld 模板），供 createCons 建子页
+static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString *srcName, NSArray *titles) {
+    NSMutableDictionary *model = nil;
+    NSDictionary *base = nil;
+    if (srcName.length > 0) {
+        base = LBLegadoNativeModel(srcName);
+    }
+    if ([base isKindOfClass:[NSDictionary class]]) {
+        model = [base mutableCopy];
+    } else {
+        model = [NSMutableDictionary dictionary];
+        if (srcName.length > 0) {
+            model[@"sourceName"] = srcName;
+            model[@"title"] = srcName;
+        }
+        model[@"sourceType"] = @"DOM";
+        model[@"enable"] = @"1";
+        model[@"enabled"] = @YES;
+    }
+
+    // Manager 的 dicBookWorldTemplateDom 比 base.bookWorld 骨架更完整
+    Class mgrCls = NSClassFromString(@"BookSourceModelManager");
+    id mgr = nil;
+    if (mgrCls && [mgrCls respondsToSelector:@selector(sharedInstance)]) {
+        mgr = ((id (*)(id, SEL))objc_msgSend)(mgrCls, @selector(sharedInstance));
+    }
+    id bwDom = nil;
+    @try { bwDom = [mgr valueForKey:@"dicBookWorldTemplateDom"]; } @catch (__unused NSException *e) {}
+    if ([bwDom isKindOfClass:[NSDictionary class]] && [(NSDictionary *)bwDom count] > 0) {
+        model[@"bookWorld"] = bwDom;
+        LBAppendNativeMarker([NSString stringWithFormat:@"bwTemplate keys=%lu",
+                              (unsigned long)[(NSDictionary *)bwDom count]]);
+    } else if (!model[@"bookWorld"]) {
+        model[@"bookWorld"] = @{
+            @"actionID": @"bookWorld",
+            @"parserID": @"DOM"
+        };
+        LBAppendNativeMarker(@"bwTemplate missing → minimal bookWorld");
+    }
+
+    if (titles.count > 0) {
+        model[@"arrHeaderBtnTitle"] = titles;
+    }
+    if (srcName.length > 0) {
+        model[@"sourceName"] = srcName;
+        model[@"cf_title"] = srcName;
+    }
+
+    @try {
+        if ([host respondsToSelector:@selector(setDicModel:)]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(host, @selector(setDicModel:), model);
+            LBAppendNativeMarker(@"setDicModel ok");
+        } else {
+            [host setValue:model forKey:@"dicModel"];
+            LBAppendNativeMarker(@"setValue dicModel ok");
+        }
+    } @catch (NSException *ex) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"setDicModel EX %@", ex.reason ?: @""]);
+    }
+
+    // openConfigByName：若表内有该源则走完整装载；失败忽略（已直灌 dicModel）
+    if (srcName.length > 0 && [host respondsToSelector:@selector(openConfigByName:)]) {
+        @try {
+            ((void (*)(id, SEL, id))objc_msgSend)(host, @selector(openConfigByName:), srcName);
+            LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName %@", srcName]);
+        } @catch (NSException *ex) {
+            LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName EX %@", ex.reason ?: @""]);
+        }
+    }
+    return model;
+}
+
+/// 用 Legado 分类灌原生发现：先灌 dicModel/bookWorld，再 resetContent
 static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, NSString *srcName) {
     if (!host) return;
     LBRemoveDiscoverOverlays(host);
@@ -206,12 +280,23 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
     sLastFeedSig = [sig copy];
     sLastFeedAt = now;
 
+    if (srcName.length > 0) {
+        sDiscoverUseSourceName = [srcName copy];
+    }
+
+    LBPrepareDiscoverDicModel(host, srcName, titles);
+
     @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
     @try { [host setValue:srcName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
     @try { [host setValue:srcName forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
     @try { [host setValue:srcName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
 
-    // 正确入口：resetContent（clear → createCons → pageTitleView + contentScroll）
+    // 视图未进窗 / bounds=0 时 SGPage 会建了看不见；尽量等有尺寸
+    if (host.isViewLoaded && CGRectIsEmpty(host.view.bounds)) {
+        [host.view setNeedsLayout];
+        [host.view layoutIfNeeded];
+    }
+
     BOOL didReset = NO;
     if ([host respondsToSelector:@selector(resetContent)]) {
         @try {
@@ -233,7 +318,6 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                 host, @selector(createCons:titles:sourceName:), cons, titles, srcName ?: @"");
             LBAppendNativeMarker([NSString stringWithFormat:@"createCons fallback titles=%lu cons=%lu",
                                   (unsigned long)titles.count, (unsigned long)cons.count]);
-            // 若 createCons 填了 cons 但 reset 没挂页，尝试用原生 SGPage 构造器挂上
             if (cons.count > 0) {
                 Class titleCls = NSClassFromString(@"SGPageTitleView");
                 Class scrollCls = NSClassFromString(@"SGPageContentScrollView");
@@ -366,6 +450,18 @@ static void LBDiscover_onSwitchBtnArg(id self, SEL _cmd, id sender) {
     if (sOrig_onSwitchBtnArg) sOrig_onSwitchBtnArg(self, _cmd, sender);
 }
 
+static NSString *LBDiscover_getUseSourceName(id self, SEL _cmd) {
+    if (LBIsDiscoverTabActive() && sDiscoverUseSourceName.length > 0) {
+        return sDiscoverUseSourceName;
+    }
+    if (sOrig_getUseSourceName) return sOrig_getUseSourceName(self, _cmd);
+    @try {
+        id v = [self valueForKey:@"useSourceName"];
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) return v;
+    } @catch (__unused NSException *e) {}
+    return nil;
+}
+
 static void LBHookDiscoverNativeUIOnClass(Class cls) {
     if (!cls) return;
     SEL selTab = @selector(pageTitleView:selectedIndex:);
@@ -393,6 +489,15 @@ static void LBHookDiscoverNativeUIOnClass(Class cls) {
         if (m && !sOrig_onSwitchBtnArg) {
             sOrig_onSwitchBtnArg = (void (*)(id, SEL, id))method_getImplementation(m);
             method_setImplementation(m, (IMP)LBDiscover_onSwitchBtnArg);
+        }
+    }
+    SEL selName = @selector(getUseSourceName);
+    Class ownerName = LBClassOwningInstanceMethod(cls, selName);
+    if (ownerName) {
+        Method m = class_getInstanceMethod(ownerName, selName);
+        if (m && !sOrig_getUseSourceName) {
+            sOrig_getUseSourceName = (NSString *(*)(id, SEL))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LBDiscover_getUseSourceName);
         }
     }
 }

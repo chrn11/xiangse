@@ -11,6 +11,11 @@ enum XiangseNativeModelConverter {
         let template = domTemplate(from: manager)
         let overlay = overlayFields(for: source)
         let merged = deepMerge(base: template, overlay: overlay)
+        // bookWorld 段优先用专用模板（createCons 依赖），再叠 Legado 标记
+        if let bw = bookWorldTemplate(from: manager) {
+            merged["bookWorld"] = bw
+            dumpBookWorldKeysIfNeeded(bw)
+        }
         injectLegadoProxyActions(into: merged, source: source)
         return merged
     }
@@ -20,6 +25,13 @@ enum XiangseNativeModelConverter {
         let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_dom_template_keys.txt")
         guard !FileManager.default.fileExists(atPath: path) else { return }
         let keys = template.keys.sorted().joined(separator: "\n")
+        try? keys.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
+    private static func dumpBookWorldKeysIfNeeded(_ bookWorld: [String: Any]) {
+        let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_bookworld_template_keys.txt")
+        guard !FileManager.default.fileExists(atPath: path) else { return }
+        let keys = bookWorld.keys.sorted().joined(separator: "\n")
         try? keys.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
@@ -33,6 +45,17 @@ enum XiangseNativeModelConverter {
             return fallbackTemplate()
         }
         dumpTemplateKeysIfNeeded(raw)
+        return raw
+    }
+
+    /// 发现页 createCons 用的 bookWorld 模板（与 dicBaseModelTemplateDom.bookWorld 可能不同）
+    private static func bookWorldTemplate(from manager: NSObject) -> [String: Any]? {
+        let sel = NSSelectorFromString("dicBookWorldTemplateDom")
+        guard manager.responds(to: sel),
+              let raw = manager.perform(sel)?.takeUnretainedValue() as? [String: Any],
+              !raw.isEmpty else {
+            return nil
+        }
         return raw
     }
 
