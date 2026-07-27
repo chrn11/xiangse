@@ -15,6 +15,7 @@ static void (*sOrig_onSwitchBtn)(id, SEL) = NULL;
 static void (*sOrig_onSwitchBtnArg)(id, SEL, id) = NULL;
 static NSString *(*sOrig_getUseSourceName)(id, SEL) = NULL;
 static NSString *sDiscoverUseSourceName = nil;
+static BOOL sFeedingDiscoverHeader = NO;
 
 static id LBKindCore(void) {
     return LBLegadoCoreIfReady();
@@ -254,16 +255,7 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
         } else {
             LBAppendNativeMarker(@"openConfigByName noSel");
         }
-        SEL sw = @selector(onBookSourceSwitch:);
-        if ([host respondsToSelector:sw]) {
-            @try {
-                ((void (*)(id, SEL, id))objc_msgSend)(host, sw, cfgName);
-                LBAppendNativeMarker([NSString stringWithFormat:@"onBookSourceSwitch %@", cfgName]);
-                opened = YES;
-            } @catch (NSException *ex) {
-                LBAppendNativeMarker([NSString stringWithFormat:@"onBookSourceSwitch EX %@", ex.reason ?: @""]);
-            }
-        }
+        // 不调 onBookSourceSwitch: —— 参数语义不明，曾导致发现宿主推不出来
     }
 
     // openConfig 已装好完整 dicModel 时禁止再 setDicModel（会冲掉原生 bookWorld 配置）
@@ -324,97 +316,100 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         sDiscoverUseSourceName = [srcName copy];
     }
 
-    LBPrepareDiscoverDicModel(host, srcName, titles);
+    sFeedingDiscoverHeader = YES;
+    @try {
+        LBPrepareDiscoverDicModel(host, srcName, titles);
 
-    NSString *consName = sDiscoverUseSourceName.length ? sDiscoverUseSourceName : (srcName ?: @"");
-    @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
-    @try { [host setValue:consName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
-    @try { [host setValue:consName forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
-    @try { [host setValue:consName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
+        NSString *consName = sDiscoverUseSourceName.length ? sDiscoverUseSourceName : (srcName ?: @"");
+        @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+        @try { [host setValue:consName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
+        @try { [host setValue:consName forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
+        @try { [host setValue:consName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
 
-    // 视图未进窗 / bounds=0 时 SGPage 会建了看不见；尽量等有尺寸
-    if (host.isViewLoaded && CGRectIsEmpty(host.view.bounds)) {
-        [host.view setNeedsLayout];
-        [host.view layoutIfNeeded];
-    }
-
-    BOOL didReset = NO;
-    if ([host respondsToSelector:@selector(resetContent)]) {
-        @try {
-            ((void (*)(id, SEL))objc_msgSend)(host, @selector(resetContent));
-            didReset = YES;
-            LBAppendNativeMarker(@"resetContent ok");
-        } @catch (NSException *ex) {
-            LBAppendNativeMarker([NSString stringWithFormat:@"resetContent EX %@", ex.reason ?: @""]);
+        if (host.isViewLoaded && CGRectIsEmpty(host.view.bounds)) {
+            [host.view setNeedsLayout];
+            [host.view layoutIfNeeded];
         }
-    }
-    LBAppendNativeHostState(host, didReset ? @"afterReset" : @"noReset");
 
-    // reset 后仍无子页时，再显式 createCons（仍禁止裸 alloc BookListCon）
-    if (host.childViewControllers.count == 0 &&
-        [host respondsToSelector:@selector(createCons:titles:sourceName:)]) {
-        @try {
-            NSMutableArray *cons = [NSMutableArray array];
-            ((void (*)(id, SEL, id, id, id))objc_msgSend)(
-                host, @selector(createCons:titles:sourceName:), cons, titles, consName);
-            LBAppendNativeMarker([NSString stringWithFormat:@"createCons fallback titles=%lu cons=%lu src=%@",
-                                  (unsigned long)titles.count, (unsigned long)cons.count, consName]);
-            if (cons.count > 0) {
-                Class titleCls = NSClassFromString(@"SGPageTitleView");
-                Class scrollCls = NSClassFromString(@"SGPageContentScrollView");
-                Class confCls = NSClassFromString(@"SGPageTitleViewConfigure");
-                id configure = nil;
-                if (confCls && [confCls respondsToSelector:@selector(pageTitleViewConfigure)]) {
-                    configure = ((id (*)(id, SEL))objc_msgSend)(confCls, @selector(pageTitleViewConfigure));
-                }
-                CGFloat w = host.view.bounds.size.width;
-                CGFloat h = host.view.bounds.size.height;
-                CGFloat titleH = 44.0;
-                if (titleCls && [titleCls respondsToSelector:@selector(pageTitleViewWithFrame:delegate:titleNames:configure:)]) {
-                    CGRect tf = CGRectMake(0, 0, w, titleH);
-                    id tv = ((id (*)(id, SEL, CGRect, id, id, id))objc_msgSend)(
-                        titleCls,
-                        @selector(pageTitleViewWithFrame:delegate:titleNames:configure:),
-                        tf, host, titles, configure);
-                    if (tv) {
-                        @try { [host setValue:tv forKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-                        if ([tv isKindOfClass:[UIView class]] && ![(UIView *)tv superview]) {
-                            [host.view addSubview:(UIView *)tv];
-                        }
+        BOOL didReset = NO;
+        if ([host respondsToSelector:@selector(resetContent)]) {
+            @try {
+                ((void (*)(id, SEL))objc_msgSend)(host, @selector(resetContent));
+                didReset = YES;
+                LBAppendNativeMarker(@"resetContent ok");
+            } @catch (NSException *ex) {
+                LBAppendNativeMarker([NSString stringWithFormat:@"resetContent EX %@", ex.reason ?: @""]);
+            }
+        }
+        LBAppendNativeHostState(host, didReset ? @"afterReset" : @"noReset");
+
+        if (host.childViewControllers.count == 0 &&
+            [host respondsToSelector:@selector(createCons:titles:sourceName:)]) {
+            @try {
+                NSMutableArray *cons = [NSMutableArray array];
+                ((void (*)(id, SEL, id, id, id))objc_msgSend)(
+                    host, @selector(createCons:titles:sourceName:), cons, titles, consName);
+                LBAppendNativeMarker([NSString stringWithFormat:@"createCons fallback titles=%lu cons=%lu src=%@",
+                                      (unsigned long)titles.count, (unsigned long)cons.count, consName]);
+                if (cons.count > 0) {
+                    Class titleCls = NSClassFromString(@"SGPageTitleView");
+                    Class scrollCls = NSClassFromString(@"SGPageContentScrollView");
+                    Class confCls = NSClassFromString(@"SGPageTitleViewConfigure");
+                    id configure = nil;
+                    if (confCls && [confCls respondsToSelector:@selector(pageTitleViewConfigure)]) {
+                        configure = ((id (*)(id, SEL))objc_msgSend)(confCls, @selector(pageTitleViewConfigure));
                     }
-                }
-                if (scrollCls) {
-                    SEL initSel = @selector(initWithFrame:parentVC:childVCs:);
-                    if ([scrollCls instancesRespondToSelector:initSel]) {
-                        CGRect cf = CGRectMake(0, titleH, w, MAX(0, h - titleH));
-                        id sc = ((id (*)(id, SEL, CGRect, id, id))objc_msgSend)(
-                            [scrollCls alloc], initSel, cf, host, cons);
-                        if (sc) {
-                            @try { [host setValue:sc forKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
-                            if ([sc isKindOfClass:[UIView class]] && ![(UIView *)sc superview]) {
-                                [host.view addSubview:(UIView *)sc];
+                    CGFloat w = host.view.bounds.size.width;
+                    CGFloat h = host.view.bounds.size.height;
+                    CGFloat titleH = 44.0;
+                    if (titleCls && [titleCls respondsToSelector:@selector(pageTitleViewWithFrame:delegate:titleNames:configure:)]) {
+                        CGRect tf = CGRectMake(0, 0, w, titleH);
+                        id tv = ((id (*)(id, SEL, CGRect, id, id, id))objc_msgSend)(
+                            titleCls,
+                            @selector(pageTitleViewWithFrame:delegate:titleNames:configure:),
+                            tf, host, titles, configure);
+                        if (tv) {
+                            @try { [host setValue:tv forKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+                            if ([tv isKindOfClass:[UIView class]] && ![(UIView *)tv superview]) {
+                                [host.view addSubview:(UIView *)tv];
                             }
                         }
                     }
+                    if (scrollCls) {
+                        SEL initSel = @selector(initWithFrame:parentVC:childVCs:);
+                        if ([scrollCls instancesRespondToSelector:initSel]) {
+                            CGRect cf = CGRectMake(0, titleH, w, MAX(0, h - titleH));
+                            id sc = ((id (*)(id, SEL, CGRect, id, id))objc_msgSend)(
+                                [scrollCls alloc], initSel, cf, host, cons);
+                            if (sc) {
+                                @try { [host setValue:sc forKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+                                if ([sc isKindOfClass:[UIView class]] && ![(UIView *)sc superview]) {
+                                    [host.view addSubview:(UIView *)sc];
+                                }
+                            }
+                        }
+                    }
+                    LBAppendNativeHostState(host, @"afterCreateConsWire");
                 }
-                LBAppendNativeHostState(host, @"afterCreateConsWire");
+            } @catch (NSException *ex) {
+                LBAppendNativeMarker([NSString stringWithFormat:@"createCons EX %@", ex.reason ?: @""]);
             }
-        } @catch (NSException *ex) {
-            LBAppendNativeMarker([NSString stringWithFormat:@"createCons EX %@", ex.reason ?: @""]);
         }
+
+        sCachedKinds = [kinds copy];
+        if (sSelectedKindIndex >= (NSInteger)titles.count) sSelectedKindIndex = 0;
+
+        if (srcName.length > 0) {
+            @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
+            @try { host.title = srcName; } @catch (__unused NSException *e) {}
+        }
+
+        LBAppendNativeMarker([NSString stringWithFormat:@"nativeHeader host=%@ src=%@ kinds=%lu sel=%ld",
+                              NSStringFromClass([host class]), srcName ?: @"",
+                              (unsigned long)titles.count, (long)sSelectedKindIndex]);
+    } @finally {
+        sFeedingDiscoverHeader = NO;
     }
-
-    sCachedKinds = [kinds copy];
-    if (sSelectedKindIndex >= (NSInteger)titles.count) sSelectedKindIndex = 0;
-
-    if (srcName.length > 0) {
-        @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
-        @try { host.title = srcName; } @catch (__unused NSException *e) {}
-    }
-
-    LBAppendNativeMarker([NSString stringWithFormat:@"nativeHeader host=%@ src=%@ kinds=%lu sel=%ld",
-                          NSStringFromClass([host class]), srcName ?: @"",
-                          (unsigned long)titles.count, (long)sSelectedKindIndex]);
 }
 
 /// 书列表灌入后刷新原生子页（禁止再 resetContent，避免拆掉刚建好的 SGPage）
@@ -492,7 +487,8 @@ static void LBDiscover_onSwitchBtnArg(id self, SEL _cmd, id sender) {
 }
 
 static NSString *LBDiscover_getUseSourceName(id self, SEL _cmd) {
-    if (LBIsDiscoverTabActive() && sDiscoverUseSourceName.length > 0) {
+    // 仅在主动灌发现头期间改写，避免干扰原生 setSquare 推 World
+    if (sFeedingDiscoverHeader && sDiscoverUseSourceName.length > 0) {
         return sDiscoverUseSourceName;
     }
     if (sOrig_getUseSourceName) return sOrig_getUseSourceName(self, _cmd);

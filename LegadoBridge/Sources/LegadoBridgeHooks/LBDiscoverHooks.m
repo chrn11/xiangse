@@ -265,7 +265,22 @@ BOOL LBEnsureNativeDiscoverHostPresented(void) {
         return YES;
     }
 
-    // 尚无广场壳：等原生 setSquare 推出来（本函数不 push 任何 VC）
+    // 尚无广场壳：尝试 alloc 原生 BookWorldHomeCon 推进导航（仍是香色原生 VC）
+    Class worldCls = NSClassFromString(@"BookWorldHomeCon");
+    if (worldCls) {
+        @try {
+            UIViewController *world = [[worldCls alloc] init];
+            if (world) {
+                [nav pushViewController:world animated:NO];
+                sPinnedDiscoverHost = world;
+                LBInstallSearchUIAppearFlush();
+                LBDiscoverAppendMarker(@"discoverHost push BookWorldHomeCon");
+                return YES;
+            }
+        } @catch (NSException *ex) {
+            LBDiscoverAppendMarker([NSString stringWithFormat:@"discoverHost push EX %@", ex.reason ?: @""]);
+        }
+    }
     LBDiscoverAppendMarker(@"discoverHost wait native World");
     return NO;
 }
