@@ -145,6 +145,24 @@ static void LBPopBookSearchIfNeeded(UINavigationController *nav) {
     }
 }
 
+static void LBBringPinnedDiscoverHostToFront(void) {
+    UIViewController *pin = sPinnedDiscoverHost;
+    if (!pin) return;
+    UINavigationController *nav = pin.navigationController ?: LBDiscoverActiveNav();
+    if (!nav) return;
+    if ([nav.viewControllers containsObject:pin]) {
+        if (nav.topViewController != pin) {
+            [nav popToViewController:pin animated:NO];
+            LBDiscoverAppendMarker(@"discoverHost bringFront popTo pin");
+        }
+        return;
+    }
+    @try {
+        [nav pushViewController:pin animated:NO];
+        LBDiscoverAppendMarker(@"discoverHost bringFront re-push pin");
+    } @catch (__unused NSException *e) {}
+}
+
 /// 确保发现列表宿主在导航栈。
 /// 注意：裸 push BookListCon 会在 viewDidLoad/布局期 SIGABRT（真机已证）；
 /// 发现态改用原生 BookSearchController 作列表壳，标题显示「发现」。
@@ -156,6 +174,7 @@ BOOL LBEnsureNativeDiscoverHostPresented(void) {
         if ([pcn containsString:@"BookList"]) {
             sPinnedDiscoverHost = nil;
         } else if (pin.navigationController || (pin.isViewLoaded && pin.view.window)) {
+            LBBringPinnedDiscoverHostToFront();
             return YES;
         } else {
             sPinnedDiscoverHost = nil;
@@ -298,7 +317,14 @@ static void LBDiscover_setSquare(id self, SEL _cmd, BOOL square) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             if (!LBIsDiscoverTabActive()) return;
+            LBEnsureNativeDiscoverHostPresented();
             LBTriggerLegadoExploreForDiscoverTab();
+            LBBringPinnedDiscoverHostToFront();
+        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            if (!LBIsDiscoverTabActive()) return;
+            LBBringPinnedDiscoverHostToFront();
         });
     }
 }

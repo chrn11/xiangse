@@ -898,16 +898,21 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
         }
     }
     [sPendingSearchBooks removeAllObjects];
+    if (LBIsDiscoverTabActive()) {
+        LBEnsureNativeDiscoverHostPresented();
+    }
     NSString *marker = [NSString stringWithFormat:@"uiInject ok vcs=%lu applied=%lu key=%@ targets=%@ discover=%d",
                         (unsigned long)targets.count, (unsigned long)applied, keyword ?: @"",
                         [vcNames componentsJoinedByString:@","], LBIsDiscoverTabActive() ? 1 : 0];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    // 原生搜索结束常回写空 FilteredDS；延迟再灌两次
+    // 原生搜索结束常回写空 FilteredDS；延迟再灌两次，并再次置顶发现壳
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (LBIsDiscoverTabActive()) LBEnsureNativeDiscoverHostPresented();
         LBReapplyLastSearchBooks();
     });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (LBIsDiscoverTabActive()) LBEnsureNativeDiscoverHostPresented();
         LBReapplyLastSearchBooks();
     });
     } @catch (NSException *e) {

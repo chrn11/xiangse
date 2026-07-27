@@ -529,7 +529,7 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                             for (UIView *sub in cur.subviews) [views addObject:sub];
                         }
                         if ([vc respondsToSelector:@selector(setSquare:)]) {
-                            ((void (*)(id, SEL, BOOL))objc_msgSend)(vc, @selector(setSquare:), YES);
+                            // setSquare:YES 会推空白 BookWorld/站点页盖住列表；deeplink 只切分段，不调 setSquare
                         }
                         for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
                         if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
