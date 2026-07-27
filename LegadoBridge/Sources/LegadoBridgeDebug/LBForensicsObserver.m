@@ -274,8 +274,11 @@ static void LBFMaybeScheduleAutoDump(id selfObj, SEL sel, NSString *ownerClassNa
 }
 
 static IMP LBFEarlyWrapperForSelectorName(NSString *selName) {
-    if ([selName isEqualToString:@"viewDidLoad"]) return (IMP)LBFEarlyWrap_viewDidLoad;
-    if ([selName isEqualToString:@"loadCurCp"]) return (IMP)LBFEarlyWrap_loadCurCp;
+    // U0-D4：early wrap viewDidLoad/loadCurCp 在真机点「文本|小说示例」时
+    // 死前仅见 "early before viewDidLoad TextReadVC3"、无 after → 回 SpringBoard。
+    // BC2/BC3 已证 loadCurCp wrap 崩；本轮复证 viewDidLoad wrap 同样误伤原生本地书。
+    // forensics 对照改走 observer 常规挂钩，禁止 method_setImplementation 拦截套壳。
+    (void)selName;
     return NULL;
 }
 
@@ -405,36 +408,8 @@ static BOOL LBFEnsureEarlyWrap(Class cls, NSString *selName) {
 
 static void LBFEarlyWrapDiscoverAndInstall(void) {
     LBFInitEarlyWrapGlobals();
-    /// BC4：回退 BC2/BC3 对 ReadPageContainer/TextRPageContainer 的 early wrap。
-    /// BC2/BC3 真机：装 loadCurCp early wrap 后 baseline 点书即崩/退出，
-    /// 且 hook_ping 无 loadCurCp 记录（运行时无 ReadPageContainer 类，只有
-    /// TextRPageContainer，且其 loadCurCp 可能不在该类自身）。
-    /// BC4：main drain 探针改挂 viewDidLoad TextReadVC3 after（已确认能拦到），
-    /// 不依赖 loadCurCp。viewDidLoad 后 main 排空才能渲染，同样能对照差分。
-    NSArray<NSString *> *names = @[
-        @"TextReadVC3", @"TextReadVC2", @"TextReadVC1",
-        @"ReadVCBase2", @"ReadVCBase1", @"ReadVCBase",
-    ];
-    // U0-D4：不再 early wrap loadCurCp（BC2/BC3 已证 baseline 点书即崩）。
-    // 只保留 viewDidLoad（BC4 main drain 对照仍需要）。
-    for (NSString *cn in names) {
-        Class cls = objc_getClass(cn.UTF8String);
-        if (!cls) cls = NSClassFromString(cn);
-        if (!cls) continue;
-        LBFEnsureEarlyWrap(cls, @"viewDidLoad");
-    }
-    int n = objc_getClassList(NULL, 0);
-    if (n <= 0) return;
-    Class *buf = (Class *)calloc((size_t)n, sizeof(Class));
-    if (!buf) return;
-    objc_getClassList(buf, n);
-    for (int i = 0; i < n; i++) {
-        const char *name = class_getName(buf[i]);
-        if (!name) continue;
-        if (strstr(name, "TextReadVC") == NULL && strstr(name, "ReadVCBase") == NULL) continue;
-        LBFEnsureEarlyWrap(buf[i], @"viewDidLoad");
-    }
-    free(buf);
+    // U0-D4：禁用 constructor 对 TextReadVC 的 early wrap（见 LBFEarlyWrapperForSelectorName）。
+    LBFWriteHookPing(@"early wrap discover skipped (u0-d4 native local book)");
 }
 
 static void LBFEarlyWrap_viewDidLoad(id self, SEL _cmd) {
