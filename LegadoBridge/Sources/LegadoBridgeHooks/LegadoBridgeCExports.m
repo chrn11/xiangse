@@ -7943,6 +7943,15 @@ static void LBG6BringToolbarToFront(id reader) {
                                  @"G6 bottomWin=%@ sub=%lu (noReposition)",
                                  NSStringFromCGRect(winF), (unsigned long)bv.subviews.count]);
     }
+    NSMutableString *rootDump = [NSMutableString stringWithString:@"G6 rootSubs"];
+    NSUInteger lim = MIN(vc.view.subviews.count, (NSUInteger)14);
+    for (NSUInteger i = 0; i < lim; i++) {
+        UIView *ch = vc.view.subviews[i];
+        [rootDump appendFormat:@" [%lu]%@ f=%@ h=%d a=%.2f",
+         (unsigned long)i, NSStringFromClass([ch class]),
+         NSStringFromCGRect(ch.frame), ch.hidden ? 1 : 0, ch.alpha];
+    }
+    LBAppendOpenReaderTrace(rootDump);
     LBAppendOpenReaderTrace(@"G6 bringToolbarFront light");
 }
 
