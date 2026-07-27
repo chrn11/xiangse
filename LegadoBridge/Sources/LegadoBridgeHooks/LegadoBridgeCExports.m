@@ -456,11 +456,14 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
         UITableView *tv = [vc valueForKey:@"tableView"];
         if ([tv isKindOfClass:[UITableView class]]) {
             NSString *vcn = NSStringFromClass([vc class]);
-            BOOL bookListHost = [vcn containsString:@"BookList"];
+            BOOL plazaHost = [vcn containsString:@"BookList"]
+                || [vcn containsString:@"BookWorld"]
+                || [vcn containsString:@"BookStore"]
+                || [vcn containsString:@"Shudan"];
             id ds = tv.dataSource;
             NSString *dsCls = ds ? NSStringFromClass([ds class]) : @"(nil)";
-            // BookListCon：强制 DS=self，配合安全 cell；搜索页仍按 FilteredDataSource 规则
-            BOOL needOwnDS = bookListHost
+            // 广场/书单：强制 DS=self，配合安全 cell
+            BOOL needOwnDS = plazaHost
                 || (ds == nil)
                 || (ds != (id)vc)
                 || [dsCls containsString:@"FilteredDataSource"];
@@ -616,10 +619,13 @@ static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInte
         return 0;
     }
     NSString *cn = NSStringFromClass([self class]);
-    BOOL bookListHost = [cn containsString:@"BookList"];
+    BOOL plazaHost = [cn containsString:@"BookList"]
+        || [cn containsString:@"BookWorld"]
+        || [cn containsString:@"BookStore"]
+        || [cn containsString:@"Shudan"];
     @try {
         id cur = [self valueForKey:@"arrBaseData"];
-        if (bookListHost && LBArrayHasLegadoBooks(cur) && tv.dataSource == self) {
+        if (plazaHost && LBArrayHasLegadoBooks(cur) && tv.dataSource == self) {
             return (NSInteger)[(NSArray *)cur count];
         }
     } @catch (__unused NSException *e) {}
@@ -657,8 +663,11 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
         return nil;
     }
     NSString *cn = NSStringFromClass([self class]);
-    BOOL bookListHost = [cn containsString:@"BookList"];
-    if (bookListHost) {
+    BOOL plazaHost = [cn containsString:@"BookList"]
+        || [cn containsString:@"BookWorld"]
+        || [cn containsString:@"BookStore"]
+        || [cn containsString:@"Shudan"];
+    if (plazaHost) {
         @try {
             id cur = [self valueForKey:@"arrBaseData"];
             if (LBArrayHasLegadoBooks(cur) &&
@@ -730,8 +739,9 @@ void LBInstallSearchUIAppearFlush(void) {
         method_setImplementation(m, hook);
     }
     // 兜底：有 arrBaseData+legadoBridge 时强制 numberOfRows / 填 cell
-    // BookSearchVCBase1 + 发现宿主 BookListCon（World 不画 arrBaseData，不挂行数兜底以免乱）
-    for (NSString *cn in @[@"BookSearchVCBase1", @"BookListCon", @"BookListController"]) {
+    // 搜索页 + 原生发现广场壳（World 默认不画搜索字典，走安全 cell）
+    for (NSString *cn in @[@"BookSearchVCBase1", @"BookListCon", @"BookListController",
+                           @"BookWorldHomeCon", @"BookStoreBaseCon", @"ShudanHomeCon"]) {
         Class cls = NSClassFromString(cn);
         if (!cls) continue;
         LBInstallHookOnClassOnly(cls, @selector(tableView:numberOfRowsInSection:),
@@ -872,10 +882,19 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
     if (discoverHosts.count > 0) {
         [targets addObjectsFromArray:discoverHosts];
     }
-    if (targets.count == 0 && vcs.count > 0) {
+    // 发现态禁止灌 BookSearch（那是搜索页，不是发现）
+    if (targets.count == 0 && vcs.count > 0 && !LBIsDiscoverTabActive()) {
         [targets addObjectsFromArray:vcs];
     } else if (discoverHosts.count > 0 && vcs.count > 0 && !LBIsDiscoverTabActive()) {
         [targets addObjectsFromArray:vcs];
+    }
+    if (targets.count == 0 && LBIsDiscoverTabActive()) {
+        NSString *marker = [NSString stringWithFormat:
+                            @"uiInject wait native plaza n=%lu key=%@ (no World yet)",
+                            (unsigned long)sPendingSearchBooks.count, keyword ?: @""];
+        [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return;
     }
     NSUInteger applied = 0;
     if (!sLastAppliedSearchBooks) sLastAppliedSearchBooks = [NSMutableArray array];
