@@ -188,8 +188,9 @@ static void LBAppendNativeHostState(UIViewController *host, NSString *tag) {
                           childNames.count ? [childNames componentsJoinedByString:@","] : @"-"]);
 }
 
-/// 从原生表挑一个带完整 bookWorld 的 donor（非 Legado）
-static NSDictionary *LBFindDonorBookWorld(id mgr) {
+/// 从原生表挑一个带完整 bookWorld 的 donor（非 Legado）。outName 可空。
+static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
+    if (outName) *outName = nil;
     if (!mgr) return nil;
     id list = nil;
     @try { list = [mgr valueForKey:@"dicModelList"]; } @catch (__unused NSException *e) {}
@@ -206,6 +207,8 @@ static NSDictionary *LBFindDonorBookWorld(id mgr) {
         id bw = m[@"bookWorld"];
         if (![bw isKindOfClass:[NSDictionary class]]) return;
         NSUInteger n = [(NSDictionary *)bw count];
+        // 跳过明显空壳
+        if (n < 3) return;
         if (n > bestN) {
             bestN = n;
             best = (NSDictionary *)bw;
@@ -213,6 +216,7 @@ static NSDictionary *LBFindDonorBookWorld(id mgr) {
         }
     }];
     if (bestN >= 3 && best) {
+        if (outName) *outName = bestName;
         LBAppendNativeMarker([NSString stringWithFormat:@"bwDonor name=%@ keys=%lu",
                               bestName ?: @"?", (unsigned long)bestN]);
         return best;
@@ -220,56 +224,53 @@ static NSDictionary *LBFindDonorBookWorld(id mgr) {
     return nil;
 }
 
-/// 把 Legado 源模型灌进宿主（含 bookWorld donor），供 createCons 建子页
+/// 用真实 XBS donor 打开原生配置，再用 Legado titles 重建分页
 static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString *srcName, NSArray *titles) {
-    NSMutableDictionary *model = nil;
-    NSDictionary *base = nil;
-    if (srcName.length > 0) {
-        base = LBLegadoNativeModel(srcName);
-    }
-    if ([base isKindOfClass:[NSDictionary class]]) {
-        model = [base mutableCopy];
-    } else {
-        model = [NSMutableDictionary dictionary];
-        if (srcName.length > 0) {
-            model[@"sourceName"] = srcName;
-            model[@"title"] = srcName;
-        }
-        model[@"sourceType"] = @"DOM";
-        model[@"enable"] = @"1";
-        model[@"enabled"] = @YES;
-    }
-
     Class mgrCls = NSClassFromString(@"BookSourceModelManager");
     id mgr = nil;
     if (mgrCls && [mgrCls respondsToSelector:@selector(sharedInstance)]) {
         mgr = ((id (*)(id, SEL))objc_msgSend)(mgrCls, @selector(sharedInstance));
     }
 
-    // 优先：原生表里真正丰富的 bookWorld；模板常只有 actionID/parserID，不够建页
-    NSDictionary *donorBW = LBFindDonorBookWorld(mgr);
-    id bwDom = nil;
-    @try { bwDom = [mgr valueForKey:@"dicBookWorldTemplateDom"]; } @catch (__unused NSException *e) {}
-    NSUInteger tmplN = [bwDom isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)bwDom count] : 0;
-    if (donorBW) {
-        model[@"bookWorld"] = donorBW;
-    } else if (tmplN >= 3) {
-        model[@"bookWorld"] = bwDom;
-        LBAppendNativeMarker([NSString stringWithFormat:@"bwTemplate keys=%lu", (unsigned long)tmplN]);
-    } else {
-        LBAppendNativeMarker([NSString stringWithFormat:@"bw weak tmpl=%lu keepBase=%d",
-                              (unsigned long)tmplN, model[@"bookWorld"] ? 1 : 0]);
+    NSString *donorName = nil;
+    NSDictionary *donorBW = LBFindDonorBookWorld(mgr, &donorName);
+
+    // 关键：用表内真实 XBS 名 openConfigByName（Legado 名不在表/或不完整会 createCons=0）
+    NSString *cfgName = donorName.length ? donorName : srcName;
+    if (cfgName.length > 0 && [host respondsToSelector:@selector(openConfigByName:)]) {
+        @try {
+            ((void (*)(id, SEL, id))objc_msgSend)(host, @selector(openConfigByName:), cfgName);
+            LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName %@", cfgName]);
+            // createCons/getUseSourceName 期间用 donor 名，避免再查不到
+            if (donorName.length > 0) {
+                sDiscoverUseSourceName = [donorName copy];
+            }
+        } @catch (NSException *ex) {
+            LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName EX %@", ex.reason ?: @""]);
+        }
     }
 
-    if (titles.count > 0) {
-        model[@"arrHeaderBtnTitle"] = titles;
+    // 再叠 Legado 模型字段（不覆盖已装好的 bookWorld，除非 donor 更完整）
+    NSMutableDictionary *model = nil;
+    @try {
+        id cur = [host valueForKey:@"dicModel"];
+        if ([cur isKindOfClass:[NSDictionary class]]) model = [cur mutableCopy];
+    } @catch (__unused NSException *e) {}
+    if (!model) {
+        NSDictionary *base = srcName.length ? LBLegadoNativeModel(srcName) : nil;
+        model = [base isKindOfClass:[NSDictionary class]] ? [base mutableCopy] : [NSMutableDictionary dictionary];
     }
+    if (donorBW && (!model[@"bookWorld"] ||
+                    ![(model[@"bookWorld"]) isKindOfClass:[NSDictionary class]] ||
+                    [(NSDictionary *)model[@"bookWorld"] count] < 3)) {
+        model[@"bookWorld"] = donorBW;
+    }
+    if (titles.count > 0) model[@"arrHeaderBtnTitle"] = titles;
+    // 导航标题仍显示 Legado 源名
     if (srcName.length > 0) {
-        model[@"sourceName"] = srcName;
         model[@"cf_title"] = srcName;
     }
 
-    // 只 setDicModel，不调 openConfigByName（表内无 Legado 键时会杀进程）
     @try {
         if ([host respondsToSelector:@selector(setDicModel:)]) {
             ((void (*)(id, SEL, id))objc_msgSend)(host, @selector(setDicModel:), model);
@@ -305,15 +306,17 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
     sLastFeedAt = now;
 
     if (srcName.length > 0) {
+        // 默认先记 Legado 名；openConfig 成功后会改成 donor 名供 createCons
         sDiscoverUseSourceName = [srcName copy];
     }
 
     LBPrepareDiscoverDicModel(host, srcName, titles);
 
+    NSString *consName = sDiscoverUseSourceName.length ? sDiscoverUseSourceName : (srcName ?: @"");
     @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
-    @try { [host setValue:srcName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
-    @try { [host setValue:srcName forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
-    @try { [host setValue:srcName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
+    @try { [host setValue:consName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
+    @try { [host setValue:consName forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
+    @try { [host setValue:consName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
 
     // 视图未进窗 / bounds=0 时 SGPage 会建了看不见；尽量等有尺寸
     if (host.isViewLoaded && CGRectIsEmpty(host.view.bounds)) {
@@ -339,9 +342,9 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         @try {
             NSMutableArray *cons = [NSMutableArray array];
             ((void (*)(id, SEL, id, id, id))objc_msgSend)(
-                host, @selector(createCons:titles:sourceName:), cons, titles, srcName ?: @"");
-            LBAppendNativeMarker([NSString stringWithFormat:@"createCons fallback titles=%lu cons=%lu",
-                                  (unsigned long)titles.count, (unsigned long)cons.count]);
+                host, @selector(createCons:titles:sourceName:), cons, titles, consName);
+            LBAppendNativeMarker([NSString stringWithFormat:@"createCons fallback titles=%lu cons=%lu src=%@",
+                                  (unsigned long)titles.count, (unsigned long)cons.count, consName]);
             if (cons.count > 0) {
                 Class titleCls = NSClassFromString(@"SGPageTitleView");
                 Class scrollCls = NSClassFromString(@"SGPageContentScrollView");
