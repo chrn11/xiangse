@@ -224,7 +224,7 @@ static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
     return nil;
 }
 
-/// 用真实 XBS donor 打开原生配置，再用 Legado titles 重建分页
+/// 用真实 XBS donor 打开原生配置；成功后只改 titles，勿再 setDicModel 覆盖
 static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString *srcName, NSArray *titles) {
     Class mgrCls = NSClassFromString(@"BookSourceModelManager");
     id mgr = nil;
@@ -235,42 +235,56 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
     NSString *donorName = nil;
     NSDictionary *donorBW = LBFindDonorBookWorld(mgr, &donorName);
 
-    // 关键：用表内真实 XBS 名 openConfigByName（Legado 名不在表/或不完整会 createCons=0）
+    if (donorName.length > 0) {
+        sDiscoverUseSourceName = [donorName copy];
+    }
+
     NSString *cfgName = donorName.length ? donorName : srcName;
-    if (cfgName.length > 0 && [host respondsToSelector:@selector(openConfigByName:)]) {
-        @try {
-            ((void (*)(id, SEL, id))objc_msgSend)(host, @selector(openConfigByName:), cfgName);
-            LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName %@", cfgName]);
-            // createCons/getUseSourceName 期间用 donor 名，避免再查不到
-            if (donorName.length > 0) {
-                sDiscoverUseSourceName = [donorName copy];
+    BOOL opened = NO;
+    SEL openSel = @selector(openConfigByName:);
+    if (cfgName.length > 0) {
+        if ([host respondsToSelector:openSel]) {
+            @try {
+                ((void (*)(id, SEL, id))objc_msgSend)(host, openSel, cfgName);
+                LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName %@", cfgName]);
+                opened = YES;
+            } @catch (NSException *ex) {
+                LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName EX %@", ex.reason ?: @""]);
             }
-        } @catch (NSException *ex) {
-            LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName EX %@", ex.reason ?: @""]);
+        } else {
+            LBAppendNativeMarker(@"openConfigByName noSel");
+        }
+        SEL sw = @selector(onBookSourceSwitch:);
+        if ([host respondsToSelector:sw]) {
+            @try {
+                ((void (*)(id, SEL, id))objc_msgSend)(host, sw, cfgName);
+                LBAppendNativeMarker([NSString stringWithFormat:@"onBookSourceSwitch %@", cfgName]);
+                opened = YES;
+            } @catch (NSException *ex) {
+                LBAppendNativeMarker([NSString stringWithFormat:@"onBookSourceSwitch EX %@", ex.reason ?: @""]);
+            }
         }
     }
 
-    // 再叠 Legado 模型字段（不覆盖已装好的 bookWorld，除非 donor 更完整）
-    NSMutableDictionary *model = nil;
-    @try {
-        id cur = [host valueForKey:@"dicModel"];
-        if ([cur isKindOfClass:[NSDictionary class]]) model = [cur mutableCopy];
-    } @catch (__unused NSException *e) {}
-    if (!model) {
-        NSDictionary *base = srcName.length ? LBLegadoNativeModel(srcName) : nil;
-        model = [base isKindOfClass:[NSDictionary class]] ? [base mutableCopy] : [NSMutableDictionary dictionary];
-    }
-    if (donorBW && (!model[@"bookWorld"] ||
-                    ![(model[@"bookWorld"]) isKindOfClass:[NSDictionary class]] ||
-                    [(NSDictionary *)model[@"bookWorld"] count] < 3)) {
-        model[@"bookWorld"] = donorBW;
-    }
-    if (titles.count > 0) model[@"arrHeaderBtnTitle"] = titles;
-    // 导航标题仍显示 Legado 源名
-    if (srcName.length > 0) {
-        model[@"cf_title"] = srcName;
+    // openConfig 已装好完整 dicModel 时禁止再 setDicModel（会冲掉原生 bookWorld 配置）
+    if (opened) {
+        if (titles.count > 0) {
+            @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+        }
+        id cur = nil;
+        @try { cur = [host valueForKey:@"dicModel"]; } @catch (__unused NSException *e) {}
+        LBAppendNativeMarker([NSString stringWithFormat:@"keepOpenConfigModel hasDic=%d",
+                              [cur isKindOfClass:[NSDictionary class]] ? 1 : 0]);
+        return [cur isKindOfClass:[NSDictionary class]] ? cur : nil;
     }
 
+    // 无 openConfig：退回手工灌模型
+    NSMutableDictionary *model = nil;
+    NSDictionary *base = srcName.length ? LBLegadoNativeModel(srcName) : nil;
+    model = [base isKindOfClass:[NSDictionary class]] ? [base mutableCopy] : [NSMutableDictionary dictionary];
+    if (donorBW) model[@"bookWorld"] = donorBW;
+    if (titles.count > 0) model[@"arrHeaderBtnTitle"] = titles;
+    if (srcName.length > 0) model[@"cf_title"] = srcName;
     @try {
         if ([host respondsToSelector:@selector(setDicModel:)]) {
             ((void (*)(id, SEL, id))objc_msgSend)(host, @selector(setDicModel:), model);
