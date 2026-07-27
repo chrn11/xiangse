@@ -225,7 +225,13 @@ BOOL LBEnsureNativeDiscoverHostPresented(void) {
             sPinnedDiscoverHost = nil;
         } else if (sPinnedDiscoverHost.navigationController ||
                    (sPinnedDiscoverHost.isViewLoaded && sPinnedDiscoverHost.view.window)) {
-            LBDiscoverAppendMarker([NSString stringWithFormat:@"discoverHost reuse pin %@", pcn]);
+            // 限频：reuse 每 5s 写一次，避免刷屏拖慢主线程
+            static NSTimeInterval sLastReuseLog = 0;
+            NSTimeInterval t = [[NSDate date] timeIntervalSince1970];
+            if (t - sLastReuseLog > 5.0) {
+                sLastReuseLog = t;
+                LBDiscoverAppendMarker([NSString stringWithFormat:@"discoverHost reuse pin %@", pcn]);
+            }
             return YES;
         } else {
             sPinnedDiscoverHost = nil;

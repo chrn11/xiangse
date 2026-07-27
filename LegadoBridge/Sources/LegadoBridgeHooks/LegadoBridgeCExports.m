@@ -460,32 +460,71 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 if ([v isKindOfClass:[UITableView class]]) { tv = (UITableView *)v; break; }
             } @catch (__unused NSException *e) {}
         }
-        // 广场壳常把表藏在子视图，不在 tableView KVC
+        NSString *vcn = NSStringFromClass([vc class]);
+        BOOL plazaHost = [vcn containsString:@"BookList"]
+            || [vcn containsString:@"BookWorld"]
+            || [vcn containsString:@"BookStore"]
+            || [vcn containsString:@"Shudan"];
+        // 广场壳常把表藏在子视图，不在 tableView KVC；也可能根本没有原生表（模板 Web）
         if (!tv && vc.isViewLoaded && vc.view) {
             NSMutableArray *q = [NSMutableArray arrayWithObject:vc.view];
-            while (q.count > 0) {
+            NSMutableArray *walk = [NSMutableArray array];
+            NSInteger depthBudget = 80;
+            while (q.count > 0 && depthBudget-- > 0) {
                 UIView *cur = q.firstObject;
                 [q removeObjectAtIndex:0];
+                [walk addObject:NSStringFromClass([cur class])];
                 if ([cur isKindOfClass:[UITableView class]]) {
+                    tv = (UITableView *)cur;
+                    break;
+                }
+                // 复用我们挂过的 overlay
+                if (cur.tag == 0x4C425056 /* 'LBPV' */ && [cur isKindOfClass:[UITableView class]]) {
                     tv = (UITableView *)cur;
                     break;
                 }
                 for (UIView *sub in cur.subviews) [q addObject:sub];
             }
+            if (!tv && plazaHost) {
+                // 取证：World 实际子视图（常为 WKWebView 模板，无 UITableView）
+                NSString *walkLine = [NSString stringWithFormat:@"plazaWalk host=%@ n=%lu %@",
+                                      vcn, (unsigned long)walk.count,
+                                      [[walk subarrayWithRange:NSMakeRange(0, MIN(walk.count, 40u))]
+                                       componentsJoinedByString:@">"]];
+                [walkLine writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_plaza_viewwalk.txt"]
+                           atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                // 原生广场不画 arrBaseData：挂安全 overlay 表，保留导航栏（返回/搜索/切换）
+                UIView *host = vc.view;
+                UITableView *ov = nil;
+                for (UIView *sub in host.subviews) {
+                    if (sub.tag == 0x4C425056 && [sub isKindOfClass:[UITableView class]]) {
+                        ov = (UITableView *)sub;
+                        break;
+                    }
+                }
+                if (!ov) {
+                    ov = [[UITableView alloc] initWithFrame:host.bounds style:UITableViewStylePlain];
+                    ov.tag = 0x4C425056;
+                    ov.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+                    ov.backgroundColor = [UIColor blackColor];
+                    ov.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
+                    ov.rowHeight = 64.0;
+                    [host addSubview:ov];
+                }
+                ov.frame = host.bounds;
+                [host bringSubviewToFront:ov];
+                tv = ov;
+            }
         }
         if ([tv isKindOfClass:[UITableView class]]) {
-            NSString *vcn = NSStringFromClass([vc class]);
-            BOOL plazaHost = [vcn containsString:@"BookList"]
-                || [vcn containsString:@"BookWorld"]
-                || [vcn containsString:@"BookStore"]
-                || [vcn containsString:@"Shudan"];
             id ds = tv.dataSource;
             NSString *dsCls = ds ? NSStringFromClass([ds class]) : @"(nil)";
             // 广场/书单：强制 DS=self，配合安全 cell
             BOOL needOwnDS = plazaHost
                 || (ds == nil)
                 || (ds != (id)vc)
-                || [dsCls containsString:@"FilteredDataSource"];
+                || [dsCls containsString:@"FilteredDataSource"]
+                || (tv.tag == 0x4C425056);
             if (needOwnDS && [vc respondsToSelector:@selector(tableView:numberOfRowsInSection:)]) {
                 tv.dataSource = (id<UITableViewDataSource>)vc;
                 if ([vc respondsToSelector:@selector(tableView:cellForRowAtIndexPath:)]) {
@@ -512,13 +551,12 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 if ([cur isKindOfClass:[NSArray class]]) arrN = [cur count];
             } @catch (__unused NSException *e) {}
             NSString *diag = [NSString stringWithFormat:
-                @"uiInject ds=%@ rows=%ld arr=%lu needOwn=%d host=%@ tv=%@",
+                @"uiInject ds=%@ rows=%ld arr=%lu needOwn=%d host=%@ tv=%@ tag=%ld",
                 dsCls, (long)rows, (unsigned long)arrN, needOwnDS ? 1 : 0, vcn,
-                NSStringFromClass([tv class])];
+                NSStringFromClass([tv class]), (long)tv.tag];
             [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         } else {
-            NSString *vcn = NSStringFromClass([vc class]);
             NSString *diag = [NSString stringWithFormat:@"uiInject no UITableView host=%@", vcn];
             [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
