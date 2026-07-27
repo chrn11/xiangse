@@ -120,28 +120,99 @@ static void LBDiscover_onSegmentChanged(id self, SEL _cmd) {
     if (sOrig_onSegmentChanged) {
         sOrig_onSegmentChanged(self, _cmd);
     }
-    // 书架|发现：常见 index 1 = 发现；读不到则不瞎触发
     NSInteger idx = -1;
-    @try {
-        id seg = [self valueForKey:@"segment"];
-        if ([seg respondsToSelector:@selector(selectedSegmentIndex)]) {
-            idx = ((NSInteger (*)(id, SEL))objc_msgSend)(seg, @selector(selectedSegmentIndex));
+    NSString *title = nil;
+    id seg = nil;
+    @try { seg = [self valueForKey:@"segment"]; } @catch (__unused NSException *e) {}
+    if (!seg) {
+        @try { seg = [self valueForKey:@"segmentedControl"]; } @catch (__unused NSException *e) {}
+    }
+    if (!seg) {
+        @try { seg = [self valueForKey:@"titleSegment"]; } @catch (__unused NSException *e) {}
+    }
+    if ([seg isKindOfClass:[UISegmentedControl class]]) {
+        UISegmentedControl *sc = (UISegmentedControl *)seg;
+        idx = sc.selectedSegmentIndex;
+        if (idx >= 0 && idx < sc.numberOfSegments) {
+            title = [sc titleForSegmentAtIndex:(NSUInteger)idx];
         }
-    } @catch (__unused NSException *e) {}
+    } else if (seg) {
+        @try {
+            if ([seg respondsToSelector:@selector(selectedSegmentIndex)]) {
+                idx = ((NSInteger (*)(id, SEL))objc_msgSend)(seg, @selector(selectedSegmentIndex));
+            }
+        } @catch (__unused NSException *e) {}
+        @try {
+            if (idx >= 0 && [seg respondsToSelector:@selector(titleForSegmentAtIndex:)]) {
+                title = ((id (*)(id, SEL, NSUInteger))objc_msgSend)(
+                    seg, @selector(titleForSegmentAtIndex:), (NSUInteger)idx);
+            }
+        } @catch (__unused NSException *e) {}
+    }
     if (idx < 0) {
         @try {
             id v = [self valueForKey:@"selectedSegmentIndex"];
             if ([v respondsToSelector:@selector(integerValue)]) idx = [v integerValue];
         } @catch (__unused NSException *e) {}
     }
-    BOOL discover = (idx == 1);
-    // 也认 square 属性
+    BOOL discover = NO;
+    if ([title isKindOfClass:[NSString class]] &&
+        ([title containsString:@"发现"] || [title.lowercaseString containsString:@"discover"])) {
+        discover = YES;
+    }
+    if (!discover && idx == 1) {
+        discover = YES; // 书架|发现 常规布局
+    }
     @try {
         id sq = [self valueForKey:@"square"];
-        if ([sq respondsToSelector:@selector(boolValue)]) {
-            discover = [sq boolValue] || discover;
+        if ([sq respondsToSelector:@selector(boolValue)] && [sq boolValue]) {
+            discover = YES;
         }
     } @catch (__unused NSException *e) {}
+    // 扫导航栏上可见的 UISegmentedControl（KVC 取不到 segment 时）
+    if (!discover && idx < 0) {
+        @try {
+            UIView *v = [self isKindOfClass:[UIViewController class]] ? [(UIViewController *)self view] : nil;
+            UINavigationItem *item = [self respondsToSelector:@selector(navigationItem)]
+                ? [(UIViewController *)self navigationItem] : nil;
+            NSMutableArray *cands = [NSMutableArray array];
+            if (item.titleView) [cands addObject:item.titleView];
+            if (v) [cands addObject:v];
+            for (UIView *root in cands) {
+                NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+                while (stack.count > 0) {
+                    UIView *cur = stack.lastObject;
+                    [stack removeLastObject];
+                    if ([cur isKindOfClass:[UISegmentedControl class]]) {
+                        UISegmentedControl *sc = (UISegmentedControl *)cur;
+                        NSInteger si = sc.selectedSegmentIndex;
+                        if (si >= 0 && si < sc.numberOfSegments) {
+                            NSString *t = [sc titleForSegmentAtIndex:(NSUInteger)si];
+                            if ([t containsString:@"发现"]) {
+                                discover = YES;
+                                idx = si;
+                                title = t;
+                                break;
+                            }
+                            if (si == 1 && sc.numberOfSegments == 2) {
+                                // 双段且选中右侧：大概率是发现
+                                NSString *t0 = [sc titleForSegmentAtIndex:0];
+                                NSString *t1 = [sc titleForSegmentAtIndex:1];
+                                if ([t0 containsString:@"书架"] && [t1 containsString:@"发现"]) {
+                                    discover = YES;
+                                    idx = si;
+                                    title = t1;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    for (UIView *sub in cur.subviews) [stack addObject:sub];
+                }
+                if (discover) break;
+            }
+        } @catch (__unused NSException *e) {}
+    }
     LBSetDiscoverTabActive(discover);
     if (discover) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
@@ -150,8 +221,9 @@ static void LBDiscover_onSegmentChanged(id self, SEL _cmd) {
             LBTriggerLegadoExploreForDiscoverTab();
         });
     }
-    NSString *line = [NSString stringWithFormat:@"discoverTab onSegmentChanged idx=%ld discover=%d",
-                      (long)idx, discover ? 1 : 0];
+    NSString *line = [NSString stringWithFormat:
+                      @"discoverTab onSegmentChanged idx=%ld title=%@ discover=%d",
+                      (long)idx, title ?: @"-", discover ? 1 : 0];
     [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 }
