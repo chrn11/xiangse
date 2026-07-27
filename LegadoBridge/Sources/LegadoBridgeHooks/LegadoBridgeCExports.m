@@ -367,6 +367,24 @@ static NSString *LBSearchBookKey(NSDictionary *book) {
     return name;
 }
 
+static void LBEnsurePlazaTableDataSourceMethods(Class cls) {
+    if (!cls) return;
+    SEL rowsSel = @selector(tableView:numberOfRowsInSection:);
+    SEL cellSel = @selector(tableView:cellForRowAtIndexPath:);
+    Method rowsM = class_getInstanceMethod(cls, rowsSel);
+    if (!rowsM) {
+        class_addMethod(cls, rowsSel, (IMP)LBHookedNumberOfRows, "q@:@q");
+    } else if (method_getImplementation(rowsM) != (IMP)LBHookedNumberOfRows) {
+        LBInstallHookOnClassOnly(cls, rowsSel, (IMP)LBHookedNumberOfRows, &sOrigNumberOfRows);
+    }
+    Method cellM = class_getInstanceMethod(cls, cellSel);
+    if (!cellM) {
+        class_addMethod(cls, cellSel, (IMP)LBHookedCellForRow, "@@:@@");
+    } else if (method_getImplementation(cellM) != (IMP)LBHookedCellForRow) {
+        LBInstallHookOnClassOnly(cls, cellSel, (IMP)LBHookedCellForRow, &sOrigCellForRow);
+    }
+}
+
 static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NSString *keyword) {
     if (![book isKindOfClass:[NSDictionary class]] || book.count == 0) return;
     NSString *key = LBSearchBookKey(book);
@@ -520,16 +538,16 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
             id ds = tv.dataSource;
             NSString *dsCls = ds ? NSStringFromClass([ds class]) : @"(nil)";
             // 广场/书单：强制 DS=self，配合安全 cell
+            BOOL overlay = (tv.tag == 0x4C425056);
             BOOL needOwnDS = plazaHost
                 || (ds == nil)
                 || (ds != (id)vc)
                 || [dsCls containsString:@"FilteredDataSource"]
-                || (tv.tag == 0x4C425056);
-            if (needOwnDS && [vc respondsToSelector:@selector(tableView:numberOfRowsInSection:)]) {
+                || overlay;
+            if (needOwnDS) {
+                // World 原先无 DS 方法：上面已 class_addMethod，这里强制挂上
                 tv.dataSource = (id<UITableViewDataSource>)vc;
-                if ([vc respondsToSelector:@selector(tableView:cellForRowAtIndexPath:)]) {
-                    tv.delegate = (id<UITableViewDelegate>)vc;
-                }
+                tv.delegate = (id<UITableViewDelegate>)vc;
             }
             @try {
                 [tv reloadData];
@@ -669,6 +687,10 @@ static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictiona
     cell.textLabel.text = name;
     cell.detailTextLabel.text = [bits componentsJoinedByString:@" · "];
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    // 广场 overlay 黑底：避免系统暗色默认导致黑字不可见
+    cell.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1.0];
+    cell.textLabel.textColor = [UIColor whiteColor];
+    cell.detailTextLabel.textColor = [UIColor colorWithWhite:0.7 alpha:1.0];
     return cell;
 }
 
@@ -807,10 +829,20 @@ void LBInstallSearchUIAppearFlush(void) {
                            @"BookWorldHomeCon", @"BookStoreBaseCon", @"ShudanHomeCon"]) {
         Class cls = NSClassFromString(cn);
         if (!cls) continue;
-        LBInstallHookOnClassOnly(cls, @selector(tableView:numberOfRowsInSection:),
-                                 (IMP)LBHookedNumberOfRows, &sOrigNumberOfRows);
-        LBInstallHookOnClassOnly(cls, @selector(tableView:cellForRowAtIndexPath:),
-                                 (IMP)LBHookedCellForRow, &sOrigCellForRow);
+        // World/Store 是模板壳，类上往往没有 UITableViewDataSource 方法；
+        // LBInstallHookOnClassOnly 遇无 Method 会直接 return，必须先 class_addMethod。
+        SEL rowsSel = @selector(tableView:numberOfRowsInSection:);
+        SEL cellSel = @selector(tableView:cellForRowAtIndexPath:);
+        if (!class_getInstanceMethod(cls, rowsSel)) {
+            class_addMethod(cls, rowsSel, (IMP)LBHookedNumberOfRows, "q@:@q");
+        } else {
+            LBInstallHookOnClassOnly(cls, rowsSel, (IMP)LBHookedNumberOfRows, &sOrigNumberOfRows);
+        }
+        if (!class_getInstanceMethod(cls, cellSel)) {
+            class_addMethod(cls, cellSel, (IMP)LBHookedCellForRow, "@@:@@");
+        } else {
+            LBInstallHookOnClassOnly(cls, cellSel, (IMP)LBHookedCellForRow, &sOrigCellForRow);
+        }
     }
 }
 
