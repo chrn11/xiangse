@@ -544,9 +544,23 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
         BOOL hasPageChrome = (titleView != nil && scroll != nil);
         NSUInteger childN = host.childViewControllers.count;
+        NSUInteger scrollKids = 0;
+        @try {
+            for (NSString *k in @[@"childVCs", @"childViewControllers", @"arrChildVCs", @"vcs"]) {
+                id cv = nil;
+                @try { cv = [scroll valueForKey:k]; } @catch (__unused NSException *e) { cv = nil; }
+                if ([cv isKindOfClass:[NSArray class]] && [(NSArray *)cv count] > 0) {
+                    scrollKids = [(NSArray *)cv count];
+                    break;
+                }
+            }
+        } @catch (__unused NSException *e) {}
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"chromeCheck hostChild=%lu scrollKids=%lu",
+                              (unsigned long)childN, (unsigned long)scrollKids]);
 
-        // 空 chrome（有 SGPage 无子页）会随后杀进程：立刻拆掉
-        if (hasPageChrome && childN == 0) {
+        // 仅当宿主与 scroll 都无子页时才拆空 chrome（scroll 内可能有 BookListCon）
+        if (hasPageChrome && childN == 0 && scrollKids == 0) {
             @try {
                 if ([titleView isKindOfClass:[UIView class]]) {
                     [(UIView *)titleView removeFromSuperview];
@@ -558,12 +572,17 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                 [host setValue:nil forKey:@"pageContentScrollView"];
             } @catch (__unused NSException *e) {}
             hasPageChrome = NO;
-            LBAppendNativeMarker(@"teardownEmptyChrome child=0");
+            LBAppendNativeMarker(@"teardownEmptyChrome child=0 scrollKids=0");
             LBAppendNativeHostState(host, @"afterTeardown");
+        } else if (hasPageChrome && (childN > 0 || scrollKids > 0)) {
+            sNativeChromeBuilt = YES;
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"pageChrome keep hostChild=%lu scrollKids=%lu",
+                                  (unsigned long)childN, (unsigned long)scrollKids]);
         }
 
-        // createCons 仅作诊断：有 cons 也不二次 reset / 不手工 SGPage
-        if (!hasPageChrome &&
+        // createCons：reset 未挂子页时先造 cons，再交给原生 resetContent 挂页（禁手工 SGPage）
+        if (!sNativeChromeBuilt &&
             host.childViewControllers.count == 0 &&
             [host respondsToSelector:@selector(createCons:titles:sourceName:)]) {
             @try {
@@ -573,11 +592,64 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                 LBAppendNativeMarker([NSString stringWithFormat:
                                       @"createCons fallback titles=%lu cons=%lu src=%@",
                                       (unsigned long)titles.count, (unsigned long)cons.count, consName]);
+                if (cons.count > 0 && [host respondsToSelector:@selector(resetContent)]) {
+                    // titles 与 cons 数量对齐，避免 reset 用 32 标题挂 19 子页失败
+                    NSMutableArray *aligned = [NSMutableArray array];
+                    for (NSUInteger i = 0; i < cons.count; i++) {
+                        NSString *tn = nil;
+                        id cvc = cons[i];
+                        for (NSString *k in @[@"title", @"navTitle", @"kindTitle", @"strTitle"]) {
+                            @try {
+                                id v = [cvc valueForKey:k];
+                                if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
+                                    tn = v; break;
+                                }
+                            } @catch (__unused NSException *e) {}
+                        }
+                        if (tn.length == 0 && i < titles.count) tn = titles[i];
+                        if (tn.length == 0) tn = [NSString stringWithFormat:@"分类%lu", (unsigned long)(i + 1)];
+                        [aligned addObject:tn];
+                    }
+                    @try { [host setValue:aligned forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+                    LBAppendNativeMarker([NSString stringWithFormat:@"alignTitles n=%lu",
+                                          (unsigned long)aligned.count]);
+                    @try {
+                        ((void (*)(id, SEL))objc_msgSend)(host, @selector(resetContent));
+                        LBAppendNativeMarker(@"resetContent afterCons");
+                    } @catch (NSException *ex) {
+                        LBAppendNativeMarker([NSString stringWithFormat:@"resetContent afterCons EX %@",
+                                              ex.reason ?: @""]);
+                    }
+                    LBAppendNativeHostState(host, @"afterConsReset");
+                    id tv2 = nil; id sc2 = nil;
+                    @try { tv2 = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+                    @try { sc2 = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+                    NSUInteger sk2 = 0;
+                    @try {
+                        id cv = [sc2 valueForKey:@"childVCs"];
+                        if ([cv isKindOfClass:[NSArray class]]) sk2 = [(NSArray *)cv count];
+                    } @catch (__unused NSException *e) {}
+                    if ((tv2 && sc2) && (host.childViewControllers.count > 0 || sk2 > 0)) {
+                        sNativeChromeBuilt = YES;
+                        LBAppendNativeMarker([NSString stringWithFormat:
+                                              @"pageChrome afterConsReset hostChild=%lu scrollKids=%lu",
+                                              (unsigned long)host.childViewControllers.count,
+                                              (unsigned long)sk2]);
+                    } else if (tv2 && sc2 && host.childViewControllers.count == 0 && sk2 == 0) {
+                        // 仍空则拆掉，避免杀进程
+                        @try {
+                            if ([tv2 isKindOfClass:[UIView class]]) [(UIView *)tv2 removeFromSuperview];
+                            if ([sc2 isKindOfClass:[UIView class]]) [(UIView *)sc2 removeFromSuperview];
+                            [host setValue:nil forKey:@"pageTitleView"];
+                            [host setValue:nil forKey:@"pageContentScrollView"];
+                        } @catch (__unused NSException *e) {}
+                        LBAppendNativeMarker(@"teardownEmptyChrome afterConsReset");
+                    }
+                }
             } @catch (NSException *ex) {
                 LBAppendNativeMarker([NSString stringWithFormat:@"createCons EX %@", ex.reason ?: @""]);
             }
-        } else if (hasPageChrome) {
-            sNativeChromeBuilt = YES;
+        } else if (hasPageChrome && sNativeChromeBuilt) {
             LBAppendNativeMarker(@"pageChrome ready skipCreateConsWire");
         }
 
