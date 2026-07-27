@@ -7735,52 +7735,23 @@ static void LBG6ForceToolbarButtonContrast(UIView *root) {
     }
 }
 
-/// 若底栏/滑条 window 底边超出屏幕，仅上移 bottom + pageSlider。
-/// 禁止动 toolBarLeft/Right/Speaker：它们错位会变成正文区黑块并吞触摸。
+/// 若底栏/滑条 window 底边超出屏幕——原逻辑会改 frame。
+/// 真机已证实：与原生 changeToolBar 动画叠改 → 进度条/黑块顶进正文，底栏点击错乱。
+/// 原生壳路径：禁止改任何 toolBar* 几何，只做侧栏遮挡清理。
 static void LBG6RepositionToolbarOnScreen(id reader) {
-    if (![reader isKindOfClass:[UIViewController class]]) return;
-    UIView *bottom = nil;
-    id bObj = LBG6ToolbarIvar(reader, @"toolBarBottom");
-    if ([bObj isKindOfClass:[UIView class]]) bottom = (UIView *)bObj;
-    if (!bottom || !bottom.superview) return;
-
-    CGFloat screenH = UIScreen.mainScreen.bounds.size.height;
-    CGRect winF = [bottom convertRect:bottom.bounds toView:nil];
-    CGFloat overflow = CGRectGetMaxY(winF) - screenH;
-    if (overflow <= 0.5) {
-        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"G6 reposition skip win=%@ screenH=%.0f",
-                                 NSStringFromCGRect(winF), screenH]);
-        return;
-    }
-
-    // 只动底栏与进度条，绝不碰 left/right（黑块根因）
-    NSArray<NSString *> *keys = @[ @"toolBarPageSlider", @"toolBarBottom" ];
-    NSInteger moved = 0;
-    for (NSString *k in keys) {
-        id v = LBG6ToolbarIvar(reader, k);
-        if (![v isKindOfClass:[UIView class]]) continue;
-        UIView *bar = (UIView *)v;
-        CGRect f = bar.frame;
-        f.origin.y -= overflow;
-        bar.frame = f;
-        moved++;
-    }
-    CGRect winAfter = [bottom convertRect:bottom.bounds toView:nil];
-    LBAppendOpenReaderTrace([NSString stringWithFormat:
-                             @"G6 reposition up=%.1f moved=%ld winBefore=%@ winAfter=%@",
-                             overflow, (long)moved,
-                             NSStringFromCGRect(winF), NSStringFromCGRect(winAfter)]);
+    (void)reader;
+    LBAppendOpenReaderTrace(@"G6 reposition disabled (keep native layout)");
 }
 
-/// 藏起覆盖正文中部的 side panel（toolBarLeft/Right 等），消除黑块并放行底栏点击。
+/// 藏起覆盖正文中部的错位控件（侧栏 / 异常黑块），不改原生几何。
 static void LBG6HideMisplacedSidePanels(id reader) {
     if (![reader isKindOfClass:[UIViewController class]]) return;
     UIViewController *vc = (UIViewController *)reader;
     if (!vc.isViewLoaded || !vc.view) return;
     CGRect content = vc.view.bounds;
     if (content.size.width < 1 || content.size.height < 1) return;
-    CGRect danger = CGRectInset(content, content.size.width * 0.12, content.size.height * 0.22);
+    CGRect danger = CGRectInset(content, content.size.width * 0.08, content.size.height * 0.18);
+
     NSArray<NSString *> *keys = @[ @"toolBarLeft", @"toolBarRight", @"toolBarSpeaker" ];
     for (NSString *k in keys) {
         id v = LBG6ToolbarIvar(reader, k);
@@ -7789,8 +7760,7 @@ static void LBG6HideMisplacedSidePanels(id reader) {
         if (bar.hidden || bar.alpha < 0.05) continue;
         CGRect inRoot = [bar convertRect:bar.bounds toView:vc.view];
         if (!CGRectIntersectsRect(inRoot, danger)) continue;
-        // 大块盖住正文：强制藏
-        if (inRoot.size.width >= 80 && inRoot.size.height >= 36) {
+        if (inRoot.size.width >= 40 && inRoot.size.height >= 30) {
             bar.hidden = YES;
             bar.alpha = 0;
             bar.userInteractionEnabled = NO;
@@ -7799,56 +7769,82 @@ static void LBG6HideMisplacedSidePanels(id reader) {
                                      k, NSStringFromCGRect(inRoot)]);
         }
     }
+
+    // 扫阅读根视图：正文中部的大块不透明黑/深灰矩形（非顶底栏）一律藏掉
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:vc.view];
+    NSInteger hiddenN = 0;
+    while (stack.count) {
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        for (UIView *ch in v.subviews) [stack addObject:ch];
+        if (v == vc.view) continue;
+        if (v.hidden || v.alpha < 0.2) continue;
+        // 跳过已知合法 chrome
+        BOOL isChrome = NO;
+        for (NSString *k in @[ @"toolBarHeader", @"toolBarBottom", @"toolBarPageSlider",
+                               @"toolBarFont", @"toolBarSetting", @"toolBarTheme" ]) {
+            id chrome = LBG6ToolbarIvar(reader, k);
+            if (chrome == v) { isChrome = YES; break; }
+        }
+        if (isChrome) continue;
+        NSString *cn = NSStringFromClass([v class]);
+        if ([cn containsString:@"TextRead"] || [cn containsString:@"Scroll"] ||
+            [cn containsString:@"Page"] || [cn containsString:@"UILabel"] ||
+            [cn containsString:@"UIButton"] || [cn containsString:@"UIImageView"] ||
+            [cn containsString:@"UITextView"] || [cn containsString:@"WKWeb"]) {
+            continue;
+        }
+        CGRect inRoot = [v convertRect:v.bounds toView:vc.view];
+        if (!CGRectIntersectsRect(inRoot, danger)) continue;
+        // 横条黑块：宽>=屏宽一半、高 24~160、落在中部
+        CGFloat midY = CGRectGetMidY(inRoot);
+        BOOL midBand = (midY > content.size.height * 0.25 && midY < content.size.height * 0.72);
+        BOOL barShape = (inRoot.size.width >= content.size.width * 0.45 &&
+                         inRoot.size.height >= 24 && inRoot.size.height <= 160);
+        if (!(midBand && barShape)) continue;
+        UIColor *bg = v.backgroundColor;
+        CGFloat r = 1, g = 1, b = 1, a = 0;
+        if (bg) [bg getRed:&r green:&g blue:&b alpha:&a];
+        // 深色不透明/半透明背景才当黑块
+        BOOL dark = (a > 0.35) && (r + g + b) / 3.0 < 0.35;
+        if (!dark && a < 0.05) {
+            // 无背景色但可能是 CALayer 黑：看 layer
+            @try {
+                CGFloat br = 1, bg2 = 1, bb = 1, ba = 0;
+                if (v.layer.backgroundColor) {
+                    UIColor *lc = [UIColor colorWithCGColor:v.layer.backgroundColor];
+                    [lc getRed:&br green:&bg2 blue:&bb alpha:&ba];
+                    dark = (ba > 0.35) && (br + bg2 + bb) / 3.0 < 0.35;
+                }
+            } @catch (__unused NSException *e) {}
+        }
+        if (!dark) continue;
+        v.hidden = YES;
+        v.alpha = 0;
+        v.userInteractionEnabled = NO;
+        hiddenN++;
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"G6 hideBlackBlob class=%@ frame=%@",
+                                 cn, NSStringFromCGRect(inRoot)]);
+        if (hiddenN >= 6) break;
+    }
 }
 
 static void LBG6BringToolbarToFront(id reader) {
     if (![reader isKindOfClass:[UIViewController class]]) return;
     UIViewController *vc = (UIViewController *)reader;
     if (!vc.isViewLoaded || !vc.view) return;
-    // 先藏错位侧栏，再前置真正的顶/底栏
     LBG6HideMisplacedSidePanels(reader);
-    NSInteger brought = 0;
-    // 只前置原生阅读 chrome；禁止把 left/right/font 面板强行挂到最前造成黑块/挡点击
-    for (NSString *k in @[ @"toolBarHeader", @"toolBarPageSlider", @"toolBarBottom" ]) {
-        id v = LBG6ToolbarIvar(reader, k);
-        if (![v isKindOfClass:[UIView class]]) continue;
-        UIView *bar = (UIView *)v;
-        if (!bar.superview) continue; // 不手工 addSubview
-        [bar.superview bringSubviewToFront:bar];
-        brought++;
-        LBG6ForceToolbarButtonContrast(bar);
-    }
-    @try {
-        SEL resetSel = NSSelectorFromString(@"resetToolBarBtnStatus");
-        if ([reader respondsToSelector:resetSel]) {
-            ((void (*)(id, SEL))objc_msgSend)(reader, resetSel);
-            LBAppendOpenReaderTrace(@"G6 resetToolBarBtnStatus OK");
-        }
-    } @catch (__unused NSException *e) {}
-
-    LBG6RepositionToolbarOnScreen(reader);
-    LBG6HideMisplacedSidePanels(reader); // reposition 后再扫一次
-
     id bottom = LBG6ToolbarIvar(reader, @"toolBarBottom");
     if ([bottom isKindOfClass:[UIView class]]) {
+        LBG6ForceToolbarButtonContrast((UIView *)bottom);
         UIView *bv = (UIView *)bottom;
-        LBG6ForceToolbarButtonContrast(bv);
         CGRect winF = [bv convertRect:bv.bounds toView:nil];
         LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"G6 bottomWin=%@ sub=%lu",
+                                 @"G6 bottomWin=%@ sub=%lu (noReposition)",
                                  NSStringFromCGRect(winF), (unsigned long)bv.subviews.count]);
-        for (UIView *ch in bv.subviews) {
-            if (![ch isKindOfClass:[UIButton class]]) continue;
-            UIButton *b = (UIButton *)ch;
-            NSString *t = [b titleForState:UIControlStateNormal] ?: @"";
-            CGRect bw = [b convertRect:b.bounds toView:nil];
-            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                     @"G6 btnWin title=%@ frame=%@ alpha=%.2f hidden=%d enabled=%d",
-                                     t, NSStringFromCGRect(bw), b.alpha, b.hidden ? 1 : 0,
-                                     b.userInteractionEnabled ? 1 : 0]);
-        }
     }
-    LBAppendOpenReaderTrace([NSString stringWithFormat:@"G6 bringToolbarFront n=%ld", (long)brought]);
+    LBAppendOpenReaderTrace(@"G6 bringToolbarFront light");
 }
 
 static void LBG6ChangeToolBarHook(id self, SEL _cmd) {
@@ -7871,6 +7867,13 @@ static void LBG6ChangeToolBarHook(id self, SEL _cmd) {
     } @catch (__unused NSException *e) {}
     if (!isHidden) {
         LBG6BringToolbarToFront(self);
+        __weak id weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            id strong = weakSelf;
+            if (!strong || sLegadoReaderMode != 1) return;
+            LBG6HideMisplacedSidePanels(strong);
+        });
     } else {
         // 收起时也藏侧栏，避免黑块残留
         LBG6HideMisplacedSidePanels(self);
