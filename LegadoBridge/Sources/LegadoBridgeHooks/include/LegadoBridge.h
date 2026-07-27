@@ -15,7 +15,7 @@ FOUNDATION_EXPORT void LBTriggerMixedSearch(NSString *keyword, NSString *sourceU
 FOUNDATION_EXPORT void LBApplySearchResultsToUI(NSArray *books, NSString * _Nullable keyword);
 /// 发现页换分类/换源前清空已灌书单（避免旧结果残留）
 FOUNDATION_EXPORT void LBClearDiscoverExploreBooks(void);
-/// 在原生发现壳上刷新分类标签栏（Reader0：标签在上、书列表在下）
+/// 在原生发现壳上刷新 SGPageTitleView 分类（禁止 Bridge overlay 标签栏）
 FOUNDATION_EXPORT void LBRefreshDiscoverKindBar(void);
 /// 把目录章节灌入可见 CatalogCon/详情/阅读页的 arrCatalog 并 reload
 FOUNDATION_EXPORT void LBApplyCatalogToUI(NSArray *chapters, NSString * _Nullable bookUrl);

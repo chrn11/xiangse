@@ -66,6 +66,13 @@ void LBSetDiscoverTabActive(BOOL active);
 NSArray *LBFindDiscoverHostVCs(void);
 /// 推出/复用原生广场壳（BookWorld/Store）；禁止 push BookSearch 冒充发现
 BOOL LBEnsureNativeDiscoverHostPresented(void);
+/// 清除发现页 Bridge overlay 子视图（tag LBKB/LBPV）
+void LBRemoveDiscoverOverlays(UIViewController *host);
+/// 当前选中的 BookListCon 子页
+UIViewController * _Nullable LBActiveDiscoverListVC(UIViewController *host);
+/// 书列表灌入后刷新原生子页
+void LBReloadDiscoverNativeList(UIViewController *host);
+void LBInstallDiscoverNativeUIHooks(void);
 /// Legado 阅读护栏：消毒 dicBook/站点后走原生 openReader；点章失败再 Bridge
 void LBInstallLegadoReaderKillSwitch(void);
 

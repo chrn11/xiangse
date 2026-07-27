@@ -387,6 +387,15 @@ static void LBEnsurePlazaTableDataSourceMethods(Class cls) {
 
 static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NSString *keyword) {
     if (![book isKindOfClass:[NSDictionary class]] || book.count == 0) return;
+    if (LBIsDiscoverTabActive()) {
+        NSString *cn = NSStringFromClass([vc class]);
+        if ([cn containsString:@"BookWorld"] || [cn containsString:@"BookStore"] ||
+            [cn containsString:@"Shudan"]) {
+            LBRemoveDiscoverOverlays(vc);
+            UIViewController *child = LBActiveDiscoverListVC(vc);
+            if (child) vc = child;
+        }
+    }
     NSString *key = LBSearchBookKey(book);
 
     NSMutableArray *arrBase = nil;
@@ -404,6 +413,7 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
     }
     if (!found) [arrBase addObject:book];
     @try { [vc setValue:arrBase forKey:@"arrBaseData"]; } @catch (__unused NSException *e) {}
+    @try { [vc setValue:arrBase forKey:@"itemList"]; } @catch (__unused NSException *e) {}
 
     NSMutableArray *arrItems = nil;
     @try {
@@ -483,77 +493,50 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
             || [vcn containsString:@"BookWorld"]
             || [vcn containsString:@"BookStore"]
             || [vcn containsString:@"Shudan"];
-        // 广场壳常把表藏在子视图，不在 tableView KVC；也可能根本没有原生表（模板 Web）
-        if (!tv && vc.isViewLoaded && vc.view) {
-            NSMutableArray *q = [NSMutableArray arrayWithObject:vc.view];
+        // 发现态：灌入 createCons 子页，禁止 Bridge overlay 表
+        UIViewController *feedVC = vc;
+        if (plazaHost && LBIsDiscoverTabActive()) {
+            LBRemoveDiscoverOverlays(vc);
+            UIViewController *child = LBActiveDiscoverListVC(vc);
+            if (child) feedVC = child;
+        }
+        // 广场壳常把表藏在子视图；跳过 tag LBPV/LBKB 历史 overlay
+        if (!tv && feedVC.isViewLoaded && feedVC.view) {
+            NSMutableArray *q = [NSMutableArray arrayWithObject:feedVC.view];
             NSMutableArray *walk = [NSMutableArray array];
             NSInteger depthBudget = 80;
             while (q.count > 0 && depthBudget-- > 0) {
                 UIView *cur = q.firstObject;
                 [q removeObjectAtIndex:0];
                 [walk addObject:NSStringFromClass([cur class])];
+                if (cur.tag == 0x4C425056 || cur.tag == 0x4C424B42) continue;
                 if ([cur isKindOfClass:[UITableView class]]) {
-                    tv = (UITableView *)cur;
-                    break;
-                }
-                // 复用我们挂过的 overlay
-                if (cur.tag == 0x4C425056 /* 'LBPV' */ && [cur isKindOfClass:[UITableView class]]) {
                     tv = (UITableView *)cur;
                     break;
                 }
                 for (UIView *sub in cur.subviews) [q addObject:sub];
             }
-            if (!tv && plazaHost) {
-                // 取证：World 实际子视图（常为 WKWebView 模板，无 UITableView）
-                NSString *walkLine = [NSString stringWithFormat:@"plazaWalk host=%@ n=%lu %@",
-                                      vcn, (unsigned long)walk.count,
+            if (!tv && plazaHost && LBIsDiscoverTabActive()) {
+                NSString *walkLine = [NSString stringWithFormat:@"plazaWalk native host=%@ feed=%@ n=%lu %@",
+                                      vcn, NSStringFromClass([feedVC class]), (unsigned long)walk.count,
                                       [[walk subarrayWithRange:NSMakeRange(0, MIN(walk.count, 40u))]
                                        componentsJoinedByString:@">"]];
                 [walkLine writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_plaza_viewwalk.txt"]
                            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                // 原生广场不画 arrBaseData：挂安全 overlay 表，保留导航栏（返回/搜索/切换）
-                UIView *host = vc.view;
-                UITableView *ov = nil;
-                for (UIView *sub in host.subviews) {
-                    if (sub.tag == 0x4C425056 && [sub isKindOfClass:[UITableView class]]) {
-                        ov = (UITableView *)sub;
-                        break;
-                    }
-                }
-                if (!ov) {
-                    ov = [[UITableView alloc] initWithFrame:host.bounds style:UITableViewStylePlain];
-                    ov.tag = 0x4C425056;
-                    ov.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-                    ov.backgroundColor = [UIColor blackColor];
-                    ov.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
-                    ov.rowHeight = 64.0;
-                    [host addSubview:ov];
-                }
-                CGFloat topInset = 0;
-                UIView *kindBar = [host viewWithTag:0x4C424B42];
-                if (kindBar) topInset = MAX(kindBar.bounds.size.height, 40);
-                ov.frame = CGRectMake(0, topInset, host.bounds.size.width,
-                                      MAX(0, host.bounds.size.height - topInset));
-                [host bringSubviewToFront:ov];
-                if (kindBar) [host bringSubviewToFront:kindBar];
-                tv = ov;
             }
         }
         if ([tv isKindOfClass:[UITableView class]]) {
             id ds = tv.dataSource;
             NSString *dsCls = ds ? NSStringFromClass([ds class]) : @"(nil)";
-            // 广场/书单：强制 DS=self，配合安全 cell
-            BOOL overlay = (tv.tag == 0x4C425056);
-            BOOL needOwnDS = plazaHost
-                || (ds == nil)
-                || (ds != (id)vc)
-                || [dsCls containsString:@"FilteredDataSource"]
-                || overlay;
+            // 发现原生子页：优先保留原生 DS（富文本卡片）；仅 Filtered/nil 时兜底
+            BOOL discoverList = LBIsDiscoverTabActive() && plazaHost;
+            BOOL brokenDS = (ds == nil) || [dsCls containsString:@"FilteredDataSource"];
+            BOOL needOwnDS = brokenDS
+                || (!discoverList && (ds != (id)feedVC));
             if (needOwnDS) {
-                LBEnsurePlazaTableDataSourceMethods([vc class]);
-                // World 原先无 DS 方法：上面已 class_addMethod，这里强制挂上
-                tv.dataSource = (id<UITableViewDataSource>)vc;
-                tv.delegate = (id<UITableViewDelegate>)vc;
+                LBEnsurePlazaTableDataSourceMethods([feedVC class]);
+                tv.dataSource = (id<UITableViewDataSource>)feedVC;
+                tv.delegate = (id<UITableViewDelegate>)feedVC;
             }
             @try {
                 [tv reloadData];
@@ -562,6 +545,20 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                                   vcn, ex.reason ?: @""];
                 [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_cell_ex.txt"]
                         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                // 原生 cell 崩：再挂安全 DS
+                if (discoverList) {
+                    LBEnsurePlazaTableDataSourceMethods([feedVC class]);
+                    tv.dataSource = (id<UITableViewDataSource>)feedVC;
+                    tv.delegate = (id<UITableViewDelegate>)feedVC;
+                    @try { [tv reloadData]; } @catch (__unused NSException *e2) {}
+                }
+            }
+            if (discoverList) {
+                UIViewController *host = nil;
+                for (UIViewController *h in (LBFindDiscoverHostVCs() ?: @[])) {
+                    host = h; break;
+                }
+                if (host) LBReloadDiscoverNativeList(host);
             }
             NSInteger rows = 0;
             @try {
@@ -571,13 +568,21 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
             } @catch (__unused NSException *e) {}
             NSUInteger arrN = 0;
             @try {
-                id cur = [vc valueForKey:@"arrBaseData"];
+                id cur = [feedVC valueForKey:@"arrBaseData"];
                 if ([cur isKindOfClass:[NSArray class]]) arrN = [cur count];
             } @catch (__unused NSException *e) {}
             NSString *diag = [NSString stringWithFormat:
-                @"uiInject ds=%@ rows=%ld arr=%lu needOwn=%d host=%@ tv=%@ tag=%ld",
+                @"uiInject ds=%@ rows=%ld arr=%lu needOwn=%d host=%@ feed=%@ tv=%@ tag=%ld",
                 dsCls, (long)rows, (unsigned long)arrN, needOwnDS ? 1 : 0, vcn,
-                NSStringFromClass([tv class]), (long)tv.tag];
+                NSStringFromClass([feedVC class]), NSStringFromClass([tv class]), (long)tv.tag];
+            [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
+                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        } else if (plazaHost && LBIsDiscoverTabActive()) {
+            for (UIViewController *h in (LBFindDiscoverHostVCs() ?: @[])) {
+                LBReloadDiscoverNativeList(h);
+            }
+            NSString *diag = [NSString stringWithFormat:@"uiInject no UITableView native host=%@ feed=%@",
+                              vcn, NSStringFromClass([feedVC class])];
             [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         } else {
@@ -941,15 +946,15 @@ void LBClearDiscoverExploreBooks(void) {
         if (sLastAppliedSearchBooks) [sLastAppliedSearchBooks removeAllObjects];
         NSArray *hosts = LBFindDiscoverHostVCs() ?: @[];
         for (UIViewController *vc in hosts) {
+            LBRemoveDiscoverOverlays(vc);
             @try { [vc setValue:[NSMutableArray array] forKey:@"arrBaseData"]; } @catch (__unused NSException *e) {}
+            @try { [vc setValue:[NSMutableArray array] forKey:@"itemList"]; } @catch (__unused NSException *e) {}
             @try { [vc setValue:[NSMutableArray array] forKey:@"arrSearchItems"]; } @catch (__unused NSException *e) {}
             @try { [vc setValue:[NSMutableDictionary dictionary] forKey:@"dicSearchItems"]; } @catch (__unused NSException *e) {}
             @try { [vc setValue:[NSMutableDictionary dictionary] forKey:@"dicAllBookList"]; } @catch (__unused NSException *e) {}
-            if (!vc.isViewLoaded || !vc.view) continue;
-            for (UIView *sub in vc.view.subviews) {
-                if (sub.tag == 0x4C425056 && [sub isKindOfClass:[UITableView class]]) {
-                    [(UITableView *)sub reloadData];
-                }
+            for (UIViewController *child in vc.childViewControllers) {
+                @try { [child setValue:[NSMutableArray array] forKey:@"arrBaseData"]; } @catch (__unused NSException *e) {}
+                @try { [child setValue:[NSMutableArray array] forKey:@"itemList"]; } @catch (__unused NSException *e) {}
             }
             UITableView *tv = nil;
             @try { tv = [vc valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}

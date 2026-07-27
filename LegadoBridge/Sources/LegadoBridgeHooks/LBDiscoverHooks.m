@@ -1,8 +1,8 @@
 #import "LBInternal.h"
 #import "LegadoBridge.h"
 
-/// 顶栏「发现」：切 Tab → 原生 BookWorld/Store → Legado explore 灌 arrBaseData（安全 cell）。
-/// 禁止把 BookSearch 当发现页（用户反馈：点发现进了搜索）。
+/// 顶栏「发现」：切 Tab → 原生 BookWorld/Store → Legado explore 灌子页 arrBaseData/itemList。
+/// 禁止 Bridge overlay 标签栏/表（tag LBKB/LBPV）；分类走 SGPageTitleView + createCons。
 
 static BOOL sDiscoverTabActive = NO;
 static NSTimeInterval sPreferDiscoverInjectUntil = 0;
@@ -580,6 +580,7 @@ static void LBHookSegmentedControlSelectedIndex(void) {
 void LBInstallDiscoverTabHooks(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+        LBInstallDiscoverNativeUIHooks();
         LBHookSegmentedControlSelectedIndex();
         for (NSString *cn in @[@"BookShelfController", @"BookShelfVCBase1", @"BookShelfVCBase2"]) {
             Class cls = NSClassFromString(cn);
