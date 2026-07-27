@@ -205,20 +205,37 @@ static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
         id marker = m[@"legadoBridge"];
         if ([marker isKindOfClass:[NSString class]] && [marker isEqualToString:@"1"]) return;
         if ([marker isKindOfClass:[NSNumber class]] && [marker boolValue]) return;
+        NSString *name = [key isKindOfClass:[NSString class]] ? (NSString *)key : @"";
+        // 听书/漫画 donor 易在文本发现页 viewDidLoad 崩
+        if ([name containsString:@"喜马拉雅"] || [name containsString:@"FM"] ||
+            [name containsString:@"漫画"] || [name containsString:@"听书"] ||
+            [name containsString:@"有声"]) {
+            return;
+        }
+        NSString *stype = @"";
+        id st = m[@"sourceType"];
+        if ([st isKindOfClass:[NSString class]]) stype = [(NSString *)st lowercaseString];
+        if (stype.length && ![stype containsString:@"dom"] && ![stype containsString:@"text"] &&
+            ![stype isEqualToString:@"0"]) {
+            // 非文本类降权：仍可作候选但分数减半
+        }
         id bw = m[@"bookWorld"];
         if (![bw isKindOfClass:[NSDictionary class]]) return;
         NSUInteger n = [(NSDictionary *)bw count];
-        // 跳过明显空壳
         if (n < 3) return;
-        if (n > bestN) {
-            bestN = n;
+        NSUInteger score = n;
+        if ([stype containsString:@"dom"] || [stype containsString:@"text"] || stype.length == 0) {
+            score += 100;
+        }
+        if (score > bestN) {
+            bestN = score;
             best = (NSDictionary *)bw;
-            bestName = [key isKindOfClass:[NSString class]] ? key : nil;
+            bestName = name;
         }
     }];
     if (bestN >= 3 && best) {
         if (outName) *outName = bestName;
-        LBAppendNativeMarker([NSString stringWithFormat:@"bwDonor name=%@ keys=%lu",
+        LBAppendNativeMarker([NSString stringWithFormat:@"bwDonor name=%@ score=%lu",
                               bestName ?: @"?", (unsigned long)bestN]);
         return best;
     }

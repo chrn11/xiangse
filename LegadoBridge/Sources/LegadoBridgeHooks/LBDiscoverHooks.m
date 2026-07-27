@@ -300,9 +300,8 @@ static void LBTriggerLegadoExploreForDiscoverTab(void) {
         LBDiscoverAppendMarker(@"discoverTab explore skip: core/API missing");
         return;
     }
-    // 先画分类标签栏（Reader0：标签在上）
+    // 先建原生分类壳，延后拉书，避免 BookListCon 未就绪时 inject 杀进程
     LBRefreshDiscoverKindBar();
-    // 取当前源第一分类 URL，再拉书（不再扫全部源摊平）
     NSString *src = nil;
     @try {
         if ([core respondsToSelector:@selector(selectedExploreSourceUrl)]) {
@@ -321,18 +320,27 @@ static void LBTriggerLegadoExploreForDiscoverTab(void) {
         }
     }
     LBDiscoverAppendMarker([NSString stringWithFormat:
-                            @"discoverTab explore trigger hostOk=%d src=%@ kind=%@",
+                            @"discoverTab explore schedule hostOk=%d src=%@ kind=%@",
                             hostOk ? 1 : 0, src ?: @"", kindUrl ?: @"(default)"]);
-    ((void (*)(id, SEL, NSString *, NSString *, NSInteger))objc_msgSend)(
-        core,
-        @selector(handleExploreRequestWithSourceUrl:exploreUrl:page:),
-        src,
-        kindUrl,
-        1
-    );
-    // 书列表灌入后再排一次布局
+    NSString *srcCopy = [src copy] ?: @"";
+    NSString *kindCopy = [kindUrl copy];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (!LBIsDiscoverTabActive()) return;
+        id c2 = LBLegadoManagerCore();
+        if (!c2) return;
+        LBDiscoverAppendMarker(@"discoverTab explore fire");
+        ((void (*)(id, SEL, NSString *, NSString *, NSInteger))objc_msgSend)(
+            c2,
+            @selector(handleExploreRequestWithSourceUrl:exploreUrl:page:),
+            srcCopy,
+            kindCopy,
+            1
+        );
+    });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
+        if (!LBIsDiscoverTabActive()) return;
         LBRefreshDiscoverKindBar();
     });
 }
