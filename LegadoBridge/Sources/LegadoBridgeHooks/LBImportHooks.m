@@ -487,12 +487,67 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
             // legado://explore?sourceUrl=...&page=1 — 发现频道验收深链
             BOOL wantExplore = [host isEqualToString:@"explore"]
                 || [pathLower containsString:@"/explore"];
+            // legado://discover — 顶栏发现路径：标记发现态并拉全部可发现 Legado 源
+            BOOL wantDiscoverTab = [host isEqualToString:@"discover"]
+                || [pathLower containsString:@"/discover"];
+            if (wantDiscoverTab) {
+                LBSetDiscoverTabActive(YES);
+                [[NSString stringWithFormat:@"openURL discoverTab force explore"]
+                    writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
+                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                // 尝试把顶栏分段切到「发现」
+                @try {
+                    UIWindow *win = LBLegadoKeyWindow();
+                    UIViewController *root = win.rootViewController;
+                    NSMutableArray *stack = [NSMutableArray array];
+                    if (root) [stack addObject:root];
+                    while (stack.count > 0) {
+                        UIViewController *vc = stack.lastObject;
+                        [stack removeLastObject];
+                        UIView *view = vc.isViewLoaded ? vc.view : nil;
+                        NSMutableArray *vstack = [NSMutableArray array];
+                        if (view) [vstack addObject:view];
+                        if (vc.navigationItem.titleView) [vstack addObject:vc.navigationItem.titleView];
+                        while (vstack.count > 0) {
+                            UIView *cur = vstack.lastObject;
+                            [vstack removeLastObject];
+                            if ([cur isKindOfClass:[UISegmentedControl class]]) {
+                                UISegmentedControl *sc = (UISegmentedControl *)cur;
+                                for (NSUInteger i = 0; i < sc.numberOfSegments; i++) {
+                                    NSString *t = [sc titleForSegmentAtIndex:i] ?: @"";
+                                    if ([t containsString:@"发现"]) {
+                                        sc.selectedSegmentIndex = (NSInteger)i;
+                                        [sc sendActionsForControlEvents:UIControlEventValueChanged];
+                                        break;
+                                    }
+                                }
+                            }
+                            for (UIView *sub in cur.subviews) [vstack addObject:sub];
+                        }
+                        if ([vc respondsToSelector:@selector(setSquare:)]) {
+                            ((void (*)(id, SEL, BOOL))objc_msgSend)(vc, @selector(setSquare:), YES);
+                        }
+                        for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
+                        if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
+                        if ([vc isKindOfClass:[UINavigationController class]]) {
+                            for (UIViewController *c in [(UINavigationController *)vc viewControllers]) {
+                                [stack addObject:c];
+                            }
+                        }
+                    }
+                } @catch (__unused NSException *e) {}
+                wantExplore = YES; // 接着走 explore（全源）
+            }
             if (wantExplore) {
                 NSString *sourceUrl = LBQueryParameterFromURL(url, @"sourceUrl");
                 NSString *exploreUrl = LBQueryParameterFromURL(url, @"exploreUrl");
                 NSString *pageStr = LBQueryParameterFromURL(url, @"page");
                 NSInteger page = pageStr.length > 0 ? pageStr.integerValue : 1;
                 if (page < 1) page = 1;
+                // discover 深链未带 sourceUrl → 扫全部可发现源
+                if (wantDiscoverTab && sourceUrl.length == 0) {
+                    sourceUrl = nil;
+                }
                 Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
                 id core = nil;
                 if (coreClass) {

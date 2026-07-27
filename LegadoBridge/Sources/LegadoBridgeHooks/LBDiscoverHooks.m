@@ -311,9 +311,54 @@ static void LBHookWorldAppear(Class cls) {
     method_setImplementation(m, (IMP)LBDiscover_worldAppear);
 }
 
+static void (*sOrig_setSelectedSegmentIndex)(id, SEL, NSInteger) = NULL;
+
+static void LBDiscover_setSelectedSegmentIndex(id self, SEL _cmd, NSInteger idx) {
+    if (sOrig_setSelectedSegmentIndex) {
+        sOrig_setSelectedSegmentIndex(self, _cmd, idx);
+    }
+    if (![self isKindOfClass:[UISegmentedControl class]]) return;
+    UISegmentedControl *sc = (UISegmentedControl *)self;
+    if (idx < 0 || idx >= sc.numberOfSegments) return;
+    NSString *title = [sc titleForSegmentAtIndex:(NSUInteger)idx] ?: @"";
+    BOOL hasShelf = NO, hasDiscover = NO;
+    for (NSUInteger i = 0; i < sc.numberOfSegments; i++) {
+        NSString *t = [sc titleForSegmentAtIndex:i] ?: @"";
+        if ([t containsString:@"书架"]) hasShelf = YES;
+        if ([t containsString:@"发现"]) hasDiscover = YES;
+    }
+    // 仅处理「书架|发现」顶栏，避免误伤其它分段
+    if (!(hasShelf && hasDiscover)) return;
+    BOOL discover = [title containsString:@"发现"];
+    LBSetDiscoverTabActive(discover);
+    NSString *line = [NSString stringWithFormat:
+                      @"discoverTab setSelectedSegmentIndex idx=%ld title=%@ discover=%d",
+                      (long)idx, title, discover ? 1 : 0];
+    [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
+            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    if (discover) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            if (!LBIsDiscoverTabActive()) return;
+            LBTriggerLegadoExploreForDiscoverTab();
+        });
+    }
+}
+
+static void LBHookSegmentedControlSelectedIndex(void) {
+    Class cls = [UISegmentedControl class];
+    SEL sel = @selector(setSelectedSegmentIndex:);
+    Method m = class_getInstanceMethod(cls, sel);
+    if (!m || sOrig_setSelectedSegmentIndex) return;
+    sOrig_setSelectedSegmentIndex =
+        (void (*)(id, SEL, NSInteger))method_getImplementation(m);
+    method_setImplementation(m, (IMP)LBDiscover_setSelectedSegmentIndex);
+}
+
 void LBInstallDiscoverTabHooks(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+        LBHookSegmentedControlSelectedIndex();
         for (NSString *cn in @[@"BookShelfController", @"BookShelfVCBase1", @"BookShelfVCBase2"]) {
             Class cls = NSClassFromString(cn);
             LBHookSetSquareOnClass(cls);
