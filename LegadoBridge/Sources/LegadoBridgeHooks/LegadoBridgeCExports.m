@@ -7852,52 +7852,17 @@ static void LBG6SanitizePageSliderOverflow(id reader) {
     }
     LBAppendOpenReaderTrace([NSString stringWithFormat:@"%@ fixed=%ld", dump, (long)fixed]);
 
-    // 黑块落在「上一章|滑条|下一章」正中：ToolBarSlider 实黑底/超高子层
+    // 黑块落在「上一章|滑条|下一章」正中：ToolBarSlider 实黑绘制（仅 _UISlideriOSVisualElement）。
+    // tint 无效 → 直接藏滑条，保留两侧上一章/下一章按钮。
     for (UIView *ch in slider.subviews) {
         NSString *cn = NSStringFromClass([ch class]);
         if (![cn containsString:@"Slider"]) continue;
-        ch.backgroundColor = [UIColor clearColor];
-        ch.opaque = NO;
-        if (ch.layer.backgroundColor) {
-            ch.layer.backgroundColor = [UIColor clearColor].CGColor;
-        }
-        NSMutableString *sd = [NSMutableString stringWithFormat:
-                               @"G6 toolBarSlider class=%@ f=%@ subs=",
-                               cn, NSStringFromCGRect(ch.frame)];
-        NSUInteger slim = MIN(ch.subviews.count, (NSUInteger)10);
-        for (NSUInteger si = 0; si < slim; si++) {
-            UIView *sub = ch.subviews[si];
-            CGRect sf = sub.frame;
-            [sd appendFormat:@" [%lu]%@ f=%@",
-             (unsigned long)si, NSStringFromClass([sub class]), NSStringFromCGRect(sf)];
-            UIColor *sbg = sub.backgroundColor;
-            CGFloat r = 1, g = 1, b = 1, a = 0;
-            BOOL dark = NO;
-            if (sbg && [sbg getRed:&r green:&g blue:&b alpha:&a]) {
-                dark = (a > 0.3) && (r + g + b) / 3.0 < 0.35;
-            }
-            // 全宽/超高深色垫 → 清或藏
-            if (dark || sf.size.height > ch.bounds.size.height + 4 || sf.origin.y < -1) {
-                sub.backgroundColor = [UIColor clearColor];
-                if (sf.size.height > 24 || sf.origin.y < -1) {
-                    sub.hidden = YES;
-                    sub.alpha = 0;
-                    [sd appendString:@"*kill"];
-                } else {
-                    [sd appendString:@"*clr"];
-                }
-            }
-        }
-        if ([ch isKindOfClass:[UISlider class]]) {
-            UISlider *us = (UISlider *)ch;
-            @try {
-                us.minimumTrackTintColor = [UIColor colorWithWhite:0.75 alpha:1.0];
-                us.maximumTrackTintColor = [UIColor colorWithWhite:0.45 alpha:1.0];
-                us.thumbTintColor = [UIColor colorWithWhite:0.9 alpha:1.0];
-            } @catch (__unused NSException *e3) {}
-            [sd appendString:@" *tint"];
-        }
-        LBAppendOpenReaderTrace(sd);
+        ch.hidden = YES;
+        ch.alpha = 0;
+        ch.userInteractionEnabled = NO;
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"G6 hideToolBarSlider class=%@ f=%@",
+                                 cn, NSStringFromCGRect(ch.frame)]);
     }
 }
 
