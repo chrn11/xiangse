@@ -7852,18 +7852,15 @@ static void LBG6SanitizePageSliderOverflow(id reader) {
     }
     LBAppendOpenReaderTrace([NSString stringWithFormat:@"%@ fixed=%ld", dump, (long)fixed]);
 
-    // 黑块落在「上一章|滑条|下一章」正中：ToolBarSlider 实黑绘制（仅 _UISlideriOSVisualElement）。
-    // tint 无效 → 直接藏滑条，保留两侧上一章/下一章按钮。
-    for (UIView *ch in slider.subviews) {
-        NSString *cn = NSStringFromClass([ch class]);
-        if (![cn containsString:@"Slider"]) continue;
-        ch.hidden = YES;
-        ch.alpha = 0;
-        ch.userInteractionEnabled = NO;
-        LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                 @"G6 hideToolBarSlider class=%@ f=%@",
-                                 cn, NSStringFromCGRect(ch.frame)]);
-    }
+    // 黑块正体即 toolBarPageSlider 整条（含上一章/下一章）。clearBg/藏滑条仍留黑底 → 整控件藏掉。
+    // 底栏四键（目录/缓存/设置/换源）在 toolBarBottom，不受影响。
+    slider.hidden = YES;
+    slider.alpha = 0;
+    slider.userInteractionEnabled = NO;
+    LBAppendOpenReaderTrace([NSString stringWithFormat:
+                             @"G6 hidePageSliderEntirely f=%@",
+                             NSStringFromCGRect(slider.frame)]);
+    return;
 }
 
 static BOOL LBG6ViewIsUnderChrome(id reader, UIView *v) {
