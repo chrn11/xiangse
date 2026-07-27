@@ -495,7 +495,7 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                 [[NSString stringWithFormat:@"openURL discoverTab force explore"]
                     writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                // 只切「书架|发现」分段到发现，并推出原生 BookList/World 宿主
+                // 只切「书架|发现」分段到发现，并推出原生 BookList 宿主
                 @try {
                     UIWindow *win = LBLegadoKeyWindow();
                     UIViewController *root = win.rootViewController;
@@ -519,7 +519,9 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                                     if ([t containsString:@"书架"]) hasShelf = YES;
                                     if ([t containsString:@"发现"]) discoverIdx = (NSInteger)i;
                                 }
-                                if (hasShelf && discoverIdx >= 0) {
+                                if (hasShelf && discoverIdx >= 0 &&
+                                    sc.selectedSegmentIndex != discoverIdx) {
+                                    // 用原实现设 index，避免我们 hook 把 sticky 打乱；再手动触发
                                     sc.selectedSegmentIndex = discoverIdx;
                                     [sc sendActionsForControlEvents:UIControlEventValueChanged];
                                 }
@@ -538,6 +540,8 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                         }
                     }
                 } @catch (__unused NSException *e) {}
+                // 分段动作可能异步把状态打回书架；deeplink 再强制 sticky + 宿主
+                LBSetDiscoverTabActive(YES);
                 LBEnsureNativeDiscoverHostPresented();
                 wantExplore = YES;
             }

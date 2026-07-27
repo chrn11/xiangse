@@ -455,9 +455,13 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
         @try { [vc setValue:@0 forKey:@"nFilterResultType"]; } @catch (__unused NSException *e) {}
         UITableView *tv = [vc valueForKey:@"tableView"];
         if ([tv isKindOfClass:[UITableView class]]) {
+            NSString *vcn = NSStringFromClass([vc class]);
+            BOOL bookListHost = [vcn containsString:@"BookList"];
             id ds = tv.dataSource;
             NSString *dsCls = ds ? NSStringFromClass([ds class]) : @"(nil)";
-            BOOL needOwnDS = (ds == nil)
+            // BookListCon：强制 DS=self，配合安全 cell；搜索页仍按 FilteredDataSource 规则
+            BOOL needOwnDS = bookListHost
+                || (ds == nil)
                 || (ds != (id)vc)
                 || [dsCls containsString:@"FilteredDataSource"];
             if (needOwnDS && [vc respondsToSelector:@selector(tableView:numberOfRowsInSection:)]) {
@@ -466,7 +470,14 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                     tv.delegate = (id<UITableViewDelegate>)vc;
                 }
             }
-            [tv reloadData];
+            @try {
+                [tv reloadData];
+            } @catch (NSException *ex) {
+                NSString *line = [NSString stringWithFormat:@"reloadData EX %@ %@",
+                                  vcn, ex.reason ?: @""];
+                [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_cell_ex.txt"]
+                        atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            }
             NSInteger rows = 0;
             @try {
                 if ([tv.dataSource respondsToSelector:@selector(tableView:numberOfRowsInSection:)]) {
@@ -479,8 +490,8 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 if ([cur isKindOfClass:[NSArray class]]) arrN = [cur count];
             } @catch (__unused NSException *e) {}
             NSString *diag = [NSString stringWithFormat:
-                @"uiInject ds=%@ rows=%ld arr=%lu needOwn=%d",
-                dsCls, (long)rows, (unsigned long)arrN, needOwnDS ? 1 : 0];
+                @"uiInject ds=%@ rows=%ld arr=%lu needOwn=%d host=%@",
+                dsCls, (long)rows, (unsigned long)arrN, needOwnDS ? 1 : 0, vcn];
             [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         }
@@ -551,6 +562,50 @@ static void LBSetSearchKeywordOnVC(UIViewController *vc, NSString *keyword) {
     } @catch (__unused NSException *e) {}
 }
 
+/// BookListCon 原生 cell 期望书单模型；Legado 灌的是搜索字典 → 直接走安全 cell，避免 reload SIGABRT
+static BOOL LBArrayHasLegadoBooks(id cur) {
+    if (![cur isKindOfClass:[NSArray class]]) return NO;
+    for (id item in (NSArray *)cur) {
+        if (![item isKindOfClass:[NSDictionary class]]) continue;
+        if (item[@"legadoBridge"] || item[@"fromLegadoBridge"]) return YES;
+    }
+    return NO;
+}
+
+static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictionary *book) {
+    static NSString *cid = @"LBDiscoverBookCell";
+    UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:cid];
+    if (!cell) {
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle
+                                     reuseIdentifier:cid];
+        cell.textLabel.numberOfLines = 1;
+        cell.detailTextLabel.numberOfLines = 1;
+    }
+    NSString *name = book[@"bookName"] ?: book[@"name"] ?: @"";
+    NSString *author = book[@"author"] ?: @"";
+    id wc = book[@"wordCount"];
+    NSString *wcText = @"";
+    if ([wc isKindOfClass:[NSNumber class]]) {
+        long long n = [(NSNumber *)wc longLongValue];
+        if (n >= 10000) {
+            wcText = [NSString stringWithFormat:@"%lld万字", n / 10000];
+        } else if (n > 0) {
+            wcText = [NSString stringWithFormat:@"%lld字", n];
+        }
+    } else if ([wc isKindOfClass:[NSString class]] && [(NSString *)wc length] > 0) {
+        wcText = (NSString *)wc;
+    }
+    NSMutableArray *bits = [NSMutableArray array];
+    if (author.length > 0) [bits addObject:author];
+    if (wcText.length > 0) [bits addObject:wcText];
+    NSString *src = book[@"sourceName"] ?: book[@"bookSourceName"] ?: @"";
+    if (src.length > 0) [bits addObject:src];
+    cell.textLabel.text = name;
+    cell.detailTextLabel.text = [bits componentsJoinedByString:@" · "];
+    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    return cell;
+}
+
 static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInteger section) {
     // 书架列表与搜索共用基类时：绝不能走搜索兜底逻辑改行数
     if (LBVCIsBookShelfContext(self)) {
@@ -560,14 +615,26 @@ static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInte
         }
         return 0;
     }
-    NSInteger orig = 0;
-    if (sOrigNumberOfRows) {
-        orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))sOrigNumberOfRows)(self, _cmd, tv, section);
-    } else {
-        IMP fwd = LBForwardTableRowsIMP();
-        if (fwd) {
-            orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))fwd)(self, _cmd, tv, section);
+    NSString *cn = NSStringFromClass([self class]);
+    BOOL bookListHost = [cn containsString:@"BookList"];
+    @try {
+        id cur = [self valueForKey:@"arrBaseData"];
+        if (bookListHost && LBArrayHasLegadoBooks(cur) && tv.dataSource == self) {
+            return (NSInteger)[(NSArray *)cur count];
         }
+    } @catch (__unused NSException *e) {}
+    NSInteger orig = 0;
+    @try {
+        if (sOrigNumberOfRows) {
+            orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))sOrigNumberOfRows)(self, _cmd, tv, section);
+        } else {
+            IMP fwd = LBForwardTableRowsIMP();
+            if (fwd) {
+                orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))fwd)(self, _cmd, tv, section);
+            }
+        }
+    } @catch (__unused NSException *e) {
+        orig = 0;
     }
     if (orig > 0) return orig;
     // 仅当 table 的 dataSource 就是 self 时兜底，避免与 FilteredDataSource 行数不一致崩
@@ -575,12 +642,7 @@ static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInte
     @try {
         id cur = [self valueForKey:@"arrBaseData"];
         if (![cur isKindOfClass:[NSArray class]] || [cur count] == 0) return orig;
-        BOOL hasLegado = NO;
-        for (id item in cur) {
-            if (![item isKindOfClass:[NSDictionary class]]) continue;
-            if (item[@"legadoBridge"] || item[@"fromLegadoBridge"]) { hasLegado = YES; break; }
-        }
-        if (hasLegado) return (NSInteger)[cur count];
+        if (LBArrayHasLegadoBooks(cur)) return (NSInteger)[cur count];
     } @catch (__unused NSException *e) {}
     return orig;
 }
@@ -594,14 +656,46 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
         }
         return nil;
     }
-    if (sOrigCellForRow) {
-        return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCellForRow)(self, _cmd, tv, ip);
+    NSString *cn = NSStringFromClass([self class]);
+    BOOL bookListHost = [cn containsString:@"BookList"];
+    if (bookListHost) {
+        @try {
+            id cur = [self valueForKey:@"arrBaseData"];
+            if (LBArrayHasLegadoBooks(cur) &&
+                [cur isKindOfClass:[NSArray class]] &&
+                ip.row >= 0 && ip.row < (NSInteger)[(NSArray *)cur count]) {
+                id item = [(NSArray *)cur objectAtIndex:(NSUInteger)ip.row];
+                if ([item isKindOfClass:[NSDictionary class]]) {
+                    return LBMakeLegadoDiscoverBookCell(tv, (NSDictionary *)item);
+                }
+            }
+        } @catch (__unused NSException *e) {}
     }
-    IMP fwd = LBForwardTableCellIMP();
-    if (fwd) {
-        return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))fwd)(self, _cmd, tv, ip);
+    @try {
+        if (sOrigCellForRow) {
+            return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCellForRow)(self, _cmd, tv, ip);
+        }
+        IMP fwd = LBForwardTableCellIMP();
+        if (fwd) {
+            return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))fwd)(self, _cmd, tv, ip);
+        }
+    } @catch (NSException *ex) {
+        @try {
+            id cur = [self valueForKey:@"arrBaseData"];
+            if ([cur isKindOfClass:[NSArray class]] &&
+                ip.row >= 0 && ip.row < (NSInteger)[(NSArray *)cur count]) {
+                id item = [(NSArray *)cur objectAtIndex:(NSUInteger)ip.row];
+                if ([item isKindOfClass:[NSDictionary class]]) {
+                    return LBMakeLegadoDiscoverBookCell(tv, (NSDictionary *)item);
+                }
+            }
+        } @catch (__unused NSException *e2) {}
+        NSString *line = [NSString stringWithFormat:@"cellForRow EX %@ %@",
+                          cn, ex.reason ?: @""];
+        [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_cell_ex.txt"]
+                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     }
-    return nil;
+    return [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"LBEmpty"];
 }
 
 void LBInstallSearchUIAppearFlush(void) {

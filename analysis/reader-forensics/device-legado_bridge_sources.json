@@ -1,0 +1,382 @@
+[
+  {
+    "ruleSearch": {
+      "author": ".itemtxt@p.1@text##作者：",
+      "bookList": ".item",
+      "lastChapter": "ul@li.0@a@text",
+      "coverUrl": "img@src",
+      "kind": "span.1@text",
+      "bookUrl": "h2 a@href||a.1@href",
+      "name": "a.1@text||h2@text"
+    },
+    "bookSourceComment": "//By情无羁(yesui.me),25.02.03",
+    "bookUrlPattern": "https://www.sudugu.org/\\d+/",
+    "respondTime": 8467,
+    "searchUrl": "/i/sor.aspx?key={{key}}",
+    "bookSourceName": "速读谷",
+    "bookSourceType": 0,
+    "_lb_updatedAt": "2026-07-27T09:36:19Z",
+    "enabled": true,
+    "ruleBookInfo": {
+      "author": ".itemtxt@p.1@text##作者：",
+      "lastChapter": ".itemtxt@ul@li.0@a@text",
+      "wordCount": "h1@i@text",
+      "intro": ".des@p@text",
+      "coverUrl": ".item@img@src",
+      "kind": ".itemtxt@p.0@text",
+      "name": "h1@a@text"
+    },
+    "weight": 0,
+    "customOrder": 11,
+    "concurrentRate": "20/60000",
+    "ruleContent": {
+      "content": ".con@html",
+      "nextContentUrl": "text.下一页@href",
+      "replaceRegex": "##{{chapter.title}}.*|\\(本章完\\)|最‖新‖.*|必.+搜.+日.+最.*"
+    },
+    "bookSourceUrl": "https://www.sudugu.org",
+    "customButton": false,
+    "enabledCookieJar": false,
+    "lastUpdateTime": 1784483524285,
+    "enabledExplore": true,
+    "header": "{\"User-Agent\": \"Mozilla/5.0 (Linux; Android 9) Mobile Safari/537.36\"}",
+    "ruleToc": {
+      "chapterUrl": "a@href",
+      "chapterList": "#list li",
+      "nextTocUrl": "text.下一页@href",
+      "chapterName": "a@text"
+    },
+    "_lb_remoteMissing": false,
+    "eventListener": false,
+    "exploreUrl": "/zuixin/{{page}}.html",
+    "ruleExplore": {
+      "bookList": ".item",
+      "name": "a.1@text||h2@text",
+      "author": ".itemtxt@p.1@text##作者：",
+      "bookUrl": "h2 a@href||a.1@href",
+      "coverUrl": "img@src",
+      "kind": "span.1@text",
+      "lastChapter": "ul@li.0@a@text"
+    }
+  },
+  {
+    "bookSourceGroup": "写源by河鹅和",
+    "customOrder": 0,
+    "bookSourceComment": "",
+    "searchUrl": "{{cookie.setCookie(source.key,source.getVariable())}}\n/search.html,{\n  \"body\": \"s={{key}}\",\n  \"method\": \"POST\"\n}",
+    "loginUrl": "function login(b){\n\tif(b==undefined)return true;\n\tinfo=result\n\tso=source.key\n\tpwd=java.md5Encode(info.密码)\n\timgurl=so+'/code.jpg?'+Math.random()\n\tcode=java.getVerificationCode(imgurl)\n if(b){\n\t\turl=so+'/qs_login_go.php,'\n\t\tbody=`user_name=${info.用户名}&user_pass=${pwd}&user_code=${code}`}\n\telse{\n\t\turl=so+'/qs_register_go.php,'\n\t\tbody=`name=${info.用户名}&mobile=${info.手机号}&pass=${pwd}&pass2=${pwd}&code=${code}`\n\t\t}\n\tpost=JSON.stringify({\n  \"body\": String(body),\n  \"method\": \"POST\"\n})\n url+=post\n result=java.ajax(url)\n java.toast(result)\n c=cookie.getCookie(source.key)\n source.setVariable(c)\n\t}",
+    "bookUrlPattern": "https://www.biqudv.com/\\d+_\\d+\\.html",
+    "ruleReview": {},
+    "enabledExplore": false,
+    "enabledCookieJar": true,
+    "ruleSearch": {
+      "author": ".s3@text",
+      "bookList": "<js>\nif(/验证码/.test(result)){java.toast('请重新登录')}\nelse if(/更换搜索词试试/.test(result)){java.toast('请更换搜索词')}\nresult</js>\n.container li",
+      "lastChapter": ".s4@text",
+      "wordCount": "",
+      "checkKeyWord": "我的模拟",
+      "intro": "",
+      "coverUrl": ".s2 a@href\n<js>\nn=result.match(/_(\\d+)/)\nresult='/img/'+n[n.length-1]+'.jpg'\n</js>",
+      "kind": ".s1@text&&.s5@text##\\[|\\]",
+      "name": ".s2@text",
+      "bookUrl": ".s2 a@href"
+    },
+    "bookSourceType": 0,
+    "lastUpdateTime": 1732245696761,
+    "ruleBookInfo": {
+      "author": "[property=\"og:novel:author\"]@content",
+      "tocUrl": "{{baseUrl.replace(/\\.html/,\"/1/desc.html\")}}",
+      "lastChapter": "[property=\"og:novel:latest_chapter_name\"]@content",
+      "intro": "[property=\"og:description\"]@content",
+      "coverUrl": "{{n=baseUrl.match(/_(\\d+)/)\nresult='/img/'+n[n.length-1]+'.jpg'}}",
+      "init": "",
+      "kind": "[property=\"og:novel:category\"]@content",
+      "name": "[property=\"og:novel:book_name\"]@content"
+    },
+    "_lb_updatedAt": "2026-07-27T09:36:15Z",
+    "ruleToc": {
+      "preUpdateJs": "",
+      "chapterName": "text",
+      "chapterList": "-.section-list li a",
+      "formatJs": "",
+      "nextTocUrl": "option@value",
+      "chapterUrl": "href"
+    },
+    "loginUi": "[\n    {\n        name: \"用户名\",\n        type: \"text\"\n    },\n    {\n        name: \"密码\",\n        type: \"password\"\n    },\n    {\n    \t   name: \"手机号\",\n    \t   type: \"text\"\n    },\n    {\n        name: \"登录\",\n        type: \"button\",\n        action: \"login(true)\"\n    },\n    {\n        name: \"登出\",\n        type: \"button\",\n        action: \"cookie.removeCookie(source.getKey());source.setVariable('');java.toast('登出成功')\"\n    },\n    {\n        name: \"注册\",\n        type: \"button\",\n        action: \"login(false)\"\n    },\n    {\n        name: \"显示密码\",\n        type: \"button\",\n        action: \"java.toast('\\\\n密码：'+result.密码)\"\n    }\n]",
+    "respondTime": 180000,
+    "header": "{\"User-Agent\": \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36\"}",
+    "bookSourceUrl": "https://www.biqudv.com",
+    "ruleContent": {
+      "content": "<js>\nvar bes = result.match(/PHA\\+[A-Za-z0-9+\\/]+={0,2}/g);\nif (!bes) {\n    var ml = java.webView(null,baseUrl,null);\n    java.setContent(ml)\n    var txt = java.getString(\".word_read>p@text\");\n    java.longToast(\"正文解密失败，转为webView动态加载。\");\n} else {\nvar result = [];\nfor (var i = 0; i < bes.length; i++) {\n    var bsej = java.base64Decode(bes[i]);\n    var txtt = String(bsej);\n    result.push(txtt);\n      }\n\tvar txt = result.join('\\n');\n}\ntxt;\n</js>",
+      "payAction": "",
+      "nextContentUrl": "text.下一@href\n@js:\nvar next=/-\\d+\\.html/.test(result) ? result : '';\nnext;",
+      "replaceRegex": "",
+      "webJs": ""
+    },
+    "enabled": true,
+    "bookSourceName": "笔趣读",
+    "ruleExplore": {
+      "coverUrl": "",
+      "bookUrl": "",
+      "bookList": "",
+      "intro": "",
+      "name": ""
+    },
+    "weight": 0,
+    "exploreUrl": "",
+    "_lb_remoteMissing": false
+  },
+  {
+    "customButton": false,
+    "bookSourceComment": "【网站】领域书库 (lysxh.com)\n【技术实现】\n搜索：HTML 搜索（GET /search.html?keyWord=关键词）\n发现：HTML 发现（GET /fenlei/{分类全拼}/{{page}}/）\n详情：Default 规则（class.top@tag.h1 精确定位书名）\n目录：Default 规则（第二个 section-box）\n正文：HTML 提取 + JS 清理\n\n【局限性】\n- 网站有 Cloudflare Turnstile 保护，首次访问可能需要验证\n- 正文有分页，已配置 nextContentUrl 自动翻页\n- 仅支持 HTTP（HTTPS 证书不兼容）\n\n【规则说明】\n- 搜索/发现列表：Default 格式（tag.a.0@text），表头行自动过滤\n- 详情页书名：class.top@tag.h1 精确定位，避免匹配到 logo 的 h1\n- 正文分页标题：全局正则删除所有 章节名(第X/Y页) 标记\n- 分类 URL 使用全拼：xuanhuan/wuxia/dushi/lishi/wangyou/kehuan/nvsheng\n- 分页格式：/fenlei/分类/{{page}}/（目录式，非 .html 式）",
+    "header": "{\"User-Agent\": \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\"}",
+    "bookSourceGroup": "AI",
+    "ruleExplore": {
+      "author": "class.s4@text",
+      "bookUrl": "tag.a.0@href",
+      "kind": "class.s1@text",
+      "bookList": ".txt-list li",
+      "name": "tag.a.0@text",
+      "lastChapter": "tag.a.1@text"
+    },
+    "exploreUrl": "/fenlei/xuanhuan/{{page}}/",
+    "enabled": true,
+    "enabledCookieJar": true,
+    "weight": 0,
+    "ruleSearch": {
+      "author": "class.s4@text",
+      "bookUrl": "tag.a.0@href",
+      "kind": "class.s1@text",
+      "bookList": ".txt-list li",
+      "name": "tag.a.0@text",
+      "lastChapter": "tag.a.1@text"
+    },
+    "_lb_updatedAt": "2026-07-27T09:36:15Z",
+    "bookSourceUrl": "http://www.lysxh.com",
+    "customOrder": 4,
+    "bookSourceType": 0,
+    "lastUpdateTime": 1783366363450,
+    "searchUrl": "/search.html?keyWord={{key}}",
+    "ruleToc": {
+      "chapterUrl": "a@href",
+      "chapterList": "class.section-box.-1@class.section-list@tag.li",
+      "nextTocUrl": "text.下一页@href",
+      "chapterName": "a@text"
+    },
+    "loginCheckJs": "var src = result.body();\nif (src.match(/Just a moment|Checking your browser|Performing security verification|Verifying you are human/)) {\n cookie.removeCookie(source.bookSourceUrl);\n var url = result.url();\n java.startBrowserAwait(url, \"Cloudflare验证\");\n result = java.connect(url);\n}\nresult;",
+    "ruleContent": {
+      "content": "#content@html@js:result.replace(/<script[\\s\\S]*?<\\/script>/g,'').replace(/[^<]*\\(第\\d+\\/\\d+页\\) /g,'').replace(/（本章未完[\\s\\S]*?）/g,'')",
+      "nextContentUrl": "text.下一页@href",
+      "replaceRegex": "##.*?\\(第\\d+/\\d+页\\)##"
+    },
+    "eventListener": false,
+    "_lb_remoteMissing": false,
+    "respondTime": 180000,
+    "ruleBookInfo": {
+      "coverUrl": ".imgbox img@src",
+      "author": "class.fix@tag.p.0@text##.*者：##",
+      "kind": "class.fix@tag.p.1@text##.*别：##",
+      "intro": ".desc@text##^\\s*##",
+      "name": "class.top@tag.h1@text",
+      "lastChapter": "class.fix@tag.p.-1@tag.a@text"
+    },
+    "enabledExplore": true,
+    "bookSourceName": "领域书库"
+  },
+  {
+    "respondTime": 180000,
+    "enabledExplore": true,
+    "customOrder": 1,
+    "ruleBookInfo": {
+      "wordCount": "div#info@text##[\\s\\S]*?(\\d+万字)[\\s\\S]*##$1",
+      "author": "div#info a.0@text",
+      "kind": "div#info@text##[\\s\\S]*类别：(\\S+)[\\s\\S]*##$1",
+      "intro": "div#intro@text",
+      "name": "h1@text"
+    },
+    "bookSourceType": 0,
+    "customButton": false,
+    "ruleContent": {
+      "content": "#booktxt@html",
+      "nextContentUrl": "text.下一页@href"
+    },
+    "ruleSearch": {
+      "wordCount": ".btm em.orange@text",
+      "author": ".btm a.0@text",
+      "bookUrl": "dt a@href",
+      "bookList": ".item",
+      "intro": "dd@text",
+      "name": "dt a@text"
+    },
+    "weight": 0,
+    "lastUpdateTime": 1784180257492,
+    "bookSourceUrl": "http://www.kkbiquge.net",
+    "exploreUrl": "http://www.kkbiquge.net/class/xuanhuanmofa/{{page}}/",
+    "ruleToc": {
+      "chapterUrl": "@href",
+      "chapterName": "dd@text",
+      "chapterList": "div#list a[rel=chapter]"
+    },
+    "ruleExplore": {
+      "author": ".btm a.0@text",
+      "bookList": ".item",
+      "wordCount": ".btm em.orange@text",
+      "intro": "dd@text",
+      "coverUrl": ".image img@data-original",
+      "bookUrl": "dt a@href",
+      "name": "dt a@text"
+    },
+    "_lb_remoteMissing": false,
+    "searchUrl": "{{cookie.removeCookie(source.getKey())}}http://www.kkbiquge.net/search2c.html?searchkey={{key}}",
+    "header": "User-Agent: Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36",
+    "enabled": true,
+    "bookSourceName": "笔趣阁新站",
+    "bookSourceGroup": "AI",
+    "_lb_updatedAt": "2026-07-27T09:36:15Z",
+    "enabledCookieJar": false,
+    "eventListener": false
+  },
+  {
+    "exploreUrl": "http://192.168.1.4:8765/mock_explore.html",
+    "ruleToc": {
+      "chapterUrl": "a@href",
+      "chapterName": "a@text",
+      "chapterList": "#list dd"
+    },
+    "searchUrl": "http://192.168.1.4:8765/mock_search.html?q={{key}}",
+    "ruleExplore": {
+      "author": ".author@text",
+      "bookUrl": "a@href",
+      "bookList": ".bookbox",
+      "name": "h4@text",
+      "intro": ".intro@text"
+    },
+    "_lb_updatedAt": "2026-07-27T09:36:15Z",
+    "enabled": true,
+    "bookSourceName": "本地静态测试源",
+    "ruleContent": {
+      "content": "#chaptercontent@html"
+    },
+    "ruleSearch": {
+      "coverUrl": "img@src",
+      "author": ".author@text",
+      "bookUrl": "a@href",
+      "bookList": ".bookbox",
+      "name": "h4@text",
+      "intro": ".intro@text"
+    },
+    "bookSourceType": 0,
+    "_lb_remoteMissing": false,
+    "ruleBookInfo": {
+      "coverUrl": ".cover@src",
+      "author": ".author@text",
+      "name": "h1@text",
+      "intro": "#intro@text",
+      "tocUrl": "text.目录@href"
+    },
+    "bookSourceUrl": "http://192.168.1.4:8765",
+    "enabledExplore": false
+  },
+  {
+    "ruleSearch": {
+      "coverUrl": "img@src",
+      "author": ".author@text",
+      "bookUrl": "a@href",
+      "bookList": ".bookbox",
+      "name": "h4@text",
+      "intro": ".intro@text"
+    },
+    "ruleToc": {
+      "chapterUrl": "a@href",
+      "chapterName": "a@text",
+      "chapterList": "#list dd"
+    },
+    "bookSourceName": "本地静态测试源",
+    "bookSourceUrl": "http://192.168.1.4:8766",
+    "ruleContent": {
+      "content": "#chaptercontent@html"
+    },
+    "searchUrl": "http://192.168.1.4:8766/mock_search.html?q={{key}}",
+    "enabled": true,
+    "ruleBookInfo": {
+      "coverUrl": ".cover@src",
+      "author": ".author@text",
+      "name": "h1@text",
+      "intro": "#intro@text",
+      "tocUrl": "text.目录@href"
+    },
+    "_lb_updatedAt": "2026-07-27T09:36:15Z",
+    "ruleExplore": {
+      "author": ".author@text",
+      "bookUrl": "a@href",
+      "bookList": ".bookbox",
+      "name": "h4@text",
+      "intro": ".intro@text"
+    },
+    "exploreUrl": "http://192.168.1.4:8766/mock_explore.html",
+    "_lb_remoteMissing": false,
+    "bookSourceType": 0,
+    "enabledExplore": false
+  },
+  {
+    "enabledCookieJar": true,
+    "_lb_remoteMissing": false,
+    "ruleToc": {
+      "chapterName": "a@text",
+      "chapterList": ".dirlist@li",
+      "nextTocUrl": "option@value||text.下一页@href",
+      "chapterUrl": "a@href"
+    },
+    "ruleExplore": {
+      "author": ".s4@text",
+      "bookList": ".librarylist li",
+      "lastChapter": "a:nth-child(1)@text",
+      "intro": "@get:{i}",
+      "coverUrl": "tag.img@src",
+      "kind": ".info span:nth-child(2)@text",
+      "bookUrl": "a:nth-child(1)@href",
+      "name": ".info span:nth-child(1)@text ##.*《|》.*"
+    },
+    "header": "{\"User-Agent\": \"Mozilla/5.0 (Linux; Android 9) Mobile Safari/537.36\"}",
+    "searchUrl": "/search.html?/,{\n \"body\": \"searchkey={{key}}\",\n \"method\": \"POST\"\n}",
+    "ruleSearch": {
+      "author": ".info span:nth-child(2)@text",
+      "bookList": ".librarylist li ",
+      "lastChapter": ".last@text",
+      "intro": "@get:{i}",
+      "coverUrl": "a.0@href##\\D((\\d+)\\d{3})##http://www.shengxuxu.net/headimgs/$2/$1/s$1.jpg###\na.0@href##\\/(\\d+)$##$1###",
+      "kind": ".info span:nth-child(3) a@text",
+      "bookUrl": "a:nth-child(1)@href",
+      "name": ".info span:nth-child(1)@text ##.*《|》.*"
+    },
+    "bookSourceType": 0,
+    "ruleBookInfo": {
+      "author": "@get:{a}",
+      "lastChapter": "@get:{l}",
+      "intro": "@get:{i}",
+      "coverUrl": "@get:{c}",
+      "init": "@put:{n:\"[property$=book_name]@content\",\n\ta:\"[property$=author]@content\",\nk:\"[property~=category|status|update_time]@content\",\nl:\"[property$=lastest_chapter_name]@content\",\ni:\"[property$=description]@content\",\nc:\"[property$=image]@content\"}",
+      "kind": "@get:{k}",
+      "name": "@get:{n}"
+    },
+    "bookSourceComment": "搜索间隔5秒",
+    "customButton": false,
+    "bookSourceUrl": "http://www.shengxuxu.net",
+    "lastUpdateTime": 1784359593955,
+    "respondTime": 180000,
+    "customOrder": 2,
+    "_lb_updatedAt": "2026-07-27T09:36:15Z",
+    "weight": 0,
+    "enabledExplore": true,
+    "bookSourceName": "圣墟小说网",
+    "enabled": true,
+    "bookSourceGroup": "",
+    "ruleContent": {
+      "content": ".content@html##.本章完.|^一秒记住ｈｔｔｐs://ｍ\\.\\/?$",
+      "nextContentUrl": "text.下一页@href"
+    },
+    "eventListener": false,
+    "bookUrlPattern": "http.*shengxuxu.net/book_\\d+/",
+    "exploreUrl": "/top/allvisit/{{page}}.html"
+  }
+]

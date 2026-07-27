@@ -14,6 +14,19 @@ static IMP sOrig_worldAppear = NULL;
 static void (*sOrig_setSelectedSegmentIndex)(id, SEL, NSInteger) = NULL;
 static __weak UIViewController *sPinnedDiscoverHost;
 
+static void LBDiscoverAppendMarker(NSString *line) {
+    if (line.length == 0) return;
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"];
+    NSString *prev = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:NULL] ?: @"";
+    if (prev.length > 12000) {
+        prev = [prev substringFromIndex:prev.length - 8000];
+    }
+    NSString *next = prev.length > 0
+        ? [prev stringByAppendingFormat:@"\n%@", line]
+        : line;
+    [next writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+}
+
 BOOL LBIsDiscoverTabActive(void) {
     if (sDiscoverTabActive) return YES;
     NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
@@ -27,8 +40,7 @@ void LBSetDiscoverTabActive(BOOL active) {
     }
     NSString *line = [NSString stringWithFormat:@"discoverTab active=%d stickyUntil=%.0f",
                       active ? 1 : 0, sPreferDiscoverInjectUntil];
-    [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    LBDiscoverAppendMarker(line);
 }
 
 static BOOL LBClassNameLooksDiscoverHost(NSString *cn) {
@@ -147,9 +159,7 @@ BOOL LBEnsureNativeDiscoverHostPresented(void) {
     }
     UINavigationController *nav = LBDiscoverActiveNav();
     if (!nav) {
-        [@"discoverHost miss: no nav"
-            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        LBDiscoverAppendMarker(@"discoverHost miss: no nav");
         return NO;
     }
     LBPopBookSearchIfNeeded(nav);
@@ -160,9 +170,7 @@ BOOL LBEnsureNativeDiscoverHostPresented(void) {
         if ([cn containsString:@"BookList"]) {
             [nav popToViewController:vc animated:NO];
             sPinnedDiscoverHost = vc;
-            [@"discoverHost reuse stacked BookList"
-                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
-                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            LBDiscoverAppendMarker(@"discoverHost reuse stacked BookList");
             return YES;
         }
     }
@@ -172,9 +180,7 @@ BOOL LBEnsureNativeDiscoverHostPresented(void) {
         cls = NSClassFromString(@"BookListController");
     }
     if (!cls) {
-        [@"discoverHost miss: BookListCon absent"
-            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        LBDiscoverAppendMarker(@"discoverHost miss: BookListCon absent");
         return NO;
     }
     UIViewController *host = nil;
@@ -184,19 +190,26 @@ BOOL LBEnsureNativeDiscoverHostPresented(void) {
             host = [[cls alloc] initWithNibName:nil bundle:nil];
         } @catch (__unused NSException *e) { host = nil; }
     }
+    if (!host && [cls instancesRespondToSelector:@selector(initWithStyle:)]) {
+        @try {
+            host = ((id (*)(id, SEL, NSInteger))objc_msgSend)(
+                [cls alloc], @selector(initWithStyle:), UITableViewStylePlain);
+        } @catch (__unused NSException *e) { host = nil; }
+    }
     if (!host) {
-        [@"discoverHost miss: BookListCon alloc failed"
-            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        LBDiscoverAppendMarker(@"discoverHost miss: BookListCon alloc failed");
         return NO;
     }
     @try { host.title = @"发现"; } @catch (__unused NSException *e) {}
     @try { [host setValue:@"发现" forKey:@"title"]; } @catch (__unused NSException *e) {}
-    [nav pushViewController:host animated:YES];
+    @try {
+        [nav pushViewController:host animated:YES];
+    } @catch (NSException *ex) {
+        LBDiscoverAppendMarker([NSString stringWithFormat:@"discoverHost push EX %@", ex.reason ?: @""]);
+        return NO;
+    }
     sPinnedDiscoverHost = host;
-    NSString *line = [NSString stringWithFormat:@"discoverHost push %@", NSStringFromClass(cls)];
-    [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    LBDiscoverAppendMarker([NSString stringWithFormat:@"discoverHost push %@", NSStringFromClass(cls)]);
     return YES;
 }
 
@@ -212,14 +225,10 @@ static void LBTriggerLegadoExploreForDiscoverTab(void) {
     BOOL hostOk = LBEnsureNativeDiscoverHostPresented();
     id core = LBLegadoManagerCore();
     if (!core || ![core respondsToSelector:@selector(handleExploreRequestWithSourceUrl:exploreUrl:page:)]) {
-        [@"discoverTab explore skip: core/API missing"
-            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        LBDiscoverAppendMarker(@"discoverTab explore skip: core/API missing");
         return;
     }
-    NSString *mark = [NSString stringWithFormat:@"discoverTab explore trigger hostOk=%d", hostOk ? 1 : 0];
-    [mark writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    LBDiscoverAppendMarker([NSString stringWithFormat:@"discoverTab explore trigger hostOk=%d", hostOk ? 1 : 0]);
     ((void (*)(id, SEL, NSString *, NSString *, NSInteger))objc_msgSend)(
         core,
         @selector(handleExploreRequestWithSourceUrl:exploreUrl:page:),
@@ -415,12 +424,15 @@ static void LBDiscover_setSelectedSegmentIndex(id self, SEL _cmd, NSInteger idx)
     }
     if (!(hasShelf && hasDiscover)) return;
     BOOL discover = [title containsString:@"发现"];
-    LBSetDiscoverTabActive(discover);
-    NSString *line = [NSString stringWithFormat:
-                      @"discoverTab setSelectedSegmentIndex idx=%ld title=%@ discover=%d",
-                      (long)idx, title, discover ? 1 : 0];
-    [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_hook.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    // 分段切回书架时不要清 sticky：deeplink/发现触发窗口内仍允许注入
+    if (discover) {
+        LBSetDiscoverTabActive(YES);
+    } else {
+        sDiscoverTabActive = NO;
+    }
+    LBDiscoverAppendMarker([NSString stringWithFormat:
+                            @"discoverTab setSelectedSegmentIndex idx=%ld title=%@ discover=%d sticky=%d",
+                            (long)idx, title, discover ? 1 : 0, LBIsDiscoverTabActive() ? 1 : 0]);
     if (discover) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
