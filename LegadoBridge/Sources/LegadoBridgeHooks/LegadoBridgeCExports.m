@@ -453,7 +453,26 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
         // 有 Legado 结果时强制 DS=VC（仅在 DS==self 时才允许 rows 兜底，避免 SIGABRT）
         @try { [vc setValue:@NO forKey:@"showFilterTip"]; } @catch (__unused NSException *e) {}
         @try { [vc setValue:@0 forKey:@"nFilterResultType"]; } @catch (__unused NSException *e) {}
-        UITableView *tv = [vc valueForKey:@"tableView"];
+        UITableView *tv = nil;
+        for (NSString *k in @[@"tableView", @"tv", @"listTableView", @"mainTableView", @"myTableView"]) {
+            @try {
+                id v = [vc valueForKey:k];
+                if ([v isKindOfClass:[UITableView class]]) { tv = (UITableView *)v; break; }
+            } @catch (__unused NSException *e) {}
+        }
+        // 广场壳常把表藏在子视图，不在 tableView KVC
+        if (!tv && vc.isViewLoaded && vc.view) {
+            NSMutableArray *q = [NSMutableArray arrayWithObject:vc.view];
+            while (q.count > 0) {
+                UIView *cur = q.firstObject;
+                [q removeObjectAtIndex:0];
+                if ([cur isKindOfClass:[UITableView class]]) {
+                    tv = (UITableView *)cur;
+                    break;
+                }
+                for (UIView *sub in cur.subviews) [q addObject:sub];
+            }
+        }
         if ([tv isKindOfClass:[UITableView class]]) {
             NSString *vcn = NSStringFromClass([vc class]);
             BOOL plazaHost = [vcn containsString:@"BookList"]
@@ -493,8 +512,14 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 if ([cur isKindOfClass:[NSArray class]]) arrN = [cur count];
             } @catch (__unused NSException *e) {}
             NSString *diag = [NSString stringWithFormat:
-                @"uiInject ds=%@ rows=%ld arr=%lu needOwn=%d host=%@",
-                dsCls, (long)rows, (unsigned long)arrN, needOwnDS ? 1 : 0, vcn];
+                @"uiInject ds=%@ rows=%ld arr=%lu needOwn=%d host=%@ tv=%@",
+                dsCls, (long)rows, (unsigned long)arrN, needOwnDS ? 1 : 0, vcn,
+                NSStringFromClass([tv class])];
+            [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
+                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        } else {
+            NSString *vcn = NSStringFromClass([vc class]);
+            NSString *diag = [NSString stringWithFormat:@"uiInject no UITableView host=%@", vcn];
             [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         }
