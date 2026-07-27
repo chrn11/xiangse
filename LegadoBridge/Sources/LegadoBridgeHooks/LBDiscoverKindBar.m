@@ -694,23 +694,10 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
             sNativeChromeBuilt = YES;
             LBSanitizeDiscoverListCons(host, scroll);
             if (sRestoreListMode) {
-                // 第二阶段：保留 scroll，立刻灌空数据，再触发 Legado explore
+                // 暂不保留 scroll：真机 restoreList+explore 会杀进程；维持 titleOnly
                 sRestoreListMode = NO;
-                LBAppendNativeMarker([NSString stringWithFormat:
-                                      @"restoreList keepScroll hostChild=%lu scrollKids=%lu",
-                                      (unsigned long)childN, (unsigned long)scrollKids]);
-                id core = LBKindCore();
-                NSString *src = LBCurrentExploreSourceUrl(core);
-                NSString *kindUrl = nil;
-                if (sCachedKinds.count > 0) {
-                    id u = sCachedKinds[0][@"url"];
-                    if ([u isKindOfClass:[NSString class]]) kindUrl = u;
-                }
-                if (src.length > 0) {
-                    LBAppendNativeMarker([NSString stringWithFormat:@"restoreList explore src=%@ kind=%@",
-                                          src, kindUrl ?: @""]);
-                    LBTriggerExploreKind(src, kindUrl);
-                }
+                LBDestroyDiscoverListConsKeepTitle(host, scroll);
+                LBAppendNativeMarker(@"restoreList aborted keepTitleOnly");
             } else {
                 LBDestroyDiscoverListConsKeepTitle(host, scroll);
                 LBAppendNativeMarker([NSString stringWithFormat:
@@ -727,28 +714,7 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                                           @"stillAlive host=%@ titleView=%@",
                                           NSStringFromClass([h class]),
                                           tv ? NSStringFromClass([tv class]) : @"nil"]);
-                    if (!LBIsDiscoverTabActive() || !tv || sTitleOnlyStabilized) return;
-                    sTitleOnlyStabilized = YES;
-                    sRestoreListMode = YES;
-                    sNativeChromeBuilt = NO;
-                    sLastFeedSig = nil;
-                    sLastFeedAt = 0;
-                    LBAppendNativeMarker(@"restoreList schedule");
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
-                                   dispatch_get_main_queue(), ^{
-                        if (!LBIsDiscoverTabActive()) {
-                            sRestoreListMode = NO;
-                            return;
-                        }
-                        UIViewController *hh = weakHost ?: LBPrimaryDiscoverHost();
-                        if (!hh) {
-                            sRestoreListMode = NO;
-                            return;
-                        }
-                        NSString *src2 = nil;
-                        @try { src2 = hh.navigationItem.title; } @catch (__unused NSException *e) {}
-                        LBFeedNativeDiscoverHeader(hh, sCachedKinds ?: @[], src2);
-                    });
+                    // 列表恢复另开一轮：先稳住分类条
                 });
             }
         }
