@@ -21,6 +21,8 @@ NSArray *LBMergeLegadoNames(NSArray * _Nullable orig);
 UIWindow * _Nullable LBLegadoKeyWindow(void);
 void LBLegadoShowResult(NSString *msg);
 void LBLegadoPresentManagerVC(NSString * _Nullable focusSourceUrl);
+/// U2：仅推编辑页到当前导航栈（返回落回原版站点列表）；不经过书源管理列表页
+void LBLegadoPresentSourceEditor(NSString * _Nullable sourceUrl);
 void LBLegadoShowImportAlert(void);
 void LBLegadoImportData(NSData *data);
 void LBLegadoFetchAndImport(NSURL *url);

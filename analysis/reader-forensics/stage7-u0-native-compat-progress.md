@@ -5,8 +5,8 @@
 
 ## 状态（勿误读）
 
-**U0 阶段 D 已收口（D0–D4）。** 当前包待升 `U1 CatalogCon`；真机全量双源面。  
-**U1 进行中**：同相位差分 PASS（`u1-catalog-phase-diff.md`）→ 搜索点书优先 push 原版 `CatalogCon`（BookDetail 不上栈；`legado_u1_catalog_bridge_only.txt` 可强制回退桥接页）。
+**U0 阶段 D 已收口。** 当前包 `8a41b73` / CI `30241868842`；全量双源面。  
+**U1 PASS**：搜索点书 → `CatalogCon`（1914 章）→ 点「第一章 陨落的天才」进原生阅读正文。证据 `u1-catalogcon-gate-SUMMARY.json`、`u1-chapter-tap-SUMMARY.json`、`u1-after-chapter-wait.jpg`。
 
 ## 终局口径
 
@@ -20,7 +20,7 @@
 | 包 | 用途 |
 |---|---|
 | 未注入基线 / `StandarReader0` | 「坏没坏」对照 |
-| `c9b9ae1` legado-debug（run `30240818802`） | 当前推进包（关 forensics TextRead early wrap + AB 探针延迟 + dicModelList 缓存） |
+| `8a41b73` legado-debug（run `30241868842`） | 当前推进包（U1：搜索点书优先 CatalogCon） |
 
 ## F / R / P
 
@@ -74,6 +74,13 @@
 - **仍禁止宣称整包终局完成**（U1–U3 未开）。
 - 当前真机：**双源终验面**（22659944）。
 
-## 本午结论（2026-07-27）
+## 本午结论（2026-07-27）续
 
-按计划恢复全量面；`c9b9ae1` / CI `30240818802` 关掉 forensics TextRead early wrap 后，原生本地示例书打开 **PASS**。D4 阻塞解除。
+U1 **PASS**：`8a41b73` 搜索点书走 CatalogCon（禁 BookDetail 上栈），灌入 1914 章后点章进原生正文。
+
+### U2（进行中）
+
+- **取证**：原版 `ConfigSourceModelListCon` 已能搜到三 Legado；点行旧路径进桥接管理列表。见 `u2-site-mgr-phase-diff.md`。
+- **实现**：点行改 `LBLegadoPresentSourceEditor`（返回落原版列表）；「书源」按钮保留完整管理页回退。
+- **门禁**：待本轮 CI 装机后按 diff 文末 4 条验收；**U2 未 PASS 前不开 U3**。
+- **U0 仍未宣称整包终局**（U2/U3 未过）。

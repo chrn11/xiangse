@@ -159,6 +159,40 @@ void LBLegadoShowResult(NSString *msg) {
     }
 }
 
+/// 取当前可见导航栈（优先 topmost presented 链上的 UINavigationController）
+static UINavigationController *LBLegadoVisibleNavigationController(void) {
+    UIWindow *window = LBLegadoKeyWindow();
+    if (!window) return nil;
+    UIViewController *rootVC = window.rootViewController;
+    while (rootVC.presentedViewController) {
+        rootVC = rootVC.presentedViewController;
+    }
+    if ([rootVC isKindOfClass:[UINavigationController class]]) {
+        return (UINavigationController *)rootVC;
+    }
+    if (rootVC.navigationController) {
+        return rootVC.navigationController;
+    }
+    if ([rootVC isKindOfClass:[UITabBarController class]]) {
+        UIViewController *selected = [(UITabBarController *)rootVC selectedViewController];
+        if ([selected isKindOfClass:[UINavigationController class]]) {
+            return (UINavigationController *)selected;
+        }
+        if (selected.navigationController) {
+            return selected.navigationController;
+        }
+    }
+    // 再挖一层：tab/nav 上已 push 的 topVC 可能自带 nav
+    UIViewController *top = rootVC;
+    while (top.presentedViewController) {
+        top = top.presentedViewController;
+    }
+    if ([top isKindOfClass:[UINavigationController class]]) {
+        return (UINavigationController *)top;
+    }
+    return top.navigationController;
+}
+
 void LBLegadoPresentManagerVC(NSString *focusSourceUrl) {
     if (![NSThread isMainThread]) {
         LBAKProbeLine(@"hypothesis_AK ak_bg_windows_api_skip caller=LBLegadoPresentManagerVC");
@@ -186,22 +220,66 @@ void LBLegadoPresentManagerVC(NSString *focusSourceUrl) {
         [managerVC performSelector:@selector(setFocusSourceUrl:) withObject:focusSourceUrl];
 #pragma clang diagnostic pop
     }
-    UINavigationController *nav = rootVC.navigationController;
-    if (!nav && [rootVC isKindOfClass:[UINavigationController class]]) {
-        nav = (UINavigationController *)rootVC;
-    }
-    if (!nav && [rootVC isKindOfClass:[UITabBarController class]]) {
-        UIViewController *selected = [(UITabBarController *)rootVC selectedViewController];
-        if ([selected isKindOfClass:[UINavigationController class]]) {
-            nav = (UINavigationController *)selected;
-        }
-    }
+    UINavigationController *nav = LBLegadoVisibleNavigationController();
     if (nav) {
         [nav pushViewController:managerVC animated:YES];
     } else {
         UINavigationController *wrapNav = [[UINavigationController alloc] initWithRootViewController:managerVC];
         wrapNav.modalPresentationStyle = UIModalPresentationFullScreen;
         [rootVC presentViewController:wrapNav animated:YES completion:nil];
+    }
+}
+
+void LBLegadoPresentSourceEditor(NSString *sourceUrl) {
+    if (![NSThread isMainThread]) {
+        NSString *url = [sourceUrl copy];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBLegadoPresentSourceEditor(url);
+        });
+        return;
+    }
+    if (sourceUrl.length == 0) {
+        LBLegadoPresentManagerVC(nil);
+        return;
+    }
+    // 回退开关：Documents/legado_u2_use_bridge_manager.txt 存在则走旧「管理列表→编辑」
+    NSString *legacyFlag = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u2_use_bridge_manager.txt"];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:legacyFlag]) {
+        LBLegadoPresentManagerVC(sourceUrl);
+        return;
+    }
+    Class editorCls = NSClassFromString(@"LBLegadoSourceEditorVC");
+    if (!editorCls) {
+        LBLegadoPresentManagerVC(sourceUrl);
+        return;
+    }
+    UITableViewController *editor = [[editorCls alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    if ([editor respondsToSelector:@selector(setSourceUrl:)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        [editor performSelector:@selector(setSourceUrl:) withObject:sourceUrl];
+#pragma clang diagnostic pop
+    }
+    UINavigationController *nav = LBLegadoVisibleNavigationController();
+    if (nav) {
+        [nav pushViewController:editor animated:YES];
+        NSString *marker = [NSString stringWithFormat:@"u2_editor_push url=%@", sourceUrl];
+        [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u2_editor_push.txt"]
+                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return;
+    }
+    // 无导航栈：包一层再 present，关闭后不落桥接列表
+    UINavigationController *wrapNav = [[UINavigationController alloc] initWithRootViewController:editor];
+    wrapNav.modalPresentationStyle = UIModalPresentationFullScreen;
+    UIWindow *window = LBLegadoKeyWindow();
+    UIViewController *rootVC = window.rootViewController;
+    while (rootVC.presentedViewController) {
+        rootVC = rootVC.presentedViewController;
+    }
+    if (rootVC) {
+        [rootVC presentViewController:wrapNav animated:YES completion:nil];
+    } else {
+        LBLegadoPresentManagerVC(sourceUrl);
     }
 }
 

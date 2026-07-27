@@ -178,11 +178,17 @@ static void LBLegadoShowTapBlockedAlert(UIViewController *vc) {
     (void)vc;
 }
 
-/// 点击原生列表中的 Legado 源时，打开对应源的编辑器
+/// 点击原生列表中的 Legado 源时：U2 直接推编辑页（返回落回原版站点列表）；
+/// 无 URL / 编辑类缺失时回退管理页。右上角「书源」仍走完整管理页。
 static void LBLegadoOpenManagerForSourceName(NSString *name) {
     if (name.length == 0) {
         LBLegadoPresentManagerVC(nil);
         return;
+    }
+    // 消歧后缀：原生键「笔趣读·Legado」→ Registry 名「笔趣读」
+    NSString *lookup = name;
+    if ([name hasSuffix:@"·Legado"]) {
+        lookup = [name substringToIndex:name.length - @"·Legado".length];
     }
     id core = LBLegadoCoreIfReady();
     NSString *focusUrl = nil;
@@ -194,13 +200,18 @@ static void LBLegadoOpenManagerForSourceName(NSString *name) {
         for (NSDictionary *dict in info) {
             if (![dict isKindOfClass:[NSDictionary class]]) continue;
             NSString *n = dict[@"bookSourceName"];
-            if ([n isKindOfClass:[NSString class]] && [n isEqualToString:name]) {
+            if ([n isKindOfClass:[NSString class]] &&
+                ([n isEqualToString:lookup] || [n isEqualToString:name])) {
                 focusUrl = dict[@"bookSourceUrl"];
                 break;
             }
         }
     }
-    LBLegadoPresentManagerVC(focusUrl);
+    if (focusUrl.length > 0) {
+        LBLegadoPresentSourceEditor(focusUrl);
+    } else {
+        LBLegadoPresentManagerVC(nil);
+    }
 }
 
 /// 剥掉 textByIndexPath 可能带的「(相对时间)」后缀，得到纯源名
