@@ -1596,6 +1596,8 @@ static NSMutableDictionary *LBBookDictForOpenReader(NSString *bookUrl,
 static BOOL LBCallOpenReader(NSDictionary *book, NSString *sourceName, NSString **outMsg);
 static BOOL LBPushTextReaderFallback(NSDictionary *book, NSString *sourceName, NSString **outMsg);
 static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName, NSString **outMsg);
+static void LBNativeReaderHideHostNavBar(id readerVC, BOOL hide);
+static void LBNativeReaderStripBridgeOverlays(id readerVC);
 static void LBInjectPendingContentIntoReader(UIViewController *readerVC, NSString *phase);
 static BOOL LBInjectNativeChapterContent(UIViewController *readerVC, NSDictionary *payload, NSString *phase);
 static void LBDeliverContentToVisibleReaders(NSString *phase);
@@ -1715,6 +1717,8 @@ static void LBInstallOpenOnceClearOnReaderLeave(void) {
                     }
                     return;
                 }
+                // 阅读页已出栈：恢复宿主导航栏，避免书架顶栏一直被藏
+                LBNativeReaderHideHostNavBar(self, NO);
                 if (sNativeOpenOnceKey.length > 0 || LBReadNativeOpenOnceMarker().length > 0) {
                     LBClearNativeOpenOnceState(@"readerLeave");
                 }
@@ -7468,7 +7472,9 @@ static void LBTextRead_viewWillAppear_Safe(id self, SEL _cmd, BOOL animated) {
     if (isLegadoReader && sLegadoReaderMode == 1) {
         // 0a7f4fa：UIKitSuperOnly 日志后无 UIKitSuper_OK 即重启回书架。
         // 回到 noop；container 改由 ivar dump / 手工挂载解决。
-        LBAppendOpenReaderTrace(@"hypothesis_R2 willAppear noop (no super/ORIG)");
+        // 原生壳：尽早藏系统导航栏，避免白底「返回」与 toolBarHeader 双顶栏。
+        LBNativeReaderHideHostNavBar(self, YES);
+        LBAppendOpenReaderTrace(@"hypothesis_R2 willAppear noop + hideNavBar");
         return;
     }
     if (LBOrig_TR_viewWillAppear) LBOrig_TR_viewWillAppear(self, _cmd, animated);
@@ -7881,12 +7887,44 @@ static id LBG6ToolBarCreatorShared(void) {
 static void LBG6AttachToolbarView(id reader, id bar, NSString *ivarKey) {
     if (!reader || !bar || ivarKey.length == 0) return;
     @try { [reader setValue:bar forKey:ivarKey]; } @catch (__unused NSException *e) {}
+    // 禁止手工 addSubview：createToolbar / ToolBarCreator 自己挂树。
+    // 曾把未布局的 bar 塞进 host → 正文区黑块、双顶栏，破坏香色原生 chrome。
+}
+
+/// 原生阅读壳：藏宿主 UINavigationBar，只留 TextRead 自带 toolBarHeader/Bottom（中点 changeToolBar）。
+static void LBNativeReaderHideHostNavBar(id readerVC, BOOL hide) {
+    if (![readerVC isKindOfClass:[UIViewController class]]) return;
+    UIViewController *vc = (UIViewController *)readerVC;
+    UINavigationController *nav = vc.navigationController;
+    if (!nav) return;
     @try {
-        if (![reader isKindOfClass:[UIViewController class]] || ![bar isKindOfClass:[UIView class]]) return;
-        UIView *host = ((UIViewController *)reader).view;
-        UIView *barV = (UIView *)bar;
-        if (host && barV.superview != host) {
-            [host addSubview:barV];
+        if (hide) {
+            if (!nav.isNavigationBarHidden) {
+                [nav setNavigationBarHidden:YES animated:NO];
+                LBAppendOpenReaderTrace(@"nativeChrome hideNavBar");
+            }
+            vc.title = nil;
+            vc.navigationItem.title = nil;
+            vc.navigationItem.leftBarButtonItem = nil;
+            vc.navigationItem.rightBarButtonItem = nil;
+            vc.navigationItem.hidesBackButton = YES;
+        } else if (nav.isNavigationBarHidden) {
+            [nav setNavigationBarHidden:NO animated:YES];
+            LBAppendOpenReaderTrace(@"nativeChrome restoreNavBar");
+        }
+    } @catch (__unused NSException *e) {}
+}
+
+/// 去掉桥接调试叠层（tag=92011），避免盖住原生正文。
+static void LBNativeReaderStripBridgeOverlays(id readerVC) {
+    if (![readerVC isKindOfClass:[UIViewController class]]) return;
+    UIViewController *vc = (UIViewController *)readerVC;
+    if (!vc.isViewLoaded || !vc.view) return;
+    @try {
+        UIView *ov = [vc.view viewWithTag:92011];
+        if (ov) {
+            [ov removeFromSuperview];
+            LBAppendOpenReaderTrace(@"nativeChrome strip overlay92011");
         }
     } @catch (__unused NSException *e) {}
 }
@@ -8020,6 +8058,9 @@ static void LBTextRead_viewDidAppear_Safe(id self, SEL _cmd, BOOL animated) {
             // b82 真机：bottom 非 nil 且 hide 后 hidden=1，但中点不触发 changeToolBar → 补中区手势
             LBG6InstallMidTapToggle(self);
         }
+        // 原生壳验收：无系统导航栏、无 bridge overlay，只留香色 TextRead chrome
+        LBNativeReaderHideHostNavBar(self, YES);
+        LBNativeReaderStripBridgeOverlays(self);
         // 假设 J：UIKitSuper 门控后若仍有 pending（onReset 已跑完），补 flush
         if (sDidAppearUIKit && sHypothesisJPendingAddChild.count + sHypothesisJPendingInsertSubview.count > 0) {
             LBHypothesisJFlushDeferred(self);
@@ -8207,6 +8248,9 @@ static BOOL LBPushTextReaderNativeFull(NSDictionary *book, NSString *sourceName,
         @try {
             LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen pushingNative %@ on %@",
                                      NSStringFromClass(cls), NSStringFromClass([nav class])]);
+            // 推进去就藏系统栏：阅读页只要香色原生 toolBar，不要白底「返回」
+            ((UIViewController *)vc).hidesBottomBarWhenPushed = YES;
+            [nav setNavigationBarHidden:YES animated:YES];
             [nav pushViewController:(UIViewController *)vc animated:YES];
             sLastPushNativeFullTs = CFAbsoluteTimeGetCurrent();
             // 假设 R2：appear 链不调 super/ORIG；1.0s 后再 postCurCp，避开 push 动画窗口

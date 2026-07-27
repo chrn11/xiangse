@@ -1490,6 +1490,26 @@ class CSSParser: RuleExecutor {
     
     func execute(_ rule: String, context: ExecutionContext) throws -> RuleResult {
         let trimmed = rule.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Legado 目录常见 chapterName/Url 写作裸 `text` / `href`（相对当前元素取属性），
+        // 不可当 CSS 选择器，否则 select("text") 空 → chapters=0。
+        if Self.isTerminalAttr(trimmed) {
+            let baseUrl = context.baseURL?.absoluteString
+            let elements: [SwiftSoup.Element]
+            if let document = context.document as? SwiftSoup.Document {
+                elements = [document]
+            } else if let element = context.document as? SwiftSoup.Element {
+                elements = [element]
+            } else if let html = context.document as? String {
+                elements = [try SwiftSoup.parse(html)]
+            } else {
+                throw RuleError.noDocument
+            }
+            let values = try elements.map { try extractCSSValue(from: $0, attr: trimmed, baseUrl: baseUrl) }
+                .filter { !$0.isEmpty }
+            if values.count == 1 { return .string(values[0]) }
+            if !values.isEmpty { return .list(values) }
+            return .none
+        }
         // Legado 默认规则用 `@` 串联选择器 / 属性 / js（如 class.x.0@tag.a.0@text）
         if trimmed.contains("@"), !trimmed.lowercased().hasPrefix("@css:"), !trimmed.hasPrefix("@@") {
             return try executeAtChain(trimmed, context: context)

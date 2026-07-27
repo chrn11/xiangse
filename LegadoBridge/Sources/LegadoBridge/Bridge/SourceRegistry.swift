@@ -559,6 +559,7 @@ final class SourceRegistry {
     }
 
     /// 将仓源常见的字符串数值字段收成 Int64，避免 JSONDecoder 类型不匹配触发 try! 崩进程。
+    /// 同时去掉 `ruleExplore: []` 这类空数组（yckceo 常见），否则整源解码失败会退成无详情/目录规则的壳。
     private static func sanitizeSourceJSON(_ json: [String: Any]) -> [String: Any] {
         var out = json
         for key in ["lastUpdateTime", "respondTime", "weight", "customOrder", "bookSourceType"] {
@@ -571,6 +572,11 @@ final class SourceRegistry {
                 } else {
                     out.removeValue(forKey: key)
                 }
+            }
+        }
+        for key in ["ruleExplore", "ruleSearch", "ruleBookInfo", "ruleToc", "ruleContent", "ruleReview"] {
+            if let arr = out[key] as? [Any], arr.isEmpty {
+                out.removeValue(forKey: key)
             }
         }
         return out
