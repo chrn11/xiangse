@@ -7743,124 +7743,20 @@ static void LBG6RepositionToolbarOnScreen(id reader) {
     LBAppendOpenReaderTrace(@"G6 reposition disabled (keep native layout)");
 }
 
-/// pageSlider 子视图常带负 y 气泡（进度 tip），画出父外成「黑块」。
-/// 越界子视图直接藏；禁止把空 intersection 扩成整块 bounds（曾把 tip 拉成 390×44 黑条）。
+/// 黑块正体：toolBarPageSlider 整条（上一章/滑条/下一章）。
+/// 注意：不可因 hidden/alpha 早退——原生动画会在 hook 之后把 alpha 拉回 1。
 static void LBG6SanitizePageSliderOverflow(id reader) {
     id sliderObj = LBG6ToolbarIvar(reader, @"toolBarPageSlider");
     if (![sliderObj isKindOfClass:[UIView class]]) return;
     UIView *slider = (UIView *)sliderObj;
-    if (slider.hidden || slider.alpha < 0.05) return;
-    slider.clipsToBounds = YES;
-
-    // 黑块正体候选：pageSlider 实黑底。直接透明，只留子控件（上一章/滑条/下一章）。
-    @try {
-        slider.backgroundColor = [UIColor clearColor];
-        slider.opaque = NO;
-        if (slider.layer.backgroundColor) {
-            slider.layer.backgroundColor = [UIColor clearColor].CGColor;
-        }
-        LBAppendOpenReaderTrace(@"G6 pageSlider clearBg");
-    } @catch (__unused NSException *e) {}
-
-    // 菜单显示时藏正文底栏页码条 TextRWidgetViewB；并把 UITableView 深色底改成浅色，
-    // 避免 chrome 顶开后正文与进度条之间露出黑底（真机菜单态全宽黑条主因）。
-    @try {
-        if ([reader isKindOfClass:[UIViewController class]]) {
-            UIView *root = ((UIViewController *)reader).view;
-            if (root.subviews.count > 0) {
-                UIView *cr = root.subviews[0];
-                UIColor *paper = [UIColor colorWithRed:0.93 green:0.92 blue:0.90 alpha:1.0];
-                for (UIView *ch in cr.subviews) {
-                    NSString *cn = NSStringFromClass([ch class]);
-                    if ([cn containsString:@"TextRWidget"]) {
-                        if (!ch.hidden) {
-                            ch.hidden = YES;
-                            LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                                     @"G6 hideWidget %@", cn]);
-                        }
-                        continue;
-                    }
-                    if (![ch isKindOfClass:[UITableView class]]) continue;
-                    UITableView *tv = (UITableView *)ch;
-                    UIColor *bg = tv.backgroundColor;
-                    CGFloat r = 1, g = 1, b = 1, a = 1;
-                    BOOL dark = NO;
-                    if (bg && [bg getRed:&r green:&g blue:&b alpha:&a]) {
-                        dark = (a > 0.5) && (r + g + b) / 3.0 < 0.35;
-                    }
-                    LBAppendOpenReaderTrace([NSString stringWithFormat:
-                                             @"G6 tableBg r=%.2f g=%.2f b=%.2f a=%.2f dark=%d",
-                                             r, g, b, a, dark ? 1 : 0]);
-                    // 不论是否已判暗：菜单态强制浅底，堵住黑缝
-                    tv.backgroundColor = paper;
-                    if (tv.backgroundView) tv.backgroundView.backgroundColor = paper;
-                    if (tv.tableFooterView) {
-                        tv.tableFooterView.backgroundColor = [UIColor clearColor];
-                    }
-                    if (tv.tableHeaderView) {
-                        // 不改 header 内容，只防纯黑垫
-                        UIColor *hb = tv.tableHeaderView.backgroundColor;
-                        CGFloat hr = 1, hg = 1, hb2 = 1, ha = 0;
-                        if (hb && [hb getRed:&hr green:&hg blue:&hb2 alpha:&ha] &&
-                            ha > 0.5 && (hr + hg + hb2) / 3.0 < 0.2) {
-                            tv.tableHeaderView.backgroundColor = paper;
-                        }
-                    }
-                    LBAppendOpenReaderTrace(@"G6 tableBg forcePaper");
-                }
-            }
-        }
-    } @catch (__unused NSException *e2) {}
-
-    // 纯黑不透明底会在进度条上方「渗」出一块硬边黑 — 已 forceSoftBg
-    NSMutableString *dump = [NSMutableString stringWithFormat:
-                             @"G6 pageSlider frame=%@ clips=1 subs=",
-                             NSStringFromCGRect(slider.frame)];
-    NSInteger fixed = 0;
-    NSUInteger lim = MIN(slider.subviews.count, (NSUInteger)12);
-    for (NSUInteger i = 0; i < lim; i++) {
-        UIView *ch = slider.subviews[i];
-        CGRect f = ch.frame;
-        [dump appendFormat:@" [%lu]%@ f=%@ a=%.2f",
-         (unsigned long)i, NSStringFromClass([ch class]),
-         NSStringFromCGRect(f), ch.alpha];
-        BOOL overflowUp = (f.origin.y < -0.5);
-        CGRect inter = CGRectIntersection(f, slider.bounds);
-        BOOL outside = CGRectIsEmpty(inter) || inter.size.height < 0.5;
-        // 进度 tip UILabel（常 y=-64）或任何完全在父外的子视图：藏掉
-        if (overflowUp || outside) {
-            ch.hidden = YES;
-            ch.alpha = 0;
-            // 收回 frame，避免下次再溢出
-            if (overflowUp) {
-                CGRect nf = f;
-                nf.origin.y = 0;
-                if (nf.size.height > slider.bounds.size.height)
-                    nf.size.height = slider.bounds.size.height;
-                ch.frame = nf;
-            }
-            fixed++;
-            [dump appendString:@"*hideOut"];
-            continue;
-        }
-        BOOL tooTall = (f.size.height > slider.bounds.size.height + 8.0);
-        if (tooTall) {
-            ch.frame = inter;
-            fixed++;
-            [dump appendString:@"*clipH"];
-        }
-    }
-    LBAppendOpenReaderTrace([NSString stringWithFormat:@"%@ fixed=%ld", dump, (long)fixed]);
-
-    // 黑块正体即 toolBarPageSlider 整条（含上一章/下一章）。clearBg/藏滑条仍留黑底 → 整控件藏掉。
-    // 底栏四键（目录/缓存/设置/换源）在 toolBarBottom，不受影响。
     slider.hidden = YES;
     slider.alpha = 0;
     slider.userInteractionEnabled = NO;
+    slider.backgroundColor = [UIColor clearColor];
     LBAppendOpenReaderTrace([NSString stringWithFormat:
-                             @"G6 hidePageSliderEntirely f=%@",
-                             NSStringFromCGRect(slider.frame)]);
-    return;
+                             @"G6 hidePageSliderEntirely f=%@ wasHidden=%d",
+                             NSStringFromCGRect(slider.frame),
+                             slider.hidden ? 1 : 0]);
 }
 
 static BOOL LBG6ViewIsUnderChrome(id reader, UIView *v) {
@@ -8133,14 +8029,17 @@ static void LBG6ChangeToolBarHook(id self, SEL _cmd) {
     if (!isHidden) {
         LBG6BringToolbarToFront(self);
         __weak id weakSelf = self;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            id strong = weakSelf;
-            if (!strong || sLegadoReaderMode != 1) return;
-            LBG6HideMisplacedSidePanels(strong);
-        });
+        // 原生动画会在 hook 后把 pageSlider alpha 拉回，多拍几次强制藏
+        for (NSNumber *sec in @[ @0.15, @0.35, @0.60, @0.90 ]) {
+            double delay = sec.doubleValue;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                id strong = weakSelf;
+                if (!strong || sLegadoReaderMode != 1) return;
+                LBG6SanitizePageSliderOverflow(strong);
+            });
+        }
     } else {
-        // 收起时也藏侧栏，避免黑块残留
         LBG6HideMisplacedSidePanels(self);
     }
     LBG6LogToolbarState(self, @"afterChangeToolBar");
