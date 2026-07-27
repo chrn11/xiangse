@@ -213,7 +213,8 @@ static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
         if ([name containsString:@"喜马拉雅"] || [name containsString:@"FM"] ||
             [name containsString:@"漫画"] || [name containsString:@"听书"] ||
             [name containsString:@"有声"] || [name containsString:@"动漫"] ||
-            [name containsString:@"语音"]) {
+            [name containsString:@"语音"] || [name containsString:@"有毒"] ||
+            [name hasPrefix:@"FZ-"] || [name containsString:@"FZ-"]) {
             return;
         }
         NSString *stype = @"";
@@ -240,10 +241,9 @@ static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
             score += 150;
         }
         if ([name containsString:@"笔趣"]) score += 40;
-        if ([name containsString:@"有毒"] || [name hasPrefix:@"FZ-"]) score = score > 80 ? score - 80 : 0;
         if ([name containsString:@"起点"] || [name containsString:@"息壤"] ||
             [name containsString:@"长佩"]) {
-            score += 120; // 文本站优先于 FZ 系，降低 BookListCon 拉网崩概率
+            score += 120;
         }
         if (nested >= 20) score += 80;
         if (topLog.count < 8) {
@@ -423,16 +423,34 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
 static void LBSanitizeDiscoverListCons(UIViewController *host, id scroll) {
     NSMutableArray *kids = [NSMutableArray array];
     @try {
-        id cv = [scroll valueForKey:@"childVCs"];
-        if ([cv isKindOfClass:[NSArray class]]) [kids addObjectsFromArray:cv];
+        for (NSString *k in @[@"childVCs", @"childViewControllers", @"arrChildVCs", @"vcs"]) {
+            id cv = nil;
+            @try { cv = [scroll valueForKey:k]; } @catch (__unused NSException *e) { cv = nil; }
+            if ([cv isKindOfClass:[NSArray class]] && [(NSArray *)cv count] > 0) {
+                [kids addObjectsFromArray:cv];
+                id first = [(NSArray *)cv firstObject];
+                LBAppendNativeMarker([NSString stringWithFormat:@"scrollKidsKey=%@ n=%lu first=%@",
+                                      k, (unsigned long)[(NSArray *)cv count],
+                                      first ? NSStringFromClass([first class]) : @"nil"]);
+                break;
+            }
+        }
     } @catch (__unused NSException *e) {}
     if (kids.count == 0) {
         [kids addObjectsFromArray:host.childViewControllers ?: @[]];
     }
     NSUInteger n = 0;
     for (id c in kids) {
-        if (![c isKindOfClass:[UIViewController class]]) continue;
-        UIViewController *vc = (UIViewController *)c;
+        // 兼容非 UIViewController 包装
+        id target = c;
+        if (![target isKindOfClass:[UIViewController class]]) {
+            @try {
+                id v = [c valueForKey:@"viewController"];
+                if ([v isKindOfClass:[UIViewController class]]) target = v;
+            } @catch (__unused NSException *e) {}
+        }
+        if (![target isKindOfClass:[UIViewController class]]) continue;
+        UIViewController *vc = (UIViewController *)target;
         for (NSString *k in @[@"arrBaseData", @"itemList", @"arrData", @"dataArray", @"books"]) {
             @try { [vc setValue:@[] forKey:k]; } @catch (__unused NSException *e) {}
         }
@@ -444,7 +462,8 @@ static void LBSanitizeDiscoverListCons(UIViewController *host, id scroll) {
         } @catch (__unused NSException *e) {}
         n++;
     }
-    LBAppendNativeMarker([NSString stringWithFormat:@"sanitizeListCons n=%lu", (unsigned long)n]);
+    LBAppendNativeMarker([NSString stringWithFormat:@"sanitizeListCons n=%lu raw=%lu",
+                          (unsigned long)n, (unsigned long)kids.count]);
 }
 
 /// 用 Legado 分类灌原生发现：donor bookWorld + 一次性 resetContent（禁手工 SGPage）
@@ -610,18 +629,27 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         } else if (hasPageChrome && (childN > 0 || scrollKids > 0)) {
             sNativeChromeBuilt = YES;
             LBSanitizeDiscoverListCons(host, scroll);
+            // 先拆内容 scroll，只留 SGPageTitleView 分类条，避开 BookListCon 拉网/cell 杀进程
+            @try {
+                if ([scroll isKindOfClass:[UIView class]] && [(UIView *)scroll superview]) {
+                    [(UIView *)scroll removeFromSuperview];
+                    LBAppendNativeMarker(@"detachScroll keepTitleOnly");
+                }
+            } @catch (__unused NSException *e) {}
             LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"pageChrome keep hostChild=%lu scrollKids=%lu",
+                                  @"pageChrome keep hostChild=%lu scrollKids=%lu titleOnly=1",
                                   (unsigned long)childN, (unsigned long)scrollKids]);
             __weak UIViewController *weakHost = host;
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
                 UIViewController *h = weakHost;
                 if (!h) return;
+                id tv = nil;
+                @try { tv = [h valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
                 LBAppendNativeMarker([NSString stringWithFormat:
-                                      @"stillAlive host=%@ child=%lu",
+                                      @"stillAlive host=%@ titleView=%@",
                                       NSStringFromClass([h class]),
-                                      (unsigned long)h.childViewControllers.count]);
+                                      tv ? NSStringFromClass([tv class]) : @"nil"]);
             });
         }
 
