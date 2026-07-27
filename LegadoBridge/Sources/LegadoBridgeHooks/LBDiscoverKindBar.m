@@ -11,6 +11,8 @@ static NSString *sLastFeedSig = nil;
 static CFAbsoluteTime sLastFeedAt = 0;
 static BOOL sNativeChromeBuilt = NO;
 static BOOL sNativeChromeBuildScheduled = NO;
+static BOOL sRestoreListMode = NO;
+static BOOL sTitleOnlyStabilized = NO;
 
 static void (*sOrig_pageTitleSelected)(id, SEL, id, NSInteger) = NULL;
 static void (*sOrig_onSwitchBtn)(id, SEL) = NULL;
@@ -691,22 +693,64 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         } else if (hasPageChrome && (childN > 0 || scrollKids > 0)) {
             sNativeChromeBuilt = YES;
             LBSanitizeDiscoverListCons(host, scroll);
-            LBDestroyDiscoverListConsKeepTitle(host, scroll);
-            LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"pageChrome keep hostChild=%lu scrollKids=%lu titleOnly=1",
-                                  (unsigned long)childN, (unsigned long)scrollKids]);
-            __weak UIViewController *weakHost = host;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
-                UIViewController *h = weakHost;
-                if (!h) return;
-                id tv = nil;
-                @try { tv = [h valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+            if (sRestoreListMode) {
+                // 第二阶段：保留 scroll，立刻灌空数据，再触发 Legado explore
+                sRestoreListMode = NO;
                 LBAppendNativeMarker([NSString stringWithFormat:
-                                      @"stillAlive host=%@ titleView=%@",
-                                      NSStringFromClass([h class]),
-                                      tv ? NSStringFromClass([tv class]) : @"nil"]);
-            });
+                                      @"restoreList keepScroll hostChild=%lu scrollKids=%lu",
+                                      (unsigned long)childN, (unsigned long)scrollKids]);
+                id core = LBKindCore();
+                NSString *src = LBCurrentExploreSourceUrl(core);
+                NSString *kindUrl = nil;
+                if (sCachedKinds.count > 0) {
+                    id u = sCachedKinds[0][@"url"];
+                    if ([u isKindOfClass:[NSString class]]) kindUrl = u;
+                }
+                if (src.length > 0) {
+                    LBAppendNativeMarker([NSString stringWithFormat:@"restoreList explore src=%@ kind=%@",
+                                          src, kindUrl ?: @""]);
+                    LBTriggerExploreKind(src, kindUrl);
+                }
+            } else {
+                LBDestroyDiscoverListConsKeepTitle(host, scroll);
+                LBAppendNativeMarker([NSString stringWithFormat:
+                                      @"pageChrome keep hostChild=%lu scrollKids=%lu titleOnly=1",
+                                      (unsigned long)childN, (unsigned long)scrollKids]);
+                __weak UIViewController *weakHost = host;
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    UIViewController *h = weakHost;
+                    if (!h) return;
+                    id tv = nil;
+                    @try { tv = [h valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+                    LBAppendNativeMarker([NSString stringWithFormat:
+                                          @"stillAlive host=%@ titleView=%@",
+                                          NSStringFromClass([h class]),
+                                          tv ? NSStringFromClass([tv class]) : @"nil"]);
+                    if (!LBIsDiscoverTabActive() || !tv || sTitleOnlyStabilized) return;
+                    sTitleOnlyStabilized = YES;
+                    sRestoreListMode = YES;
+                    sNativeChromeBuilt = NO;
+                    sLastFeedSig = nil;
+                    sLastFeedAt = 0;
+                    LBAppendNativeMarker(@"restoreList schedule");
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                                   dispatch_get_main_queue(), ^{
+                        if (!LBIsDiscoverTabActive()) {
+                            sRestoreListMode = NO;
+                            return;
+                        }
+                        UIViewController *hh = weakHost ?: LBPrimaryDiscoverHost();
+                        if (!hh) {
+                            sRestoreListMode = NO;
+                            return;
+                        }
+                        NSString *src2 = nil;
+                        @try { src2 = hh.navigationItem.title; } @catch (__unused NSException *e) {}
+                        LBFeedNativeDiscoverHeader(hh, sCachedKinds ?: @[], src2);
+                    });
+                });
+            }
         }
 
         // createCons：reset 未挂子页时先造 cons，再交给原生 resetContent 挂页（禁手工 SGPage）
