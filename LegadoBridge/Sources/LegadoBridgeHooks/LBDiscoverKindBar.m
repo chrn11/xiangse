@@ -335,6 +335,22 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
 
     sFeedingDiscoverHeader = YES;
     @try {
+        // 已有原生 SGPage 时禁止再 resetContent（反复重建会杀进程）
+        id existTitle = nil;
+        id existScroll = nil;
+        @try { existTitle = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+        @try { existScroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+        if (existTitle && existScroll) {
+            if (srcName.length > 0) {
+                @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
+                @try { host.title = srcName; } @catch (__unused NSException *e) {}
+            }
+            sCachedKinds = [kinds copy];
+            LBAppendNativeMarker(@"pageChrome exists skipReset");
+            LBAppendNativeHostState(host, @"keepChrome");
+            return;
+        }
+
         LBPrepareDiscoverDicModel(host, srcName, titles);
 
         NSString *consName = sDiscoverUseSourceName.length ? sDiscoverUseSourceName : (srcName ?: @"");

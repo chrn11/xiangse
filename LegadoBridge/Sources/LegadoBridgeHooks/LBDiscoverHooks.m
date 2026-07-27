@@ -320,24 +320,10 @@ static void LBTriggerLegadoExploreForDiscoverTab(void) {
         }
     }
     LBDiscoverAppendMarker([NSString stringWithFormat:
-                            @"discoverTab explore schedule hostOk=%d src=%@ kind=%@",
+                            @"discoverTab explore schedule hostOk=%d src=%@ kind=%@ (deferred-off)",
                             hostOk ? 1 : 0, src ?: @"", kindUrl ?: @"(default)"]);
-    NSString *srcCopy = [src copy] ?: @"";
-    NSString *kindCopy = [kindUrl copy];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        if (!LBIsDiscoverTabActive()) return;
-        id c2 = LBLegadoManagerCore();
-        if (!c2) return;
-        LBDiscoverAppendMarker(@"discoverTab explore fire");
-        ((void (*)(id, SEL, NSString *, NSString *, NSInteger))objc_msgSend)(
-            c2,
-            @selector(handleExploreRequestWithSourceUrl:exploreUrl:page:),
-            srcCopy,
-            kindCopy,
-            1
-        );
-    });
+    // 暂不 fire explore：先验证 SGPage 原生壳能稳定存活；灌书另开一轮
+    (void)kindUrl;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         if (!LBIsDiscoverTabActive()) return;
@@ -490,7 +476,8 @@ static void LBDiscover_worldAppear(id self, SEL _cmd, BOOL animated) {
         if ([cn containsString:@"BookWorld"] || [cn containsString:@"BookStore"] ||
             [cn containsString:@"Shudan"]) {
             sPinnedDiscoverHost = (UIViewController *)self;
-            LBTriggerLegadoExploreForDiscoverTab();
+            // 不再从 appear 重入 explore/reset，避免杀进程
+            LBRefreshDiscoverKindBar();
         }
     });
 }
