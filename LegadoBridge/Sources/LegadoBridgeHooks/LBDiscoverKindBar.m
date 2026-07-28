@@ -28,6 +28,7 @@ static void LBPinDiscoverContentToFirstPage(UIViewController *host);
 static void LBRestoreDiscoverTitleSelected(id pageTitleView, NSInteger index);
 static void LBDiscoverHandleKindSelect(UIViewController *host, id pageTitleView, NSInteger index);
 static void LBAttachDiscoverKindButtonActions(UIViewController *host, id titleView);
+static void LBUnlinkDiscoverTitleContent(UIViewController *host);
 static NSString *LBCurrentExploreSourceUrl(id core);
 static void LBTriggerExploreKind(NSString *sourceUrl, NSString *kindUrl);
 
@@ -107,22 +108,23 @@ static void LBPinDiscoverContentToFirstPage(UIViewController *host) {
 
 static void LBRestoreDiscoverTitleSelected(id pageTitleView, NSInteger index) {
     if (!pageTitleView || index < 0) return;
+    // 只改选中态/文字色，不调 setSelectedIndex:（会联动 content 翻到空页）
     @try { [pageTitleView setValue:@(index) forKey:@"selectedIndex"]; } @catch (__unused NSException *e) {}
-    SEL setIdx = @selector(setSelectedIndex:);
-    if ([pageTitleView respondsToSelector:setIdx]) {
-        @try {
-            ((void (*)(id, SEL, NSInteger))objc_msgSend)(pageTitleView, setIdx, index);
-        } @catch (__unused NSException *e) {}
-    }
     LBPaintTitleLabels(pageTitleView, index);
 }
 
-static const NSInteger kLBKindBtnTagBase = 0x4C424B00; // 'LBK\0'
+static const NSInteger kLBKindBtnTagBase = 0x4C424B00; // legacy；勿再写 btn.tag（SG 用 tag 当 index）
+static char kLBKindBtnIndexKey;
 static BOOL sHandlingKindSelect = NO;
 
 /// 分类切换核心：钉在第一列表页 + 触发对应 kind 的 explore（不翻空黑页）
 static void LBDiscoverHandleKindSelect(UIViewController *host, id pageTitleView, NSInteger index) {
     if (sHandlingKindSelect) return;
+    // SG 若仍用被污染的 btn.tag 回调，会传来 0x4C424Bxx；直接丢弃
+    if (index < 0 || index > 64) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"nativeTab drop badIdx=%ld", (long)index]);
+        return;
+    }
     sHandlingKindSelect = YES;
     @try {
         LBSetDiscoverTabActive(YES);
@@ -135,6 +137,8 @@ static void LBDiscoverHandleKindSelect(UIViewController *host, id pageTitleView,
             @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
         }
         LBRestoreDiscoverTitleSelected(tv, sSelectedKindIndex);
+        // 恢复标题后再钉一次：防止 title↔content 联动又翻走
+        LBPinDiscoverContentToFirstPage(host);
 
         id core = LBKindCore();
         NSString *src = core ? LBCurrentExploreSourceUrl(core) : nil;
@@ -186,9 +190,18 @@ static void LBDiscoverHandleKindSelect(UIViewController *host, id pageTitleView,
 static void LBDiscover_kindBtnTouch(id self, SEL _cmd, id sender) {
     (void)_cmd;
     NSInteger idx = 0;
-    if ([sender isKindOfClass:[UIView class]]) {
+    NSNumber *stored = nil;
+    @try { stored = objc_getAssociatedObject(sender, &kLBKindBtnIndexKey); } @catch (__unused NSException *e) {}
+    if ([stored isKindOfClass:[NSNumber class]]) {
+        idx = [stored integerValue];
+    } else if ([sender isKindOfClass:[UIView class]]) {
+        // 兼容旧包：若仍写过 tag，把 base 映射回 index
         NSInteger tag = [(UIView *)sender tag];
-        if (tag >= kLBKindBtnTagBase) idx = tag - kLBKindBtnTagBase;
+        if (tag >= kLBKindBtnTagBase && tag < kLBKindBtnTagBase + 64) {
+            idx = tag - kLBKindBtnTagBase;
+        } else if (tag >= 0 && tag < 64) {
+            idx = tag;
+        }
     }
     UIViewController *host = [self isKindOfClass:[UIViewController class]]
         ? (UIViewController *)self : LBPrimaryDiscoverHost();
@@ -201,6 +214,28 @@ static void LBEnsureDiscoverKindBtnMethod(Class cls) {
     SEL sel = @selector(lb_discoverKindBtn:);
     if (class_getInstanceMethod(cls, sel)) return;
     class_addMethod(cls, sel, (IMP)LBDiscover_kindBtnTouch, "v@:@");
+}
+
+/// 断开标题条与内容滚动联动，避免选分类时翻到不存在的空页
+static void LBUnlinkDiscoverTitleContent(UIViewController *host) {
+    if (!host) return;
+    id tv = nil;
+    id scroll = nil;
+    @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+    @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+    if (tv) {
+        for (NSString *k in @[@"pageContentScrollView", @"contentView", @"pageContentView",
+                              @"delegatePageContentScrollView"]) {
+            @try { [tv setValue:nil forKey:k]; } @catch (__unused NSException *e) {}
+        }
+    }
+    if (scroll) {
+        for (NSString *k in @[@"pageTitleView", @"delegatePageTitleView", @"titleView"]) {
+            @try { [scroll setValue:nil forKey:k]; } @catch (__unused NSException *e) {}
+        }
+    }
+    LBPinDiscoverContentToFirstPage(host);
+    LBAppendNativeMarker(@"unlink title↔content for singleFeed");
 }
 
 static void LBAttachDiscoverKindButtonActions(UIViewController *host, id titleView) {
@@ -221,11 +256,17 @@ static void LBAttachDiscoverKindButtonActions(UIViewController *host, id titleVi
     }];
     NSUInteger n = 0;
     for (UIButton *btn in sorted) {
-        btn.tag = kLBKindBtnTagBase + (NSInteger)n;
+        // 禁止改 btn.tag：SGPageTitleView 用 tag 当分类 index，改掉会回调出 0x4C424Bxx
+        objc_setAssociatedObject(btn, &kLBKindBtnIndexKey, @(n), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (btn.tag >= kLBKindBtnTagBase) {
+            // 清掉旧包残留的污染 tag
+            btn.tag = (NSInteger)n;
+        }
         [btn removeTarget:host action:sel forControlEvents:UIControlEventTouchUpInside];
         [btn addTarget:host action:sel forControlEvents:UIControlEventTouchUpInside];
         n++;
     }
+    LBUnlinkDiscoverTitleContent(host);
     LBAppendNativeMarker([NSString stringWithFormat:@"kindBtnAttach n=%lu host=%@",
                           (unsigned long)n, NSStringFromClass([host class])]);
 }
@@ -1368,6 +1409,7 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
             if (sBookListSafeVDLInstalled) {
                 // P1：安全 VDL 已装 → 保留 BookListCon，接 explore
                 LBPinDiscoverContentToFirstPage(host);
+                LBUnlinkDiscoverTitleContent(host);
                 LBAppendNativeMarker([NSString stringWithFormat:
                                       @"keepList safeVDL hostChild=%lu scrollKids=%lu",
                                       (unsigned long)childN, (unsigned long)scrollKids]);
