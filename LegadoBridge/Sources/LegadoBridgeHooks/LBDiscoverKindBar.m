@@ -585,6 +585,15 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
                     [superview insertSubview:(UIView *)neu atIndex:MAX(0, z)];
                 }
                 @try { [host setValue:neu forKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+                // configure 为空时文字可能不可见：强制标题色
+                for (NSString *pair in @[@"setTitleColor:", @"setTitleSelectedColor:"]) {
+                    SEL cs = NSSelectorFromString(pair);
+                    if (![neu respondsToSelector:cs]) continue;
+                    UIColor *c = [pair containsString:@"Selected"]
+                        ? [UIColor colorWithRed:0.25 green:0.55 blue:1 alpha:1]
+                        : [UIColor whiteColor];
+                    @try { ((void (*)(id, SEL, id))objc_msgSend)(neu, cs, c); } @catch (__unused NSException *e) {}
+                }
                 LBAppendNativeMarker([NSString stringWithFormat:
                                       @"forceTitles rebuild SGPageTitleView n=%lu",
                                       (unsigned long)titles.count]);
