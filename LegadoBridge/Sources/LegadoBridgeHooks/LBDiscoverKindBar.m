@@ -1221,8 +1221,20 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                     LBAppendNativeMarker([NSString stringWithFormat:
                                           @"postChrome explore src=%@ kind=%@",
                                           src ?: @"", kindUrl ?: @""]);
-                    if (src.length > 0) LBTriggerExploreKind(src, kindUrl);
-                    LBReloadDiscoverNativeList(h);
+                    if (src.length > 0) {
+                        @try {
+                            LBTriggerExploreKind(src, kindUrl);
+                        } @catch (NSException *ex) {
+                            LBAppendNativeMarker([NSString stringWithFormat:
+                                                  @"postChrome explore EX %@", ex.reason ?: @""]);
+                        }
+                    }
+                    @try {
+                        LBReloadDiscoverNativeList(h);
+                    } @catch (NSException *ex) {
+                        LBAppendNativeMarker([NSString stringWithFormat:
+                                              @"postChrome reload EX %@", ex.reason ?: @""]);
+                    }
                     LBAppendNativeMarker(@"stillAlive keepList");
                 });
             } else {
@@ -1330,7 +1342,12 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
 /// 书列表灌入后刷新原生子页（禁止再 resetContent，避免拆掉刚建好的 SGPage）
 void LBReloadDiscoverNativeList(UIViewController *host) {
     if (!host) return;
-    UIViewController *listVC = LBActiveDiscoverListVC(host);
+    UIViewController *listVC = nil;
+    @try {
+        listVC = LBActiveDiscoverListVC(host);
+    } @catch (NSException *ex) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"reload activeVC EX %@", ex.reason ?: @""]);
+    }
     if (!listVC) listVC = host;
 
     UITableView *tv = nil;
@@ -1341,14 +1358,16 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
         } @catch (__unused NSException *e) {}
     }
     if (!tv && listVC.isViewLoaded && listVC.view) {
-        NSMutableArray *q = [NSMutableArray arrayWithObject:listVC.view];
-        NSInteger budget = 60;
-        while (q.count > 0 && budget-- > 0) {
-            UIView *cur = q.firstObject;
-            [q removeObjectAtIndex:0];
-            if ([cur isKindOfClass:[UITableView class]]) { tv = (UITableView *)cur; break; }
-            for (UIView *sub in cur.subviews) [q addObject:sub];
-        }
+        @try {
+            NSMutableArray *q = [NSMutableArray arrayWithObject:listVC.view];
+            NSInteger budget = 60;
+            while (q.count > 0 && budget-- > 0) {
+                UIView *cur = q.firstObject;
+                [q removeObjectAtIndex:0];
+                if ([cur isKindOfClass:[UITableView class]]) { tv = (UITableView *)cur; break; }
+                for (UIView *sub in cur.subviews) [q addObject:sub];
+            }
+        } @catch (__unused NSException *e) {}
     }
     if (tv) {
         @try { [tv reloadData]; } @catch (__unused NSException *e) {}
@@ -1359,7 +1378,11 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
     if ([listVC respondsToSelector:show]) {
         NSString *title = @"";
         @try { title = [listVC valueForKey:@"useSourceName"] ?: @""; } @catch (__unused NSException *e) {}
-        @try { ((void (*)(id, SEL, id, id))objc_msgSend)(listVC, show, nil, title); } @catch (__unused NSException *e) {}
+        @try {
+            ((void (*)(id, SEL, id, id))objc_msgSend)(listVC, show, nil, title);
+        } @catch (NSException *ex) {
+            LBAppendNativeMarker([NSString stringWithFormat:@"reload showContent EX %@", ex.reason ?: @""]);
+        }
     }
 }
 
