@@ -721,37 +721,61 @@ static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
                           [dump componentsJoinedByString:@" ; "]]);
 }
 
-/// SGPageTitleView 内部 UIScrollView：解除等宽，contentSize 撑开可横滚
+/// SGPageTitleView 内部 UIScrollView：按文字宽度重排按钮，撑开可横滚
 static void LBEnableTitleScroll(id tv) {
     if (![tv isKindOfClass:[UIView class]]) return;
     UIView *root = (UIView *)tv;
+    NSMutableArray<UIScrollView *> *scrolls = [NSMutableArray array];
+    NSMutableArray<UIButton *> *btns = [NSMutableArray array];
     NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
     while (stack.count) {
         UIView *v = stack.lastObject;
         [stack removeLastObject];
-        if ([v isKindOfClass:[UIScrollView class]]) {
-            UIScrollView *sv = (UIScrollView *)v;
-            @try {
-                sv.scrollEnabled = YES;
-                sv.showsHorizontalScrollIndicator = NO;
-                sv.alwaysBounceHorizontal = YES;
-                // 按子按钮最大右缘撑 contentSize
-                CGFloat maxX = 0;
-                for (UIView *sub in sv.subviews) {
-                    maxX = MAX(maxX, CGRectGetMaxX(sub.frame));
-                }
-                if (maxX > sv.contentSize.width) {
-                    sv.contentSize = CGSizeMake(maxX + 12, sv.contentSize.height);
-                }
-            } @catch (__unused NSException *e) {}
-        }
+        if ([v isKindOfClass:[UIScrollView class]]) [scrolls addObject:(UIScrollView *)v];
+        if ([v isKindOfClass:[UIButton class]]) [btns addObject:(UIButton *)v];
         for (UIView *sub in v.subviews) [stack addObject:sub];
     }
-    @try {
-        CGFloat maxX = 0;
-        for (UIView *sub in root.subviews) maxX = MAX(maxX, CGRectGetMaxX(sub.frame));
-        root.clipsToBounds = NO;
-    } @catch (__unused NSException *e) {}
+
+    // 按文字宽度顺序重排按钮
+    NSArray<UIButton *> *sorted = [btns sortedArrayUsingComparator:^NSComparisonResult(UIButton *a, UIButton *b) {
+        return a.frame.origin.x < b.frame.origin.x ? NSOrderedAscending : NSOrderedDescending;
+    }];
+    CGFloat x = 12;
+    CGFloat h = MAX(root.bounds.size.height, 38);
+    for (UIButton *b in sorted) {
+        NSString *t = [b titleForState:UIControlStateNormal];
+        if (t.length == 0) @try { t = b.titleLabel.text; } @catch (__unused NSException *e) {}
+        CGSize need = [t sizeWithAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:15]}];
+        CGFloat w = MAX(ceil(need.width) + 20, 66);
+        UIView *host = b.superview;
+        @try { b.frame = CGRectMake(x, 0, w, h); } @catch (__unused NSException *e) {}
+        // 同步 overlay
+        UIView *ov = [b viewWithTag:0x4C4254];
+        if (ov) @try { ov.frame = b.bounds; } @catch (__unused NSException *e) {}
+        UIView *rootOv = [root viewWithTag:0x4C4254 + [sorted indexOfObject:b]];
+        if (rootOv && rootOv.superview == root) {
+            @try { rootOv.frame = CGRectMake(x, 0, w, h); } @catch (__unused NSException *e) {}
+        }
+        x += w + 6;
+        (void)host;
+    }
+    CGFloat totalW = x + 12;
+
+    for (UIScrollView *sv in scrolls) {
+        @try {
+            sv.scrollEnabled = YES;
+            sv.showsHorizontalScrollIndicator = NO;
+            sv.alwaysBounceHorizontal = YES;
+            sv.bounces = YES;
+            sv.pagingEnabled = NO;
+            sv.contentSize = CGSizeMake(totalW, sv.contentSize.height);
+            sv.clipsToBounds = YES;
+        } @catch (__unused NSException *e) {}
+    }
+    @try { root.clipsToBounds = NO; } @catch (__unused NSException *e) {}
+
+    LBAppendNativeMarker([NSString stringWithFormat:@"kindScroll btns=%lu totalW=%.0f",
+                          (unsigned long)btns.count, totalW]);
 }
 
 /// resetContent 后强制用 Legado 分类覆盖 SGPageTitleView（donor bookWorld 会盖掉 arrHeaderBtnTitle）
