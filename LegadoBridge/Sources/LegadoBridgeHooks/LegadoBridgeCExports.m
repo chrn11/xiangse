@@ -667,15 +667,99 @@ static BOOL LBArrayHasLegadoBooks(id cur) {
     return NO;
 }
 
-static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictionary *book) {
-    static NSString *cid = @"LBDiscoverBookCell";
-    UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:cid];
-    if (!cell) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle
-                                     reuseIdentifier:cid];
-        cell.textLabel.numberOfLines = 1;
-        cell.detailTextLabel.numberOfLines = 1;
+/// 发现页原生封面 cell：左封面 + 右标题/作者/简介
+static NSCache *LBDiscoverCoverCache(void) {
+    static NSCache *cache;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        cache = [[NSCache alloc] init];
+        cache.countLimit = 120;
+    });
+    return cache;
+}
+
+static void LBLoadDiscoverCover(UIImageView *iv, NSString *urlStr, NSString *token) {
+    if (urlStr.length == 0) return;
+    UIImage *hit = [LBDiscoverCoverCache() objectForKey:urlStr];
+    if (hit) {
+        iv.image = hit;
+        return;
     }
+    NSURL *u = [NSURL URLWithString:urlStr];
+    if (!u) return;
+    __weak UIImageView *weakIV = iv;
+    NSURLSessionDataTask *t = [[NSURLSession sharedSession]
+        dataTaskWithURL:u
+      completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
+        if (!data || err) return;
+        UIImage *img = [UIImage imageWithData:data];
+        if (!img) return;
+        [LBDiscoverCoverCache() setObject:img forKey:urlStr];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIImageView *strongIV = weakIV;
+            if (!strongIV) return;
+            NSString *cur = objc_getAssociatedObject(strongIV, "lbCoverToken");
+            if (token.length && cur.length && ![cur isEqualToString:token]) return;
+            strongIV.image = img;
+        });
+    }];
+    [t resume];
+}
+
+static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictionary *book) {
+    static NSString *cid = @"LBDiscoverCoverCell";
+    const CGFloat kPad = 12, kCoverW = 62, kCoverH = 84;
+    UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:cid];
+    UIImageView *cover;
+    UILabel *title, *sub, *intro;
+    if (!cell) {
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
+                                      reuseIdentifier:cid];
+        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+
+        cover = [[UIImageView alloc] initWithFrame:CGRectMake(kPad, kPad, kCoverW, kCoverH)];
+        cover.tag = 9101;
+        cover.contentMode = UIViewContentModeScaleAspectFill;
+        cover.clipsToBounds = YES;
+        cover.layer.cornerRadius = 4;
+        cover.backgroundColor = [UIColor colorWithWhite:0.18 alpha:1];
+        [cell.contentView addSubview:cover];
+
+        title = [[UILabel alloc] initWithFrame:CGRectZero];
+        title.tag = 9102;
+        title.font = [UIFont boldSystemFontOfSize:16];
+        title.textColor = [UIColor whiteColor];
+        title.numberOfLines = 1;
+        [cell.contentView addSubview:title];
+
+        sub = [[UILabel alloc] initWithFrame:CGRectZero];
+        sub.tag = 9103;
+        sub.font = [UIFont systemFontOfSize:12];
+        sub.textColor = [UIColor colorWithWhite:0.62 alpha:1];
+        sub.numberOfLines = 1;
+        [cell.contentView addSubview:sub];
+
+        intro = [[UILabel alloc] initWithFrame:CGRectZero];
+        intro.tag = 9104;
+        intro.font = [UIFont systemFontOfSize:12];
+        intro.textColor = [UIColor colorWithWhite:0.48 alpha:1];
+        intro.numberOfLines = 2;
+        [cell.contentView addSubview:intro];
+    } else {
+        cover = (UIImageView *)[cell.contentView viewWithTag:9101];
+        title = (UILabel *)[cell.contentView viewWithTag:9102];
+        sub = (UILabel *)[cell.contentView viewWithTag:9103];
+        intro = (UILabel *)[cell.contentView viewWithTag:9104];
+    }
+
+    CGFloat w = tv.bounds.size.width > 0 ? tv.bounds.size.width : [UIScreen mainScreen].bounds.size.width;
+    CGFloat tx = kPad + kCoverW + 10;
+    CGFloat tw = MAX(60, w - tx - kPad);
+    cover.frame = CGRectMake(kPad, kPad, kCoverW, kCoverH);
+    title.frame = CGRectMake(tx, kPad + 2, tw, 20);
+    sub.frame = CGRectMake(tx, CGRectGetMaxY(title.frame) + 4, tw, 16);
+    intro.frame = CGRectMake(tx, CGRectGetMaxY(sub.frame) + 4, tw, 34);
+
     NSString *name = book[@"bookName"] ?: book[@"name"] ?: @"";
     NSString *author = book[@"author"] ?: @"";
     id wc = book[@"wordCount"];
@@ -695,13 +779,23 @@ static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictiona
     if (wcText.length > 0) [bits addObject:wcText];
     NSString *src = book[@"sourceName"] ?: book[@"bookSourceName"] ?: @"";
     if (src.length > 0) [bits addObject:src];
-    cell.textLabel.text = name;
-    cell.detailTextLabel.text = [bits componentsJoinedByString:@" · "];
-    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-    // 广场 overlay 黑底：避免系统暗色默认导致黑字不可见
-    cell.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1.0];
-    cell.textLabel.textColor = [UIColor whiteColor];
-    cell.detailTextLabel.textColor = [UIColor colorWithWhite:0.7 alpha:1.0];
+
+    title.text = name;
+    sub.text = [bits componentsJoinedByString:@" · "];
+    NSString *desc = book[@"intro"] ?: book[@"introduce"] ?: book[@"desc"] ?: @"";
+    desc = [desc stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    intro.text = desc;
+
+    NSString *coverUrl = book[@"coverUrl"] ?: book[@"cover"] ?: book[@"imgUrl"] ?: @"";
+    cover.image = nil;
+    objc_setAssociatedObject(cover, "lbCoverToken", coverUrl, OBJC_ASSOCIATION_COPY_NONATOMIC);
+    LBLoadDiscoverCover(cover, coverUrl, coverUrl);
+
+    cell.backgroundColor = [UIColor colorWithWhite:0.07 alpha:1.0];
+    cell.contentView.backgroundColor = [UIColor clearColor];
+    UIView *sel = [[UIView alloc] init];
+    sel.backgroundColor = [UIColor colorWithWhite:0.16 alpha:1];
+    cell.selectedBackgroundView = sel;
     return cell;
 }
 

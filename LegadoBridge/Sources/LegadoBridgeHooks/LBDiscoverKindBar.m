@@ -370,6 +370,34 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
     NSString *donorName = nil;
     NSDictionary *donorBW = LBFindDonorBookWorld(mgr, &donorName);
 
+    if ([donorBW isKindOfClass:[NSDictionary class]] && donorBW.count > 0) {
+        NSArray *bwKeysArr = donorBW.allKeys;
+        id sampleVal = donorBW[bwKeysArr.firstObject];
+        NSString *sampleDesc = @"-";
+        if ([sampleVal isKindOfClass:[NSDictionary class]]) {
+            NSArray *sk = [(NSDictionary *)sampleVal allKeys];
+            sampleDesc = [NSString stringWithFormat:@"dict{%@}",
+                          [[sk subarrayWithRange:NSMakeRange(0, MIN(sk.count, (NSUInteger)8))]
+                           componentsJoinedByString:@","]];
+        } else if ([sampleVal isKindOfClass:[NSArray class]]) {
+            id f = [(NSArray *)sampleVal firstObject];
+            sampleDesc = [NSString stringWithFormat:@"array[%lu] of %@",
+                          (unsigned long)[(NSArray *)sampleVal count],
+                          f ? NSStringFromClass([f class]) : @"nil"];
+            if ([f isKindOfClass:[NSDictionary class]]) {
+                NSArray *sk = [(NSDictionary *)f allKeys];
+                sampleDesc = [sampleDesc stringByAppendingFormat:@"{%@}",
+                              [[sk subarrayWithRange:NSMakeRange(0, MIN(sk.count, (NSUInteger)8))]
+                               componentsJoinedByString:@","]];
+            }
+        } else {
+            sampleDesc = NSStringFromClass([sampleVal class]);
+        }
+        LBAppendNativeMarker([NSString stringWithFormat:@"bwShape keys=%@ | first=%@ -> %@",
+                              [bwKeysArr componentsJoinedByString:@","],
+                              bwKeysArr.firstObject, sampleDesc]);
+    }
+
     if (donorName.length > 0) {
         sDiscoverUseSourceName = [donorName copy];
     }
@@ -481,6 +509,12 @@ static void LBBookList_safeViewDidLoad(id self, SEL _cmd) {
     if (tv) {
         @try { tv.dataSource = (id<UITableViewDataSource>)vc; } @catch (__unused NSException *e) {}
         @try { tv.delegate = (id<UITableViewDelegate>)vc; } @catch (__unused NSException *e) {}
+        @try {
+            tv.rowHeight = 108;
+            tv.estimatedRowHeight = 0;
+            tv.backgroundColor = [UIColor blackColor];
+            tv.separatorStyle = UITableViewCellSeparatorStyleNone;
+        } @catch (__unused NSException *e) {}
         @try { [tv reloadData]; } @catch (__unused NSException *e) {}
     }
 
