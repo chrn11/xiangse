@@ -547,7 +547,56 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
         }
     }
 
-    // 部分 SGPage 实现：改完 titleNames 后要 reset/configure
+    // KVC 常不刷新按钮：用工厂重建 SGPageTitleView
+    Class tvCls = NSClassFromString(@"SGPageTitleView");
+    SEL factory = @selector(pageTitleViewWithFrame:delegate:titleNames:configure:);
+    if (tvCls && [tvCls respondsToSelector:factory] && [tv isKindOfClass:[UIView class]]) {
+        UIView *old = (UIView *)tv;
+        CGRect frame = old.frame;
+        if (CGRectIsEmpty(frame) && host.isViewLoaded) {
+            CGFloat w = host.view.bounds.size.width;
+            if (w < 1) w = [UIScreen mainScreen].bounds.size.width;
+            CGFloat top = 64;
+            if (@available(iOS 11.0, *)) {
+                top = MAX(64, host.view.safeAreaInsets.top + 44);
+            }
+            frame = CGRectMake(0, top, w, 44);
+        }
+        id delegate = nil;
+        id configure = nil;
+        @try { delegate = [old valueForKey:@"delegatePageTitleView"]; } @catch (__unused NSException *e) {}
+        if (!delegate) @try { delegate = [old valueForKey:@"delegate"]; } @catch (__unused NSException *e) {}
+        if (!delegate) delegate = host;
+        @try { configure = [old valueForKey:@"configure"]; } @catch (__unused NSException *e) {}
+        if (!configure) {
+            @try { configure = [host valueForKey:@"pageTitleViewConfigure"]; } @catch (__unused NSException *e) {}
+        }
+        @try {
+            id neu = ((id (*)(id, SEL, CGRect, id, id, id))objc_msgSend)(
+                tvCls, factory, frame, delegate, titles, configure);
+            if ([neu isKindOfClass:[UIView class]]) {
+                UIView *superview = old.superview ?: (host.isViewLoaded ? host.view : nil);
+                NSInteger z = 0;
+                if (old.superview) {
+                    z = (NSInteger)[old.superview.subviews indexOfObject:old];
+                }
+                [old removeFromSuperview];
+                if (superview) {
+                    [superview insertSubview:(UIView *)neu atIndex:MAX(0, z)];
+                }
+                @try { [host setValue:neu forKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+                LBAppendNativeMarker([NSString stringWithFormat:
+                                      @"forceTitles rebuild SGPageTitleView n=%lu",
+                                      (unsigned long)titles.count]);
+                applied = YES;
+                tv = neu;
+            }
+        } @catch (NSException *ex) {
+            LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles rebuild EX %@",
+                                  ex.reason ?: @""]);
+        }
+    }
+
     for (NSString *selName in @[@"resetTitle", @"resetTitles", @"reload", @"layoutIfNeeded"]) {
         SEL s = NSSelectorFromString(selName);
         if ([tv respondsToSelector:s]) {
@@ -837,6 +886,9 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                                   (unsigned long)titles.count, (unsigned long)scrollKids]);
         }
         LBForceLegadoTitlesOnChrome(host, forceTitles);
+        LBAppendNativeMarker([NSString stringWithFormat:@"legadoTitles sample=%@",
+                              [[forceTitles subarrayWithRange:NSMakeRange(0, MIN((NSUInteger)4, forceTitles.count))]
+                               componentsJoinedByString:@","]]);
         if (srcName.length > 0) {
             @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
             @try { host.title = srcName; } @catch (__unused NSException *e) {}
