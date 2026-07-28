@@ -23,6 +23,14 @@ static NSString *(*sOrig_getUseSourceName)(id, SEL) = NULL;
 static NSString *sDiscoverUseSourceName = nil;
 static BOOL sFeedingDiscoverHeader = NO;
 
+static void LBPaintTitleLabels(id tv, NSInteger selectedIndex);
+static void LBPinDiscoverContentToFirstPage(UIViewController *host);
+static void LBRestoreDiscoverTitleSelected(id pageTitleView, NSInteger index);
+static void LBDiscoverHandleKindSelect(UIViewController *host, id pageTitleView, NSInteger index);
+static void LBAttachDiscoverKindButtonActions(UIViewController *host, id titleView);
+static NSString *LBCurrentExploreSourceUrl(id core);
+static void LBTriggerExploreKind(NSString *sourceUrl, NSString *kindUrl);
+
 static id LBKindCore(void) {
     return LBLegadoCoreIfReady();
 }
@@ -68,22 +76,179 @@ void LBRemoveDiscoverOverlays(UIViewController *host) {
     for (UIView *v in remove) [v removeFromSuperview];
 }
 
-/// 当前选中的 BookListCon 子页（createCons 生成）；无子页则回退宿主
+/// 发现态：分类只换数据，固定灌第一个 BookListCon（其余子页是 safeVDL 空黑页）
+static BOOL LBDiscoverSingleListFeed(void) {
+    return sNativeChromeBuilt || LBIsDiscoverTabActive();
+}
+
+static BOOL LBSelfLooksDiscoverWorldHost(id self) {
+    NSString *cn = NSStringFromClass([self class]);
+    if (cn.length == 0) return NO;
+    return [cn containsString:@"BookWorld"] || [cn containsString:@"BookStore"] ||
+           [cn containsString:@"Shudan"];
+}
+
+/// 内容区钉在第一页，避免滑到空兄弟页；标题选中态另行恢复
+static void LBPinDiscoverContentToFirstPage(UIViewController *host) {
+    if (!host) return;
+    id scroll = nil;
+    @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+    if (!scroll) return;
+    @try { [scroll setValue:@0 forKey:@"selectedIndex"]; } @catch (__unused NSException *e) {}
+    @try { [scroll setValue:@0 forKey:@"currentIndex"]; } @catch (__unused NSException *e) {}
+    if ([scroll isKindOfClass:[UIScrollView class]]) {
+        UIScrollView *sv = (UIScrollView *)scroll;
+        @try {
+            sv.scrollEnabled = NO; // 禁止横滑到空黑页
+            [sv setContentOffset:CGPointMake(0, sv.contentOffset.y) animated:NO];
+        } @catch (__unused NSException *e) {}
+    }
+}
+
+static void LBRestoreDiscoverTitleSelected(id pageTitleView, NSInteger index) {
+    if (!pageTitleView || index < 0) return;
+    @try { [pageTitleView setValue:@(index) forKey:@"selectedIndex"]; } @catch (__unused NSException *e) {}
+    SEL setIdx = @selector(setSelectedIndex:);
+    if ([pageTitleView respondsToSelector:setIdx]) {
+        @try {
+            ((void (*)(id, SEL, NSInteger))objc_msgSend)(pageTitleView, setIdx, index);
+        } @catch (__unused NSException *e) {}
+    }
+    LBPaintTitleLabels(pageTitleView, index);
+}
+
+static const NSInteger kLBKindBtnTagBase = 0x4C424B00; // 'LBK\0'
+static BOOL sHandlingKindSelect = NO;
+
+/// 分类切换核心：钉在第一列表页 + 触发对应 kind 的 explore（不翻空黑页）
+static void LBDiscoverHandleKindSelect(UIViewController *host, id pageTitleView, NSInteger index) {
+    if (sHandlingKindSelect) return;
+    sHandlingKindSelect = YES;
+    @try {
+        LBSetDiscoverTabActive(YES);
+        sSelectedKindIndex = MAX(0, index);
+        if (!host) host = LBPrimaryDiscoverHost();
+        LBPinDiscoverContentToFirstPage(host);
+
+        id tv = pageTitleView;
+        if (!tv && host) {
+            @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+        }
+        LBRestoreDiscoverTitleSelected(tv, sSelectedKindIndex);
+
+        id core = LBKindCore();
+        NSString *src = core ? LBCurrentExploreSourceUrl(core) : nil;
+        NSArray *kinds = sCachedKinds ?: @[];
+        if (kinds.count == 0 && core && src.length > 0 &&
+            [core respondsToSelector:@selector(exploreKindsJSONForSourceUrl:)]) {
+            NSString *kindsJSON = ((NSString *(*)(id, SEL, NSString *))objc_msgSend)(
+                core, @selector(exploreKindsJSONForSourceUrl:), src);
+            kinds = LBParseJSONArray(kindsJSON);
+            if (kinds.count > 0) sCachedKinds = [kinds copy];
+        }
+        NSString *url = @"";
+        if (index >= 0 && index < (NSInteger)kinds.count) {
+            NSDictionary *k = kinds[(NSUInteger)index];
+            if ([k[@"url"] isKindOfClass:[NSString class]]) url = k[@"url"];
+        }
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"nativeTab idx=%ld kind=%@ singleFeed=1 src=%@",
+                              (long)index, url.length ? url : @"-", src ?: @"-"]);
+        if (src.length > 0) {
+            @try {
+                LBTriggerExploreKind(src, url);
+            } @catch (NSException *ex) {
+                LBAppendNativeMarker([NSString stringWithFormat:@"nativeTab explore EX %@",
+                                      ex.reason ?: @""]);
+            }
+        } else {
+            LBAppendNativeMarker(@"nativeTab explore skip: no src");
+        }
+        if (host) {
+            __weak UIViewController *weakHost = host;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                UIViewController *h = weakHost;
+                if (h) LBPinDiscoverContentToFirstPage(h);
+            });
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                UIViewController *h = weakHost;
+                if (!h || !LBIsDiscoverTabActive()) return;
+                LBPinDiscoverContentToFirstPage(h);
+                LBReloadDiscoverNativeList(h);
+            });
+        }
+    } @finally {
+        sHandlingKindSelect = NO;
+    }
+}
+
+static void LBDiscover_kindBtnTouch(id self, SEL _cmd, id sender) {
+    (void)_cmd;
+    NSInteger idx = 0;
+    if ([sender isKindOfClass:[UIView class]]) {
+        NSInteger tag = [(UIView *)sender tag];
+        if (tag >= kLBKindBtnTagBase) idx = tag - kLBKindBtnTagBase;
+    }
+    UIViewController *host = [self isKindOfClass:[UIViewController class]]
+        ? (UIViewController *)self : LBPrimaryDiscoverHost();
+    LBAppendNativeMarker([NSString stringWithFormat:@"kindBtnTouch idx=%ld", (long)idx]);
+    LBDiscoverHandleKindSelect(host, nil, idx);
+}
+
+static void LBEnsureDiscoverKindBtnMethod(Class cls) {
+    if (!cls) return;
+    SEL sel = @selector(lb_discoverKindBtn:);
+    if (class_getInstanceMethod(cls, sel)) return;
+    class_addMethod(cls, sel, (IMP)LBDiscover_kindBtnTouch, "v@:@");
+}
+
+static void LBAttachDiscoverKindButtonActions(UIViewController *host, id titleView) {
+    if (!host || ![titleView isKindOfClass:[UIView class]]) return;
+    LBEnsureDiscoverKindBtnMethod([host class]);
+    SEL sel = @selector(lb_discoverKindBtn:);
+    UIView *root = (UIView *)titleView;
+    NSMutableArray<UIButton *> *btns = [NSMutableArray array];
+    NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+    while (stack.count) {
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        if ([v isKindOfClass:[UIButton class]]) [btns addObject:(UIButton *)v];
+        for (UIView *sub in v.subviews) [stack addObject:sub];
+    }
+    NSArray<UIButton *> *sorted = [btns sortedArrayUsingComparator:^NSComparisonResult(UIButton *a, UIButton *b) {
+        return a.frame.origin.x < b.frame.origin.x ? NSOrderedAscending : NSOrderedDescending;
+    }];
+    NSUInteger n = 0;
+    for (UIButton *btn in sorted) {
+        btn.tag = kLBKindBtnTagBase + (NSInteger)n;
+        [btn removeTarget:host action:sel forControlEvents:UIControlEventTouchUpInside];
+        [btn addTarget:host action:sel forControlEvents:UIControlEventTouchUpInside];
+        n++;
+    }
+    LBAppendNativeMarker([NSString stringWithFormat:@"kindBtnAttach n=%lu host=%@",
+                          (unsigned long)n, NSStringFromClass([host class])]);
+}
+
+/// 当前用于灌书的 BookListCon；发现单页模式下永远用第一个子页
 UIViewController *LBActiveDiscoverListVC(UIViewController *host) {
     if (!host) return nil;
-    NSInteger idx = sSelectedKindIndex;
-    @try {
-        id titleView = [host valueForKey:@"pageTitleView"];
-        if (titleView && [titleView respondsToSelector:@selector(selectedIndex)]) {
-            idx = [[titleView valueForKey:@"selectedIndex"] integerValue];
-        }
-    } @catch (__unused NSException *e) {}
-    @try {
-        id scroll = [host valueForKey:@"pageContentScrollView"];
-        if (scroll && [scroll respondsToSelector:@selector(currentIndex)]) {
-            idx = [[scroll valueForKey:@"currentIndex"] integerValue];
-        }
-    } @catch (__unused NSException *e) {}
+    NSInteger idx = 0;
+    if (!LBDiscoverSingleListFeed()) {
+        idx = sSelectedKindIndex;
+        @try {
+            id titleView = [host valueForKey:@"pageTitleView"];
+            if (titleView && [titleView respondsToSelector:@selector(selectedIndex)]) {
+                idx = [[titleView valueForKey:@"selectedIndex"] integerValue];
+            }
+        } @catch (__unused NSException *e) {}
+        @try {
+            id scroll = [host valueForKey:@"pageContentScrollView"];
+            if (scroll && [scroll respondsToSelector:@selector(currentIndex)]) {
+                idx = [[scroll valueForKey:@"currentIndex"] integerValue];
+            }
+        } @catch (__unused NSException *e) {}
+    }
 
     NSArray *children = nil;
     @try {
@@ -101,6 +266,11 @@ UIViewController *LBActiveDiscoverListVC(UIViewController *host) {
     if (idx >= 0 && idx < (NSInteger)children.count) {
         id c = children[(NSUInteger)idx];
         if ([c isKindOfClass:[UIViewController class]]) return (UIViewController *)c;
+    }
+    // 单页模式：idx 越界时仍回退第一个子页
+    if (children.count > 0) {
+        id c0 = children.firstObject;
+        if ([c0 isKindOfClass:[UIViewController class]]) return (UIViewController *)c0;
     }
     @try {
         id list = [host valueForKey:@"listCon"];
@@ -879,6 +1049,7 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
     }
     LBPaintTitleLabels(tv, 0);
     LBEnableTitleScroll(tv);
+    LBAttachDiscoverKindButtonActions(host, tv);
 
     LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles n=%lu applied=%d",
                           (unsigned long)titles.count, applied ? 1 : 0]);
@@ -1196,6 +1367,7 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
             LBSanitizeDiscoverListCons(host, scroll);
             if (sBookListSafeVDLInstalled) {
                 // P1：安全 VDL 已装 → 保留 BookListCon，接 explore
+                LBPinDiscoverContentToFirstPage(host);
                 LBAppendNativeMarker([NSString stringWithFormat:
                                       @"keepList safeVDL hostChild=%lu scrollKids=%lu",
                                       (unsigned long)childN, (unsigned long)scrollKids]);
@@ -1381,29 +1553,17 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
 }
 
 static void LBDiscover_pageTitleSelected(id self, SEL _cmd, id pageTitleView, NSInteger index) {
-    if (sOrig_pageTitleSelected) {
-        sOrig_pageTitleSelected(self, _cmd, pageTitleView, index);
+    BOOL discoverCtx = LBIsDiscoverTabActive() || sNativeChromeBuilt || LBSelfLooksDiscoverWorldHost(self);
+    if (!discoverCtx) {
+        if (sOrig_pageTitleSelected) {
+            sOrig_pageTitleSelected(self, _cmd, pageTitleView, index);
+        }
+        return;
     }
-    if (!LBIsDiscoverTabActive()) return;
-    sSelectedKindIndex = MAX(0, index);
-    id core = LBKindCore();
-    if (!core) return;
-    NSString *src = LBCurrentExploreSourceUrl(core);
-    NSArray *kinds = sCachedKinds ?: @[];
-    if (index < 0 || index >= (NSInteger)kinds.count) return;
-    NSDictionary *k = kinds[(NSUInteger)index];
-    NSString *url = [k[@"url"] isKindOfClass:[NSString class]] ? k[@"url"] : @"";
-    LBAppendNativeMarker([NSString stringWithFormat:@"nativeTab idx=%ld kind=%@", (long)index, url ?: @""]);
-    LBTriggerExploreKind(src, url);
+    // 发现态：不调用原生翻页（只有 1 个 BookListCon 时翻到 idx>0 = 空黑页）
     UIViewController *host = [self isKindOfClass:[UIViewController class]]
         ? (UIViewController *)self : LBPrimaryDiscoverHost();
-    if (host) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            if (!LBIsDiscoverTabActive()) return;
-            LBReloadDiscoverNativeList(host);
-        });
-    }
+    LBDiscoverHandleKindSelect(host, pageTitleView, index);
 }
 
 static void LBDiscover_onSwitchBtn(id self, SEL _cmd) {
