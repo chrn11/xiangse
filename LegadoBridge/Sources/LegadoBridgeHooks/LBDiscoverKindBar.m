@@ -358,6 +358,35 @@ static BOOL LBForceSetDicModel(UIViewController *host, NSDictionary *model) {
     }
 }
 
+/// donor bookWorld 的 key 数决定 createCons 出多少子页。Legado 分类多于 donor 时，
+/// 以 donor 的抓取规则为模板扩到 titles.count 个 key（key 用 Legado 分类名）。
+static NSDictionary *LBExpandBookWorldToTitles(NSDictionary *donorBW, NSArray *titles) {
+    if (![donorBW isKindOfClass:[NSDictionary class]] || donorBW.count == 0) return donorBW;
+    if (titles.count <= donorBW.count) return donorBW;
+
+    NSArray *keys = donorBW.allKeys;
+    id tmpl = donorBW[keys.firstObject];
+    if (![tmpl isKindOfClass:[NSDictionary class]]) return donorBW;
+
+    NSMutableDictionary *out = [NSMutableDictionary dictionary];
+    for (NSUInteger i = 0; i < titles.count; i++) {
+        id rawTitle = titles[i];
+        NSString *k = [rawTitle isKindOfClass:[NSString class]]
+            ? (NSString *)rawTitle
+            : [NSString stringWithFormat:@"分类%lu", (unsigned long)(i + 1)];
+        if (k.length == 0) k = [NSString stringWithFormat:@"分类%lu", (unsigned long)(i + 1)];
+        NSUInteger dup = 2;
+        while (out[k]) {
+            k = [NSString stringWithFormat:@"%@%lu", k, (unsigned long)dup++];
+        }
+        id src = (i < keys.count) ? donorBW[keys[i]] : tmpl;
+        out[k] = [src isKindOfClass:[NSDictionary class]] ? [src mutableCopy] : src;
+    }
+    LBAppendNativeMarker([NSString stringWithFormat:@"bwExpand %lu -> %lu",
+                          (unsigned long)donorBW.count, (unsigned long)out.count]);
+    return out;
+}
+
 /// 用真实 XBS donor 打开原生配置；成功后只改 titles，勿再 setDicModel 覆盖
 /// 返回含可用 bookWorld 的模型；无可用 donor 时返回 nil
 static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString *srcName, NSArray *titles) {
@@ -397,6 +426,8 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
                               [bwKeysArr componentsJoinedByString:@","],
                               bwKeysArr.firstObject, sampleDesc]);
     }
+
+    donorBW = LBExpandBookWorldToTitles(donorBW, titles);
 
     if (donorName.length > 0) {
         sDiscoverUseSourceName = [donorName copy];
