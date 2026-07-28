@@ -1175,7 +1175,16 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                 NSMutableArray *extra = [NSMutableArray array];
                 for (NSUInteger i = scrollKids; i < titles.count; i++) {
                     UIViewController *vc = [[blCls alloc] init];
-                    if (vc) [extra addObject:vc];
+                    if (vc) {
+                        // 挂上对应 Legado 分类名，切换时按它拉数据
+                        NSString *kt = [titles[i] isKindOfClass:[NSString class]]
+                            ? titles[i]
+                            : [NSString stringWithFormat:@"分类%lu", (unsigned long)(i + 1)];
+                        @try { [vc setValue:kt forKey:@"title"]; } @catch (__unused NSException *e) {}
+                        @try { [vc setValue:kt forKey:@"navTitle"]; } @catch (__unused NSException *e) {}
+                        @try { [vc setValue:kt forKey:@"kindTitle"]; } @catch (__unused NSException *e) {}
+                        [extra addObject:vc];
+                    }
                 }
                 if (extra.count > 0) {
                     NSMutableArray *merged = [NSMutableArray array];
