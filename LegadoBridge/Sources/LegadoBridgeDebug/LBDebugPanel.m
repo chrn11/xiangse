@@ -322,6 +322,15 @@ static void LBRecordCrash(NSString *kind, NSString *detail, NSArray<NSString *> 
 }
 
 static void LBUncaughtExceptionHandler(NSException *exception) {
+    NSMutableString *exceptionBlob = [NSMutableString stringWithFormat:
+        @"name=%@\nreason=%@\ncallStackSymbols:\n",
+        exception.name ?: @"",
+        exception.reason ?: @""];
+    for (NSString *line in exception.callStackSymbols ?: @[]) {
+        [exceptionBlob appendFormat:@"  %@\n", line];
+    }
+    // SIGABRT handler 随后会覆盖 legado_debug_crash.txt，单独保存异常原文。
+    LBWriteDebugFile(@"legado_debug_exception.txt", exceptionBlob);
     LBRecordCrash(@"NSException",
                   [NSString stringWithFormat:@"name=%@\nreason=%@",
                    exception.name, exception.reason],
