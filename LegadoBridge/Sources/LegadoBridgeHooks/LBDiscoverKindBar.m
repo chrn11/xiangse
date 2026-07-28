@@ -1166,57 +1166,12 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         }
         LBForceLegadoTitlesOnChrome(host, forceTitles);
 
-        // createCons 只认 dicModel.bookWorld 的 key 数 → 全量 titles 而 cons 不够时，
-        // 追加空白 BookListCon 让原生挂在同一 scroll 上（只走 safe VDL，不触网）
-        if (scrollKids > 0 && scrollKids < titles.count &&
-            sBookListSafeVDLInstalled) {
-            Class blCls = NSClassFromString(@"BookListCon");
-            if (blCls) {
-                NSMutableArray *extra = [NSMutableArray array];
-                for (NSUInteger i = scrollKids; i < titles.count; i++) {
-                    UIViewController *vc = [[blCls alloc] init];
-                    if (vc) {
-                        // 挂上对应 Legado 分类名，切换时按它拉数据
-                        NSString *kt = [titles[i] isKindOfClass:[NSString class]]
-                            ? titles[i]
-                            : [NSString stringWithFormat:@"分类%lu", (unsigned long)(i + 1)];
-                        @try { [vc setValue:kt forKey:@"title"]; } @catch (__unused NSException *e) {}
-                        @try { [vc setValue:kt forKey:@"navTitle"]; } @catch (__unused NSException *e) {}
-                        @try { [vc setValue:kt forKey:@"kindTitle"]; } @catch (__unused NSException *e) {}
-                        [extra addObject:vc];
-                    }
-                }
-                if (extra.count > 0) {
-                    NSMutableArray *merged = [NSMutableArray array];
-                    @try {
-                        for (NSString *k in @[@"childVCs", @"childViewControllers", @"arrChildVCs"]) {
-                            id cur = nil;
-                            @try { cur = [scroll valueForKey:k]; } @catch (__unused NSException *e) {}
-                            if ([cur isKindOfClass:[NSArray class]] && [(NSArray *)cur count] > 0) {
-                                [merged addObjectsFromArray:(NSArray *)cur];
-                                break;
-                            }
-                        }
-                    } @catch (__unused NSException *e) {}
-                    [merged addObjectsFromArray:extra];
-                    BOOL setOk = NO;
-                    for (NSString *k in @[@"childVCs", @"childViewControllers", @"arrChildVCs"]) {
-                        @try {
-                            [scroll setValue:merged forKey:k];
-                            setOk = YES;
-                            break;
-                        } @catch (__unused NSException *e) {}
-                    }
-                    if (setOk) {
-                        forceTitles = titles;
-                        LBForceLegadoTitlesOnChrome(host, forceTitles);
-                        scrollKids = merged.count;
-                    }
-                    LBAppendNativeMarker([NSString stringWithFormat:
-                                          @"padListCons to=%lu setOk=%d",
-                                          (unsigned long)merged.count, setOk ? 1 : 0]);
-                }
-            }
+        // 不再补位空 BookListCon：SGPage 同步挂页会立刻跑其 viewDidLoad/数据源，越界崩
+        // 分类条仍保留 13 个标题；后 5 个分类通过点击时按需 explore 再灌
+        if (scrollKids > 0 && scrollKids < titles.count) {
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"padListCons skip keep=%lu want=%lu",
+                                  (unsigned long)scrollKids, (unsigned long)titles.count]);
         }
 
         LBAppendNativeMarker([NSString stringWithFormat:@"legadoTitles sample=%@",
