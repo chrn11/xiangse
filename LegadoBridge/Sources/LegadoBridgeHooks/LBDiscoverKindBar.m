@@ -125,8 +125,15 @@ void LBPinDiscoverContentToFirstPage(UIViewController *host) {
                 vc.view.alpha = (i == 0) ? 1.0 : 0.0;
                 if (i == 0 && vc.view.superview) {
                     [vc.view.superview bringSubviewToFront:vc.view];
-                    vc.view.frame = vc.view.superview.bounds;
-                    vc.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+                    // 只纠正原点到可见页，保留 SG 给出的尺寸，避免盖住分类条
+                    CGRect sb = vc.view.superview.bounds;
+                    if (sb.size.width > 2 && sb.size.height > 2) {
+                        CGRect f = vc.view.frame;
+                        f.origin = CGPointZero;
+                        if (f.size.width < 2) f.size.width = sb.size.width;
+                        if (f.size.height < 2) f.size.height = sb.size.height;
+                        vc.view.frame = f;
+                    }
                 }
             }
         } @catch (__unused NSException *e) {}
@@ -1607,32 +1614,35 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
     }
     if (!listVC) listVC = host;
 
-    // 强制把列表页铺满内容区（safeVDL 时 view.bounds 常为 0，表看不见）
+    // 仅当列表页几乎无尺寸时才补 frame；禁止铺满整个 host（会盖住分类条）
+    id titleView = nil;
+    @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
     id scroll = nil;
     @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
-    UIView *container = nil;
-    if ([scroll isKindOfClass:[UIView class]]) container = (UIView *)scroll;
-    if ((!container || container.bounds.size.width < 2) && host.isViewLoaded) {
-        container = host.view;
-    }
-    if (listVC.isViewLoaded && listVC.view && container) {
-        CGRect target = container.bounds;
-        if (target.size.width < 2 || target.size.height < 2) {
-            CGRect hb = host.isViewLoaded ? host.view.bounds : CGRectZero;
-            CGFloat top = 110;
-            target = CGRectMake(0, top, MAX(hb.size.width, 320), MAX(hb.size.height - top, 400));
+    UIView *container = [scroll isKindOfClass:[UIView class]] ? (UIView *)scroll : nil;
+    if (listVC.isViewLoaded && listVC.view) {
+        CGRect lf = listVC.view.frame;
+        BOOL tiny = (lf.size.width < 2 || lf.size.height < 2);
+        if (tiny && container && container.bounds.size.width > 2) {
+            @try {
+                listVC.view.hidden = NO;
+                listVC.view.alpha = 1;
+                listVC.view.frame = container.bounds;
+                listVC.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            } @catch (__unused NSException *e) {}
+        } else {
+            @try {
+                listVC.view.hidden = NO;
+                listVC.view.alpha = 1;
+                if (listVC.view.superview) {
+                    [listVC.view.superview bringSubviewToFront:listVC.view];
+                }
+            } @catch (__unused NSException *e) {}
         }
-        @try {
-            listVC.view.hidden = NO;
-            listVC.view.alpha = 1;
-            listVC.view.frame = target;
-            listVC.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            if (listVC.view.superview != container && [container isKindOfClass:[UIView class]]) {
-                // 已在 SG 树里则只改 frame；勿重复 add 破坏层级
-            } else if (listVC.view.superview) {
-                [listVC.view.superview bringSubviewToFront:listVC.view];
-            }
-        } @catch (__unused NSException *e) {}
+        // 确保分类条仍在最前
+        if ([titleView isKindOfClass:[UIView class]] && ((UIView *)titleView).superview) {
+            @try { [((UIView *)titleView).superview bringSubviewToFront:(UIView *)titleView]; } @catch (__unused NSException *e) {}
+        }
     }
 
     UITableView *tv = nil;
@@ -1680,11 +1690,15 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
             [tv reloadData];
             NSInteger rows = 0;
             @try { rows = [tv numberOfRowsInSection:0]; } @catch (__unused NSException *e) {}
-            LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"reload tvFrame=%.0fx%.0f listFrame=%.0fx%.0f rows=%ld",
-                                  tv.frame.size.width, tv.frame.size.height,
-                                  listVC.view.frame.size.width, listVC.view.frame.size.height,
-                                  (long)rows]);
+            static NSInteger sReloadLog = 0;
+            if (sReloadLog < 4) {
+                LBAppendNativeMarker([NSString stringWithFormat:
+                                      @"reload tvFrame=%.0fx%.0f listFrame=%.0fx%.0f rows=%ld",
+                                      tv.frame.size.width, tv.frame.size.height,
+                                      listVC.view.frame.size.width, listVC.view.frame.size.height,
+                                      (long)rows]);
+                sReloadLog++;
+            }
         } @catch (__unused NSException *e) {}
         return;
     }
