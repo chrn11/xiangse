@@ -72,6 +72,7 @@ void LBRemoveDiscoverOverlays(UIViewController *host);
 UIViewController * _Nullable LBActiveDiscoverListVC(UIViewController *host);
 /// 书列表灌入后刷新原生子页
 void LBReloadDiscoverNativeList(UIViewController *host);
+void LBPinDiscoverContentToFirstPage(UIViewController *host);
 void LBInstallDiscoverNativeUIHooks(void);
 /// Legado 阅读护栏：消毒 dicBook/站点后走原生 openReader；点章失败再 Bridge
 void LBInstallLegadoReaderKillSwitch(void);

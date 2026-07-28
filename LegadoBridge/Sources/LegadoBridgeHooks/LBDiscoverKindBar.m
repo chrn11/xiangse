@@ -24,7 +24,6 @@ static NSString *sDiscoverUseSourceName = nil;
 static BOOL sFeedingDiscoverHeader = NO;
 
 static void LBPaintTitleLabels(id tv, NSInteger selectedIndex);
-static void LBPinDiscoverContentToFirstPage(UIViewController *host);
 static void LBRestoreDiscoverTitleSelected(id pageTitleView, NSInteger index);
 static void LBDiscoverHandleKindSelect(UIViewController *host, id pageTitleView, NSInteger index);
 static void LBAttachDiscoverKindButtonActions(UIViewController *host, id titleView);
@@ -90,19 +89,68 @@ static BOOL LBSelfLooksDiscoverWorldHost(id self) {
 }
 
 /// 内容区钉在第一页，避免滑到空兄弟页；标题选中态另行恢复
-static void LBPinDiscoverContentToFirstPage(UIViewController *host) {
+void LBPinDiscoverContentToFirstPage(UIViewController *host) {
     if (!host) return;
     id scroll = nil;
     @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
     if (!scroll) return;
+
+    for (NSString *selName in @[@"setPageContentWithIndex:", @"setSelectedIndex:",
+                                @"scrollToIndex:", @"setCurrentIndex:", @"changeToIndex:"]) {
+        SEL s = NSSelectorFromString(selName);
+        if (![scroll respondsToSelector:s]) continue;
+        @try {
+            ((void (*)(id, SEL, NSInteger))objc_msgSend)(scroll, s, 0);
+        } @catch (__unused NSException *e) {}
+    }
     @try { [scroll setValue:@0 forKey:@"selectedIndex"]; } @catch (__unused NSException *e) {}
     @try { [scroll setValue:@0 forKey:@"currentIndex"]; } @catch (__unused NSException *e) {}
-    if ([scroll isKindOfClass:[UIScrollView class]]) {
-        UIScrollView *sv = (UIScrollView *)scroll;
+
+    NSArray *kids = nil;
+    @try {
+        id cv = [scroll valueForKey:@"childViewControllers"];
+        if ([cv isKindOfClass:[NSArray class]]) kids = cv;
+        if (kids.count == 0) {
+            cv = [scroll valueForKey:@"childVCs"];
+            if ([cv isKindOfClass:[NSArray class]]) kids = cv;
+        }
+    } @catch (__unused NSException *e) {}
+    for (NSUInteger i = 0; i < kids.count; i++) {
+        id c = kids[i];
+        UIViewController *vc = [c isKindOfClass:[UIViewController class]] ? (UIViewController *)c : nil;
+        if (!vc) continue;
         @try {
-            sv.scrollEnabled = NO; // 禁止横滑到空黑页
+            if (vc.isViewLoaded && vc.view) {
+                vc.view.hidden = (i != 0);
+                vc.view.alpha = (i == 0) ? 1.0 : 0.0;
+                if (i == 0 && vc.view.superview) {
+                    [vc.view.superview bringSubviewToFront:vc.view];
+                    vc.view.frame = vc.view.superview.bounds;
+                    vc.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+                }
+            }
+        } @catch (__unused NSException *e) {}
+    }
+
+    void (^pinSV)(UIScrollView *) = ^(UIScrollView *sv) {
+        if (!sv) return;
+        @try {
+            sv.scrollEnabled = NO;
+            sv.pagingEnabled = NO;
             [sv setContentOffset:CGPointMake(0, sv.contentOffset.y) animated:NO];
         } @catch (__unused NSException *e) {}
+    };
+    if ([scroll isKindOfClass:[UIScrollView class]]) {
+        pinSV((UIScrollView *)scroll);
+    } else if ([scroll isKindOfClass:[UIView class]]) {
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:(UIView *)scroll];
+        NSInteger budget = 40;
+        while (stack.count && budget-- > 0) {
+            UIView *v = stack.lastObject;
+            [stack removeLastObject];
+            if ([v isKindOfClass:[UIScrollView class]]) pinSV((UIScrollView *)v);
+            for (UIView *sub in v.subviews) [stack addObject:sub];
+        }
     }
 }
 
@@ -1550,6 +1598,7 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
 /// 书列表灌入后刷新原生子页（禁止再 resetContent，避免拆掉刚建好的 SGPage）
 void LBReloadDiscoverNativeList(UIViewController *host) {
     if (!host) return;
+    LBPinDiscoverContentToFirstPage(host);
     UIViewController *listVC = nil;
     @try {
         listVC = LBActiveDiscoverListVC(host);
