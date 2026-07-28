@@ -13,6 +13,8 @@ static BOOL sNativeChromeBuilt = NO;
 static BOOL sNativeChromeBuildScheduled = NO;
 static BOOL sRestoreListMode = NO;
 static BOOL sTitleOnlyStabilized = NO;
+static BOOL sBookListSafeVDLInstalled = NO;
+static void (*sOrig_bookListViewDidLoad)(id, SEL) = NULL;
 
 static void (*sOrig_pageTitleSelected)(id, SEL, id, NSInteger) = NULL;
 static void (*sOrig_onSwitchBtn)(id, SEL) = NULL;
@@ -82,9 +84,23 @@ UIViewController *LBActiveDiscoverListVC(UIViewController *host) {
             idx = [[scroll valueForKey:@"currentIndex"] integerValue];
         }
     } @catch (__unused NSException *e) {}
-    NSArray *children = host.childViewControllers;
+
+    NSArray *children = nil;
+    @try {
+        id scroll = [host valueForKey:@"pageContentScrollView"];
+        id cv = [scroll valueForKey:@"childViewControllers"];
+        if (![cv isKindOfClass:[NSArray class]] || [(NSArray *)cv count] == 0) {
+            cv = [scroll valueForKey:@"childVCs"];
+        }
+        if ([cv isKindOfClass:[NSArray class]] && [(NSArray *)cv count] > 0) {
+            children = cv;
+        }
+    } @catch (__unused NSException *e) {}
+    if (children.count == 0) children = host.childViewControllers;
+
     if (idx >= 0 && idx < (NSInteger)children.count) {
-        return children[(NSUInteger)idx];
+        id c = children[(NSUInteger)idx];
+        if ([c isKindOfClass:[UIViewController class]]) return (UIViewController *)c;
     }
     @try {
         id list = [host valueForKey:@"listCon"];
@@ -421,6 +437,131 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
     return model;
 }
 
+/// 发现态：跳过 BookListCon 原生 viewDidLoad（易 SIGABRT），只走 UIViewController + 空表
+static void LBBookList_safeViewDidLoad(id self, SEL _cmd) {
+    BOOL discover = LBIsDiscoverTabActive() || sFeedingDiscoverHeader || sBookListSafeVDLInstalled;
+    if (!discover) {
+        if (sOrig_bookListViewDidLoad) {
+            sOrig_bookListViewDidLoad(self, _cmd);
+        }
+        return;
+    }
+
+    // 只调 UIViewController 的 viewDidLoad，避开 BookListCon 原生拉网/模型断言
+    Method uiM = class_getInstanceMethod([UIViewController class], @selector(viewDidLoad));
+    if (uiM) {
+        ((void (*)(id, SEL))method_getImplementation(uiM))(self, _cmd);
+    }
+
+    UIViewController *vc = (UIViewController *)self;
+    UIView *view = nil;
+    @try { view = vc.view; } @catch (__unused NSException *e) {}
+    if (view) {
+        view.backgroundColor = [UIColor blackColor];
+    }
+
+    for (NSString *k in @[@"arrBaseData", @"itemList", @"arrData", @"dataArray", @"books"]) {
+        @try { [vc setValue:@[] forKey:k]; } @catch (__unused NSException *e) {}
+    }
+
+    UITableView *tv = nil;
+    @try {
+        id v = [vc valueForKey:@"tableView"];
+        if ([v isKindOfClass:[UITableView class]]) tv = (UITableView *)v;
+    } @catch (__unused NSException *e) {}
+    if (!tv && view) {
+        tv = [[UITableView alloc] initWithFrame:view.bounds style:UITableViewStylePlain];
+        tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        tv.backgroundColor = [UIColor blackColor];
+        tv.separatorStyle = UITableViewCellSeparatorStyleNone;
+        tv.indicatorStyle = UIScrollViewIndicatorStyleWhite;
+        [view addSubview:tv];
+        @try { [vc setValue:tv forKey:@"tableView"]; } @catch (__unused NSException *e) {}
+    }
+    if (tv) {
+        @try { tv.dataSource = (id<UITableViewDataSource>)vc; } @catch (__unused NSException *e) {}
+        @try { tv.delegate = (id<UITableViewDelegate>)vc; } @catch (__unused NSException *e) {}
+        @try { [tv reloadData]; } @catch (__unused NSException *e) {}
+    }
+
+    static NSInteger sSafeVDLCount = 0;
+    if (sSafeVDLCount < 3) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"BookListCon safeViewDidLoad #%ld",
+                              (long)sSafeVDLCount]);
+        sSafeVDLCount++;
+    }
+}
+
+static void LBInstallBookListSafeViewDidLoad(void) {
+    if (sBookListSafeVDLInstalled) return;
+    Class cls = NSClassFromString(@"BookListCon");
+    if (!cls) return;
+    SEL sel = @selector(viewDidLoad);
+    Class owner = LBClassOwningInstanceMethod(cls, sel) ?: cls;
+    Method m = class_getInstanceMethod(owner, sel);
+    if (!m) return;
+    if (!sOrig_bookListViewDidLoad) {
+        sOrig_bookListViewDidLoad = (void (*)(id, SEL))method_getImplementation(m);
+    }
+    method_setImplementation(m, (IMP)LBBookList_safeViewDidLoad);
+    sBookListSafeVDLInstalled = YES;
+    LBAppendNativeMarker(@"BookListCon safeViewDidLoad hooked");
+}
+
+/// resetContent 后强制用 Legado 分类覆盖 SGPageTitleView（donor bookWorld 会盖掉 arrHeaderBtnTitle）
+static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles) {
+    if (!host || titles.count == 0) return;
+    @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+
+    id tv = nil;
+    @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+    if (!tv) {
+        LBAppendNativeMarker(@"forceTitles skip: no pageTitleView");
+        return;
+    }
+
+    BOOL applied = NO;
+    for (NSString *selName in @[@"resetTitleNames:", @"setTitleNames:", @"resetTitles:",
+                                @"setTitles:", @"reloadTitles:", @"updateTitleNames:"]) {
+        SEL s = NSSelectorFromString(selName);
+        if (![tv respondsToSelector:s]) continue;
+        @try {
+            ((void (*)(id, SEL, id))objc_msgSend)(tv, s, titles);
+            LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles via %@", selName]);
+            applied = YES;
+            break;
+        } @catch (NSException *ex) {
+            LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles %@ EX %@",
+                                  selName, ex.reason ?: @""]);
+        }
+    }
+    if (!applied) {
+        for (NSString *k in @[@"titleNames", @"titles", @"arrTitle", @"titleArr",
+                              @"btnTitles", @"titleArray", @"_titleNames"]) {
+            @try {
+                [tv setValue:titles forKey:k];
+                LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles KVC %@", k]);
+                applied = YES;
+                break;
+            } @catch (__unused NSException *e) {}
+        }
+    }
+
+    // 部分 SGPage 实现：改完 titleNames 后要 reset/configure
+    for (NSString *selName in @[@"resetTitle", @"resetTitles", @"reload", @"layoutIfNeeded"]) {
+        SEL s = NSSelectorFromString(selName);
+        if ([tv respondsToSelector:s]) {
+            @try { ((void (*)(id, SEL))objc_msgSend)(tv, s); } @catch (__unused NSException *e) {}
+        }
+    }
+    if ([tv isKindOfClass:[UIView class]]) {
+        @try { [(UIView *)tv setNeedsLayout]; [(UIView *)tv layoutIfNeeded]; } @catch (__unused NSException *e) {}
+    }
+
+    LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles n=%lu applied=%d",
+                          (unsigned long)titles.count, applied ? 1 : 0]);
+}
+
 /// 毁掉 BookListCon 子页，只留分类条（避免 viewDidLoad/拉网杀进程）
 static void LBDestroyDiscoverListConsKeepTitle(UIViewController *host, id scroll) {
     NSArray *kids = nil;
@@ -633,6 +774,9 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         LBAppendNativeMarker([NSString stringWithFormat:@"preparedBW keys=%lu useReset=1",
                               (unsigned long)bwKeys]);
 
+        // 必须在 resetContent 前装好：BookListCon viewDidLoad 会在挂页时立刻跑
+        LBInstallBookListSafeViewDidLoad();
+
         NSString *consName = sDiscoverUseSourceName.length ? sDiscoverUseSourceName : (srcName ?: @"");
         @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
         @try { [host setValue:consName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
@@ -672,8 +816,31 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
             }
         } @catch (__unused NSException *e) {}
         LBAppendNativeMarker([NSString stringWithFormat:
-                              @"chromeCheck hostChild=%lu scrollKids=%lu",
-                              (unsigned long)childN, (unsigned long)scrollKids]);
+                              @"chromeCheck hostChild=%lu scrollKids=%lu safeVDL=%d",
+                              (unsigned long)childN, (unsigned long)scrollKids,
+                              sBookListSafeVDLInstalled ? 1 : 0]);
+
+        // P0：用 Legado titles 覆盖 donor 分类；数量与子页对齐，避免 SGPage 与 child 不一致崩
+        NSArray *forceTitles = titles;
+        if (scrollKids > 0 && titles.count != scrollKids) {
+            NSMutableArray *aligned = [NSMutableArray array];
+            for (NSUInteger i = 0; i < scrollKids; i++) {
+                if (i < titles.count) {
+                    [aligned addObject:titles[i]];
+                } else {
+                    [aligned addObject:[NSString stringWithFormat:@"分类%lu", (unsigned long)(i + 1)]];
+                }
+            }
+            forceTitles = aligned;
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"alignForceTitles legado=%lu kids=%lu",
+                                  (unsigned long)titles.count, (unsigned long)scrollKids]);
+        }
+        LBForceLegadoTitlesOnChrome(host, forceTitles);
+        if (srcName.length > 0) {
+            @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
+            @try { host.title = srcName; } @catch (__unused NSException *e) {}
+        }
 
         // 仅当宿主与 scroll 都无子页时才拆空 chrome（scroll 内可能有 BookListCon）
         if (hasPageChrome && childN == 0 && scrollKids == 0) {
@@ -693,23 +860,39 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         } else if (hasPageChrome && (childN > 0 || scrollKids > 0)) {
             sNativeChromeBuilt = YES;
             LBSanitizeDiscoverListCons(host, scroll);
-            // BookListCon/scroll 即使空数据也会杀进程；只保留 SGPageTitleView
-            LBDestroyDiscoverListConsKeepTitle(host, scroll);
-            LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"pageChrome keep hostChild=%lu scrollKids=%lu titleOnly=1",
-                                  (unsigned long)childN, (unsigned long)scrollKids]);
-            __weak UIViewController *weakHost = host;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
-                UIViewController *h = weakHost;
-                if (!h) return;
-                id tv = nil;
-                @try { tv = [h valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+            if (sBookListSafeVDLInstalled) {
+                // P1：安全 VDL 已装 → 保留 BookListCon，接 explore
                 LBAppendNativeMarker([NSString stringWithFormat:
-                                      @"stillAlive host=%@ titleView=%@",
-                                      NSStringFromClass([h class]),
-                                      tv ? NSStringFromClass([tv class]) : @"nil"]);
-            });
+                                      @"keepList safeVDL hostChild=%lu scrollKids=%lu",
+                                      (unsigned long)childN, (unsigned long)scrollKids]);
+                __weak UIViewController *weakHost = host;
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    if (!LBIsDiscoverTabActive()) return;
+                    UIViewController *h = weakHost ?: LBPrimaryDiscoverHost();
+                    if (!h) return;
+                    id core = LBKindCore();
+                    NSString *src = LBCurrentExploreSourceUrl(core);
+                    NSString *kindUrl = nil;
+                    if (sCachedKinds.count > 0) {
+                        id u = sCachedKinds[0][@"url"];
+                        if ([u isKindOfClass:[NSString class]]) kindUrl = u;
+                    }
+                    LBAppendNativeMarker([NSString stringWithFormat:
+                                          @"postChrome explore src=%@ kind=%@",
+                                          src ?: @"", kindUrl ?: @""]);
+                    if (src.length > 0) LBTriggerExploreKind(src, kindUrl);
+                    LBReloadDiscoverNativeList(h);
+                    LBAppendNativeMarker(@"stillAlive keepList");
+                });
+            } else {
+                // 无安全 VDL：退回 titleOnly（旧路径）
+                LBDestroyDiscoverListConsKeepTitle(host, scroll);
+                LBForceLegadoTitlesOnChrome(host, forceTitles);
+                LBAppendNativeMarker([NSString stringWithFormat:
+                                      @"pageChrome keep hostChild=%lu scrollKids=%lu titleOnly=1",
+                                      (unsigned long)childN, (unsigned long)scrollKids]);
+            }
             sRestoreListMode = NO;
             sTitleOnlyStabilized = YES;
         }
@@ -855,6 +1038,15 @@ static void LBDiscover_pageTitleSelected(id self, SEL _cmd, id pageTitleView, NS
     NSString *url = [k[@"url"] isKindOfClass:[NSString class]] ? k[@"url"] : @"";
     LBAppendNativeMarker([NSString stringWithFormat:@"nativeTab idx=%ld kind=%@", (long)index, url ?: @""]);
     LBTriggerExploreKind(src, url);
+    UIViewController *host = [self isKindOfClass:[UIViewController class]]
+        ? (UIViewController *)self : LBPrimaryDiscoverHost();
+    if (host) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            if (!LBIsDiscoverTabActive()) return;
+            LBReloadDiscoverNativeList(host);
+        });
+    }
 }
 
 static void LBDiscover_onSwitchBtn(id self, SEL _cmd) {
@@ -937,6 +1129,7 @@ void LBInstallDiscoverNativeUIHooks(void) {
         for (NSString *cn in @[@"BookWorldHomeCon", @"BookStoreBaseCon", @"ShudanHomeCon", @"BookListCon"]) {
             LBHookDiscoverNativeUIOnClass(NSClassFromString(cn));
         }
+        LBInstallBookListSafeViewDidLoad();
         [@"discover native UI hooks installed"
             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_native.txt"]
             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
