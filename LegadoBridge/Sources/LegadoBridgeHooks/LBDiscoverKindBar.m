@@ -1607,6 +1607,34 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
     }
     if (!listVC) listVC = host;
 
+    // 强制把列表页铺满内容区（safeVDL 时 view.bounds 常为 0，表看不见）
+    id scroll = nil;
+    @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+    UIView *container = nil;
+    if ([scroll isKindOfClass:[UIView class]]) container = (UIView *)scroll;
+    if ((!container || container.bounds.size.width < 2) && host.isViewLoaded) {
+        container = host.view;
+    }
+    if (listVC.isViewLoaded && listVC.view && container) {
+        CGRect target = container.bounds;
+        if (target.size.width < 2 || target.size.height < 2) {
+            CGRect hb = host.isViewLoaded ? host.view.bounds : CGRectZero;
+            CGFloat top = 110;
+            target = CGRectMake(0, top, MAX(hb.size.width, 320), MAX(hb.size.height - top, 400));
+        }
+        @try {
+            listVC.view.hidden = NO;
+            listVC.view.alpha = 1;
+            listVC.view.frame = target;
+            listVC.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            if (listVC.view.superview != container && [container isKindOfClass:[UIView class]]) {
+                // 已在 SG 树里则只改 frame；勿重复 add 破坏层级
+            } else if (listVC.view.superview) {
+                [listVC.view.superview bringSubviewToFront:listVC.view];
+            }
+        } @catch (__unused NSException *e) {}
+    }
+
     UITableView *tv = nil;
     for (NSString *k in @[@"tableView", @"tv", @"listTableView", @"mainTableView", @"myTableView"]) {
         @try {
@@ -1626,8 +1654,38 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
             }
         } @catch (__unused NSException *e) {}
     }
+    if (!tv && listVC.isViewLoaded && listVC.view) {
+        // 没有表就新建一张铺满
+        tv = [[UITableView alloc] initWithFrame:listVC.view.bounds style:UITableViewStylePlain];
+        tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        tv.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+        tv.separatorStyle = UITableViewCellSeparatorStyleNone;
+        tv.rowHeight = 108;
+        [listVC.view addSubview:tv];
+        @try { [listVC setValue:tv forKey:@"tableView"]; } @catch (__unused NSException *e) {}
+        LBAppendNativeMarker(@"reload created missing tableView");
+    }
     if (tv) {
-        @try { [tv reloadData]; } @catch (__unused NSException *e) {}
+        @try {
+            if (listVC.isViewLoaded && listVC.view) {
+                tv.frame = listVC.view.bounds;
+                tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            }
+            tv.hidden = NO;
+            tv.alpha = 1;
+            tv.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+            tv.dataSource = (id<UITableViewDataSource>)listVC;
+            tv.delegate = (id<UITableViewDelegate>)listVC;
+            [listVC.view bringSubviewToFront:tv];
+            [tv reloadData];
+            NSInteger rows = 0;
+            @try { rows = [tv numberOfRowsInSection:0]; } @catch (__unused NSException *e) {}
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"reload tvFrame=%.0fx%.0f listFrame=%.0fx%.0f rows=%ld",
+                                  tv.frame.size.width, tv.frame.size.height,
+                                  listVC.view.frame.size.width, listVC.view.frame.size.height,
+                                  (long)rows]);
+        } @catch (__unused NSException *e) {}
         return;
     }
 
