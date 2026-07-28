@@ -879,12 +879,6 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
     }
     LBPaintTitleLabels(tv, 0);
     LBEnableTitleScroll(tv);
-    id tvRef = tv;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        LBPaintTitleLabels(tvRef, 0);
-        LBEnableTitleScroll(tvRef);
-    });
 
     LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles n=%lu applied=%d",
                           (unsigned long)titles.count, applied ? 1 : 0]);
