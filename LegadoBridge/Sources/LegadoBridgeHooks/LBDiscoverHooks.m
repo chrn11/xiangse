@@ -10,7 +10,6 @@ static NSTimeInterval sLastDiscoverTriggerTs = 0;
 static void (*sOrig_setSquare)(id, SEL, BOOL) = NULL;
 static void (*sOrig_onSegmentChanged)(id, SEL) = NULL;
 static void (*sOrig_onSegmentChange)(id, SEL, id) = NULL;
-static IMP sOrig_worldAppear = NULL;
 static void (*sOrig_setSelectedSegmentIndex)(id, SEL, NSInteger) = NULL;
 static __weak UIViewController *sPinnedDiscoverHost;
 
@@ -455,13 +454,7 @@ static void LBDiscover_onSegmentChange(id self, SEL _cmd, id sender) {
     LBDiscover_onSegmentChanged(self, @selector(onSegmentChanged));
 }
 
-static void LBDiscover_worldAppear(id self, SEL _cmd, BOOL animated) {
-    if (sOrig_worldAppear) {
-        ((void (*)(id, SEL, BOOL))sOrig_worldAppear)(self, _cmd, animated);
-    } else {
-        struct objc_super sup = { self, class_getSuperclass(object_getClass(self)) };
-        ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&sup, _cmd, animated);
-    }
+static void LBDiscoverAfterWorldAppear(id self) {
     NSString *cn = NSStringFromClass([self class]);
     if ([cn containsString:@"BookWorld"] || [cn containsString:@"BookStore"] ||
         [cn containsString:@"Shudan"]) {
@@ -531,13 +524,35 @@ static void LBHookSegmentOnClass(Class cls) {
 
 static void LBHookWorldAppear(Class cls) {
     if (!cls) return;
+    static NSMutableSet<NSString *> *hookedClasses;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        hookedClasses = [NSMutableSet set];
+    });
+    NSString *className = NSStringFromClass(cls);
+    if ([hookedClasses containsObject:className]) return;
+
     SEL sel = @selector(viewDidAppear:);
     Method m = class_getInstanceMethod(cls, sel);
     if (!m) return;
-    if (!sOrig_worldAppear) {
-        sOrig_worldAppear = method_getImplementation(m);
+    IMP original = method_getImplementation(m);
+    const char *types = method_getTypeEncoding(m);
+    IMP hook = imp_implementationWithBlock(^void(id selfObj, BOOL animated) {
+        ((void (*)(id, SEL, BOOL))original)(selfObj, sel, animated);
+        LBDiscoverAfterWorldAppear(selfObj);
+    });
+
+    // class_getInstanceMethod 会返回继承方法；直接 method_setImplementation 会污染公共父类。
+    // 先给当前类建立本地 override，仅当当前类本来就拥有该方法时才替换。
+    Class owner = LBClassOwningInstanceMethod(cls, sel);
+    BOOL installed = NO;
+    if (owner == cls) {
+        method_setImplementation(m, hook);
+        installed = YES;
+    } else {
+        installed = class_addMethod(cls, sel, hook, types);
     }
-    method_setImplementation(m, (IMP)LBDiscover_worldAppear);
+    if (installed) [hookedClasses addObject:className];
 }
 
 static void LBDiscover_setSelectedSegmentIndex(id self, SEL _cmd, NSInteger idx) {

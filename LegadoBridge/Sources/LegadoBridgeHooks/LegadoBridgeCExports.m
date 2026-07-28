@@ -10168,13 +10168,21 @@ void LBInstallCatalogUIAppearFlush(void) {
         NSLog(@"[LegadoBridge] hooked BookSearch didSelect @%@", NSStringFromClass(owner));
     }
     NSArray *names = @[@"CatalogCon", @"BookDetailController", @"BookDetailVCBase"];
+    static NSMutableSet<NSString *> *sCatalogAppearHookedClasses = nil;
+    static dispatch_once_t onceCatalogAppear;
+    dispatch_once(&onceCatalogAppear, ^{
+        sCatalogAppearHookedClasses = [NSMutableSet set];
+    });
     for (NSString *cn in names) {
         Class cls = NSClassFromString(cn);
         if (!cls) continue;
+        NSString *className = NSStringFromClass(cls);
+        if ([sCatalogAppearHookedClasses containsObject:className]) continue;
         SEL sel = @selector(viewDidAppear:);
         Method m = class_getInstanceMethod(cls, sel);
         if (!m) continue;
         IMP orig = method_getImplementation(m);
+        const char *types = method_getTypeEncoding(m);
         IMP hook = imp_implementationWithBlock(^void(id selfObj, BOOL animated) {
             ((void (*)(id, SEL, BOOL))orig)(selfObj, sel, animated);
             if (sPendingCatalogChapters.count == 0) return;
@@ -10190,7 +10198,17 @@ void LBInstallCatalogUIAppearFlush(void) {
             [appear writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_appear.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         });
-        method_setImplementation(m, hook);
+        // class_getInstanceMethod 会返回继承方法；替换它会把目录钩子扩散到
+        // BookWorld/BookList 等共享父类。继承场景只在目标类本地加 override。
+        Class owner = LBClassOwningInstanceMethod(cls, sel);
+        BOOL installed = NO;
+        if (owner == cls) {
+            method_setImplementation(m, hook);
+            installed = YES;
+        } else {
+            installed = class_addMethod(cls, sel, hook, types);
+        }
+        if (installed) [sCatalogAppearHookedClasses addObject:className];
     }
     Class catalogCls = NSClassFromString(@"CatalogCon");
     if (catalogCls) {
