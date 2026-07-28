@@ -591,7 +591,7 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
                     if (![neu respondsToSelector:cs]) continue;
                     UIColor *c = [pair containsString:@"Selected"]
                         ? [UIColor colorWithRed:0.25 green:0.55 blue:1 alpha:1]
-                        : [UIColor whiteColor];
+                        : [UIColor colorWithWhite:0.15 alpha:1];
                     @try { ((void (*)(id, SEL, id))objc_msgSend)(neu, cs, c); } @catch (__unused NSException *e) {}
                 }
                 LBAppendNativeMarker([NSString stringWithFormat:
