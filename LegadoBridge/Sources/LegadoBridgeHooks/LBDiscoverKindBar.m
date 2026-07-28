@@ -508,6 +508,82 @@ static void LBInstallBookListSafeViewDidLoad(void) {
     LBAppendNativeMarker(@"BookListCon safeViewDidLoad hooked");
 }
 
+/// donor configure 的 titleColor 多为白色（原生深色页），发现页白底会导致白字不可见。
+/// 新建一份 configure，失败则就地改色。
+static id LBDiscoverTitleConfigure(id donorConfigure) {
+    UIColor *normal = [UIColor colorWithWhite:0.20 alpha:1];
+    UIColor *selected = [UIColor colorWithRed:0.20 green:0.48 blue:1 alpha:1];
+    Class cfgCls = NSClassFromString(@"SGPageTitleViewConfigure");
+    id cfg = nil;
+    SEL make = NSSelectorFromString(@"pageTitleViewConfigure");
+    if (cfgCls && [cfgCls respondsToSelector:make]) {
+        @try { cfg = ((id (*)(id, SEL))objc_msgSend)(cfgCls, make); } @catch (__unused NSException *e) {}
+    }
+    if (!cfg && cfgCls) {
+        @try { cfg = [[cfgCls alloc] init]; } @catch (__unused NSException *e) {}
+    }
+    if (!cfg) cfg = donorConfigure;
+    if (!cfg) return nil;
+
+    NSDictionary *kv = @{
+        @"titleColor": normal,
+        @"titleSelectedColor": selected,
+        @"indicatorColor": selected,
+        @"titleFont": [UIFont systemFontOfSize:15],
+        @"titleSelectedFont": [UIFont boldSystemFontOfSize:16],
+    };
+    for (NSString *k in kv) {
+        @try { [cfg setValue:kv[k] forKey:k]; } @catch (__unused NSException *e) {}
+    }
+    return cfg;
+}
+
+/// 兜底：直接把 titleView 里的 UILabel 刷成可见色，并回报诊断
+static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
+    if (![tv isKindOfClass:[UIView class]]) return;
+    NSMutableArray<UILabel *> *labels = [NSMutableArray array];
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:(UIView *)tv];
+    while (stack.count) {
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        for (UIView *sub in v.subviews) {
+            if ([sub isKindOfClass:[UILabel class]]) [labels addObject:(UILabel *)sub];
+            if ([sub isKindOfClass:[UIButton class]] && ((UIButton *)sub).titleLabel) {
+                [labels addObject:((UIButton *)sub).titleLabel];
+            }
+            [stack addObject:sub];
+        }
+    }
+    UIColor *normal = [UIColor colorWithWhite:0.20 alpha:1];
+    UIColor *selected = [UIColor colorWithRed:0.20 green:0.48 blue:1 alpha:1];
+    NSInteger idx = 0;
+    for (UILabel *l in labels) {
+        @try {
+            l.textColor = (idx == selectedIndex) ? selected : normal;
+            l.hidden = NO;
+            l.alpha = 1;
+            UIView *owner = l.superview;
+            if ([owner isKindOfClass:[UIButton class]]) {
+                @try {
+                    [(UIButton *)owner setTitleColor:l.textColor forState:UIControlStateNormal];
+                    [(UIButton *)owner setTitleColor:selected forState:UIControlStateSelected];
+                } @catch (__unused NSException *e) {}
+            }
+        } @catch (__unused NSException *e) {}
+        idx++;
+    }
+    UILabel *first = labels.firstObject;
+    CGRect tf = ((UIView *)tv).frame;
+    LBAppendNativeMarker([NSString stringWithFormat:
+                          @"paintTitles labels=%lu tvFrame=%.0f,%.0f,%.0fx%.0f first=%@ f=%.0f,%.0f,%.0fx%.0f hid=%d a=%.2f",
+                          (unsigned long)labels.count,
+                          tf.origin.x, tf.origin.y, tf.size.width, tf.size.height,
+                          first.text ?: @"-",
+                          first.frame.origin.x, first.frame.origin.y,
+                          first.frame.size.width, first.frame.size.height,
+                          first.hidden ? 1 : 0, (double)first.alpha]);
+}
+
 /// resetContent 后强制用 Legado 分类覆盖 SGPageTitleView（donor bookWorld 会盖掉 arrHeaderBtnTitle）
 static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles) {
     if (!host || titles.count == 0) return;
@@ -571,6 +647,7 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
         if (!configure) {
             @try { configure = [host valueForKey:@"pageTitleViewConfigure"]; } @catch (__unused NSException *e) {}
         }
+        configure = LBDiscoverTitleConfigure(configure) ?: configure;
         @try {
             id neu = ((id (*)(id, SEL, CGRect, id, id, id))objc_msgSend)(
                 tvCls, factory, frame, delegate, titles, configure);
@@ -585,15 +662,6 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
                     [superview insertSubview:(UIView *)neu atIndex:MAX(0, z)];
                 }
                 @try { [host setValue:neu forKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-                // configure 为空时文字可能不可见：强制标题色
-                for (NSString *pair in @[@"setTitleColor:", @"setTitleSelectedColor:"]) {
-                    SEL cs = NSSelectorFromString(pair);
-                    if (![neu respondsToSelector:cs]) continue;
-                    UIColor *c = [pair containsString:@"Selected"]
-                        ? [UIColor colorWithRed:0.25 green:0.55 blue:1 alpha:1]
-                        : [UIColor colorWithWhite:0.15 alpha:1];
-                    @try { ((void (*)(id, SEL, id))objc_msgSend)(neu, cs, c); } @catch (__unused NSException *e) {}
-                }
                 LBAppendNativeMarker([NSString stringWithFormat:
                                       @"forceTitles rebuild SGPageTitleView n=%lu",
                                       (unsigned long)titles.count]);
@@ -615,6 +683,7 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
     if ([tv isKindOfClass:[UIView class]]) {
         @try { [(UIView *)tv setNeedsLayout]; [(UIView *)tv layoutIfNeeded]; } @catch (__unused NSException *e) {}
     }
+    LBPaintTitleLabels(tv, 0);
 
     LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles n=%lu applied=%d",
                           (unsigned long)titles.count, applied ? 1 : 0]);
