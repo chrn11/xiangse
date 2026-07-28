@@ -528,11 +528,11 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
         if ([tv isKindOfClass:[UITableView class]]) {
             id ds = tv.dataSource;
             NSString *dsCls = ds ? NSStringFromClass([ds class]) : @"(nil)";
-            // 发现原生子页：优先保留原生 DS（富文本卡片）；仅 Filtered/nil 时兜底
+            // 发现态 BookListCon 走了 safeVDL，原生 DS 不读 arrBaseData → 恒 0 行黑屏。
+            // 必须挂我们的 numberOfRows/封面 cell。
             BOOL discoverList = LBIsDiscoverTabActive() && plazaHost;
             BOOL brokenDS = (ds == nil) || [dsCls containsString:@"FilteredDataSource"];
-            BOOL needOwnDS = brokenDS
-                || (!discoverList && (ds != (id)feedVC));
+            BOOL needOwnDS = brokenDS || discoverList || (ds != (id)feedVC);
             if (needOwnDS) {
                 LBEnsurePlazaTableDataSourceMethods([feedVC class]);
                 tv.dataSource = (id<UITableViewDataSource>)feedVC;
@@ -546,12 +546,10 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_cell_ex.txt"]
                         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 // 原生 cell 崩：再挂安全 DS
-                if (discoverList) {
-                    LBEnsurePlazaTableDataSourceMethods([feedVC class]);
-                    tv.dataSource = (id<UITableViewDataSource>)feedVC;
-                    tv.delegate = (id<UITableViewDelegate>)feedVC;
-                    @try { [tv reloadData]; } @catch (__unused NSException *e2) {}
-                }
+                LBEnsurePlazaTableDataSourceMethods([feedVC class]);
+                tv.dataSource = (id<UITableViewDataSource>)feedVC;
+                tv.delegate = (id<UITableViewDelegate>)feedVC;
+                @try { [tv reloadData]; } @catch (__unused NSException *e2) {}
             }
             if (discoverList) {
                 UIViewController *host = nil;
@@ -571,6 +569,16 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 id cur = [feedVC valueForKey:@"arrBaseData"];
                 if ([cur isKindOfClass:[NSArray class]]) arrN = [cur count];
             } @catch (__unused NSException *e) {}
+            // 有书无行：再强制自有 DS 重载一次
+            if (arrN > 0 && rows == 0) {
+                LBEnsurePlazaTableDataSourceMethods([feedVC class]);
+                tv.dataSource = (id<UITableViewDataSource>)feedVC;
+                tv.delegate = (id<UITableViewDelegate>)feedVC;
+                @try { [tv reloadData]; } @catch (__unused NSException *e) {}
+                @try {
+                    rows = [tv.dataSource tableView:tv numberOfRowsInSection:0];
+                } @catch (__unused NSException *e) {}
+            }
             NSString *diag = [NSString stringWithFormat:
                 @"uiInject ds=%@ rows=%ld arr=%lu needOwn=%d host=%@ feed=%@ tv=%@ tag=%ld",
                 dsCls, (long)rows, (unsigned long)arrN, needOwnDS ? 1 : 0, vcn,
@@ -815,8 +823,11 @@ static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInte
         || [cn containsString:@"Shudan"];
     @try {
         id cur = [self valueForKey:@"arrBaseData"];
-        if (plazaHost && LBArrayHasLegadoBooks(cur) && tv.dataSource == self) {
-            return (NSInteger)[(NSArray *)cur count];
+        if (plazaHost && [cur isKindOfClass:[NSArray class]] && tv.dataSource == self) {
+            // 发现态：safeVDL 后原生 DS 已空，有 arrBaseData 就按我们的行数出
+            if (LBIsDiscoverTabActive() || LBArrayHasLegadoBooks(cur)) {
+                return (NSInteger)[(NSArray *)cur count];
+            }
         }
     } @catch (__unused NSException *e) {}
     NSInteger orig = 0;
@@ -860,7 +871,9 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
     if (plazaHost) {
         @try {
             id cur = [self valueForKey:@"arrBaseData"];
-            if (LBArrayHasLegadoBooks(cur) &&
+            BOOL useLegadoCell = LBArrayHasLegadoBooks(cur) ||
+                (LBIsDiscoverTabActive() && [cur isKindOfClass:[NSArray class]] && [(NSArray *)cur count] > 0);
+            if (useLegadoCell &&
                 [cur isKindOfClass:[NSArray class]] &&
                 ip.row >= 0 && ip.row < (NSInteger)[(NSArray *)cur count]) {
                 id item = [(NSArray *)cur objectAtIndex:(NSUInteger)ip.row];
