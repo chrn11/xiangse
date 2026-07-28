@@ -532,9 +532,17 @@ static id LBDiscoverTitleConfigure(id donorConfigure) {
         @"titleFont": [UIFont systemFontOfSize:15],
         @"titleSelectedFont": [UIFont boldSystemFontOfSize:16],
     };
+    NSMutableArray *okKeys = [NSMutableArray array];
     for (NSString *k in kv) {
-        @try { [cfg setValue:kv[k] forKey:k]; } @catch (__unused NSException *e) {}
+        @try {
+            [cfg setValue:kv[k] forKey:k];
+            [okKeys addObject:k];
+        } @catch (__unused NSException *e) {}
     }
+    LBAppendNativeMarker([NSString stringWithFormat:@"titleCfg cls=%@ fresh=%d keys=%@",
+                          NSStringFromClass([cfg class]),
+                          (cfg != donorConfigure) ? 1 : 0,
+                          [okKeys componentsJoinedByString:@","]]);
     return cfg;
 }
 
@@ -572,16 +580,21 @@ static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
         } @catch (__unused NSException *e) {}
         idx++;
     }
-    UILabel *first = labels.firstObject;
     CGRect tf = ((UIView *)tv).frame;
+    NSMutableArray *dump = [NSMutableArray array];
+    for (NSUInteger i = 0; i < MIN(labels.count, (NSUInteger)6); i++) {
+        UILabel *l = labels[i];
+        CGRect fr = [l convertRect:l.bounds toView:(UIView *)tv];
+        [dump addObject:[NSString stringWithFormat:@"%@@%.0f,%.0f,%.0fx%.0f/%@",
+                         l.text ?: @"-", fr.origin.x, fr.origin.y,
+                         fr.size.width, fr.size.height,
+                         NSStringFromClass([l.superview class])]];
+    }
     LBAppendNativeMarker([NSString stringWithFormat:
-                          @"paintTitles labels=%lu tvFrame=%.0f,%.0f,%.0fx%.0f first=%@ f=%.0f,%.0f,%.0fx%.0f hid=%d a=%.2f",
+                          @"paintTitles labels=%lu tvFrame=%.0f,%.0f,%.0fx%.0f | %@",
                           (unsigned long)labels.count,
                           tf.origin.x, tf.origin.y, tf.size.width, tf.size.height,
-                          first.text ?: @"-",
-                          first.frame.origin.x, first.frame.origin.y,
-                          first.frame.size.width, first.frame.size.height,
-                          first.hidden ? 1 : 0, (double)first.alpha]);
+                          [dump componentsJoinedByString:@" ; "]]);
 }
 
 /// resetContent 后强制用 Legado 分类覆盖 SGPageTitleView（donor bookWorld 会盖掉 arrHeaderBtnTitle）
@@ -684,6 +697,11 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
         @try { [(UIView *)tv setNeedsLayout]; [(UIView *)tv layoutIfNeeded]; } @catch (__unused NSException *e) {}
     }
     LBPaintTitleLabels(tv, 0);
+    id tvRef = tv;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        LBPaintTitleLabels(tvRef, 0);
+    });
 
     LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles n=%lu applied=%d",
                           (unsigned long)titles.count, applied ? 1 : 0]);
