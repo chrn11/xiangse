@@ -531,6 +531,10 @@ static id LBDiscoverTitleConfigure(id donorConfigure) {
         @"indicatorColor": selected,
         @"titleFont": [UIFont systemFontOfSize:15],
         @"titleSelectedFont": [UIFont boldSystemFontOfSize:16],
+        @"titleAdditionalWidth": @20,
+        @"equivalence": @NO,
+        @"showIndicator": @YES,
+        @"indicatorStyle": @0,
     };
     NSMutableArray *okKeys = [NSMutableArray array];
     for (NSString *k in kv) {
@@ -546,53 +550,134 @@ static id LBDiscoverTitleConfigure(id donorConfigure) {
     return cfg;
 }
 
-/// 兜底：直接把 titleView 里的 UILabel 刷成可见色，并回报诊断
+/// 兜底：直接把 titleView 里的 UILabel / SGPageTitleButton 刷成可见色，并回报诊断
 static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
     if (![tv isKindOfClass:[UIView class]]) return;
-    NSMutableArray<UILabel *> *labels = [NSMutableArray array];
-    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:(UIView *)tv];
+    UIView *root = (UIView *)tv;
+    @try {
+        [root setNeedsLayout];
+        [root layoutIfNeeded];
+    } @catch (__unused NSException *e) {}
+
+    UIColor *normal = [UIColor colorWithWhite:0.20 alpha:1];
+    UIColor *selected = [UIColor colorWithRed:0.20 green:0.48 blue:1 alpha:1];
+
+    NSMutableArray<UIButton *> *btns = [NSMutableArray array];
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
     while (stack.count) {
         UIView *v = stack.lastObject;
         [stack removeLastObject];
         for (UIView *sub in v.subviews) {
-            if ([sub isKindOfClass:[UILabel class]]) [labels addObject:(UILabel *)sub];
-            if ([sub isKindOfClass:[UIButton class]] && ((UIButton *)sub).titleLabel) {
-                [labels addObject:((UIButton *)sub).titleLabel];
+            if ([sub isKindOfClass:[UIButton class]]) [btns addObject:(UIButton *)sub];
+            [stack addObject:sub];
+        }
+    }
+
+    NSMutableArray *dump = [NSMutableArray array];
+    NSInteger idx = 0;
+    for (UIButton *btn in btns) {
+        UIColor *c = (idx == selectedIndex) ? selected : normal;
+        @try {
+            btn.hidden = NO;
+            btn.alpha = 1;
+            btn.clipsToBounds = NO;
+            [btn setTitleColor:c forState:UIControlStateNormal];
+            [btn setTitleColor:selected forState:UIControlStateSelected];
+            [btn setTitleColor:selected forState:UIControlStateHighlighted];
+            NSString *t = [btn titleForState:UIControlStateNormal];
+            if (t.length == 0) t = btn.titleLabel.text;
+            if (t.length) {
+                [btn setTitle:t forState:UIControlStateNormal];
+                [btn setTitle:t forState:UIControlStateSelected];
+            }
+            [btn sizeToFit];
+            UILabel *lab = btn.titleLabel;
+            if (lab) {
+                lab.hidden = NO;
+                lab.alpha = 1;
+                lab.textColor = c;
+                lab.numberOfLines = 1;
+                lab.lineBreakMode = NSLineBreakByTruncatingTail;
+                if (lab.text.length == 0 && t.length) lab.text = t;
+                // 未选中项原生常给 0x0：按按钮宽度居中铺开
+                CGRect bf = btn.bounds;
+                if (bf.size.width < 1) bf = btn.frame;
+                CGSize want = [lab sizeThatFits:CGSizeMake(MAX(bf.size.width, 80), 40)];
+                if (want.width < 1 && t.length) {
+                    want = [t sizeWithAttributes:@{NSFontAttributeName: lab.font ?: [UIFont systemFontOfSize:15]}];
+                }
+                if (bf.size.width < 40) {
+                    CGFloat x = (idx > 0) ? idx * 81.0 : 0;
+                    btn.frame = CGRectMake(x, 0, 81, 38);
+                    bf = btn.bounds;
+                }
+                CGFloat lw = MIN(MAX(want.width, 40), MAX(bf.size.width - 4, 70));
+                CGFloat lh = MAX(want.height, 18);
+                lab.bounds = CGRectMake(0, 0, lw, lh);
+                lab.center = CGPointMake(CGRectGetMidX(btn.bounds), CGRectGetMidY(btn.bounds));
+            }
+            if (btn.frame.size.width < 40) {
+                CGFloat x = btn.frame.origin.x;
+                if (x < 1 && idx > 0) x = idx * 81.0;
+                btn.frame = CGRectMake(x, 0, MAX(btn.frame.size.width, 81), 38);
+            }
+            // titleLabel 仍可能被 SG 内部清零：叠一层可见 UILabel
+            NSInteger tag = 0x4C4254; // 'LBT'
+            UILabel *overlay = (UILabel *)[btn viewWithTag:tag];
+            if (!overlay) {
+                overlay = [[UILabel alloc] initWithFrame:btn.bounds];
+                overlay.tag = tag;
+                overlay.textAlignment = NSTextAlignmentCenter;
+                overlay.userInteractionEnabled = NO;
+                [btn addSubview:overlay];
+            }
+            overlay.frame = btn.bounds;
+            overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            overlay.text = t.length ? t : (lab.text ?: @"");
+            overlay.font = lab.font ?: [UIFont systemFontOfSize:15];
+            overlay.textColor = c;
+            overlay.hidden = NO;
+            overlay.alpha = 1;
+            if (lab) lab.hidden = YES; // 避免双影
+        } @catch (__unused NSException *e) {}
+        if (dump.count < 6) {
+            CGRect bf = [btn convertRect:btn.bounds toView:root];
+            CGRect lf = btn.titleLabel
+                ? [btn.titleLabel convertRect:btn.titleLabel.bounds toView:root]
+                : CGRectZero;
+            [dump addObject:[NSString stringWithFormat:
+                             @"%@ b=%.0f,%.0f,%.0fx%.0f l=%.0f,%.0f,%.0fx%.0f",
+                             [btn titleForState:UIControlStateNormal] ?: @"-",
+                             bf.origin.x, bf.origin.y, bf.size.width, bf.size.height,
+                             lf.origin.x, lf.origin.y, lf.size.width, lf.size.height]];
+        }
+        idx++;
+    }
+
+    // 再扫一遍散落 UILabel（非 button 子）
+    stack = [NSMutableArray arrayWithObject:root];
+    while (stack.count) {
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        for (UIView *sub in v.subviews) {
+            if ([sub isKindOfClass:[UILabel class]] && ![sub.superview isKindOfClass:[UIButton class]]) {
+                UILabel *l = (UILabel *)sub;
+                @try {
+                    l.hidden = NO; l.alpha = 1;
+                    l.textColor = normal;
+                    if (CGRectIsEmpty(l.frame) && l.text.length) {
+                        [l sizeToFit];
+                    }
+                } @catch (__unused NSException *e) {}
             }
             [stack addObject:sub];
         }
     }
-    UIColor *normal = [UIColor colorWithWhite:0.20 alpha:1];
-    UIColor *selected = [UIColor colorWithRed:0.20 green:0.48 blue:1 alpha:1];
-    NSInteger idx = 0;
-    for (UILabel *l in labels) {
-        @try {
-            l.textColor = (idx == selectedIndex) ? selected : normal;
-            l.hidden = NO;
-            l.alpha = 1;
-            UIView *owner = l.superview;
-            if ([owner isKindOfClass:[UIButton class]]) {
-                @try {
-                    [(UIButton *)owner setTitleColor:l.textColor forState:UIControlStateNormal];
-                    [(UIButton *)owner setTitleColor:selected forState:UIControlStateSelected];
-                } @catch (__unused NSException *e) {}
-            }
-        } @catch (__unused NSException *e) {}
-        idx++;
-    }
-    CGRect tf = ((UIView *)tv).frame;
-    NSMutableArray *dump = [NSMutableArray array];
-    for (NSUInteger i = 0; i < MIN(labels.count, (NSUInteger)6); i++) {
-        UILabel *l = labels[i];
-        CGRect fr = [l convertRect:l.bounds toView:(UIView *)tv];
-        [dump addObject:[NSString stringWithFormat:@"%@@%.0f,%.0f,%.0fx%.0f/%@",
-                         l.text ?: @"-", fr.origin.x, fr.origin.y,
-                         fr.size.width, fr.size.height,
-                         NSStringFromClass([l.superview class])]];
-    }
+
+    CGRect tf = root.frame;
     LBAppendNativeMarker([NSString stringWithFormat:
-                          @"paintTitles labels=%lu tvFrame=%.0f,%.0f,%.0fx%.0f | %@",
-                          (unsigned long)labels.count,
+                          @"paintTitles btns=%lu tvFrame=%.0f,%.0f,%.0fx%.0f | %@",
+                          (unsigned long)btns.count,
                           tf.origin.x, tf.origin.y, tf.size.width, tf.size.height,
                           [dump componentsJoinedByString:@" ; "]]);
 }
@@ -698,10 +783,12 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
     }
     LBPaintTitleLabels(tv, 0);
     id tvRef = tv;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        LBPaintTitleLabels(tvRef, 0);
-    });
+    for (NSNumber *delay in @[@0.35, @0.9, @1.6]) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            LBPaintTitleLabels(tvRef, 0);
+        });
+    }
 
     LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles n=%lu applied=%d",
                           (unsigned long)titles.count, applied ? 1 : 0]);
