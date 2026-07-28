@@ -598,8 +598,20 @@ static id LBDiscoverTitleConfigure(id donorConfigure) {
         @"titleSelectedFont": [UIFont boldSystemFontOfSize:16],
         @"titleAdditionalWidth": @20,
         @"equivalence": @NO,
+        @"isShowIndicator": @YES,
         @"showIndicator": @YES,
+        @"isNeedBounces": @YES,
+        @"bounces": @YES,
+        @"isOpenTitleTextZoom": @YES,
+        @"openTitleTextZoom": @YES,
+        @"titleTextZoomScale": @0.18,
         @"indicatorStyle": @0,
+        @"indicatorHeight": @2,
+        @"indicatorWidth": @16,
+        @"indicatorSpacing": @4,
+        @"contentInsetSpacing": @16,
+        @"spacingBetweenButtons": @24,
+        @"startSpacing": @12,
     };
     NSMutableArray *okKeys = [NSMutableArray array];
     for (NSString *k in kv) {
@@ -670,7 +682,8 @@ static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
                     b = fr;
                 } else {
                     hostView = root;
-                    CGFloat slot = 81;
+                    CGSize need = [t sizeWithAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:15]}];
+                    CGFloat slot = MAX(ceil(need.width) + 24, 72);
                     b = CGRectMake(idx * slot, 0, slot, MAX(root.bounds.size.height, 28));
                 }
             }
@@ -706,6 +719,39 @@ static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
                           (unsigned long)btns.count,
                           tf.origin.x, tf.origin.y, tf.size.width, tf.size.height,
                           [dump componentsJoinedByString:@" ; "]]);
+}
+
+/// SGPageTitleView 内部 UIScrollView：解除等宽，contentSize 撑开可横滚
+static void LBEnableTitleScroll(id tv) {
+    if (![tv isKindOfClass:[UIView class]]) return;
+    UIView *root = (UIView *)tv;
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
+    while (stack.count) {
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        if ([v isKindOfClass:[UIScrollView class]]) {
+            UIScrollView *sv = (UIScrollView *)v;
+            @try {
+                sv.scrollEnabled = YES;
+                sv.showsHorizontalScrollIndicator = NO;
+                sv.alwaysBounceHorizontal = YES;
+                // 按子按钮最大右缘撑 contentSize
+                CGFloat maxX = 0;
+                for (UIView *sub in sv.subviews) {
+                    maxX = MAX(maxX, CGRectGetMaxX(sub.frame));
+                }
+                if (maxX > sv.contentSize.width) {
+                    sv.contentSize = CGSizeMake(maxX + 12, sv.contentSize.height);
+                }
+            } @catch (__unused NSException *e) {}
+        }
+        for (UIView *sub in v.subviews) [stack addObject:sub];
+    }
+    @try {
+        CGFloat maxX = 0;
+        for (UIView *sub in root.subviews) maxX = MAX(maxX, CGRectGetMaxX(sub.frame));
+        root.clipsToBounds = NO;
+    } @catch (__unused NSException *e) {}
 }
 
 /// resetContent 后强制用 Legado 分类覆盖 SGPageTitleView（donor bookWorld 会盖掉 arrHeaderBtnTitle）
@@ -808,10 +854,12 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
         @try { [(UIView *)tv setNeedsLayout]; [(UIView *)tv layoutIfNeeded]; } @catch (__unused NSException *e) {}
     }
     LBPaintTitleLabels(tv, 0);
+    LBEnableTitleScroll(tv);
     id tvRef = tv;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         LBPaintTitleLabels(tvRef, 0);
+        LBEnableTitleScroll(tvRef);
     });
 
     LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles n=%lu applied=%d",
