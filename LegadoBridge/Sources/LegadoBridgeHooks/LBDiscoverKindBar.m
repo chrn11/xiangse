@@ -1076,7 +1076,7 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                               (unsigned long)childN, (unsigned long)scrollKids,
                               sBookListSafeVDLInstalled ? 1 : 0]);
 
-        // P0：用 Legado titles 覆盖 donor 分类；数量与子页对齐，避免 SGPage 与 child 不一致崩
+        // P0：用 Legado titles 覆盖 donor 分类。cons 多于 titles 时缩标题数，cons 少于 titles 则补占位。
         NSArray *forceTitles = titles;
         if (scrollKids > 0 && titles.count != scrollKids) {
             NSMutableArray *aligned = [NSMutableArray array];
@@ -1093,6 +1093,51 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                                   (unsigned long)titles.count, (unsigned long)scrollKids]);
         }
         LBForceLegadoTitlesOnChrome(host, forceTitles);
+
+        // createCons 只认 dicModel.bookWorld 的 key 数 → 全量 titles 而 cons 不够时，
+        // 追加空白 BookListCon 让原生挂在同一 scroll 上（只走 safe VDL，不触网）
+        if (scrollKids > 0 && scrollKids < titles.count &&
+            sBookListSafeVDLInstalled) {
+            Class blCls = NSClassFromString(@"BookListCon");
+            if (blCls) {
+                NSMutableArray *extra = [NSMutableArray array];
+                for (NSUInteger i = scrollKids; i < titles.count; i++) {
+                    UIViewController *vc = [[blCls alloc] init];
+                    if (vc) [extra addObject:vc];
+                }
+                if (extra.count > 0) {
+                    NSMutableArray *merged = [NSMutableArray array];
+                    @try {
+                        for (NSString *k in @[@"childVCs", @"childViewControllers", @"arrChildVCs"]) {
+                            id cur = nil;
+                            @try { cur = [scroll valueForKey:k]; } @catch (__unused NSException *e) {}
+                            if ([cur isKindOfClass:[NSArray class]] && [(NSArray *)cur count] > 0) {
+                                [merged addObjectsFromArray:(NSArray *)cur];
+                                break;
+                            }
+                        }
+                    } @catch (__unused NSException *e) {}
+                    [merged addObjectsFromArray:extra];
+                    BOOL setOk = NO;
+                    for (NSString *k in @[@"childVCs", @"childViewControllers", @"arrChildVCs"]) {
+                        @try {
+                            [scroll setValue:merged forKey:k];
+                            setOk = YES;
+                            break;
+                        } @catch (__unused NSException *e) {}
+                    }
+                    if (setOk) {
+                        forceTitles = titles;
+                        LBForceLegadoTitlesOnChrome(host, forceTitles);
+                        scrollKids = merged.count;
+                    }
+                    LBAppendNativeMarker([NSString stringWithFormat:
+                                          @"padListCons to=%lu setOk=%d",
+                                          (unsigned long)merged.count, setOk ? 1 : 0]);
+                }
+            }
+        }
+
         LBAppendNativeMarker([NSString stringWithFormat:@"legadoTitles sample=%@",
                               [[forceTitles subarrayWithRange:NSMakeRange(0, MIN((NSUInteger)4, forceTitles.count))]
                                componentsJoinedByString:@","]]);
