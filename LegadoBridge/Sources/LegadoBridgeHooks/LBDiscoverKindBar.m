@@ -944,8 +944,8 @@ static void LBInstallBookListSafeViewDidLoad(void) {
 /// donor configure 的 titleColor 多为白色（原生深色页），发现页白底会导致白字不可见。
 /// 新建一份 configure，失败则就地改色。
 static id LBDiscoverTitleConfigure(id donorConfigure) {
-    UIColor *normal = [UIColor colorWithWhite:0.20 alpha:1];
-    UIColor *selected = [UIColor colorWithRed:0.90 green:0.35 blue:0.10 alpha:1];
+    UIColor *normal = [UIColor colorWithWhite:0.82 alpha:1];
+    UIColor *selected = [UIColor colorWithRed:1.0 green:0.45 blue:0.15 alpha:1];
     Class cfgCls = NSClassFromString(@"SGPageTitleViewConfigure");
     id cfg = nil;
     SEL make = NSSelectorFromString(@"pageTitleViewConfigure");
@@ -999,16 +999,16 @@ static id LBDiscoverTitleConfigure(id donorConfigure) {
 static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
     if (![tv isKindOfClass:[UIView class]]) return;
     UIView *root = (UIView *)tv;
-    // 白底 + 深字；避免 donor 白字/透明导致「分类条在但看不见」
+    // 深底 + 浅字（对齐香色发现黑底），白底白字时完全看不见
     @try {
-        root.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
+        root.backgroundColor = [UIColor colorWithWhite:0.10 alpha:1];
         root.opaque = YES;
         root.hidden = NO;
         root.alpha = 1;
         root.clipsToBounds = NO;
     } @catch (__unused NSException *e) {}
-    UIColor *normal = [UIColor colorWithWhite:0.15 alpha:1];
-    UIColor *selected = [UIColor colorWithRed:0.90 green:0.35 blue:0.10 alpha:1];
+    UIColor *normal = [UIColor colorWithWhite:0.82 alpha:1];
+    UIColor *selected = [UIColor colorWithRed:1.0 green:0.45 blue:0.15 alpha:1];
 
     NSMutableArray<UIButton *> *btns = [NSMutableArray array];
     NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
@@ -1302,6 +1302,29 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
         [host.view bringSubviewToFront:title];
         title.hidden = NO;
         title.alpha = 1;
+        // 内容区紧贴分类条下方，避免白全屏盖住
+        CGFloat top = CGRectGetMaxY(title.frame);
+        if (top < 100) top = 88 + 44;
+        id scroll = nil;
+        @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+        if ([scroll isKindOfClass:[UIView class]]) {
+            UIView *sv = (UIView *)scroll;
+            CGFloat h = host.view.bounds.size.height - top;
+            if (h > 80) {
+                sv.frame = CGRectMake(0, top, host.view.bounds.size.width, h);
+                sv.hidden = NO;
+                sv.alpha = 1;
+                @try {
+                    if ([sv.backgroundColor isEqual:[UIColor whiteColor]] || sv.backgroundColor == nil) {
+                        sv.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+                    }
+                } @catch (__unused NSException *e) {}
+            }
+        }
+        @try {
+            host.view.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+        } @catch (__unused NSException *e) {}
+        LBPinDiscoverContentToFirstPage(host);
     }
 
     LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles n=%lu applied=%d",
@@ -1801,6 +1824,27 @@ static UITableView *LBFindBestDiscoverTable(UIViewController *host, UIViewContro
         if (![owners containsObject:c]) [owners addObject:c];
     }
     if (![owners containsObject:host]) [owners addObject:host];
+
+    // KVC childVCs 被掏空时，仍从可见视图树找回 BookListCon
+    if (host.isViewLoaded && host.view) {
+        NSMutableArray *q = [NSMutableArray arrayWithObject:host.view];
+        NSInteger budget = 100;
+        while (q.count > 0 && budget-- > 0) {
+            UIView *cur = q.firstObject;
+            [q removeObjectAtIndex:0];
+            if ([cur isKindOfClass:[UITableView class]]) {
+                UIViewController *owner = nil;
+                for (UIResponder *r = cur; r; r = r.nextResponder) {
+                    if ([r isKindOfClass:[UIViewController class]]) {
+                        owner = (UIViewController *)r;
+                        break;
+                    }
+                }
+                if (owner && ![owners containsObject:owner]) [owners addObject:owner];
+            }
+            for (UIView *sub in cur.subviews) [q addObject:sub];
+        }
+    }
 
     UITableView *best = nil;
     UIViewController *bestOwner = nil;
