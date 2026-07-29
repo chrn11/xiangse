@@ -368,9 +368,9 @@ static NSString *LBSearchBookKey(NSDictionary *book) {
 }
 
 static BOOL LBArrayHasLegadoBooks(id cur);
+static IMP sOrigHeightForRow = NULL;
 
 static CGFloat LBHookedHeightForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip) {
-    (void)_cmd; (void)ip;
     @try {
         id cur = [self valueForKey:@"arrBaseData"];
         if ([cur isKindOfClass:[NSArray class]] && [cur count] > 0 &&
@@ -378,6 +378,9 @@ static CGFloat LBHookedHeightForRow(id self, SEL _cmd, UITableView *tv, NSIndexP
             return 108.0;
         }
     } @catch (__unused NSException *e) {}
+    if (sOrigHeightForRow) {
+        return ((CGFloat (*)(id, SEL, UITableView *, NSIndexPath *))sOrigHeightForRow)(self, _cmd, tv, ip);
+    }
     return 88.0;
 }
 
@@ -398,9 +401,12 @@ static void LBEnsurePlazaTableDataSourceMethods(Class cls) {
     } else if (method_getImplementation(cellM) != (IMP)LBHookedCellForRow) {
         LBInstallHookOnClassOnly(cls, cellSel, (IMP)LBHookedCellForRow, &sOrigCellForRow);
     }
-    // 仅补缺：有原生 height 时保留；靠 tv.rowHeight=108 约束自造 cell
-    if (!class_getInstanceMethod(cls, hSel)) {
+    // 强制挂 height：原生常对 NSDictionary 回 0 → 全黑无行
+    Method hM = class_getInstanceMethod(cls, hSel);
+    if (!hM) {
         class_addMethod(cls, hSel, (IMP)LBHookedHeightForRow, "d@:@@");
+    } else if (method_getImplementation(hM) != (IMP)LBHookedHeightForRow) {
+        LBInstallHookOnClassOnly(cls, hSel, (IMP)LBHookedHeightForRow, &sOrigHeightForRow);
     }
 }
 
@@ -614,6 +620,11 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                     tv.separatorColor = [UIColor colorWithWhite:0.2 alpha:1];
                 }
                 [tv reloadData];
+                @try {
+                    [tv layoutIfNeeded];
+                    if (tv.superview) [tv.superview bringSubviewToFront:tv];
+                    [tv setContentOffset:CGPointZero animated:NO];
+                } @catch (__unused NSException *e) {}
             } @catch (NSException *ex) {
                 NSString *line = [NSString stringWithFormat:@"reloadData EX %@ %@",
                                   vcn, ex.reason ?: @""];
@@ -651,15 +662,24 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 LBEnsurePlazaTableDataSourceMethods([feedVC class]);
                 tv.dataSource = (id<UITableViewDataSource>)feedVC;
                 tv.delegate = (id<UITableViewDelegate>)feedVC;
+                tv.rowHeight = 108;
                 @try { [tv reloadData]; } @catch (__unused NSException *e) {}
                 @try {
                     rows = [tv.dataSource tableView:tv numberOfRowsInSection:0];
                 } @catch (__unused NSException *e) {}
             }
+            NSInteger vis = 0;
+            CGFloat csh = 0;
+            @try {
+                vis = (NSInteger)tv.visibleCells.count;
+                csh = tv.contentSize.height;
+            } @catch (__unused NSException *e) {}
             NSString *diag = [NSString stringWithFormat:
-                @"uiInject ds=%@ rows=%ld arr=%lu needOwn=%d host=%@ feed=%@ tv=%@ tag=%ld",
-                dsCls, (long)rows, (unsigned long)arrN, needOwnDS ? 1 : 0, vcn,
-                NSStringFromClass([feedVC class]), NSStringFromClass([tv class]), (long)tv.tag];
+                @"uiInject ds=%@ rows=%ld arr=%lu needOwn=%d vis=%ld csh=%.0f host=%@ feed=%@ tv=%@ tag=%ld frame=%.0fx%.0f@%.0f,%.0f",
+                dsCls, (long)rows, (unsigned long)arrN, needOwnDS ? 1 : 0,
+                (long)vis, csh, vcn,
+                NSStringFromClass([feedVC class]), NSStringFromClass([tv class]), (long)tv.tag,
+                tv.frame.size.width, tv.frame.size.height, tv.frame.origin.x, tv.frame.origin.y];
             [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         } else if (plazaHost && LBIsDiscoverTabActive()) {

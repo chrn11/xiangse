@@ -159,6 +159,14 @@ void LBPinDiscoverContentToFirstPage(UIViewController *host) {
     };
     if ([scroll isKindOfClass:[UIScrollView class]]) {
         pinSV((UIScrollView *)scroll);
+        UIScrollView *sv = (UIScrollView *)scroll;
+        @try {
+            CGSize cs = sv.contentSize;
+            if (cs.width < sv.bounds.size.width) {
+                cs.width = sv.bounds.size.width;
+                sv.contentSize = cs;
+            }
+        } @catch (__unused NSException *e) {}
     } else if ([scroll isKindOfClass:[UIView class]]) {
         NSMutableArray *stack = [NSMutableArray arrayWithObject:(UIView *)scroll];
         NSInteger budget = 40;
@@ -167,6 +175,21 @@ void LBPinDiscoverContentToFirstPage(UIViewController *host) {
             [stack removeLastObject];
             if ([v isKindOfClass:[UIScrollView class]]) pinSV((UIScrollView *)v);
             for (UIView *sub in v.subviews) [stack addObject:sub];
+        }
+    }
+    // 首子页强制铺满 scroll，避免只看到宿主黑底
+    if (kids.count > 0) {
+        id c0 = kids[0];
+        UIViewController *vc0 = [c0 isKindOfClass:[UIViewController class]] ? c0 : nil;
+        if (vc0 && vc0.isViewLoaded && vc0.view && [scroll isKindOfClass:[UIView class]]) {
+            UIView *sv = (UIView *)scroll;
+            CGRect b = sv.bounds;
+            if (b.size.width > 2 && b.size.height > 2) {
+                vc0.view.frame = CGRectMake(0, 0, b.size.width, b.size.height);
+                vc0.view.hidden = NO;
+                vc0.view.alpha = 1;
+                [sv bringSubviewToFront:vc0.view];
+            }
         }
     }
 }
@@ -2063,10 +2086,13 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
         NSString *dsn = ds ? NSStringFromClass([ds class]) : @"";
         BOOL isList = [NSStringFromClass([listVC class]) containsString:@"BookList"];
         BOOL brokenDS = (ds == nil) || [dsn containsString:@"FilteredDataSource"];
-        if (brokenDS && (isList || arrN > 0)) {
+        // 有灌书时一律挂安全 DS/height（原生对字典常 0 高）
+        if ((brokenDS || arrN > 0) && (isList || arrN > 0)) {
             LBEnsurePlazaListTableHooks([listVC class]);
             tv.dataSource = (id<UITableViewDataSource>)listVC;
             tv.delegate = (id<UITableViewDelegate>)listVC;
+            tv.rowHeight = 108;
+            tv.estimatedRowHeight = 108;
             LBAppendNativeMarker([NSString stringWithFormat:
                                   @"ensureListSurface fixDS arr=%lu was=%@",
                                   (unsigned long)arrN, dsn.length ? dsn : @"nil"]);
