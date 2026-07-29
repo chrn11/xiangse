@@ -1126,22 +1126,37 @@ void LBClearDiscoverExploreBooks(void) {
     @try {
         if (sPendingSearchBooks) [sPendingSearchBooks removeAllObjects];
         if (sLastAppliedSearchBooks) [sLastAppliedSearchBooks removeAllObjects];
+        // 多次 explore 并发时只清一次 UI，避免 inject 后被第二次 clear 打成空屏
+        static CFAbsoluteTime sLastClearUIAt = 0;
+        CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+        if (now - sLastClearUIAt < 0.55) {
+            [@"uiInject clear discover books (debounce skip UI)"
+                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            return;
+        }
+        sLastClearUIAt = now;
         NSArray *hosts = LBFindDiscoverHostVCs() ?: @[];
         for (UIViewController *vc in hosts) {
             LBRemoveDiscoverOverlays(vc);
-            @try { [vc setValue:[NSMutableArray array] forKey:@"arrBaseData"]; } @catch (__unused NSException *e) {}
-            @try { [vc setValue:[NSMutableArray array] forKey:@"itemList"]; } @catch (__unused NSException *e) {}
-            @try { [vc setValue:[NSMutableArray array] forKey:@"arrSearchItems"]; } @catch (__unused NSException *e) {}
-            @try { [vc setValue:[NSMutableDictionary dictionary] forKey:@"dicSearchItems"]; } @catch (__unused NSException *e) {}
-            @try { [vc setValue:[NSMutableDictionary dictionary] forKey:@"dicAllBookList"]; } @catch (__unused NSException *e) {}
+            NSMutableArray *targets = [NSMutableArray arrayWithObject:vc];
+            UIViewController *list = nil;
+            @try { list = LBActiveDiscoverListVC(vc); } @catch (__unused NSException *e) {}
+            if (list && list != vc) [targets addObject:list];
             for (UIViewController *child in vc.childViewControllers) {
-                @try { [child setValue:[NSMutableArray array] forKey:@"arrBaseData"]; } @catch (__unused NSException *e) {}
-                @try { [child setValue:[NSMutableArray array] forKey:@"itemList"]; } @catch (__unused NSException *e) {}
+                if (![targets containsObject:child]) [targets addObject:child];
             }
-            UITableView *tv = nil;
-            @try { tv = [vc valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
-            if ([tv isKindOfClass:[UITableView class]]) {
-                @try { [tv reloadData]; } @catch (__unused NSException *e) {}
+            for (UIViewController *t in targets) {
+                @try { [t setValue:[NSMutableArray array] forKey:@"arrBaseData"]; } @catch (__unused NSException *e) {}
+                @try { [t setValue:[NSMutableArray array] forKey:@"itemList"]; } @catch (__unused NSException *e) {}
+                @try { [t setValue:[NSMutableArray array] forKey:@"arrSearchItems"]; } @catch (__unused NSException *e) {}
+                @try { [t setValue:[NSMutableDictionary dictionary] forKey:@"dicSearchItems"]; } @catch (__unused NSException *e) {}
+                @try { [t setValue:[NSMutableDictionary dictionary] forKey:@"dicAllBookList"]; } @catch (__unused NSException *e) {}
+                UITableView *tv = nil;
+                @try { tv = [t valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
+                if ([tv isKindOfClass:[UITableView class]]) {
+                    @try { [tv reloadData]; } @catch (__unused NSException *e) {}
+                }
             }
         }
         [@"uiInject clear discover books"

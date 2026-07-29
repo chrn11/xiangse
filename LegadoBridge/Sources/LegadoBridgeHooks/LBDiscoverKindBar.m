@@ -1194,12 +1194,11 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
     }
     } // if (tv)
 
-    // KVC 常不刷新按钮：用工厂重建 SGPageTitleView
+    // 禁止工厂重建 SGPageTitleView：会拆掉 pageContent / BookListCon 层级 → 黑屏无表
     Class tvCls = NSClassFromString(@"SGPageTitleView");
     SEL factory = @selector(pageTitleViewWithFrame:delegate:titleNames:configure:);
-    if (tvCls && [tvCls respondsToSelector:factory] && [tv isKindOfClass:[UIView class]]) {
+    if ([tv isKindOfClass:[UIView class]]) {
         UIView *old = (UIView *)tv;
-        CGRect frame = old.frame;
         CGFloat w = host.isViewLoaded ? host.view.bounds.size.width : 0;
         if (w < 1) w = [UIScreen mainScreen].bounds.size.width;
         CGFloat top = 88;
@@ -1208,51 +1207,26 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
                 top = MAX(88, host.view.safeAreaInsets.top + 44);
             }
         }
-        // openConfig 后旧 frame 常变成 y=0，分类条会藏到导航栏下面 → 整页只剩白
+        CGRect frame = old.frame;
         if (CGRectIsEmpty(frame) || frame.size.width < 2 || frame.size.height < 2 || frame.origin.y < top - 2) {
             frame = CGRectMake(0, top, w, MAX(38, frame.size.height > 2 ? frame.size.height : 44));
+            old.frame = frame;
             LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"forceTitles fixFrame y=%.0f h=%.0f", frame.origin.y, frame.size.height]);
+                                  @"forceTitles fixFrameOnly y=%.0f h=%.0f", frame.origin.y, frame.size.height]);
         }
-        id delegate = nil;
         id configure = nil;
-        @try { delegate = [old valueForKey:@"delegatePageTitleView"]; } @catch (__unused NSException *e) {}
-        if (!delegate) @try { delegate = [old valueForKey:@"delegate"]; } @catch (__unused NSException *e) {}
-        if (!delegate) delegate = host;
         @try { configure = [old valueForKey:@"configure"]; } @catch (__unused NSException *e) {}
         if (!configure) {
             @try { configure = [host valueForKey:@"pageTitleViewConfigure"]; } @catch (__unused NSException *e) {}
         }
         configure = LBDiscoverTitleConfigure(configure) ?: configure;
-        @try {
-            id neu = ((id (*)(id, SEL, CGRect, id, id, id))objc_msgSend)(
-                tvCls, factory, frame, delegate, titles, configure);
-            if ([neu isKindOfClass:[UIView class]]) {
-                UIView *superview = old.superview ?: (host.isViewLoaded ? host.view : nil);
-                NSInteger z = 0;
-                if (old.superview) {
-                    z = (NSInteger)[old.superview.subviews indexOfObject:old];
-                }
-                [old removeFromSuperview];
-                if (superview) {
-                    [superview insertSubview:(UIView *)neu atIndex:MAX(0, z)];
-                    [(UIView *)neu setFrame:frame];
-                    [superview bringSubviewToFront:(UIView *)neu];
-                }
-                @try { [host setValue:neu forKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-                LBAppendNativeMarker([NSString stringWithFormat:
-                                      @"forceTitles rebuild SGPageTitleView n=%lu",
-                                      (unsigned long)titles.count]);
-                applied = YES;
-                tv = neu;
-            }
-        } @catch (NSException *ex) {
-            LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles rebuild EX %@",
-                                  ex.reason ?: @""]);
+        if (configure) {
+            @try { [old setValue:configure forKey:@"configure"]; } @catch (__unused NSException *e) {}
         }
+        applied = YES;
     }
 
-    // 无旧 titleView 时直接新建一条
+    // 无旧 titleView 时才新建
     if ((!tv || ![tv isKindOfClass:[UIView class]]) && host.isViewLoaded &&
         tvCls && [tvCls respondsToSelector:factory]) {
         CGFloat w = host.view.bounds.size.width;
@@ -2356,24 +2330,23 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
 
     NSString *srcCopy = [legadoUrl copy];
     NSString *kindCopy = [kindUrl copy];
-    NSString *nameCopy = [sourceName copy];
-    NSArray *kindsCopy = [kinds copy] ?: @[];
     __weak UIViewController *weakHost = host;
-    // 等 title 重建/layout 完成后再 explore，避免 clear books 撞上空壳；
-    // openConfig 可能稍后再次掏空，延时里再刷一次 chrome+surface
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+    // 只 explore 一次；勿再 ForceTitles（会拆层级）。clear 已在 Core 内防抖。
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         UIViewController *h = weakHost;
         if (!h || !LBIsDiscoverTabActive()) return;
-        LBApplyLegadoSourceKindsToChrome(h, kindsCopy, nameCopy);
         LBEnsureDiscoverListSurface(h);
         LBTriggerExploreKind(srcCopy, kindCopy);
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)),
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             UIViewController *h2 = weakHost;
             if (!h2 || !LBIsDiscoverTabActive()) return;
             LBEnsureDiscoverListSurface(h2);
             LBReloadDiscoverNativeList(h2);
+            id tv = nil;
+            @try { tv = [h2 valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+            if (tv) LBPaintTitleLabels(tv, sSelectedKindIndex);
         });
     });
 }
