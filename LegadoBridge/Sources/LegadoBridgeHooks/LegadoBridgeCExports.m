@@ -396,6 +396,40 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
             if (child) vc = child;
         }
     }
+    // 对齐原生 BookListCon 字段：desc/introduce/cover，避免原生 cell 只出灰封面位
+    NSMutableDictionary *norm = [book mutableCopy];
+    NSString *intro = nil;
+    for (NSString *k in @[@"desc", @"introduce", @"intro", @"bookIntro", @"blurb"]) {
+        id v = norm[k];
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) { intro = v; break; }
+    }
+    if (intro.length > 0) {
+        if (![norm[@"desc"] isKindOfClass:[NSString class]] || [norm[@"desc"] length] == 0) {
+            norm[@"desc"] = intro;
+        }
+        if (![norm[@"introduce"] isKindOfClass:[NSString class]] || [norm[@"introduce"] length] == 0) {
+            norm[@"introduce"] = intro;
+        }
+    }
+    NSString *cover = nil;
+    for (NSString *k in @[@"coverUrl", @"cover", @"imgUrl", @"imageUrl", @"bookCover"]) {
+        id v = norm[k];
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) { cover = v; break; }
+    }
+    if (cover.length > 0) {
+        norm[@"coverUrl"] = cover;
+        if (![norm[@"cover"] isKindOfClass:[NSString class]] || [norm[@"cover"] length] == 0) {
+            norm[@"cover"] = cover;
+        }
+        if (![norm[@"imgUrl"] isKindOfClass:[NSString class]] || [norm[@"imgUrl"] length] == 0) {
+            norm[@"imgUrl"] = cover;
+        }
+    }
+    if (![norm[@"bookName"] isKindOfClass:[NSString class]] || [norm[@"bookName"] length] == 0) {
+        id n = norm[@"name"] ?: norm[@"title"];
+        if ([n isKindOfClass:[NSString class]]) norm[@"bookName"] = n;
+    }
+    book = norm;
     NSString *key = LBSearchBookKey(book);
 
     NSMutableArray *arrBase = nil;
@@ -528,11 +562,10 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
         if ([tv isKindOfClass:[UITableView class]]) {
             id ds = tv.dataSource;
             NSString *dsCls = ds ? NSStringFromClass([ds class]) : @"(nil)";
-            // 发现态 BookListCon 走了 safeVDL，原生 DS 不读 arrBaseData → 恒 0 行黑屏。
-            // 必须挂我们的 numberOfRows/封面 cell。
+            // 发现态：优先保留原生 DS/cell（黑底书卡+标签墙）。仅 DS 坏掉才接管。
             BOOL discoverList = LBIsDiscoverTabActive() && plazaHost;
             BOOL brokenDS = (ds == nil) || [dsCls containsString:@"FilteredDataSource"];
-            BOOL needOwnDS = brokenDS || discoverList || (ds != (id)feedVC);
+            BOOL needOwnDS = brokenDS || (!discoverList && ds != (id)feedVC);
             if (needOwnDS) {
                 LBEnsurePlazaTableDataSourceMethods([feedVC class]);
                 tv.dataSource = (id<UITableViewDataSource>)feedVC;
@@ -545,7 +578,7 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                                   vcn, ex.reason ?: @""];
                 [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_cell_ex.txt"]
                         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                // 原生 cell 崩：再挂安全 DS
+                // 原生 cell 崩：再挂安全 DS（仅此时）
                 LBEnsurePlazaTableDataSourceMethods([feedVC class]);
                 tv.dataSource = (id<UITableViewDataSource>)feedVC;
                 tv.delegate = (id<UITableViewDelegate>)feedVC;
@@ -569,8 +602,8 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 id cur = [feedVC valueForKey:@"arrBaseData"];
                 if ([cur isKindOfClass:[NSArray class]]) arrN = [cur count];
             } @catch (__unused NSException *e) {}
-            // 有书无行：再强制自有 DS 重载一次
-            if (arrN > 0 && rows == 0) {
+            // 有书无行：再强制自有 DS 重载一次（搜索页）；发现态不抢原生 DS
+            if (arrN > 0 && rows == 0 && !discoverList) {
                 LBEnsurePlazaTableDataSourceMethods([feedVC class]);
                 tv.dataSource = (id<UITableViewDataSource>)feedVC;
                 tv.delegate = (id<UITableViewDelegate>)feedVC;
@@ -868,11 +901,39 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
         || [cn containsString:@"BookWorld"]
         || [cn containsString:@"BookStore"]
         || [cn containsString:@"Shudan"];
-    if (plazaHost) {
+    // 发现态：先走原生 cell（黑底封面卡），崩了再自造兜底
+    if (plazaHost && LBIsDiscoverTabActive()) {
+        @try {
+            if (sOrigCellForRow) {
+                UITableViewCell *native = ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCellForRow)(self, _cmd, tv, ip);
+                if (native) return native;
+            }
+            IMP fwd = LBForwardTableCellIMP();
+            if (fwd) {
+                UITableViewCell *native = ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))fwd)(self, _cmd, tv, ip);
+                if (native) return native;
+            }
+        } @catch (NSException *ex) {
+            @try {
+                id cur = [self valueForKey:@"arrBaseData"];
+                if ([cur isKindOfClass:[NSArray class]] &&
+                    ip.row >= 0 && ip.row < (NSInteger)[(NSArray *)cur count]) {
+                    id item = [(NSArray *)cur objectAtIndex:(NSUInteger)ip.row];
+                    if ([item isKindOfClass:[NSDictionary class]]) {
+                        return LBMakeLegadoDiscoverBookCell(tv, (NSDictionary *)item);
+                    }
+                }
+            } @catch (__unused NSException *e2) {}
+            NSString *line = [NSString stringWithFormat:@"cellForRow discover EX %@ %@",
+                              cn, ex.reason ?: @""];
+            [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_cell_ex.txt"]
+                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        }
+    }
+    if (plazaHost && !LBIsDiscoverTabActive()) {
         @try {
             id cur = [self valueForKey:@"arrBaseData"];
-            BOOL useLegadoCell = LBArrayHasLegadoBooks(cur) ||
-                (LBIsDiscoverTabActive() && [cur isKindOfClass:[NSArray class]] && [(NSArray *)cur count] > 0);
+            BOOL useLegadoCell = LBArrayHasLegadoBooks(cur);
             if (useLegadoCell &&
                 [cur isKindOfClass:[NSArray class]] &&
                 ip.row >= 0 && ip.row < (NSInteger)[(NSArray *)cur count]) {

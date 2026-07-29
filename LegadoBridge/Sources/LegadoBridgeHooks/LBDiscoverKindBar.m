@@ -872,7 +872,7 @@ static void LBBookList_safeViewDidLoad(id self, SEL _cmd) {
         }
     }
 
-    // 兜底：只调 UIViewController 的 viewDidLoad + 空表
+    // 兜底：只调 UIViewController 的 viewDidLoad；禁止再造铺满 table（会盖住原生黑底）
     Method uiM = class_getInstanceMethod([UIViewController class], @selector(viewDidLoad));
     if (uiM) {
         ((void (*)(id, SEL))method_getImplementation(uiM))(self, _cmd);
@@ -889,35 +889,19 @@ static void LBBookList_safeViewDidLoad(id self, SEL _cmd) {
         @try { [vc setValue:@[] forKey:k]; } @catch (__unused NSException *e) {}
     }
 
+    // 若原生已有 table 就只 reload；没有也不新建
     UITableView *tv = nil;
     @try {
         id v = [vc valueForKey:@"tableView"];
         if ([v isKindOfClass:[UITableView class]]) tv = (UITableView *)v;
     } @catch (__unused NSException *e) {}
-    if (!tv && view) {
-        tv = [[UITableView alloc] initWithFrame:view.bounds style:UITableViewStylePlain];
-        tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        tv.backgroundColor = [UIColor blackColor];
-        tv.separatorStyle = UITableViewCellSeparatorStyleNone;
-        tv.indicatorStyle = UIScrollViewIndicatorStyleWhite;
-        [view addSubview:tv];
-        @try { [vc setValue:tv forKey:@"tableView"]; } @catch (__unused NSException *e) {}
-    }
     if (tv) {
-        @try { tv.dataSource = (id<UITableViewDataSource>)vc; } @catch (__unused NSException *e) {}
-        @try { tv.delegate = (id<UITableViewDelegate>)vc; } @catch (__unused NSException *e) {}
-        @try {
-            tv.rowHeight = 108;
-            tv.estimatedRowHeight = 0;
-            tv.backgroundColor = [UIColor blackColor];
-            tv.separatorStyle = UITableViewCellSeparatorStyleNone;
-        } @catch (__unused NSException *e) {}
         @try { [tv reloadData]; } @catch (__unused NSException *e) {}
     }
 
     static NSInteger sSafeVDLCount = 0;
     if (sSafeVDLCount < 3) {
-        LBAppendNativeMarker([NSString stringWithFormat:@"BookListCon safeViewDidLoad fallback #%ld",
+        LBAppendNativeMarker([NSString stringWithFormat:@"BookListCon safeViewDidLoad fallback-noCreate #%ld",
                               (long)sSafeVDLCount]);
         sSafeVDLCount++;
     }
@@ -1313,7 +1297,7 @@ static void LBDestroyDiscoverListConsKeepTitle(UIViewController *host, id scroll
                           (unsigned long)killed]);
 }
 
-/// 清空原生子页数据，避免 BookListCon 带着 donor 原生请求/cell 崩
+/// 清空原生子页书数据，但不动 UI/table（sanitize 后立刻 reload 会把标签墙撑乱）
 static void LBSanitizeDiscoverListCons(UIViewController *host, id scroll) {
     NSMutableArray *kids = [NSMutableArray array];
     @try {
@@ -1335,7 +1319,6 @@ static void LBSanitizeDiscoverListCons(UIViewController *host, id scroll) {
     }
     NSUInteger n = 0;
     for (id c in kids) {
-        // 兼容非 UIViewController 包装
         id target = c;
         if (![target isKindOfClass:[UIViewController class]]) {
             @try {
@@ -1348,15 +1331,19 @@ static void LBSanitizeDiscoverListCons(UIViewController *host, id scroll) {
         for (NSString *k in @[@"arrBaseData", @"itemList", @"arrData", @"dataArray", @"books"]) {
             @try { [vc setValue:@[] forKey:k]; } @catch (__unused NSException *e) {}
         }
-        @try {
-            UITableView *tv = nil;
-            id v = [vc valueForKey:@"tableView"];
-            if ([v isKindOfClass:[UITableView class]]) tv = v;
-            if (tv) [tv reloadData];
-        } @catch (__unused NSException *e) {}
+        // 去掉误加的脏表；不 reload（避免白底空壳盖住原生黑底）
+        if (vc.isViewLoaded && vc.view) {
+            NSMutableArray *junk = [NSMutableArray array];
+            for (UIView *sub in vc.view.subviews) {
+                if ([sub isKindOfClass:[UITableView class]] && sub.tag == 0x4C424454) {
+                    [junk addObject:sub];
+                }
+            }
+            for (UIView *v in junk) [v removeFromSuperview];
+        }
         n++;
     }
-    LBAppendNativeMarker([NSString stringWithFormat:@"sanitizeListCons n=%lu raw=%lu",
+    LBAppendNativeMarker([NSString stringWithFormat:@"sanitizeListCons soft n=%lu raw=%lu",
                           (unsigned long)n, (unsigned long)kids.count]);
 }
 
@@ -1693,12 +1680,9 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
     }
 }
 
-/// 书列表灌入后刷新原生子页（禁止再 resetContent，避免拆掉刚建好的 SGPage）
+/// 书列表灌入后：只刷新已有原生 table，禁止新建/铺满/置顶（会盖住标签墙与原生黑底列表）
 void LBReloadDiscoverNativeList(UIViewController *host) {
     if (!host) return;
-    if (LBDiscoverSingleListFeed()) {
-        LBPinDiscoverContentToFirstPage(host);
-    }
     UIViewController *listVC = nil;
     @try {
         listVC = LBActiveDiscoverListVC(host);
@@ -1707,34 +1691,17 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
     }
     if (!listVC) listVC = host;
 
-    // 仅当列表页几乎无尺寸时才补 frame；禁止铺满整个 host（会盖住分类条）
-    id titleView = nil;
-    @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-    id scroll = nil;
-    @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
-    UIView *container = [scroll isKindOfClass:[UIView class]] ? (UIView *)scroll : nil;
+    // 去掉我们曾经误加的「铺满脏表」（tag LBDT），勿动原生表
     if (listVC.isViewLoaded && listVC.view) {
-        CGRect lf = listVC.view.frame;
-        BOOL tiny = (lf.size.width < 2 || lf.size.height < 2);
-        if (tiny && container && container.bounds.size.width > 2) {
-            @try {
-                listVC.view.hidden = NO;
-                listVC.view.alpha = 1;
-                listVC.view.frame = container.bounds;
-                listVC.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            } @catch (__unused NSException *e) {}
-        } else {
-            @try {
-                listVC.view.hidden = NO;
-                listVC.view.alpha = 1;
-                if (listVC.view.superview) {
-                    [listVC.view.superview bringSubviewToFront:listVC.view];
-                }
-            } @catch (__unused NSException *e) {}
+        NSMutableArray *junk = [NSMutableArray array];
+        for (UIView *sub in listVC.view.subviews) {
+            if ([sub isKindOfClass:[UITableView class]] && sub.tag == 0x4C424454) { // 'LBDT'
+                [junk addObject:sub];
+            }
         }
-        // 确保分类条仍在最前
-        if ([titleView isKindOfClass:[UIView class]] && ((UIView *)titleView).superview) {
-            @try { [((UIView *)titleView).superview bringSubviewToFront:(UIView *)titleView]; } @catch (__unused NSException *e) {}
+        for (UIView *v in junk) {
+            [v removeFromSuperview];
+            LBAppendNativeMarker(@"reload remove junk overlay TV");
         }
     }
 
@@ -1742,7 +1709,10 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
     for (NSString *k in @[@"tableView", @"tv", @"listTableView", @"mainTableView", @"myTableView"]) {
         @try {
             id v = [listVC valueForKey:k];
-            if ([v isKindOfClass:[UITableView class]]) { tv = (UITableView *)v; break; }
+            if ([v isKindOfClass:[UITableView class]] && [(UIView *)v tag] != 0x4C424454) {
+                tv = (UITableView *)v;
+                break;
+            }
         } @catch (__unused NSException *e) {}
     }
     if (!tv && listVC.isViewLoaded && listVC.view) {
@@ -1752,59 +1722,35 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
             while (q.count > 0 && budget-- > 0) {
                 UIView *cur = q.firstObject;
                 [q removeObjectAtIndex:0];
-                if ([cur isKindOfClass:[UITableView class]]) { tv = (UITableView *)cur; break; }
+                if ([cur isKindOfClass:[UITableView class]] && cur.tag != 0x4C424454) {
+                    tv = (UITableView *)cur;
+                    break;
+                }
                 for (UIView *sub in cur.subviews) [q addObject:sub];
             }
         } @catch (__unused NSException *e) {}
     }
-    if (!tv && listVC.isViewLoaded && listVC.view) {
-        // 没有表就新建一张铺满
-        tv = [[UITableView alloc] initWithFrame:listVC.view.bounds style:UITableViewStylePlain];
-        tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        tv.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
-        tv.separatorStyle = UITableViewCellSeparatorStyleNone;
-        tv.rowHeight = 108;
-        [listVC.view addSubview:tv];
-        @try { [listVC setValue:tv forKey:@"tableView"]; } @catch (__unused NSException *e) {}
-        LBAppendNativeMarker(@"reload created missing tableView");
-    }
-    if (tv) {
-        @try {
-            if (listVC.isViewLoaded && listVC.view) {
-                tv.frame = listVC.view.bounds;
-                tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            }
-            tv.hidden = NO;
-            tv.alpha = 1;
-            tv.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
-            tv.dataSource = (id<UITableViewDataSource>)listVC;
-            tv.delegate = (id<UITableViewDelegate>)listVC;
-            [listVC.view bringSubviewToFront:tv];
-            [tv reloadData];
-            NSInteger rows = 0;
-            @try { rows = [tv numberOfRowsInSection:0]; } @catch (__unused NSException *e) {}
-            static NSInteger sReloadLog = 0;
-            if (sReloadLog < 4) {
-                LBAppendNativeMarker([NSString stringWithFormat:
-                                      @"reload tvFrame=%.0fx%.0f listFrame=%.0fx%.0f rows=%ld",
-                                      tv.frame.size.width, tv.frame.size.height,
-                                      listVC.view.frame.size.width, listVC.view.frame.size.height,
-                                      (long)rows]);
-                sReloadLog++;
-            }
-        } @catch (__unused NSException *e) {}
+    if (!tv) {
+        LBAppendNativeMarker(@"reload skip: no native tableView (no create)");
         return;
     }
-
-    SEL show = @selector(showContent:title:);
-    if ([listVC respondsToSelector:show]) {
-        NSString *title = @"";
-        @try { title = [listVC valueForKey:@"useSourceName"] ?: @""; } @catch (__unused NSException *e) {}
-        @try {
-            ((void (*)(id, SEL, id, id))objc_msgSend)(listVC, show, nil, title);
-        } @catch (NSException *ex) {
-            LBAppendNativeMarker([NSString stringWithFormat:@"reload showContent EX %@", ex.reason ?: @""]);
+    @try {
+        // 绝不改 frame / bringToFront / 强夺 dataSource
+        [tv reloadData];
+        NSInteger rows = 0;
+        @try { rows = [tv numberOfRowsInSection:0]; } @catch (__unused NSException *e) {}
+        static NSInteger sReloadLog = 0;
+        if (sReloadLog < 6) {
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"reload soft tv=%.0fx%.0f@%.0f,%.0f rows=%ld ds=%@",
+                                  tv.frame.size.width, tv.frame.size.height,
+                                  tv.frame.origin.x, tv.frame.origin.y,
+                                  (long)rows,
+                                  tv.dataSource ? NSStringFromClass([tv.dataSource class]) : @"nil"]);
+            sReloadLog++;
         }
+    } @catch (NSException *ex) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"reload soft EX %@", ex.reason ?: @""]);
     }
 }
 
