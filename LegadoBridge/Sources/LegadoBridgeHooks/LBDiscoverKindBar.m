@@ -1264,6 +1264,31 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
     if ([tv isKindOfClass:[UIView class]]) {
         @try { [(UIView *)tv setNeedsLayout]; [(UIView *)tv layoutIfNeeded]; } @catch (__unused NSException *e) {}
     }
+    // 无重建时直接改按钮文案（否则一直停在 donor 男频…）
+    if ([tv isKindOfClass:[UIView class]]) {
+        NSMutableArray<UIButton *> *btns = [NSMutableArray array];
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:(UIView *)tv];
+        while (stack.count) {
+            UIView *v = stack.lastObject;
+            [stack removeLastObject];
+            if ([v isKindOfClass:[UIButton class]]) [btns addObject:(UIButton *)v];
+            for (UIView *sub in v.subviews) [stack addObject:sub];
+        }
+        NSArray *sorted = [btns sortedArrayUsingComparator:^NSComparisonResult(UIButton *a, UIButton *b) {
+            return a.frame.origin.x < b.frame.origin.x ? NSOrderedAscending : NSOrderedDescending;
+        }];
+        for (NSUInteger i = 0; i < sorted.count && i < titles.count; i++) {
+            NSString *name = [titles[i] isKindOfClass:[NSString class]] ? titles[i] : @"分类";
+            UIButton *b = sorted[i];
+            @try {
+                [b setTitle:name forState:UIControlStateNormal];
+                [b setTitle:name forState:UIControlStateSelected];
+                b.titleLabel.text = name;
+            } @catch (__unused NSException *e) {}
+        }
+        LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles softBtn n=%lu want=%lu",
+                              (unsigned long)sorted.count, (unsigned long)titles.count]);
+    }
     LBEnableTitleScroll(tv);
     LBAttachDiscoverKindButtonActions(host, tv);
     // 最后再画字并置顶，避免 scroll/unlink 盖住 overlay
@@ -1276,29 +1301,9 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
         [host.view bringSubviewToFront:title];
         title.hidden = NO;
         title.alpha = 1;
-        // 内容区紧贴分类条下方，避免白全屏盖住
-        CGFloat top = CGRectGetMaxY(title.frame);
-        if (top < 100) top = 88 + 44;
-        id scroll = nil;
-        @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
-        if ([scroll isKindOfClass:[UIView class]]) {
-            UIView *sv = (UIView *)scroll;
-            CGFloat h = host.view.bounds.size.height - top;
-            if (h > 80) {
-                sv.frame = CGRectMake(0, top, host.view.bounds.size.width, h);
-                sv.hidden = NO;
-                sv.alpha = 1;
-                @try {
-                    if ([sv.backgroundColor isEqual:[UIColor whiteColor]] || sv.backgroundColor == nil) {
-                        sv.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
-                    }
-                } @catch (__unused NSException *e) {}
-            }
-        }
         @try {
             host.view.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
         } @catch (__unused NSException *e) {}
-        LBPinDiscoverContentToFirstPage(host);
     }
 
     LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles n=%lu applied=%d",

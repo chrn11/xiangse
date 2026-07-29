@@ -9,6 +9,8 @@ import LegadoBridgeHooks
 
     private var bookCache: [String: BridgeBook] = [:]
     private let queue = DispatchQueue(label: "com.xiangse.legado-bridge", qos: .userInitiated)
+    /// 并发 explore 世代号：后发请求作废先发的 clear/inject
+    private var sExploreGeneration: UInt64 = 0
 
     private override init() {
         super.init()
@@ -547,6 +549,9 @@ import LegadoBridgeHooks
     /// 触发发现请求；结果走搜索响应通知（带 fromExplore）
     @objc(handleExploreRequestWithSourceUrl:exploreUrl:page:)
     public func handleExploreRequest(sourceUrl: String?, exploreUrl: String?, page: Int) {
+        // 并发 explore 用世代号丢弃过期结果，避免后发 clear 清掉先发 inject
+        sExploreGeneration &+= 1
+        let generation = sExploreGeneration
         Task {
             let targets: [MemoryBridgeBookSource]
             if let sourceUrl, !sourceUrl.isEmpty,
@@ -582,16 +587,20 @@ import LegadoBridgeHooks
             }
             // 换分类/换源：先清空再灌，避免旧书残留
             await MainActor.run {
+                guard generation == sExploreGeneration else { return }
                 LBClearDiscoverExploreBooks()
             }
+            guard generation == sExploreGeneration else { return }
             var total = 0
             for source in targets {
+                guard generation == sExploreGeneration else { return }
                 do {
                     let results = try await BridgeWebBook.exploreBook(
                         source: source,
                         url: exploreUrl,
                         page: max(page, 1)
                     )
+                    guard generation == sExploreGeneration else { return }
                     var bindings: [String: BookBinding] = [:]
                     for r in results {
                         let book = BridgeBook(
@@ -631,6 +640,7 @@ import LegadoBridgeHooks
                             postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
                         }
                         await MainActor.run {
+                            guard generation == sExploreGeneration else { return }
                             LBApplySearchResultsToUI(books, "explore")
                         }
                     }
