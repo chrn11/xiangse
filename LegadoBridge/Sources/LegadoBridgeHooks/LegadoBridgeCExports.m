@@ -367,10 +367,25 @@ static NSString *LBSearchBookKey(NSDictionary *book) {
     return name;
 }
 
+static BOOL LBArrayHasLegadoBooks(id cur);
+
+static CGFloat LBHookedHeightForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip) {
+    (void)_cmd; (void)ip;
+    @try {
+        id cur = [self valueForKey:@"arrBaseData"];
+        if ([cur isKindOfClass:[NSArray class]] && [cur count] > 0 &&
+            (LBArrayHasLegadoBooks(cur) || (LBIsDiscoverTabActive() && tv.dataSource == self))) {
+            return 108.0;
+        }
+    } @catch (__unused NSException *e) {}
+    return 88.0;
+}
+
 static void LBEnsurePlazaTableDataSourceMethods(Class cls) {
     if (!cls) return;
     SEL rowsSel = @selector(tableView:numberOfRowsInSection:);
     SEL cellSel = @selector(tableView:cellForRowAtIndexPath:);
+    SEL hSel = @selector(tableView:heightForRowAtIndexPath:);
     Method rowsM = class_getInstanceMethod(cls, rowsSel);
     if (!rowsM) {
         class_addMethod(cls, rowsSel, (IMP)LBHookedNumberOfRows, "q@:@q");
@@ -382,6 +397,10 @@ static void LBEnsurePlazaTableDataSourceMethods(Class cls) {
         class_addMethod(cls, cellSel, (IMP)LBHookedCellForRow, "@@:@@");
     } else if (method_getImplementation(cellM) != (IMP)LBHookedCellForRow) {
         LBInstallHookOnClassOnly(cls, cellSel, (IMP)LBHookedCellForRow, &sOrigCellForRow);
+    }
+    // 仅补缺：有原生 height 时保留；靠 tv.rowHeight=108 约束自造 cell
+    if (!class_getInstanceMethod(cls, hSel)) {
+        class_addMethod(cls, hSel, (IMP)LBHookedHeightForRow, "d@:@@");
     }
 }
 
@@ -566,16 +585,34 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
         if ([tv isKindOfClass:[UITableView class]]) {
             id ds = tv.dataSource;
             NSString *dsCls = ds ? NSStringFromClass([ds class]) : @"(nil)";
-            // 发现态：优先保留原生 DS/cell（黑底书卡+标签墙）。仅 DS 坏掉才接管。
+            // 发现态：Legado 书进原生 cell 常黑底无字；有灌书时改挂安全 DS
             BOOL discoverList = LBIsDiscoverTabActive() && plazaHost;
             BOOL brokenDS = (ds == nil) || [dsCls containsString:@"FilteredDataSource"];
-            BOOL needOwnDS = brokenDS || (!discoverList && ds != (id)feedVC);
+            NSUInteger preArrN = 0;
+            @try {
+                id cur = [feedVC valueForKey:@"arrBaseData"];
+                if ([cur isKindOfClass:[NSArray class]]) preArrN = [cur count];
+            } @catch (__unused NSException *e) {}
+            BOOL needOwnDS = brokenDS || (!discoverList && ds != (id)feedVC)
+                || (discoverList && preArrN > 0);
             if (needOwnDS) {
                 LBEnsurePlazaTableDataSourceMethods([feedVC class]);
                 tv.dataSource = (id<UITableViewDataSource>)feedVC;
                 tv.delegate = (id<UITableViewDelegate>)feedVC;
             }
             @try {
+                tv.hidden = NO;
+                tv.alpha = 1;
+                if (tv.backgroundColor == nil ||
+                    [tv.backgroundColor isEqual:[UIColor blackColor]]) {
+                    tv.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+                }
+                if (needOwnDS || discoverList) {
+                    tv.rowHeight = 108;
+                    tv.estimatedRowHeight = 108;
+                    tv.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
+                    tv.separatorColor = [UIColor colorWithWhite:0.2 alpha:1];
+                }
                 [tv reloadData];
             } @catch (NSException *ex) {
                 NSString *line = [NSString stringWithFormat:@"reloadData EX %@ %@",
@@ -593,7 +630,10 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 for (UIViewController *h in (LBFindDiscoverHostVCs() ?: @[])) {
                     host = h; break;
                 }
-                if (host) LBReloadDiscoverNativeList(host);
+                if (host) {
+                    LBPinDiscoverContentToFirstPage(host);
+                    LBReloadDiscoverNativeList(host);
+                }
             }
             NSInteger rows = 0;
             @try {
@@ -601,13 +641,13 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                     rows = [tv.dataSource tableView:tv numberOfRowsInSection:0];
                 }
             } @catch (__unused NSException *e) {}
-            NSUInteger arrN = 0;
+            NSUInteger arrN = preArrN;
             @try {
                 id cur = [feedVC valueForKey:@"arrBaseData"];
                 if ([cur isKindOfClass:[NSArray class]]) arrN = [cur count];
             } @catch (__unused NSException *e) {}
-            // 有书无行：再强制自有 DS 重载一次（搜索页）；发现态不抢原生 DS
-            if (arrN > 0 && rows == 0 && !discoverList) {
+            // 有书无行：强制自有 DS 重载
+            if (arrN > 0 && rows == 0) {
                 LBEnsurePlazaTableDataSourceMethods([feedVC class]);
                 tv.dataSource = (id<UITableViewDataSource>)feedVC;
                 tv.delegate = (id<UITableViewDelegate>)feedVC;
@@ -915,39 +955,13 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
         || [cn containsString:@"BookWorld"]
         || [cn containsString:@"BookStore"]
         || [cn containsString:@"Shudan"];
-    // 发现态：先走原生 cell（黑底封面卡），崩了再自造兜底
-    if (plazaHost && LBIsDiscoverTabActive()) {
-        @try {
-            if (sOrigCellForRow) {
-                UITableViewCell *native = ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCellForRow)(self, _cmd, tv, ip);
-                if (native) return native;
-            }
-            IMP fwd = LBForwardTableCellIMP();
-            if (fwd) {
-                UITableViewCell *native = ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))fwd)(self, _cmd, tv, ip);
-                if (native) return native;
-            }
-        } @catch (NSException *ex) {
-            @try {
-                id cur = [self valueForKey:@"arrBaseData"];
-                if ([cur isKindOfClass:[NSArray class]] &&
-                    ip.row >= 0 && ip.row < (NSInteger)[(NSArray *)cur count]) {
-                    id item = [(NSArray *)cur objectAtIndex:(NSUInteger)ip.row];
-                    if ([item isKindOfClass:[NSDictionary class]]) {
-                        return LBMakeLegadoDiscoverBookCell(tv, (NSDictionary *)item);
-                    }
-                }
-            } @catch (__unused NSException *e2) {}
-            NSString *line = [NSString stringWithFormat:@"cellForRow discover EX %@ %@",
-                              cn, ex.reason ?: @""];
-            [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_cell_ex.txt"]
-                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        }
-    }
-    if (plazaHost && !LBIsDiscoverTabActive()) {
+    // 发现/广场：Legado 字典走自造封面 cell（原生 cell 常黑底无字且不抛）
+    if (plazaHost) {
         @try {
             id cur = [self valueForKey:@"arrBaseData"];
-            BOOL useLegadoCell = LBArrayHasLegadoBooks(cur);
+            BOOL useLegadoCell = LBArrayHasLegadoBooks(cur)
+                || (LBIsDiscoverTabActive() && [cur isKindOfClass:[NSArray class]] && [cur count] > 0
+                    && tv.dataSource == self);
             if (useLegadoCell &&
                 [cur isKindOfClass:[NSArray class]] &&
                 ip.row >= 0 && ip.row < (NSInteger)[(NSArray *)cur count]) {

@@ -1182,14 +1182,31 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
         // 浅色条 + 深字，黑底上也能看见（对齐 2cf7b1c 分类可读）
         title.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
     }
+    LBPinDiscoverContentToFirstPage(host);
     UIViewController *list = nil;
     @try { list = LBActiveDiscoverListVC(host); } @catch (__unused NSException *e) {}
     if (list && list.isViewLoaded && list.view) {
         list.view.hidden = NO;
         list.view.alpha = 1;
         if (list.view.superview) {
-            // 不要盖住 title：只保证 list 所在 scroll 内容可见
-            list.view.hidden = NO;
+            CGRect sb = list.view.superview.bounds;
+            if (sb.size.width > 2 && sb.size.height > 2) {
+                CGRect f = list.view.frame;
+                f.origin = CGPointZero;
+                if (f.size.width < 2) f.size.width = sb.size.width;
+                if (f.size.height < 2) f.size.height = sb.size.height;
+                list.view.frame = f;
+            }
+        }
+        UITableView *table = nil;
+        @try {
+            id v = [list valueForKey:@"tableView"];
+            if ([v isKindOfClass:[UITableView class]]) table = v;
+        } @catch (__unused NSException *e) {}
+        if (table) {
+            table.hidden = NO;
+            table.alpha = 1;
+            @try { [table reloadData]; } @catch (__unused NSException *e) {}
         }
     }
     id scroll = nil;
