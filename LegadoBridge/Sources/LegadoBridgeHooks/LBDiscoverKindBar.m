@@ -1290,9 +1290,19 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
     if ([tv isKindOfClass:[UIView class]]) {
         @try { [(UIView *)tv setNeedsLayout]; [(UIView *)tv layoutIfNeeded]; } @catch (__unused NSException *e) {}
     }
-    LBPaintTitleLabels(tv, 0);
     LBEnableTitleScroll(tv);
     LBAttachDiscoverKindButtonActions(host, tv);
+    // 最后再画字并置顶，避免 scroll/unlink 盖住 overlay
+    LBPaintTitleLabels(tv, 0);
+    if ([tv isKindOfClass:[UIView class]] && host.isViewLoaded && host.view) {
+        UIView *title = (UIView *)tv;
+        if (title.superview != host.view) {
+            @try { [host.view addSubview:title]; } @catch (__unused NSException *e) {}
+        }
+        [host.view bringSubviewToFront:title];
+        title.hidden = NO;
+        title.alpha = 1;
+    }
 
     LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles n=%lu applied=%d",
                           (unsigned long)titles.count, applied ? 1 : 0]);
@@ -1939,7 +1949,9 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
         } @catch (__unused NSException *e) {}
         id ds = tv.dataSource;
         NSString *dsn = ds ? NSStringFromClass([ds class]) : @"";
-        if (arrN > 0 && (ds == nil || [dsn containsString:@"FilteredDataSource"])) {
+        BOOL isList = [NSStringFromClass([listVC class]) containsString:@"BookList"];
+        BOOL brokenDS = (ds == nil) || [dsn containsString:@"FilteredDataSource"];
+        if (brokenDS && (isList || arrN > 0)) {
             LBEnsurePlazaListTableHooks([listVC class]);
             tv.dataSource = (id<UITableViewDataSource>)listVC;
             tv.delegate = (id<UITableViewDelegate>)listVC;
@@ -1972,25 +1984,52 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
         }
     }
     if (!container || frame.size.width < 2 || frame.size.height < 2) {
-        if (!host.isViewLoaded || !host.view) return nil;
-        container = host.view;
-        CGFloat w = host.view.bounds.size.width;
-        if (w < 1) w = [UIScreen mainScreen].bounds.size.width;
-        CGFloat top = 88 + 44;
-        if (@available(iOS 11.0, *)) {
-            top = MAX(88, host.view.safeAreaInsets.top + 44) + 44;
+        // 禁止在 BookWorld 宿主上建空 LBLT（会盖住已有 BookListCon 的书列表）
+        UIViewController *bookList = nil;
+        id scroll = nil;
+        @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+        for (NSString *k in @[@"childViewControllers", @"childVCs"]) {
+            id cv = nil;
+            @try { cv = [scroll valueForKey:k]; } @catch (__unused NSException *e) {}
+            if (![cv isKindOfClass:[NSArray class]]) continue;
+            for (id c in (NSArray *)cv) {
+                UIViewController *vc = [c isKindOfClass:[UIViewController class]] ? c : nil;
+                if (!vc) continue;
+                if ([NSStringFromClass([vc class]) containsString:@"BookList"]) {
+                    bookList = vc;
+                    break;
+                }
+            }
+            if (bookList) break;
         }
-        id titleView = nil;
-        @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-        if ([titleView isKindOfClass:[UIView class]]) {
-            CGRect tf = [(UIView *)titleView frame];
-            if (tf.size.height > 1) top = MAX(top, CGRectGetMaxY(tf));
+        if (!bookList) {
+            for (UIViewController *c in host.childViewControllers ?: @[]) {
+                if ([NSStringFromClass([c class]) containsString:@"BookList"]) {
+                    bookList = c;
+                    break;
+                }
+            }
         }
-        CGFloat h = host.view.bounds.size.height - top;
-        if (h < 80) h = 200;
-        frame = CGRectMake(0, top, w, h);
-        listVC = host;
-        LBAppendNativeMarker(@"ensureListSurface fallback host LBLT");
+        if (bookList) {
+            @try { (void)bookList.view; } @catch (__unused NSException *e) {}
+            listVC = bookList;
+            container = bookList.view;
+            frame = container.bounds;
+            if (frame.size.width < 2 || frame.size.height < 2) {
+                if ([scroll isKindOfClass:[UIView class]]) {
+                    CGRect sf = [(UIView *)scroll bounds];
+                    if (sf.size.width > 2 && sf.size.height > 2) frame = sf;
+                }
+            }
+            if (frame.size.width < 2 || frame.size.height < 2) {
+                frame = CGRectMake(0, 0, host.view.bounds.size.width,
+                                   MAX(200, host.view.bounds.size.height - 132));
+            }
+            LBAppendNativeMarker(@"ensureListSurface LBLT inside BookListCon");
+        } else {
+            LBAppendNativeMarker(@"ensureListSurface skip host LBLT (no BookList)");
+            return nil;
+        }
     }
 
     UITableView *neu = [[UITableView alloc] initWithFrame:frame style:UITableViewStylePlain];
