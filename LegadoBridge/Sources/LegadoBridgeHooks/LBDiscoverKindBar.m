@@ -1199,7 +1199,6 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
         if (!title.superview) {
             [host.view addSubview:title];
         }
-        [host.view bringSubviewToFront:title];
         title.hidden = NO;
         title.alpha = 1;
         // 浅色条 + 深字，黑底上也能看见（对齐 2cf7b1c 分类可读）
@@ -1208,10 +1207,53 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
     LBPinDiscoverContentToFirstPage(host);
     UIViewController *list = nil;
     @try { list = LBActiveDiscoverListVC(host); } @catch (__unused NSException *e) {}
+    id scroll = nil;
+    @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+
+    CGFloat titleBottom = 0;
+    if ([tv isKindOfClass:[UIView class]]) {
+        UIView *title = (UIView *)tv;
+        titleBottom = CGRectGetMaxY(title.frame);
+        if (titleBottom < 100) titleBottom = 129; // safe+44+38 兜底
+    } else {
+        titleBottom = 129;
+    }
+
+    // 内容 scroll 先抬到 title 之下，避免宿主黑遮罩盖住 BookListCon
+    if ([scroll isKindOfClass:[UIView class]]) {
+        UIView *sv = (UIView *)scroll;
+        sv.hidden = NO;
+        sv.alpha = 1;
+        CGRect hb = host.view.bounds;
+        if (hb.size.width > 2 && hb.size.height > titleBottom + 40) {
+            sv.frame = CGRectMake(0, titleBottom, hb.size.width, hb.size.height - titleBottom);
+        }
+        [host.view bringSubviewToFront:sv];
+    }
+
     if (list && list.isViewLoaded && list.view) {
         list.view.hidden = NO;
         list.view.alpha = 1;
-        if (list.view.superview) {
+        NSUInteger arrN = 0;
+        @try {
+            id a = [list valueForKey:@"arrBaseData"];
+            if ([a isKindOfClass:[NSArray class]]) arrN = [(NSArray *)a count];
+        } @catch (__unused NSException *e) {}
+
+        // 有书：把列表页直接挂到宿主（分类条下），摆脱 SG 翻页黑底遮罩
+        if (arrN > 0 && list.view.superview != host.view) {
+            CGRect hb = host.view.bounds;
+            [list.view removeFromSuperview];
+            list.view.frame = CGRectMake(0, titleBottom, hb.size.width,
+                                         MAX(200, hb.size.height - titleBottom));
+            list.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            [host.view addSubview:list.view];
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"reveal reparent list arr=%lu frame=%.0fx%.0f@%.0f,%.0f",
+                                  (unsigned long)arrN,
+                                  list.view.frame.size.width, list.view.frame.size.height,
+                                  list.view.frame.origin.x, list.view.frame.origin.y]);
+        } else if (list.view.superview) {
             CGRect sb = list.view.superview.bounds;
             if (sb.size.width > 2 && sb.size.height > 2) {
                 CGRect f = list.view.frame;
@@ -1220,28 +1262,32 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
                 if (f.size.height < 2) f.size.height = sb.size.height;
                 list.view.frame = f;
             }
+            [list.view.superview bringSubviewToFront:list.view];
         }
+
         UITableView *table = nil;
         @try {
             id v = [list valueForKey:@"tableView"];
             if ([v isKindOfClass:[UITableView class]]) table = v;
         } @catch (__unused NSException *e) {}
+        if (!table && list.view) {
+            for (UIView *sub in list.view.subviews) {
+                if ([sub isKindOfClass:[UITableView class]]) { table = (UITableView *)sub; break; }
+            }
+        }
         if (table) {
             table.hidden = NO;
             table.alpha = 1;
+            table.frame = list.view.bounds;
+            table.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            [list.view bringSubviewToFront:table];
             @try { [table reloadData]; } @catch (__unused NSException *e) {}
         }
     }
-    id scroll = nil;
-    @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
-    if ([scroll isKindOfClass:[UIView class]]) {
-        UIView *sv = (UIView *)scroll;
-        sv.hidden = NO;
-        sv.alpha = 1;
-        // 若 scroll 盖住 title，把 title 再置顶
-        if ([tv isKindOfClass:[UIView class]]) {
-            [host.view bringSubviewToFront:(UIView *)tv];
-        }
+
+    // 分类条永远最上
+    if ([tv isKindOfClass:[UIView class]]) {
+        [host.view bringSubviewToFront:(UIView *)tv];
     }
 }
 
