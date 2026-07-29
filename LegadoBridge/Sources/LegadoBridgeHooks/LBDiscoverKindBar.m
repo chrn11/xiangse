@@ -945,7 +945,7 @@ static void LBInstallBookListSafeViewDidLoad(void) {
 /// 新建一份 configure，失败则就地改色。
 static id LBDiscoverTitleConfigure(id donorConfigure) {
     UIColor *normal = [UIColor colorWithWhite:0.20 alpha:1];
-    UIColor *selected = [UIColor colorWithRed:0.20 green:0.48 blue:1 alpha:1];
+    UIColor *selected = [UIColor colorWithRed:0.90 green:0.35 blue:0.10 alpha:1];
     Class cfgCls = NSClassFromString(@"SGPageTitleViewConfigure");
     id cfg = nil;
     SEL make = NSSelectorFromString(@"pageTitleViewConfigure");
@@ -999,8 +999,16 @@ static id LBDiscoverTitleConfigure(id donorConfigure) {
 static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
     if (![tv isKindOfClass:[UIView class]]) return;
     UIView *root = (UIView *)tv;
-    UIColor *normal = [UIColor colorWithWhite:0.20 alpha:1];
-    UIColor *selected = [UIColor colorWithRed:0.20 green:0.48 blue:1 alpha:1];
+    // 白底 + 深字；避免 donor 白字/透明导致「分类条在但看不见」
+    @try {
+        root.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
+        root.opaque = YES;
+        root.hidden = NO;
+        root.alpha = 1;
+        root.clipsToBounds = NO;
+    } @catch (__unused NSException *e) {}
+    UIColor *normal = [UIColor colorWithWhite:0.15 alpha:1];
+    UIColor *selected = [UIColor colorWithRed:0.90 green:0.35 blue:0.10 alpha:1];
 
     NSMutableArray<UIButton *> *btns = [NSMutableArray array];
     NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
@@ -1027,6 +1035,8 @@ static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
             if (t.length == 0) @try { t = btn.titleLabel.text; } @catch (__unused NSException *e) {}
             [btn setTitleColor:c forState:UIControlStateNormal];
             [btn setTitleColor:selected forState:UIControlStateSelected];
+            @try { btn.backgroundColor = [UIColor clearColor]; } @catch (__unused NSException *e) {}
+            @try { btn.titleLabel.alpha = 1; btn.alpha = 1; btn.hidden = NO; } @catch (__unused NSException *e) {}
 
             NSInteger otag = tag + (NSInteger)idx;
             UILabel *overlay = nil;
@@ -1041,38 +1051,36 @@ static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
                 overlay.userInteractionEnabled = NO;
                 overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
             }
-            CGRect b = btn.bounds;
-            UIView *hostView = btn;
+            // 一律挂到 titleView 根上，避免被按钮图层盖住
+            CGRect b = [btn convertRect:btn.bounds toView:root];
             if (b.size.width < 1 || b.size.height < 1) {
                 CGRect fr = btn.frame;
                 if (fr.size.width >= 1 && fr.size.height >= 1) {
-                    hostView = root;
                     b = fr;
                 } else {
-                    hostView = root;
                     CGSize need = [t sizeWithAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:15]}];
                     CGFloat slot = MAX(ceil(need.width) + 24, 72);
                     b = CGRectMake(idx * slot, 0, slot, MAX(root.bounds.size.height, 28));
                 }
             }
-            if (overlay.superview != hostView) {
+            if (overlay.superview != root) {
                 [overlay removeFromSuperview];
-                @try { [hostView addSubview:overlay]; } @catch (__unused NSException *e) { overlay = nil; }
+                @try { [root addSubview:overlay]; } @catch (__unused NSException *e) { overlay = nil; }
             }
             if (overlay) {
                 overlay.tag = otag;
                 overlay.frame = b;
                 overlay.text = t ?: @"";
-                overlay.font = [UIFont systemFontOfSize:15];
+                overlay.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
                 overlay.textColor = c;
                 overlay.hidden = NO;
                 overlay.alpha = 1;
+                [root bringSubviewToFront:overlay];
             }
             if (dump.count < 6) {
-                CGRect bf = [btn convertRect:btn.bounds toView:root];
                 [dump addObject:[NSString stringWithFormat:@"%@ b=%.0f,%.0f,%.0fx%.0f ov=%@",
                                  t ?: @"-",
-                                 bf.origin.x, bf.origin.y, bf.size.width, bf.size.height,
+                                 b.origin.x, b.origin.y, b.size.width, b.size.height,
                                  overlay.text ?: @"-"]];
             }
         } @catch (NSException *ex) {
@@ -1751,30 +1759,163 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
     }
 }
 
-/// 切到无原生表的 Legado 源时：在列表子页内建 LBLT（禁止 LBDT 全屏脏表盖住分类条）
+/// 在 host / scroll 子树里找最适合灌书的 UITableView（优先 BookListCon、非零 frame、非脏表）
+static UITableView *LBFindBestDiscoverTable(UIViewController *host, UIViewController **outOwner) {
+    static const NSInteger kLBDT = 0x4C424454;
+    static const NSInteger kLBLT = 0x4C424C54;
+    if (outOwner) *outOwner = nil;
+    if (!host) return nil;
+
+    NSMutableArray *owners = [NSMutableArray array];
+    UIViewController *active = nil;
+    @try { active = LBActiveDiscoverListVC(host); } @catch (__unused NSException *e) {}
+    if (active) [owners addObject:active];
+
+    id scroll = nil;
+    @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+    for (NSString *k in @[@"childViewControllers", @"childVCs", @"arrChildVCs", @"vcs"]) {
+        id cv = nil;
+        @try { cv = [scroll valueForKey:k]; } @catch (__unused NSException *e) {}
+        if (![cv isKindOfClass:[NSArray class]]) continue;
+        for (id c in (NSArray *)cv) {
+            UIViewController *vc = [c isKindOfClass:[UIViewController class]] ? c : nil;
+            if (!vc) @try {
+                id v = [c valueForKey:@"viewController"];
+                if ([v isKindOfClass:[UIViewController class]]) vc = v;
+            } @catch (__unused NSException *e) {}
+            if (vc && ![owners containsObject:vc]) [owners addObject:vc];
+        }
+        if (owners.count > 1) break;
+    }
+    for (UIViewController *c in host.childViewControllers ?: @[]) {
+        if (![owners containsObject:c]) [owners addObject:c];
+    }
+    if (![owners containsObject:host]) [owners addObject:host];
+
+    UITableView *best = nil;
+    UIViewController *bestOwner = nil;
+    NSInteger bestScore = -1;
+    for (UIViewController *vc in owners) {
+        @try { (void)vc.view; } @catch (__unused NSException *e) {}
+        NSMutableArray *cands = [NSMutableArray array];
+        for (NSString *k in @[@"tableView", @"tv", @"listTableView", @"mainTableView", @"myTableView"]) {
+            @try {
+                id v = [vc valueForKey:k];
+                if ([v isKindOfClass:[UITableView class]]) [cands addObject:v];
+            } @catch (__unused NSException *e) {}
+        }
+        if (vc.isViewLoaded && vc.view) {
+            NSMutableArray *q = [NSMutableArray arrayWithObject:vc.view];
+            NSInteger budget = 60;
+            while (q.count > 0 && budget-- > 0) {
+                UIView *cur = q.firstObject;
+                [q removeObjectAtIndex:0];
+                if ([cur isKindOfClass:[UITableView class]]) [cands addObject:cur];
+                for (UIView *sub in cur.subviews) [q addObject:sub];
+            }
+        }
+        NSString *cn = NSStringFromClass([vc class]);
+        BOOL isList = [cn containsString:@"BookList"];
+        NSUInteger arrN = 0;
+        @try {
+            id a = [vc valueForKey:@"arrBaseData"];
+            if ([a isKindOfClass:[NSArray class]]) arrN = [(NSArray *)a count];
+        } @catch (__unused NSException *e) {}
+
+        for (UITableView *tv in cands) {
+            if (tv.tag == kLBDT) continue;
+            NSInteger score = 0;
+            if (tv.tag == kLBLT) score -= 20;
+            if (isList) score += 50;
+            if (arrN > 0) score += 30;
+            if (tv.frame.size.width > 2 && tv.frame.size.height > 2) score += 20;
+            else if (tv.bounds.size.width > 2 && tv.bounds.size.height > 2) score += 10;
+            id ds = tv.dataSource;
+            NSString *dsn = ds ? NSStringFromClass([ds class]) : @"";
+            if ([dsn containsString:@"FilteredDataSource"]) score -= 5;
+            if (ds == (id)vc) score += 5;
+            if (score > bestScore) {
+                bestScore = score;
+                best = tv;
+                bestOwner = vc;
+            }
+        }
+    }
+    if (outOwner) *outOwner = bestOwner;
+    return best;
+}
+
+/// 把零尺寸原生表拉回可见区域；去掉盖在 host 上的空 LBLT
+static void LBRepairDiscoverTableFrame(UIViewController *host, UIViewController *listVC, UITableView *tv) {
+    if (!host || !tv) return;
+    static const NSInteger kLBLT = 0x4C424C54;
+    if (host.isViewLoaded && host.view) {
+        NSMutableArray *junk = [NSMutableArray array];
+        for (UIView *sub in host.view.subviews) {
+            if ([sub isKindOfClass:[UITableView class]] && sub.tag == kLBLT && sub != tv) {
+                [junk addObject:sub];
+            }
+        }
+        for (UIView *v in junk) {
+            [v removeFromSuperview];
+            LBAppendNativeMarker(@"ensureListSurface remove host LBLT");
+        }
+    }
+
+    CGRect fr = tv.frame;
+    BOOL bad = (fr.size.width < 2 || fr.size.height < 2);
+    if (!bad) return;
+
+    UIView *container = tv.superview;
+    if (!container && listVC.isViewLoaded) container = listVC.view;
+    CGRect target = container ? container.bounds : CGRectZero;
+    if (target.size.width < 2 || target.size.height < 2) {
+        id scroll = nil;
+        @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+        if ([scroll isKindOfClass:[UIView class]]) target = [(UIView *)scroll bounds];
+    }
+    if (target.size.width < 2 || target.size.height < 2) {
+        if (host.isViewLoaded) {
+            CGFloat top = 132;
+            id titleView = nil;
+            @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+            if ([titleView isKindOfClass:[UIView class]]) {
+                top = MAX(top, CGRectGetMaxY([(UIView *)titleView frame]));
+            }
+            target = CGRectMake(0, 0, host.view.bounds.size.width,
+                                MAX(200, host.view.bounds.size.height - top));
+        }
+    }
+    if (target.size.width < 2 || target.size.height < 2) return;
+    tv.frame = target;
+    tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    tv.hidden = NO;
+    tv.alpha = 1;
+    if (tv.superview) [tv.superview setNeedsLayout];
+    LBAppendNativeMarker([NSString stringWithFormat:
+                          @"repairTV frame %.0fx%.0f owner=%@",
+                          target.size.width, target.size.height,
+                          listVC ? NSStringFromClass([listVC class]) : @"-"]);
+}
+
+/// 优先修复 BookListCon 原生表；仅无子页时才建 LBLT（禁止盖住分类条的全屏脏表）
 UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
     if (!host) return nil;
     static const NSInteger kLBLT = 0x4C424C54; // 'LBLT'
     static const NSInteger kLBDT = 0x4C424454; // 'LBDT'
 
     UIViewController *listVC = nil;
-    @try { listVC = LBActiveDiscoverListVC(host); } @catch (__unused NSException *e) {}
+    UITableView *tv = LBFindBestDiscoverTable(host, &listVC);
+    if (!listVC) {
+        @try { listVC = LBActiveDiscoverListVC(host); } @catch (__unused NSException *e) {}
+    }
     if (!listVC) listVC = host;
     @try { (void)listVC.view; } @catch (__unused NSException *e) {}
 
-    // 清 LBDT 脏表
-    if (listVC.isViewLoaded && listVC.view) {
+    for (UIViewController *vc in @[listVC, host]) {
+        if (!vc.isViewLoaded || !vc.view) continue;
         NSMutableArray *junk = [NSMutableArray array];
-        for (UIView *sub in listVC.view.subviews) {
-            if ([sub isKindOfClass:[UITableView class]] && sub.tag == kLBDT) {
-                [junk addObject:sub];
-            }
-        }
-        for (UIView *v in junk) [v removeFromSuperview];
-    }
-    if (host.isViewLoaded && host.view && host != listVC) {
-        NSMutableArray *junk = [NSMutableArray array];
-        for (UIView *sub in host.view.subviews) {
+        for (UIView *sub in vc.view.subviews) {
             if ([sub isKindOfClass:[UITableView class]] && sub.tag == kLBDT) {
                 [junk addObject:sub];
             }
@@ -1782,44 +1923,43 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
         for (UIView *v in junk) [v removeFromSuperview];
     }
 
-    UITableView *tv = nil;
-    for (NSString *k in @[@"tableView", @"tv", @"listTableView", @"mainTableView", @"myTableView"]) {
-        @try {
-            id v = [listVC valueForKey:k];
-            if ([v isKindOfClass:[UITableView class]] && [(UIView *)v tag] != kLBDT) {
-                tv = (UITableView *)v;
-                break;
-            }
-        } @catch (__unused NSException *e) {}
-    }
-    if (!tv && listVC.isViewLoaded && listVC.view) {
-        NSMutableArray *q = [NSMutableArray arrayWithObject:listVC.view];
-        NSInteger budget = 80;
-        while (q.count > 0 && budget-- > 0) {
-            UIView *cur = q.firstObject;
-            [q removeObjectAtIndex:0];
-            if ([cur isKindOfClass:[UITableView class]] && cur.tag != kLBDT) {
-                tv = (UITableView *)cur;
-                break;
-            }
-            for (UIView *sub in cur.subviews) [q addObject:sub];
-        }
-    }
     if (tv) {
-        // 可见性：openConfig 后常白底空壳
+        LBRepairDiscoverTableFrame(host, listVC, tv);
         @try {
             if (tv.backgroundColor == nil ||
-                CGColorGetAlpha(tv.backgroundColor.CGColor) < 0.05) {
+                CGColorGetAlpha(tv.backgroundColor.CGColor) < 0.05 ||
+                [tv.backgroundColor isEqual:[UIColor whiteColor]]) {
                 tv.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
             }
         } @catch (__unused NSException *e) {}
+        NSUInteger arrN = 0;
+        @try {
+            id a = [listVC valueForKey:@"arrBaseData"];
+            if ([a isKindOfClass:[NSArray class]]) arrN = [(NSArray *)a count];
+        } @catch (__unused NSException *e) {}
+        id ds = tv.dataSource;
+        NSString *dsn = ds ? NSStringFromClass([ds class]) : @"";
+        if (arrN > 0 && (ds == nil || [dsn containsString:@"FilteredDataSource"])) {
+            LBEnsurePlazaListTableHooks([listVC class]);
+            tv.dataSource = (id<UITableViewDataSource>)listVC;
+            tv.delegate = (id<UITableViewDelegate>)listVC;
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"ensureListSurface fixDS arr=%lu was=%@",
+                                  (unsigned long)arrN, dsn.length ? dsn : @"nil"]);
+        }
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"ensureListSurface reuse tv=%.0fx%.0f@%.0f,%.0f tag=%ld owner=%@",
+                              tv.frame.size.width, tv.frame.size.height,
+                              tv.frame.origin.x, tv.frame.origin.y,
+                              (long)tv.tag, NSStringFromClass([listVC class])]);
         return tv;
     }
 
-    // 无表：在 listVC（或 host 标题条下方）建 LBLT
     UIView *container = nil;
     CGRect frame = CGRectZero;
-    if (listVC.isViewLoaded && listVC.view && listVC != host) {
+    NSString *lcn = NSStringFromClass([listVC class]);
+    BOOL childList = (listVC != host) && [lcn containsString:@"BookList"];
+    if (childList && listVC.isViewLoaded && listVC.view) {
         container = listVC.view;
         frame = container.bounds;
         if (frame.size.width < 2 || frame.size.height < 2) {
@@ -1844,14 +1984,13 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
         @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
         if ([titleView isKindOfClass:[UIView class]]) {
             CGRect tf = [(UIView *)titleView frame];
-            if (tf.size.height > 1) {
-                top = MAX(top, CGRectGetMaxY(tf));
-            }
+            if (tf.size.height > 1) top = MAX(top, CGRectGetMaxY(tf));
         }
         CGFloat h = host.view.bounds.size.height - top;
         if (h < 80) h = 200;
         frame = CGRectMake(0, top, w, h);
         listVC = host;
+        LBAppendNativeMarker(@"ensureListSurface fallback host LBLT");
     }
 
     UITableView *neu = [[UITableView alloc] initWithFrame:frame style:UITableViewStylePlain];
@@ -1872,7 +2011,6 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
             container.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
         }
     } @catch (__unused NSException *e) {}
-    // 表加在 host 上时，分类条必须置顶，避免再被盖住
     if (container == host.view) {
         id titleView = nil;
         @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
