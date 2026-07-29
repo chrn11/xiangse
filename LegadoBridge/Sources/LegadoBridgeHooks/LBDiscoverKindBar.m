@@ -1039,10 +1039,22 @@ static char kLBTitleTapHostKey;
 void LBBringDiscoverKindHitFront(UIViewController *host) {
     if (!host || !host.isViewLoaded || !host.view) return;
     static const NSInteger kLBKindHit = 0x4C424B48; // 'LBKH'
-    for (UIView *sub in host.view.subviews) {
+    UIWindow *win = host.view.window;
+    UIView *container = win ?: host.view;
+    for (UIView *sub in container.subviews) {
         if (sub.tag == kLBKindHit) {
-            [host.view bringSubviewToFront:sub];
+            [container bringSubviewToFront:sub];
             break;
+        }
+    }
+    // 兼容：旧包挂在 host.view 上
+    if (win) {
+        for (UIView *sub in host.view.subviews) {
+            if (sub.tag == kLBKindHit) {
+                [win addSubview:sub];
+                [win bringSubviewToFront:sub];
+                break;
+            }
         }
     }
 }
@@ -1120,17 +1132,23 @@ static void LBDiscover_titleKindTap(id self, SEL _cmd, id sender) {
 static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot) {
     if (!host || !titleRoot || !host.isViewLoaded || !host.view) return;
     static const NSInteger kLBKindHit = 0x4C424B48; // 'LBKH'
+    UIWindow *win = host.view.window;
+    UIView *container = win ?: host.view;
     UIView *hit = nil;
-    for (UIView *sub in host.view.subviews) {
+    for (UIView *sub in container.subviews) {
         if (sub.tag == kLBKindHit) { hit = sub; break; }
     }
-    // 必须转到 host.view 坐标系（title 可能不在 host 直系）
-    CGRect tf = [titleRoot convertRect:titleRoot.bounds toView:host.view];
-    if (tf.size.width < 2 || tf.size.height < 2) {
-        tf = CGRectMake(0, 88, host.view.bounds.size.width, 44);
+    if (!hit) {
+        for (UIView *sub in host.view.subviews) {
+            if (sub.tag == kLBKindHit) { hit = sub; break; }
+        }
     }
-    // 略加高，避免点偏
-    tf = CGRectInset(tf, 0, -4);
+    // 挂到 keyWindow，避免宿主子树里其它层吃掉点击
+    CGRect tf = [titleRoot convertRect:titleRoot.bounds toView:container];
+    if (tf.size.width < 2 || tf.size.height < 2) {
+        tf = CGRectMake(0, 88, container.bounds.size.width, 44);
+    }
+    tf = CGRectInset(tf, 0, -6);
 
     Class cls = [host class];
     SEL sel = @selector(lb_discoverTitleKindTap:);
@@ -1141,27 +1159,31 @@ static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot) {
     if (!hit) {
         hit = [[UIView alloc] initWithFrame:tf];
         hit.tag = kLBKindHit;
-        hit.backgroundColor = [UIColor clearColor];
+        // 调试期半透明，确认盖在分类条上；稳定后改 clear
+        hit.backgroundColor = [[UIColor systemRedColor] colorWithAlphaComponent:0.25];
         hit.userInteractionEnabled = YES;
         hit.autoresizingMask = UIViewAutoresizingFlexibleWidth;
         UITapGestureRecognizer *tap =
             [[UITapGestureRecognizer alloc] initWithTarget:host action:sel];
         tap.cancelsTouchesInView = YES;
         [hit addGestureRecognizer:tap];
-        [host.view addSubview:hit];
+        [container addSubview:hit];
         LBAppendNativeMarker([NSString stringWithFormat:
-                              @"kindHitControl new frame=%.0f,%.0f,%.0fx%.0f",
+                              @"kindHitControl new win=%d frame=%.0f,%.0f,%.0fx%.0f",
+                              win ? 1 : 0,
                               tf.origin.x, tf.origin.y, tf.size.width, tf.size.height]);
     } else {
+        if (hit.superview != container) [container addSubview:hit];
         hit.frame = tf;
         hit.hidden = NO;
         hit.userInteractionEnabled = YES;
+        hit.backgroundColor = [[UIColor systemRedColor] colorWithAlphaComponent:0.25];
         LBAppendNativeMarker([NSString stringWithFormat:
-                              @"kindHitControl reuse frame=%.0f,%.0f,%.0fx%.0f",
+                              @"kindHitControl reuse win=%d frame=%.0f,%.0f,%.0fx%.0f",
+                              win ? 1 : 0,
                               tf.origin.x, tf.origin.y, tf.size.width, tf.size.height]);
     }
 
-    // 按分类按钮槽位铺透明 UIButton（TouchUpInside 比单手势更稳）
     for (UIView *old in [hit.subviews copy]) {
         if ([old isKindOfClass:[UIButton class]]) [old removeFromSuperview];
     }
@@ -1183,7 +1205,7 @@ static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot) {
         CGRect fr = [b convertRect:b.bounds toView:hit];
         if (fr.size.width < 2) continue;
         UIButton *slotBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-        slotBtn.frame = fr;
+        slotBtn.frame = CGRectInset(fr, -2, -4);
         slotBtn.backgroundColor = [UIColor clearColor];
         slotBtn.userInteractionEnabled = YES;
         objc_setAssociatedObject(slotBtn, &kLBKindBtnIndexKey, @(slot),
@@ -1195,8 +1217,20 @@ static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot) {
 
     objc_setAssociatedObject(hit, &kLBTitleTapHostKey, host, OBJC_ASSOCIATION_ASSIGN);
     objc_setAssociatedObject(hit, "lbKindTitleRoot", titleRoot, OBJC_ASSOCIATION_ASSIGN);
-    [host.view bringSubviewToFront:hit];
+    [container bringSubviewToFront:hit];
     LBAppendNativeMarker([NSString stringWithFormat:@"kindHitSlots n=%ld", (long)slot]);
+
+    // 文件强制切类：Documents/legado_kind_force.txt 写索引数字
+    @try {
+        NSString *fp = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_kind_force.txt"];
+        NSString *raw = [NSString stringWithContentsOfFile:fp encoding:NSUTF8StringEncoding error:NULL];
+        if (raw.length > 0) {
+            NSInteger forceIdx = raw.integerValue;
+            [[NSFileManager defaultManager] removeItemAtPath:fp error:NULL];
+            LBAppendNativeMarker([NSString stringWithFormat:@"kindForceFile idx=%ld", (long)forceIdx]);
+            LBDiscoverHandleKindSelect(host, titleRoot, forceIdx);
+        }
+    } @catch (__unused NSException *e) {}
 }
 
 static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
