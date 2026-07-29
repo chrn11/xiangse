@@ -519,7 +519,23 @@ import LegadoBridgeHooks
         guard let src, let raw = src.exploreUrl, !raw.isEmpty else {
             return "[]"
         }
-        let kinds = RuleWebBook.parseExploreKinds(raw).map { ["title": $0.title, "url": $0.url] }
+        var kinds = RuleWebBook.parseExploreKinds(raw).map { ["title": $0.title, "url": $0.url] }
+        // 领域书库：源里常只配单条玄幻 URL，按站点固定分类表展开（与书源注释一致）
+        if kinds.count == 1 {
+            let key = (sourceUrl?.isEmpty == false ? sourceUrl! : src.bookSourceUrl).lowercased()
+            if key.contains("lysxh.com") {
+                let fenlei: [(String, String)] = [
+                    ("玄幻", "/fenlei/xuanhuan/{{page}}/"),
+                    ("武侠", "/fenlei/wuxia/{{page}}/"),
+                    ("都市", "/fenlei/dushi/{{page}}/"),
+                    ("历史", "/fenlei/lishi/{{page}}/"),
+                    ("网游", "/fenlei/wangyou/{{page}}/"),
+                    ("科幻", "/fenlei/kehuan/{{page}}/"),
+                    ("女生", "/fenlei/nvsheng/{{page}}/")
+                ]
+                kinds = fenlei.map { ["title": $0.0, "url": $0.1] }
+            }
+        }
         guard let data = try? JSONSerialization.data(withJSONObject: kinds),
               let s = String(data: data, encoding: .utf8) else {
             return "[]"

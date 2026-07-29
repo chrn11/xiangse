@@ -801,9 +801,18 @@ static void LBLoadDiscoverCover(UIImageView *iv, NSString *urlStr, NSString *tok
         return;
     }
     NSURL *u = [NSURL URLWithString:urlStr];
-    if (!u) return;
+    if (!u || u.scheme.length == 0) {
+        // 相对路径：相对 source / book 域名
+        return;
+    }
     __weak UIImageView *weakIV = iv;
-    NSURLSessionDataTask *t = [[NSURLSession sharedSession]
+    NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+    cfg.timeoutIntervalForRequest = 12;
+    cfg.HTTPAdditionalHeaders = @{
+        @"User-Agent": @"Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15"
+    };
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:cfg];
+    NSURLSessionDataTask *t = [session
         dataTaskWithURL:u
       completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
         if (!data || err) return;
@@ -816,9 +825,52 @@ static void LBLoadDiscoverCover(UIImageView *iv, NSString *urlStr, NSString *tok
             NSString *cur = objc_getAssociatedObject(strongIV, "lbCoverToken");
             if (token.length && cur.length && ![cur isEqualToString:token]) return;
             strongIV.image = img;
+            // 有封面时藏「暂无封面」字
+            UILabel *ph = (UILabel *)[strongIV viewWithTag:9105];
+            if (ph) ph.hidden = YES;
         });
     }];
     [t resume];
+}
+
+static NSString *LBAbsoluteCoverURL(NSDictionary *book) {
+    NSString *coverUrl = nil;
+    for (NSString *k in @[@"coverUrl", @"cover", @"imgUrl", @"imageUrl", @"bookCover"]) {
+        id v = book[k];
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
+            coverUrl = v;
+            break;
+        }
+    }
+    if (coverUrl.length == 0) return @"";
+    if ([coverUrl hasPrefix:@"http://"] || [coverUrl hasPrefix:@"https://"] ||
+        [coverUrl hasPrefix:@"data:"]) {
+        return coverUrl;
+    }
+    NSString *base = nil;
+    for (NSString *k in @[@"sourceUrl", @"bookUrl", @"url"]) {
+        id v = book[k];
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
+            base = v;
+            break;
+        }
+    }
+    if (base.length == 0) return coverUrl;
+    NSURL *bu = [NSURL URLWithString:base];
+    if (!bu) return coverUrl;
+    // 只要站点根：scheme://host
+    if (bu.host.length > 0 && bu.scheme.length > 0) {
+        NSString *root = [NSString stringWithFormat:@"%@://%@", bu.scheme, bu.host];
+        if ([coverUrl hasPrefix:@"//"]) {
+            return [NSString stringWithFormat:@"%@:%@", bu.scheme, coverUrl];
+        }
+        if ([coverUrl hasPrefix:@"/"]) {
+            return [root stringByAppendingString:coverUrl];
+        }
+        NSURL *abs = [NSURL URLWithString:coverUrl relativeToURL:bu];
+        return abs.absoluteString ?: coverUrl;
+    }
+    return coverUrl;
 }
 
 static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictionary *book) {
@@ -826,7 +878,7 @@ static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictiona
     const CGFloat kPad = 12, kCoverW = 62, kCoverH = 84;
     UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:cid];
     UIImageView *cover;
-    UILabel *title, *sub, *intro;
+    UILabel *title, *sub, *intro, *ph;
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
                                       reuseIdentifier:cid];
@@ -839,6 +891,16 @@ static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictiona
         cover.layer.cornerRadius = 4;
         cover.backgroundColor = [UIColor colorWithWhite:0.18 alpha:1];
         [cell.contentView addSubview:cover];
+
+        ph = [[UILabel alloc] initWithFrame:cover.bounds];
+        ph.tag = 9105;
+        ph.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        ph.textAlignment = NSTextAlignmentCenter;
+        ph.numberOfLines = 2;
+        ph.font = [UIFont systemFontOfSize:11];
+        ph.textColor = [UIColor colorWithWhite:0.55 alpha:1];
+        ph.text = @"暂无封面";
+        [cover addSubview:ph];
 
         title = [[UILabel alloc] initWithFrame:CGRectZero];
         title.tag = 9102;
@@ -865,6 +927,7 @@ static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictiona
         title = (UILabel *)[cell.contentView viewWithTag:9102];
         sub = (UILabel *)[cell.contentView viewWithTag:9103];
         intro = (UILabel *)[cell.contentView viewWithTag:9104];
+        ph = (UILabel *)[cover viewWithTag:9105];
     }
 
     CGFloat w = tv.bounds.size.width > 0 ? tv.bounds.size.width : [UIScreen mainScreen].bounds.size.width;
@@ -901,8 +964,13 @@ static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictiona
     desc = [desc stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     intro.text = desc;
 
-    NSString *coverUrl = book[@"coverUrl"] ?: book[@"cover"] ?: book[@"imgUrl"] ?: @"";
+    NSString *coverUrl = LBAbsoluteCoverURL(book);
     cover.image = nil;
+    if (ph) {
+        ph.hidden = NO;
+        ph.text = coverUrl.length > 0 ? @"" : @"暂无封面";
+        if (coverUrl.length > 0) ph.hidden = YES;
+    }
     objc_setAssociatedObject(cover, "lbCoverToken", coverUrl, OBJC_ASSOCIATION_COPY_NONATOMIC);
     LBLoadDiscoverCover(cover, coverUrl, coverUrl);
 

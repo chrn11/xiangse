@@ -1031,6 +1031,8 @@ static id LBDiscoverTitleConfigure(id donorConfigure) {
 }
 
 /// 兜底：不改动 SG 内部 layout（易崩），只叠可见 overlay UILabel
+static char kLBKindWantCountKey;
+
 static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
     if (![tv isKindOfClass:[UIView class]]) return;
     UIView *root = (UIView *)tv;
@@ -1058,11 +1060,29 @@ static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
             [stack addObject:sub];
         }
     }
+    NSArray *sorted = [btns sortedArrayUsingComparator:^NSComparisonResult(UIButton *a, UIButton *b) {
+        return a.frame.origin.x < b.frame.origin.x ? NSOrderedAscending : NSOrderedDescending;
+    }];
+    NSNumber *wantObj = objc_getAssociatedObject(root, &kLBKindWantCountKey);
+    NSInteger want = wantObj ? wantObj.integerValue : (NSInteger)sorted.count;
 
     NSMutableArray *dump = [NSMutableArray array];
     NSInteger idx = 0;
     NSInteger tag = 0x4C4254; // 'LBT'
-    for (UIButton *btn in btns) {
+    for (UIButton *btn in sorted) {
+        BOOL keep = (want <= 0) || (idx < want);
+        NSInteger otag = tag + (NSInteger)idx;
+        if (!keep) {
+            btn.hidden = YES;
+            btn.alpha = 0;
+            btn.userInteractionEnabled = NO;
+            @try {
+                UIView *ov = [root viewWithTag:otag];
+                if (ov) { ov.hidden = YES; ov.alpha = 0; }
+            } @catch (__unused NSException *e) {}
+            idx++;
+            continue;
+        }
         UIColor *c = (idx == selectedIndex) ? selected : normal;
         @try {
             NSString *t = [btn titleForState:UIControlStateNormal];
@@ -1071,7 +1091,7 @@ static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
             [btn setTitleColor:c forState:UIControlStateNormal];
             [btn setTitleColor:selected forState:UIControlStateSelected];
             @try { btn.backgroundColor = [UIColor clearColor]; } @catch (__unused NSException *e) {}
-            @try { btn.titleLabel.alpha = 1; btn.alpha = 1; btn.hidden = NO; } @catch (__unused NSException *e) {}
+            @try { btn.titleLabel.alpha = 1; btn.alpha = 1; btn.hidden = NO; btn.userInteractionEnabled = YES; } @catch (__unused NSException *e) {}
 
             NSInteger otag = tag + (NSInteger)idx;
             UILabel *overlay = nil;
@@ -1430,17 +1450,30 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
         NSArray *sorted = [btns sortedArrayUsingComparator:^NSComparisonResult(UIButton *a, UIButton *b) {
             return a.frame.origin.x < b.frame.origin.x ? NSOrderedAscending : NSOrderedDescending;
         }];
-        for (NSUInteger i = 0; i < sorted.count && i < titles.count; i++) {
-            NSString *name = [titles[i] isKindOfClass:[NSString class]] ? titles[i] : @"分类";
+        for (NSUInteger i = 0; i < sorted.count; i++) {
             UIButton *b = sorted[i];
-            @try {
-                [b setTitle:name forState:UIControlStateNormal];
-                [b setTitle:name forState:UIControlStateSelected];
-                b.titleLabel.text = name;
-            } @catch (__unused NSException *e) {}
+            if (i < titles.count) {
+                NSString *name = [titles[i] isKindOfClass:[NSString class]] ? titles[i] : @"分类";
+                @try {
+                    [b setTitle:name forState:UIControlStateNormal];
+                    [b setTitle:name forState:UIControlStateSelected];
+                    b.titleLabel.text = name;
+                } @catch (__unused NSException *e) {}
+                b.hidden = NO;
+                b.alpha = 1;
+                b.userInteractionEnabled = YES;
+            } else {
+                // Legado 分类少于 donor 壳：藏多余按钮，避免「月票榜」假分类
+                b.hidden = YES;
+                b.alpha = 0;
+                b.userInteractionEnabled = NO;
+            }
         }
-        LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles softBtn n=%lu want=%lu",
-                              (unsigned long)sorted.count, (unsigned long)titles.count]);
+        objc_setAssociatedObject((UIView *)tv, &kLBKindWantCountKey, @(titles.count),
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles softBtn n=%lu want=%lu hid=%lu",
+                              (unsigned long)sorted.count, (unsigned long)titles.count,
+                              (unsigned long)MAX((NSInteger)sorted.count - (NSInteger)titles.count, 0)]);
     }
     LBEnableTitleScroll(tv);
     LBAttachDiscoverKindButtonActions(host, tv);
