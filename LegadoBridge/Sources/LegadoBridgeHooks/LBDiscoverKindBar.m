@@ -1192,34 +1192,46 @@ static void LBEnableTitleScroll(id tv) {
 /// resetContent 后强制用 Legado 分类覆盖 SGPageTitleView（donor bookWorld 会盖掉 arrHeaderBtnTitle）
 static void LBRevealDiscoverTitleAndList(UIViewController *host) {
     if (!host || !host.isViewLoaded || !host.view) return;
+    static const NSInteger kLBFO = 0x4C42464F; // 'LBFO' feed overlay
+
     id tv = nil;
     @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-    if ([tv isKindOfClass:[UIView class]]) {
-        UIView *title = (UIView *)tv;
-        if (!title.superview) {
-            [host.view addSubview:title];
-        }
+    UIView *title = [tv isKindOfClass:[UIView class]] ? (UIView *)tv : nil;
+    if (title) {
+        if (!title.superview) [host.view addSubview:title];
         title.hidden = NO;
         title.alpha = 1;
-        // 浅色条 + 深字，黑底上也能看见（对齐 2cf7b1c 分类可读）
         title.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
     }
+
     LBPinDiscoverContentToFirstPage(host);
+
     UIViewController *list = nil;
     @try { list = LBActiveDiscoverListVC(host); } @catch (__unused NSException *e) {}
-    id scroll = nil;
-    @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
-
-    CGFloat titleBottom = 0;
-    if ([tv isKindOfClass:[UIView class]]) {
-        UIView *title = (UIView *)tv;
-        titleBottom = CGRectGetMaxY(title.frame);
-        if (titleBottom < 100) titleBottom = 129; // safe+44+38 兜底
-    } else {
-        titleBottom = 129;
+    // 兜底：从宿主子树找回 BookList（含已挂在 host.view 上的）
+    if (!list && host.isViewLoaded) {
+        NSMutableArray *q = [NSMutableArray arrayWithObject:host.view];
+        NSInteger budget = 80;
+        while (q.count && budget-- > 0) {
+            UIView *cur = q.firstObject;
+            [q removeObjectAtIndex:0];
+            for (UIResponder *r = cur.nextResponder; r; r = r.nextResponder) {
+                if ([r isKindOfClass:[UIViewController class]] &&
+                    [NSStringFromClass([r class]) containsString:@"BookList"]) {
+                    list = (UIViewController *)r;
+                    break;
+                }
+            }
+            if (list) break;
+            for (UIView *sub in cur.subviews) [q addObject:sub];
+        }
     }
 
-    // 内容 scroll 先抬到 title 之下，避免宿主黑遮罩盖住 BookListCon
+    CGFloat titleBottom = title ? CGRectGetMaxY(title.frame) : 0;
+    if (titleBottom < 100) titleBottom = 129;
+
+    id scroll = nil;
+    @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
     if ([scroll isKindOfClass:[UIView class]]) {
         UIView *sv = (UIView *)scroll;
         sv.hidden = NO;
@@ -1234,61 +1246,64 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
     if (list && list.isViewLoaded && list.view) {
         list.view.hidden = NO;
         list.view.alpha = 1;
-        NSUInteger arrN = 0;
-        @try {
-            id a = [list valueForKey:@"arrBaseData"];
-            if ([a isKindOfClass:[NSArray class]]) arrN = [(NSArray *)a count];
-        } @catch (__unused NSException *e) {}
-
-        // 有书：把列表页直接挂到宿主（分类条下），摆脱 SG 翻页黑底遮罩
-        if (arrN > 0 && list.view.superview != host.view) {
-            CGRect hb = host.view.bounds;
-            [list.view removeFromSuperview];
-            list.view.frame = CGRectMake(0, titleBottom, hb.size.width,
-                                         MAX(200, hb.size.height - titleBottom));
-            list.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            [host.view addSubview:list.view];
-            LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"reveal reparent list arr=%lu frame=%.0fx%.0f@%.0f,%.0f",
-                                  (unsigned long)arrN,
-                                  list.view.frame.size.width, list.view.frame.size.height,
-                                  list.view.frame.origin.x, list.view.frame.origin.y]);
-        } else if (list.view.superview) {
-            CGRect sb = list.view.superview.bounds;
-            if (sb.size.width > 2 && sb.size.height > 2) {
-                CGRect f = list.view.frame;
-                f.origin = CGPointZero;
-                if (f.size.width < 2) f.size.width = sb.size.width;
-                if (f.size.height < 2) f.size.height = sb.size.height;
-                list.view.frame = f;
-            }
+        if (list.view.superview) {
             [list.view.superview bringSubviewToFront:list.view];
         }
+    }
 
-        UITableView *table = nil;
-        @try {
-            id v = [list valueForKey:@"tableView"];
-            if ([v isKindOfClass:[UITableView class]]) table = v;
-        } @catch (__unused NSException *e) {}
-        if (!table && list.view) {
-            for (UIView *sub in list.view.subviews) {
-                if ([sub isKindOfClass:[UITableView class]]) { table = (UITableView *)sub; break; }
+    NSUInteger arrN = 0;
+    @try {
+        id a = [list valueForKey:@"arrBaseData"];
+        if ([a isKindOfClass:[NSArray class]]) arrN = [(NSArray *)a count];
+    } @catch (__unused NSException *e) {}
+
+    // 有书：在宿主上叠一层可见表（不拆 SG 父子，避免 VC 被释放）
+    if (list && arrN > 0) {
+        LBEnsurePlazaListTableHooks([list class]);
+        UITableView *overlay = nil;
+        for (UIView *sub in host.view.subviews) {
+            if ([sub isKindOfClass:[UITableView class]] && sub.tag == kLBFO) {
+                overlay = (UITableView *)sub;
+                break;
             }
         }
-        if (table) {
-            table.hidden = NO;
-            table.alpha = 1;
-            table.frame = list.view.bounds;
-            table.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            [list.view bringSubviewToFront:table];
-            @try { [table reloadData]; } @catch (__unused NSException *e) {}
+        CGRect hb = host.view.bounds;
+        CGRect of = CGRectMake(0, titleBottom, hb.size.width, MAX(200, hb.size.height - titleBottom));
+        if (!overlay) {
+            overlay = [[UITableView alloc] initWithFrame:of style:UITableViewStylePlain];
+            overlay.tag = kLBFO;
+            overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            overlay.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+            overlay.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
+            overlay.separatorColor = [UIColor colorWithWhite:0.2 alpha:1];
+            overlay.rowHeight = 108;
+            overlay.estimatedRowHeight = 108;
+            [host.view addSubview:overlay];
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"reveal feedOverlay new arr=%lu frame=%.0fx%.0f@%.0f,%.0f",
+                                  (unsigned long)arrN, of.size.width, of.size.height,
+                                  of.origin.x, of.origin.y]);
+        } else {
+            overlay.frame = of;
+            overlay.hidden = NO;
+            overlay.alpha = 1;
         }
+        overlay.dataSource = (id<UITableViewDataSource>)list;
+        overlay.delegate = (id<UITableViewDelegate>)list;
+        @try {
+            [overlay reloadData];
+            [overlay layoutIfNeeded];
+        } @catch (__unused NSException *e) {}
+        [host.view bringSubviewToFront:overlay];
+        NSInteger vis = 0;
+        @try { vis = (NSInteger)overlay.visibleCells.count; } @catch (__unused NSException *e) {}
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"reveal feedOverlay vis=%ld rows~%lu csh=%.0f",
+                              (long)vis, (unsigned long)arrN, overlay.contentSize.height]);
     }
 
-    // 分类条永远最上
-    if ([tv isKindOfClass:[UIView class]]) {
-        [host.view bringSubviewToFront:(UIView *)tv];
-    }
+    // 分类条最上
+    if (title) [host.view bringSubviewToFront:title];
 }
 
 static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles) {
