@@ -20,6 +20,7 @@ static void (*sOrig_pageTitleSelected)(id, SEL, id, NSInteger) = NULL;
 static void (*sOrig_onSwitchBtn)(id, SEL) = NULL;
 static void (*sOrig_onSwitchBtnArg)(id, SEL, id) = NULL;
 static void (*sOrig_onHeaderBtn)(id, SEL, id) = NULL;
+static void (*sOrig_openConfigByName)(id, SEL, NSString *) = NULL;
 static NSString *(*sOrig_getUseSourceName)(id, SEL) = NULL;
 static NSString *sDiscoverUseSourceName = nil;
 static BOOL sFeedingDiscoverHeader = NO;
@@ -35,6 +36,7 @@ static void LBDiscoverFireExploreForIndex(NSInteger index, NSString *titleHint);
 static NSArray *LBDonorTitlesFromHost(UIViewController *host, NSDictionary *prepared);
 static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles);
 static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *kinds, NSString *srcName);
+static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sourceName);
 
 static id LBKindCore(void) {
     return LBLegadoCoreIfReady();
@@ -1877,24 +1879,129 @@ static void LBDiscover_onHeaderBtn(id self, SEL _cmd, id sender) {
 }
 
 static void LBDiscover_onSwitchBtn(id self, SEL _cmd) {
-    // 发现态：用 Legado 可发现源选择器，不先弹原生 XBS 切换（避免双弹窗）
-    if (LBIsDiscoverTabActive()) {
-        UIViewController *host = [self isKindOfClass:[UIViewController class]]
-            ? (UIViewController *)self : LBPrimaryDiscoverHost();
-        if (host) {
-            LBPresentExploreSourcePicker(host);
-            return;
-        }
+    // 发现态也走香色原生切换（XBS + 已同步的 Legado），禁止自造 ActionSheet
+    if (sOrig_onSwitchBtn) {
+        sOrig_onSwitchBtn(self, _cmd);
+        return;
     }
-    if (sOrig_onSwitchBtn) sOrig_onSwitchBtn(self, _cmd);
 }
 
 static void LBDiscover_onSwitchBtnArg(id self, SEL _cmd, id sender) {
-    if (LBIsDiscoverTabActive()) {
-        LBDiscover_onSwitchBtn(self, @selector(onSwitchBtnEvent));
+    if (sOrig_onSwitchBtnArg) {
+        sOrig_onSwitchBtnArg(self, _cmd, sender);
         return;
     }
-    if (sOrig_onSwitchBtnArg) sOrig_onSwitchBtnArg(self, _cmd, sender);
+    if (sOrig_onSwitchBtn) sOrig_onSwitchBtn(self, @selector(onSwitchBtnEvent));
+}
+
+/// 按源名在可发现 Legado 列表里找 url；找不到返回 nil（视为纯 XBS）
+static NSString *LBFindLegadoExploreUrlByName(NSString *name) {
+    if (name.length == 0) return nil;
+    id core = LBKindCore();
+    if (!core) return nil;
+    NSArray *rows = LBParseJSONArray(
+        ([core respondsToSelector:@selector(exploreCapableSourcesJSON)]
+         ? [core valueForKey:@"exploreCapableSourcesJSON"] : @"[]"));
+    for (id row in rows) {
+        if (![row isKindOfClass:[NSDictionary class]]) continue;
+        NSString *n = row[@"name"];
+        NSString *u = row[@"url"];
+        if (![n isKindOfClass:[NSString class]] || ![u isKindOfClass:[NSString class]]) continue;
+        if ([n isEqualToString:name]) return u;
+    }
+    for (id row in rows) {
+        if (![row isKindOfClass:[NSDictionary class]]) continue;
+        NSString *n = row[@"name"];
+        NSString *u = row[@"url"];
+        if (![n isKindOfClass:[NSString class]] || ![u isKindOfClass:[NSString class]]) continue;
+        if ([n containsString:name] || [name containsString:n]) return u;
+    }
+    // dicModel 带 legadoBridge 时，用 selected 或按名再试
+    return nil;
+}
+
+static BOOL LBDicModelLooksLegado(id dic) {
+    if (![dic isKindOfClass:[NSDictionary class]]) return NO;
+    id m = dic[@"legadoBridge"] ?: dic[@"fromLegadoBridge"];
+    if ([m isKindOfClass:[NSString class]] && [(NSString *)m length] > 0) return YES;
+    if ([m isKindOfClass:[NSNumber class]] && [m boolValue]) return YES;
+    return NO;
+}
+
+/// 原生切换书源完成后：Legado → 按该源 exploreUrl 刷新分类+灌书；XBS → 保留原生 bookWorld，清 Legado 残留
+static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sourceName) {
+    if (!host || sourceName.length == 0) return;
+    LBSetDiscoverTabActive(YES);
+    sSelectedKindIndex = 0;
+    sLastFeedSig = nil;
+    sDiscoverUseSourceName = [sourceName copy];
+
+    @try { host.navigationItem.title = sourceName; } @catch (__unused NSException *e) {}
+    @try { host.title = sourceName; } @catch (__unused NSException *e) {}
+    @try { [host setValue:sourceName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
+    @try { [host setValue:sourceName forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
+    @try { [host setValue:sourceName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
+
+    id dic = nil;
+    @try { dic = [host valueForKey:@"dicModel"]; } @catch (__unused NSException *e) {}
+    NSString *legadoUrl = LBFindLegadoExploreUrlByName(sourceName);
+    BOOL isLegado = (legadoUrl.length > 0) || LBDicModelLooksLegado(dic);
+
+    LBAppendNativeMarker([NSString stringWithFormat:
+                          @"nativeSwitch name=%@ legado=%d url=%@",
+                          sourceName, isLegado ? 1 : 0, legadoUrl ?: @"-"]);
+
+    if (!isLegado) {
+        // 纯 XBS：分类/标签/书都交给原生 openConfig 结果，清掉我们强加的 kinds
+        sCachedKinds = nil;
+        @try { LBClearDiscoverExploreBooks(); } @catch (__unused NSException *e) {}
+        // 顶栏跟 dicModel.arrHeaderBtnTitle / bookWorld keys
+        NSArray *donorTitles = LBDonorTitlesFromHost(host, [dic isKindOfClass:[NSDictionary class]] ? dic : nil);
+        if (donorTitles.count > 0) {
+            LBForceLegadoTitlesOnChrome(host, donorTitles);
+        }
+        LBAppendNativeMarker([NSString stringWithFormat:@"nativeSwitch XBS titles=%lu",
+                              (unsigned long)donorTitles.count]);
+        return;
+    }
+
+    id core = LBKindCore();
+    if (core && legadoUrl.length > 0) {
+        @try { [core setValue:legadoUrl forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
+    }
+    NSArray *kinds = @[];
+    if (core && legadoUrl.length > 0 &&
+        [core respondsToSelector:@selector(exploreKindsJSONForSourceUrl:)]) {
+        NSString *kj = ((NSString *(*)(id, SEL, NSString *))objc_msgSend)(
+            core, @selector(exploreKindsJSONForSourceUrl:), legadoUrl);
+        kinds = LBParseJSONArray(kj);
+    }
+    LBApplyLegadoSourceKindsToChrome(host, kinds, sourceName);
+    NSString *kindUrl = nil;
+    if (kinds.count > 0 && [kinds[0][@"url"] isKindOfClass:[NSString class]]) {
+        kindUrl = kinds[0][@"url"];
+    }
+    if (legadoUrl.length > 0) {
+        LBTriggerExploreKind(legadoUrl, kindUrl);
+    }
+    LBAppendNativeMarker([NSString stringWithFormat:@"nativeSwitch Legado kinds=%lu kind0=%@",
+                          (unsigned long)kinds.count, kindUrl ?: @"-"]);
+}
+
+static void LBDiscover_openConfigByName(id self, SEL _cmd, NSString *name) {
+    if (sOrig_openConfigByName) {
+        sOrig_openConfigByName(self, _cmd, name);
+    }
+    // 建壳阶段的 openConfig 不算用户切换
+    if (sFeedingDiscoverHeader) return;
+    if (!(LBIsDiscoverTabActive() || sNativeChromeBuilt || LBSelfLooksDiscoverWorldHost(self))) return;
+    if (![name isKindOfClass:[NSString class]] || name.length == 0) return;
+    UIViewController *host = [self isKindOfClass:[UIViewController class]]
+        ? (UIViewController *)self : LBPrimaryDiscoverHost();
+    NSString *nameCopy = [name copy];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LBHandleDiscoverSourceSwitched(host, nameCopy);
+    });
 }
 
 static NSString *LBDiscover_getUseSourceName(id self, SEL _cmd) {
@@ -1946,6 +2053,15 @@ static void LBHookDiscoverNativeUIOnClass(Class cls) {
         if (m && !sOrig_onSwitchBtnArg) {
             sOrig_onSwitchBtnArg = (void (*)(id, SEL, id))method_getImplementation(m);
             method_setImplementation(m, (IMP)LBDiscover_onSwitchBtnArg);
+        }
+    }
+    SEL selOpen = @selector(openConfigByName:);
+    Class ownerOpen = LBClassOwningInstanceMethod(cls, selOpen);
+    if (ownerOpen) {
+        Method m = class_getInstanceMethod(ownerOpen, selOpen);
+        if (m && !sOrig_openConfigByName) {
+            sOrig_openConfigByName = (void (*)(id, SEL, NSString *))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LBDiscover_openConfigByName);
         }
     }
     SEL selName = @selector(getUseSourceName);
