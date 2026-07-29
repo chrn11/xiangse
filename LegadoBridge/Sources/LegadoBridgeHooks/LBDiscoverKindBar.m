@@ -428,6 +428,7 @@ static void LBAttachDiscoverKindButtonActions(UIViewController *host, id titleVi
     }
     LBAppendNativeMarker([NSString stringWithFormat:@"kindBtnAttach n=%lu host=%@",
                           (unsigned long)n, NSStringFromClass([host class])]);
+    LBInstallTitleKindTap(host, root);
 }
 
 /// 当前用于灌书的 BookListCon；发现单页模式下永远用第一个子页
