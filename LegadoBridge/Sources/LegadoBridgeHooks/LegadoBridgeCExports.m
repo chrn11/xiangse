@@ -610,14 +610,15 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 tv.hidden = NO;
                 tv.alpha = 1;
                 if (tv.backgroundColor == nil ||
-                    [tv.backgroundColor isEqual:[UIColor blackColor]]) {
-                    tv.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+                    [tv.backgroundColor isEqual:[UIColor blackColor]] ||
+                    [tv.backgroundColor isEqual:[UIColor colorWithWhite:0.08 alpha:1]]) {
+                    tv.backgroundColor = [UIColor whiteColor];
                 }
                 if (needOwnDS || discoverList) {
                     tv.rowHeight = 108;
                     tv.estimatedRowHeight = 108;
                     tv.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
-                    tv.separatorColor = [UIColor colorWithWhite:0.2 alpha:1];
+                    tv.separatorColor = [UIColor colorWithWhite:0.90 alpha:1];
                 }
                 [tv reloadData];
                 @try {
@@ -816,9 +817,15 @@ static void LBLoadDiscoverCover(UIImageView *iv, NSString *urlStr, NSString *tok
     __weak UIImageView *weakIV = iv;
     NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration ephemeralSessionConfiguration];
     cfg.timeoutIntervalForRequest = 12;
-    cfg.HTTPAdditionalHeaders = @{
-        @"User-Agent": @"Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15"
-    };
+    NSMutableDictionary *headers = [@{
+        @"User-Agent": @"Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+        @"Accept": @"image/*,*/*;q=0.8"
+    } mutableCopy];
+    // 部分站防盗链：带上站点 Referer
+    if (u.host.length > 0 && u.scheme.length > 0) {
+        headers[@"Referer"] = [NSString stringWithFormat:@"%@://%@/", u.scheme, u.host];
+    }
+    cfg.HTTPAdditionalHeaders = headers;
     NSURLSession *session = [NSURLSession sessionWithConfiguration:cfg];
     NSURLSessionDataTask *t = [session
         dataTaskWithURL:u
@@ -882,11 +889,17 @@ static NSString *LBAbsoluteCoverURL(NSDictionary *book) {
 }
 
 static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictionary *book) {
-    static NSString *cid = @"LBDiscoverCoverCell";
+    // 对齐香色原生列表观感：浅底、深字、左封面右标题+副文（字数/最新章）
+    static NSString *cid = @"LBDiscoverCoverCellV2";
     const CGFloat kPad = 12, kCoverW = 62, kCoverH = 84;
     UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:cid];
     UIImageView *cover;
     UILabel *title, *sub, *intro, *ph;
+    UIColor *bg = [UIColor whiteColor];
+    UIColor *titleC = [UIColor colorWithWhite:0.12 alpha:1];
+    UIColor *subC = [UIColor colorWithWhite:0.45 alpha:1];
+    UIColor *introC = [UIColor colorWithWhite:0.40 alpha:1];
+    UIColor *coverBg = [UIColor colorWithWhite:0.92 alpha:1];
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
                                       reuseIdentifier:cid];
@@ -896,8 +909,8 @@ static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictiona
         cover.tag = 9101;
         cover.contentMode = UIViewContentModeScaleAspectFill;
         cover.clipsToBounds = YES;
-        cover.layer.cornerRadius = 4;
-        cover.backgroundColor = [UIColor colorWithWhite:0.18 alpha:1];
+        cover.layer.cornerRadius = 3;
+        cover.backgroundColor = coverBg;
         [cell.contentView addSubview:cover];
 
         ph = [[UILabel alloc] initWithFrame:cover.bounds];
@@ -912,22 +925,22 @@ static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictiona
 
         title = [[UILabel alloc] initWithFrame:CGRectZero];
         title.tag = 9102;
-        title.font = [UIFont boldSystemFontOfSize:16];
-        title.textColor = [UIColor whiteColor];
+        title.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+        title.textColor = titleC;
         title.numberOfLines = 1;
         [cell.contentView addSubview:title];
 
         sub = [[UILabel alloc] initWithFrame:CGRectZero];
         sub.tag = 9103;
         sub.font = [UIFont systemFontOfSize:12];
-        sub.textColor = [UIColor colorWithWhite:0.62 alpha:1];
+        sub.textColor = subC;
         sub.numberOfLines = 1;
         [cell.contentView addSubview:sub];
 
         intro = [[UILabel alloc] initWithFrame:CGRectZero];
         intro.tag = 9104;
         intro.font = [UIFont systemFontOfSize:12];
-        intro.textColor = [UIColor colorWithWhite:0.48 alpha:1];
+        intro.textColor = introC;
         intro.numberOfLines = 2;
         [cell.contentView addSubview:intro];
     } else {
@@ -936,6 +949,10 @@ static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictiona
         sub = (UILabel *)[cell.contentView viewWithTag:9103];
         intro = (UILabel *)[cell.contentView viewWithTag:9104];
         ph = (UILabel *)[cover viewWithTag:9105];
+        title.textColor = titleC;
+        sub.textColor = subC;
+        intro.textColor = introC;
+        cover.backgroundColor = coverBg;
     }
 
     CGFloat w = tv.bounds.size.width > 0 ? tv.bounds.size.width : [UIScreen mainScreen].bounds.size.width;
@@ -946,8 +963,10 @@ static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictiona
     sub.frame = CGRectMake(tx, CGRectGetMaxY(title.frame) + 4, tw, 16);
     intro.frame = CGRectMake(tx, CGRectGetMaxY(sub.frame) + 4, tw, 34);
 
-    NSString *name = book[@"bookName"] ?: book[@"name"] ?: @"";
+    NSString *name = book[@"bookName"] ?: book[@"name"] ?: book[@"title"] ?: @"";
+    if (![name isKindOfClass:[NSString class]]) name = @"";
     NSString *author = book[@"author"] ?: @"";
+    if (![author isKindOfClass:[NSString class]]) author = @"";
     id wc = book[@"wordCount"];
     NSString *wcText = @"";
     if ([wc isKindOfClass:[NSNumber class]]) {
@@ -959,33 +978,52 @@ static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictiona
         }
     } else if ([wc isKindOfClass:[NSString class]] && [(NSString *)wc length] > 0) {
         wcText = (NSString *)wc;
+        // 已带「字」则原样
+        if ([wcText rangeOfString:@"字"].location == NSNotFound && wcText.longLongValue > 0) {
+            long long n = wcText.longLongValue;
+            wcText = n >= 10000
+                ? [NSString stringWithFormat:@"%lld万字", n / 10000]
+                : [NSString stringWithFormat:@"%lld字", n];
+        }
     }
+    NSString *last = book[@"lastChapter"] ?: book[@"latestChapter"] ?: @"";
+    if (![last isKindOfClass:[NSString class]]) last = @"";
+    last = [last stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     NSMutableArray *bits = [NSMutableArray array];
     if (author.length > 0) [bits addObject:author];
     if (wcText.length > 0) [bits addObject:wcText];
-    NSString *src = book[@"sourceName"] ?: book[@"bookSourceName"] ?: @"";
-    if (src.length > 0) [bits addObject:src];
+    // 无字数时用最新章凑副文（领域书库列表无 cover/字数）
+    if (wcText.length == 0 && last.length > 0) {
+        NSString *shortLast = last.length > 18 ? [[last substringToIndex:18] stringByAppendingString:@"…"] : last;
+        [bits addObject:shortLast];
+    }
 
     title.text = name;
     sub.text = [bits componentsJoinedByString:@" · "];
     NSString *desc = book[@"intro"] ?: book[@"introduce"] ?: book[@"desc"] ?: @"";
+    if (![desc isKindOfClass:[NSString class]]) desc = @"";
     desc = [desc stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (desc.length == 0 && last.length > 0 && wcText.length > 0) {
+        desc = [NSString stringWithFormat:@"最新：%@", last];
+    }
     intro.text = desc;
+    intro.hidden = (desc.length == 0);
 
     NSString *coverUrl = LBAbsoluteCoverURL(book);
     cover.image = nil;
     if (ph) {
         ph.hidden = NO;
         ph.text = coverUrl.length > 0 ? @"" : @"暂无封面";
+        ph.textColor = [UIColor colorWithWhite:0.55 alpha:1];
         if (coverUrl.length > 0) ph.hidden = YES;
     }
     objc_setAssociatedObject(cover, "lbCoverToken", coverUrl, OBJC_ASSOCIATION_COPY_NONATOMIC);
     LBLoadDiscoverCover(cover, coverUrl, coverUrl);
 
-    cell.backgroundColor = [UIColor colorWithWhite:0.07 alpha:1.0];
-    cell.contentView.backgroundColor = [UIColor clearColor];
+    cell.backgroundColor = bg;
+    cell.contentView.backgroundColor = bg;
     UIView *sel = [[UIView alloc] init];
-    sel.backgroundColor = [UIColor colorWithWhite:0.16 alpha:1];
+    sel.backgroundColor = [UIColor colorWithWhite:0.94 alpha:1];
     cell.selectedBackgroundView = sel;
     return cell;
 }

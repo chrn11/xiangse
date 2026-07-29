@@ -1521,9 +1521,9 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
             overlay = [[UITableView alloc] initWithFrame:of style:UITableViewStylePlain];
             overlay.tag = kLBFO;
             overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            overlay.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+            overlay.backgroundColor = [UIColor whiteColor];
             overlay.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
-            overlay.separatorColor = [UIColor colorWithWhite:0.2 alpha:1];
+            overlay.separatorColor = [UIColor colorWithWhite:0.90 alpha:1];
             overlay.rowHeight = 108;
             overlay.estimatedRowHeight = 108;
             [host.view addSubview:overlay];
@@ -1535,6 +1535,8 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
             overlay.frame = of;
             overlay.hidden = NO;
             overlay.alpha = 1;
+            overlay.backgroundColor = [UIColor whiteColor];
+            overlay.separatorColor = [UIColor colorWithWhite:0.90 alpha:1];
         }
         overlay.dataSource = (id<UITableViewDataSource>)list;
         overlay.delegate = (id<UITableViewDelegate>)list;
@@ -1718,7 +1720,7 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
         title.hidden = NO;
         title.alpha = 1;
         @try {
-            host.view.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+            host.view.backgroundColor = [UIColor whiteColor];
         } @catch (__unused NSException *e) {}
     }
 
@@ -2407,7 +2409,7 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
             if (tv.backgroundColor == nil ||
                 CGColorGetAlpha(tv.backgroundColor.CGColor) < 0.05 ||
                 [tv.backgroundColor isEqual:[UIColor whiteColor]]) {
-                tv.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+                tv.backgroundColor = [UIColor whiteColor];
             }
         } @catch (__unused NSException *e) {}
         NSUInteger arrN = 0;
@@ -2506,7 +2508,7 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
     UITableView *neu = [[UITableView alloc] initWithFrame:frame style:UITableViewStylePlain];
     neu.tag = kLBLT;
     neu.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    neu.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+    neu.backgroundColor = [UIColor whiteColor];
     neu.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
     neu.rowHeight = 88;
     LBEnsurePlazaListTableHooks([listVC class]);
@@ -2518,7 +2520,7 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
         if (container.backgroundColor == nil ||
             [container.backgroundColor isEqual:[UIColor whiteColor]] ||
             [container.backgroundColor isEqual:[UIColor clearColor]]) {
-            container.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+            container.backgroundColor = [UIColor whiteColor];
         }
     } @catch (__unused NSException *e) {}
     if (container == host.view) {
@@ -2766,7 +2768,7 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
         @try {
             if ([host.view.backgroundColor isEqual:[UIColor whiteColor]] ||
                 host.view.backgroundColor == nil) {
-                host.view.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+                host.view.backgroundColor = [UIColor whiteColor];
             }
         } @catch (__unused NSException *e) {}
     }
