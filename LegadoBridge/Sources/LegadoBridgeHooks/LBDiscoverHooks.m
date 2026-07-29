@@ -319,14 +319,28 @@ static void LBTriggerLegadoExploreForDiscoverTab(void) {
         }
     }
     LBDiscoverAppendMarker([NSString stringWithFormat:
-                            @"discoverTab explore schedule hostOk=%d src=%@ kind=%@ (deferred-off)",
+                            @"discoverTab explore schedule hostOk=%d src=%@ kind=%@",
                             hostOk ? 1 : 0, src ?: @"", kindUrl ?: @"(default)"]);
-    // 暂不 fire explore：先验证 SGPage 原生壳能稳定存活；灌书另开一轮
-    (void)kindUrl;
+    // 原生壳建好后拉第一类书；分类/标签切换由 pageTitle / onHeaderBtn 再 fire
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         if (!LBIsDiscoverTabActive()) return;
         LBRefreshDiscoverKindBar();
+        if (src.length == 0) return;
+        @try {
+            ((void (*)(id, SEL, NSString *, NSString *, NSInteger))objc_msgSend)(
+                core,
+                @selector(handleExploreRequestWithSourceUrl:exploreUrl:page:),
+                src,
+                kindUrl.length ? kindUrl : nil,
+                1);
+            LBDiscoverAppendMarker([NSString stringWithFormat:
+                                    @"discoverTab explore fired src=%@ kind=%@",
+                                    src, kindUrl ?: @"(default)"]);
+        } @catch (NSException *ex) {
+            LBDiscoverAppendMarker([NSString stringWithFormat:
+                                    @"discoverTab explore EX %@", ex.reason ?: @""]);
+        }
     });
 }
 

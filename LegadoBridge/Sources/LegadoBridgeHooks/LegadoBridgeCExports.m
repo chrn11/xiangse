@@ -1165,45 +1165,7 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
     if (LBIsDiscoverTabActive()) {
         LBEnsureNativeDiscoverHostPresented();
         for (UIViewController *h in (LBFindDiscoverHostVCs() ?: @[])) {
-            LBPinDiscoverContentToFirstPage(h);
-            // 把已灌数据同步到所有 BookListCon，防止内容区停在空兄弟页
-            UIViewController *src = LBActiveDiscoverListVC(h);
-            NSArray *books = nil;
-            @try {
-                id cur = [src valueForKey:@"arrBaseData"];
-                if ([cur isKindOfClass:[NSArray class]]) books = cur;
-            } @catch (__unused NSException *e) {}
-            if (books.count == 0) books = sLastAppliedSearchBooks;
-            if (books.count > 0) {
-                id scroll = nil;
-                @try { scroll = [h valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
-                NSArray *kids = nil;
-                @try {
-                    id cv = [scroll valueForKey:@"childViewControllers"];
-                    if ([cv isKindOfClass:[NSArray class]]) kids = cv;
-                    if (kids.count == 0) {
-                        cv = [scroll valueForKey:@"childVCs"];
-                        if ([cv isKindOfClass:[NSArray class]]) kids = cv;
-                    }
-                } @catch (__unused NSException *e) {}
-                for (id c in kids ?: @[]) {
-                    if (![c isKindOfClass:[UIViewController class]] || c == src) continue;
-                    UIViewController *kid = (UIViewController *)c;
-                    @try { [kid setValue:[books mutableCopy] forKey:@"arrBaseData"]; } @catch (__unused NSException *e) {}
-                    @try { [kid setValue:[books mutableCopy] forKey:@"itemList"]; } @catch (__unused NSException *e) {}
-                    LBEnsurePlazaTableDataSourceMethods([kid class]);
-                    UITableView *ktv = nil;
-                    @try {
-                        id v = [kid valueForKey:@"tableView"];
-                        if ([v isKindOfClass:[UITableView class]]) ktv = v;
-                    } @catch (__unused NSException *e) {}
-                    if (ktv) {
-                        ktv.dataSource = (id<UITableViewDataSource>)kid;
-                        ktv.delegate = (id<UITableViewDelegate>)kid;
-                        @try { [ktv reloadData]; } @catch (__unused NSException *e) {}
-                    }
-                }
-            }
+            // 多页原生模式：只刷新当前可见 BookListCon，禁止钉死第一页/同步到空兄弟页
             LBReloadDiscoverNativeList(h);
         }
     }

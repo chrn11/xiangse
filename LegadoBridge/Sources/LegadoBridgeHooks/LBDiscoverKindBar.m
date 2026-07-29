@@ -19,6 +19,7 @@ static void (*sOrig_bookListViewDidLoad)(id, SEL) = NULL;
 static void (*sOrig_pageTitleSelected)(id, SEL, id, NSInteger) = NULL;
 static void (*sOrig_onSwitchBtn)(id, SEL) = NULL;
 static void (*sOrig_onSwitchBtnArg)(id, SEL, id) = NULL;
+static void (*sOrig_onHeaderBtn)(id, SEL, id) = NULL;
 static NSString *(*sOrig_getUseSourceName)(id, SEL) = NULL;
 static NSString *sDiscoverUseSourceName = nil;
 static BOOL sFeedingDiscoverHeader = NO;
@@ -30,6 +31,8 @@ static void LBAttachDiscoverKindButtonActions(UIViewController *host, id titleVi
 static void LBUnlinkDiscoverTitleContent(UIViewController *host);
 static NSString *LBCurrentExploreSourceUrl(id core);
 static void LBTriggerExploreKind(NSString *sourceUrl, NSString *kindUrl);
+static void LBDiscoverFireExploreForIndex(NSInteger index, NSString *titleHint);
+static NSArray *LBDonorTitlesFromHost(UIViewController *host, NSDictionary *prepared);
 
 static id LBKindCore(void) {
     return LBLegadoCoreIfReady();
@@ -77,8 +80,9 @@ void LBRemoveDiscoverOverlays(UIViewController *host) {
 }
 
 /// 发现态：分类只换数据，固定灌第一个 BookListCon（其余子页是 safeVDL 空黑页）
+/// 对齐原版后改为 NO：走原生翻页 + 各页各自灌 explore
 static BOOL LBDiscoverSingleListFeed(void) {
-    return sNativeChromeBuilt || LBIsDiscoverTabActive();
+    return NO;
 }
 
 static BOOL LBSelfLooksDiscoverWorldHost(id self) {
@@ -172,7 +176,96 @@ static const NSInteger kLBKindBtnTagBase = 0x4C424B00; // legacy；勿再写 btn
 static char kLBKindBtnIndexKey;
 static BOOL sHandlingKindSelect = NO;
 
-/// 分类切换核心：钉在第一列表页 + 触发对应 kind 的 explore（不翻空黑页）
+/// 从 donor / dicModel 取顶栏大类标题（男生/女频/出版），禁止用 Legado kinds
+static NSArray *LBDonorTitlesFromHost(UIViewController *host, NSDictionary *prepared) {
+    NSArray *donorTitles = nil;
+    NSDictionary *dm = prepared;
+    if (![dm isKindOfClass:[NSDictionary class]] && host) {
+        @try {
+            id v = [host valueForKey:@"dicModel"];
+            if ([v isKindOfClass:[NSDictionary class]]) dm = v;
+        } @catch (__unused NSException *e) {}
+    }
+    if ([dm isKindOfClass:[NSDictionary class]]) {
+        id hdr = dm[@"arrHeaderBtnTitle"];
+        if ([hdr isKindOfClass:[NSArray class]] && [(NSArray *)hdr count] > 0) {
+            donorTitles = hdr;
+        } else {
+            id bw = dm[@"bookWorld"];
+            if ([bw isKindOfClass:[NSDictionary class]]) donorTitles = [(NSDictionary *)bw allKeys];
+        }
+    }
+    if (donorTitles.count == 0 && host) {
+        @try {
+            id hdr = [host valueForKey:@"arrHeaderBtnTitle"];
+            if ([hdr isKindOfClass:[NSArray class]] && [(NSArray *)hdr count] > 0 &&
+                [(NSArray *)hdr count] <= 8) {
+                // 仅在短列表时采用（避免误吃旧的 13 类 Legado 标题）
+                donorTitles = hdr;
+            }
+        } @catch (__unused NSException *e) {}
+    }
+    return donorTitles ?: @[];
+}
+
+/// 按大类 index / 标签名匹配 Legado explore kind URL
+static NSString *LBResolveExploreKindUrl(NSInteger index, NSString *titleHint) {
+    NSArray *kinds = sCachedKinds ?: @[];
+    if (kinds.count == 0) {
+        id core = LBKindCore();
+        NSString *src = core ? LBCurrentExploreSourceUrl(core) : nil;
+        if (core && src.length > 0 &&
+            [core respondsToSelector:@selector(exploreKindsJSONForSourceUrl:)]) {
+            NSString *kindsJSON = ((NSString *(*)(id, SEL, NSString *))objc_msgSend)(
+                core, @selector(exploreKindsJSONForSourceUrl:), src);
+            kinds = LBParseJSONArray(kindsJSON);
+            if (kinds.count > 0) sCachedKinds = [kinds copy];
+        }
+    }
+    if (kinds.count == 0) return nil;
+
+    if (titleHint.length > 0) {
+        for (id item in kinds) {
+            if (![item isKindOfClass:[NSDictionary class]]) continue;
+            NSString *t = item[@"title"];
+            if (![t isKindOfClass:[NSString class]]) continue;
+            if ([t isEqualToString:titleHint] ||
+                [t containsString:titleHint] ||
+                [titleHint containsString:t]) {
+                id u = item[@"url"];
+                if ([u isKindOfClass:[NSString class]] && [(NSString *)u length] > 0) return u;
+            }
+        }
+    }
+    NSInteger idx = index;
+    if (idx < 0) idx = sSelectedKindIndex;
+    if (idx < 0) idx = 0;
+    if (idx >= (NSInteger)kinds.count) idx = idx % (NSInteger)kinds.count;
+    id u = kinds[(NSUInteger)idx][@"url"];
+    return [u isKindOfClass:[NSString class]] ? u : nil;
+}
+
+static void LBDiscoverFireExploreForIndex(NSInteger index, NSString *titleHint) {
+    id core = LBKindCore();
+    NSString *src = core ? LBCurrentExploreSourceUrl(core) : nil;
+    NSString *url = LBResolveExploreKindUrl(index, titleHint) ?: @"";
+    LBAppendNativeMarker([NSString stringWithFormat:
+                          @"nativeExplore idx=%ld title=%@ kind=%@ src=%@",
+                          (long)index, titleHint ?: @"-",
+                          url.length ? url : @"-", src ?: @"-"]);
+    if (src.length == 0) {
+        LBAppendNativeMarker(@"nativeExplore skip: no src");
+        return;
+    }
+    @try {
+        LBTriggerExploreKind(src, url);
+    } @catch (NSException *ex) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"nativeExplore EX %@",
+                              ex.reason ?: @""]);
+    }
+}
+
+/// 分类切换：原生多页翻页后，按 index 触发 explore（不再钉死第一页）
 static void LBDiscoverHandleKindSelect(UIViewController *host, id pageTitleView, NSInteger index) {
     if (sHandlingKindSelect) return;
     // SG 若仍用被污染的 btn.tag 回调，会传来 0x4C424Bxx；直接丢弃
@@ -185,55 +278,27 @@ static void LBDiscoverHandleKindSelect(UIViewController *host, id pageTitleView,
         LBSetDiscoverTabActive(YES);
         sSelectedKindIndex = MAX(0, index);
         if (!host) host = LBPrimaryDiscoverHost();
-        LBPinDiscoverContentToFirstPage(host);
 
-        id tv = pageTitleView;
-        if (!tv && host) {
-            @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-        }
-        LBRestoreDiscoverTitleSelected(tv, sSelectedKindIndex);
-        // 恢复标题后再钉一次：防止 title↔content 联动又翻走
-        LBPinDiscoverContentToFirstPage(host);
-
-        id core = LBKindCore();
-        NSString *src = core ? LBCurrentExploreSourceUrl(core) : nil;
-        NSArray *kinds = sCachedKinds ?: @[];
-        if (kinds.count == 0 && core && src.length > 0 &&
-            [core respondsToSelector:@selector(exploreKindsJSONForSourceUrl:)]) {
-            NSString *kindsJSON = ((NSString *(*)(id, SEL, NSString *))objc_msgSend)(
-                core, @selector(exploreKindsJSONForSourceUrl:), src);
-            kinds = LBParseJSONArray(kindsJSON);
-            if (kinds.count > 0) sCachedKinds = [kinds copy];
-        }
-        NSString *url = @"";
-        if (index >= 0 && index < (NSInteger)kinds.count) {
-            NSDictionary *k = kinds[(NSUInteger)index];
-            if ([k[@"url"] isKindOfClass:[NSString class]]) url = k[@"url"];
-        }
-        LBAppendNativeMarker([NSString stringWithFormat:
-                              @"nativeTab idx=%ld kind=%@ singleFeed=1 src=%@",
-                              (long)index, url.length ? url : @"-", src ?: @"-"]);
-        if (src.length > 0) {
-            @try {
-                LBTriggerExploreKind(src, url);
-            } @catch (NSException *ex) {
-                LBAppendNativeMarker([NSString stringWithFormat:@"nativeTab explore EX %@",
-                                      ex.reason ?: @""]);
+        // 多页模式：交给原生 pageTitle 回调翻页；此处只 fire explore
+        if (LBDiscoverSingleListFeed()) {
+            LBPinDiscoverContentToFirstPage(host);
+            id tv = pageTitleView;
+            if (!tv && host) {
+                @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
             }
-        } else {
-            LBAppendNativeMarker(@"nativeTab explore skip: no src");
+            LBRestoreDiscoverTitleSelected(tv, sSelectedKindIndex);
+            LBPinDiscoverContentToFirstPage(host);
         }
+
+        LBDiscoverFireExploreForIndex(index, nil);
+
         if (host) {
             __weak UIViewController *weakHost = host;
-            dispatch_async(dispatch_get_main_queue(), ^{
-                UIViewController *h = weakHost;
-                if (h) LBPinDiscoverContentToFirstPage(h);
-            });
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
                 UIViewController *h = weakHost;
                 if (!h || !LBIsDiscoverTabActive()) return;
-                LBPinDiscoverContentToFirstPage(h);
+                if (LBDiscoverSingleListFeed()) LBPinDiscoverContentToFirstPage(h);
                 LBReloadDiscoverNativeList(h);
             });
         }
@@ -693,7 +758,9 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
                               bwKeysArr.firstObject, sampleDesc]);
     }
 
-    donorBW = LBExpandBookWorldToTitles(donorBW, titles);
+    // 对齐原版：保留 donor bookWorld 键（男生/女频/出版），禁止用 Legado 分类名扩键摊平
+    (void)titles;
+    // donorBW = LBExpandBookWorldToTitles(donorBW, titles);  // disabled: breaks native tag wall
 
     if (donorName.length > 0) {
         sDiscoverUseSourceName = [donorName copy];
@@ -706,7 +773,23 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
     }
 
     if (opened) {
-        if (titles.count > 0) {
+        // 顶栏标题跟 donor bookWorld keys，勿写 Legado kinds
+        NSArray *donorTitles = nil;
+        id cur0 = nil;
+        @try { cur0 = [host valueForKey:@"dicModel"]; } @catch (__unused NSException *e) {}
+        if ([cur0 isKindOfClass:[NSDictionary class]]) {
+            id bw = cur0[@"bookWorld"];
+            if ([bw isKindOfClass:[NSDictionary class]]) {
+                donorTitles = [(NSDictionary *)bw allKeys];
+            }
+            id hdr = cur0[@"arrHeaderBtnTitle"];
+            if ([hdr isKindOfClass:[NSArray class]] && [(NSArray *)hdr count] > 0) {
+                donorTitles = hdr;
+            }
+        }
+        if (donorTitles.count > 0) {
+            @try { [host setValue:donorTitles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+        } else if (titles.count > 0) {
             @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
         }
         id cur = nil;
@@ -725,14 +808,14 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
         if (donorBW.count >= 6 && [cur isKindOfClass:[NSDictionary class]]) {
             NSMutableDictionary *fixed = [cur mutableCopy];
             fixed[@"bookWorld"] = donorBW;
-            if (titles.count > 0) fixed[@"arrHeaderBtnTitle"] = titles;
+            fixed[@"arrHeaderBtnTitle"] = donorBW.allKeys ?: @[];
             LBForceSetDicModel(host, fixed);
             return fixed;
         }
         if (donorBW.count >= 6) {
             NSMutableDictionary *model = [NSMutableDictionary dictionary];
             model[@"bookWorld"] = donorBW;
-            if (titles.count > 0) model[@"arrHeaderBtnTitle"] = titles;
+            model[@"arrHeaderBtnTitle"] = donorBW.allKeys ?: @[];
             if (donorName.length) model[@"cf_title"] = donorName;
             LBForceSetDicModel(host, model);
             return model;
@@ -749,7 +832,7 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
     NSDictionary *base = srcName.length ? LBLegadoNativeModel(srcName) : nil;
     model = [base isKindOfClass:[NSDictionary class]] ? [base mutableCopy] : [NSMutableDictionary dictionary];
     model[@"bookWorld"] = donorBW;
-    if (titles.count > 0) model[@"arrHeaderBtnTitle"] = titles;
+    model[@"arrHeaderBtnTitle"] = donorBW.allKeys ?: @[];
     if (donorName.length > 0) {
         model[@"cf_title"] = donorName;
     } else if (srcName.length > 0) {
@@ -762,7 +845,7 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
     return model;
 }
 
-/// 发现态：跳过 BookListCon 原生 viewDidLoad（易 SIGABRT），只走 UIViewController + 空表
+/// 发现态：优先走原生 viewDidLoad（才能出标签墙）；崩了再退回空表兜底
 static void LBBookList_safeViewDidLoad(id self, SEL _cmd) {
     BOOL discover = LBIsDiscoverTabActive() || sFeedingDiscoverHeader || sBookListSafeVDLInstalled;
     if (!discover) {
@@ -772,7 +855,24 @@ static void LBBookList_safeViewDidLoad(id self, SEL _cmd) {
         return;
     }
 
-    // 只调 UIViewController 的 viewDidLoad，避开 BookListCon 原生拉网/模型断言
+    // 先试原生 VDL（donor bookWorld 完整时能出二级标签网格）
+    if (sOrig_bookListViewDidLoad) {
+        @try {
+            sOrig_bookListViewDidLoad(self, _cmd);
+            static NSInteger sNativeVDLCount = 0;
+            if (sNativeVDLCount < 3) {
+                LBAppendNativeMarker([NSString stringWithFormat:@"BookListCon nativeViewDidLoad #%ld",
+                                      (long)sNativeVDLCount]);
+                sNativeVDLCount++;
+            }
+            return;
+        } @catch (NSException *ex) {
+            LBAppendNativeMarker([NSString stringWithFormat:@"BookListCon nativeVDL EX %@",
+                                  ex.reason ?: @""]);
+        }
+    }
+
+    // 兜底：只调 UIViewController 的 viewDidLoad + 空表
     Method uiM = class_getInstanceMethod([UIViewController class], @selector(viewDidLoad));
     if (uiM) {
         ((void (*)(id, SEL))method_getImplementation(uiM))(self, _cmd);
@@ -817,7 +917,7 @@ static void LBBookList_safeViewDidLoad(id self, SEL _cmd) {
 
     static NSInteger sSafeVDLCount = 0;
     if (sSafeVDLCount < 3) {
-        LBAppendNativeMarker([NSString stringWithFormat:@"BookListCon safeViewDidLoad #%ld",
+        LBAppendNativeMarker([NSString stringWithFormat:@"BookListCon safeViewDidLoad fallback #%ld",
                               (long)sSafeVDLCount]);
         sSafeVDLCount++;
     }
@@ -1310,12 +1410,11 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                 LBFeedNativeDiscoverHeader(h, kinds, srcName);
             });
         }
-        // 仍先保证顶栏源名可见
+        // 仍先保证顶栏源名可见；顶栏大类留给 donor，勿写 Legado kinds
         if (srcName.length > 0) {
             @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
             @try { host.title = srcName; } @catch (__unused NSException *e) {}
         }
-        @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
         return;
     }
 
@@ -1347,12 +1446,15 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         NSDictionary *prepared = LBPrepareDiscoverDicModel(host, srcName, titles);
         id bwObj = prepared[@"bookWorld"];
         NSUInteger bwKeys = [bwObj isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)bwObj count] : 0;
+        NSArray *donorTitles = LBDonorTitlesFromHost(host, prepared);
         if (!prepared || bwKeys < 6) {
             if (srcName.length > 0) {
                 @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
                 @try { host.title = srcName; } @catch (__unused NSException *e) {}
             }
-            @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+            if (donorTitles.count > 0) {
+                @try { [host setValue:donorTitles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+            }
             sCachedKinds = [kinds copy];
             LBAppendNativeMarker([NSString stringWithFormat:
                                   @"shellFallback noDonorBW keys=%lu",
@@ -1360,14 +1462,16 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
             LBAppendNativeHostState(host, @"shellFallback");
             return;
         }
-        LBAppendNativeMarker([NSString stringWithFormat:@"preparedBW keys=%lu useReset=1",
-                              (unsigned long)bwKeys]);
+        LBAppendNativeMarker([NSString stringWithFormat:@"preparedBW keys=%lu useReset=1 donorTitles=%lu",
+                              (unsigned long)bwKeys, (unsigned long)donorTitles.count]);
 
         // 必须在 resetContent 前装好：BookListCon viewDidLoad 会在挂页时立刻跑
         LBInstallBookListSafeViewDidLoad();
 
         NSString *consName = sDiscoverUseSourceName.length ? sDiscoverUseSourceName : (srcName ?: @"");
-        @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+        if (donorTitles.count > 0) {
+            @try { [host setValue:donorTitles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+        }
         @try { [host setValue:consName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
         @try { [host setValue:consName forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
         @try { [host setValue:consName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
@@ -1409,35 +1513,27 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                               (unsigned long)childN, (unsigned long)scrollKids,
                               sBookListSafeVDLInstalled ? 1 : 0]);
 
-        // P0：用 Legado titles 覆盖 donor 分类。cons 多于 titles 时缩标题数，cons 少于 titles 则补占位。
-        NSArray *forceTitles = titles;
-        if (scrollKids > 0 && titles.count != scrollKids) {
+        // 对齐原版：顶栏用 donor bookWorld keys，禁止用 Legado kinds 覆盖
+        NSArray *postDonorTitles = LBDonorTitlesFromHost(host, prepared);
+        if (postDonorTitles.count == 0 && scrollKids > 0) {
+            // 已有子页时按子页数占位，勿塞 Legado 13 类
             NSMutableArray *aligned = [NSMutableArray array];
             for (NSUInteger i = 0; i < scrollKids; i++) {
-                if (i < titles.count) {
-                    [aligned addObject:titles[i]];
-                } else {
-                    [aligned addObject:[NSString stringWithFormat:@"分类%lu", (unsigned long)(i + 1)]];
-                }
+                [aligned addObject:[NSString stringWithFormat:@"分类%lu", (unsigned long)(i + 1)]];
             }
-            forceTitles = aligned;
-            LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"alignForceTitles legado=%lu kids=%lu",
-                                  (unsigned long)titles.count, (unsigned long)scrollKids]);
+            postDonorTitles = aligned;
         }
-        LBForceLegadoTitlesOnChrome(host, forceTitles);
-
-        // 不再补位空 BookListCon：SGPage 同步挂页会立刻跑其 viewDidLoad/数据源，越界崩
-        // 分类条仍保留 13 个标题；后 5 个分类通过点击时按需 explore 再灌
-        if (scrollKids > 0 && scrollKids < titles.count) {
-            LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"padListCons skip keep=%lu want=%lu",
-                                  (unsigned long)scrollKids, (unsigned long)titles.count]);
+        if (postDonorTitles.count > 0) {
+            donorTitles = postDonorTitles;
+            @try { [host setValue:donorTitles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+            LBAppendNativeMarker([NSString stringWithFormat:@"keepDonorTitles n=%lu sample=%@",
+                                  (unsigned long)donorTitles.count,
+                                  [[donorTitles subarrayWithRange:NSMakeRange(0, MIN((NSUInteger)4, donorTitles.count))]
+                                   componentsJoinedByString:@","]]);
         }
+        // 缓存 Legado kinds 供点标签/切页时 explore，但不改顶栏 UI
+        sCachedKinds = [kinds copy];
 
-        LBAppendNativeMarker([NSString stringWithFormat:@"legadoTitles sample=%@",
-                              [[forceTitles subarrayWithRange:NSMakeRange(0, MIN((NSUInteger)4, forceTitles.count))]
-                               componentsJoinedByString:@","]]);
         if (srcName.length > 0) {
             @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
             @try { host.title = srcName; } @catch (__unused NSException *e) {}
@@ -1460,71 +1556,64 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
             LBAppendNativeHostState(host, @"afterTeardown");
         } else if (hasPageChrome && (childN > 0 || scrollKids > 0)) {
             sNativeChromeBuilt = YES;
+            // 只清空旧书数据，保留原生标签墙 UI；禁止 unlink/pin/强制自造横条
             LBSanitizeDiscoverListCons(host, scroll);
-            if (sBookListSafeVDLInstalled) {
-                // P1：安全 VDL 已装 → 保留 BookListCon，接 explore
-                LBPinDiscoverContentToFirstPage(host);
-                LBUnlinkDiscoverTitleContent(host);
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"keepNativeChrome hostChild=%lu scrollKids=%lu donorTitles=%lu legadoKinds=%lu",
+                                  (unsigned long)childN, (unsigned long)scrollKids,
+                                  (unsigned long)donorTitles.count, (unsigned long)kinds.count]);
+            __weak UIViewController *weakHost = host;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                if (!LBIsDiscoverTabActive()) return;
+                UIViewController *h = weakHost ?: LBPrimaryDiscoverHost();
+                if (!h) return;
+                id core = LBKindCore();
+                NSString *src = LBCurrentExploreSourceUrl(core);
+                NSString *kindUrl = nil;
+                if (sCachedKinds.count > 0) {
+                    id u = sCachedKinds[0][@"url"];
+                    if ([u isKindOfClass:[NSString class]]) kindUrl = u;
+                }
                 LBAppendNativeMarker([NSString stringWithFormat:
-                                      @"keepList safeVDL hostChild=%lu scrollKids=%lu",
-                                      (unsigned long)childN, (unsigned long)scrollKids]);
-                __weak UIViewController *weakHost = host;
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
-                               dispatch_get_main_queue(), ^{
-                    if (!LBIsDiscoverTabActive()) return;
-                    UIViewController *h = weakHost ?: LBPrimaryDiscoverHost();
-                    if (!h) return;
-                    id core = LBKindCore();
-                    NSString *src = LBCurrentExploreSourceUrl(core);
-                    NSString *kindUrl = nil;
-                    if (sCachedKinds.count > 0) {
-                        id u = sCachedKinds[0][@"url"];
-                        if ([u isKindOfClass:[NSString class]]) kindUrl = u;
-                    }
-                    LBAppendNativeMarker([NSString stringWithFormat:
-                                          @"postChrome explore src=%@ kind=%@",
-                                          src ?: @"", kindUrl ?: @""]);
-                    if (src.length > 0) {
-                        @try {
-                            LBTriggerExploreKind(src, kindUrl);
-                        } @catch (NSException *ex) {
-                            LBAppendNativeMarker([NSString stringWithFormat:
-                                                  @"postChrome explore EX %@", ex.reason ?: @""]);
-                        }
-                    }
+                                      @"postChrome explore src=%@ kind=%@",
+                                      src ?: @"", kindUrl ?: @""]);
+                if (src.length > 0) {
                     @try {
-                        LBReloadDiscoverNativeList(h);
+                        LBTriggerExploreKind(src, kindUrl);
                     } @catch (NSException *ex) {
                         LBAppendNativeMarker([NSString stringWithFormat:
-                                              @"postChrome reload EX %@", ex.reason ?: @""]);
+                                              @"postChrome explore EX %@", ex.reason ?: @""]);
                     }
-                    LBAppendNativeMarker(@"stillAlive keepList");
-                });
-            } else {
-                // 无安全 VDL：退回 titleOnly（旧路径）
-                LBDestroyDiscoverListConsKeepTitle(host, scroll);
-                LBForceLegadoTitlesOnChrome(host, forceTitles);
-                LBAppendNativeMarker([NSString stringWithFormat:
-                                      @"pageChrome keep hostChild=%lu scrollKids=%lu titleOnly=1",
-                                      (unsigned long)childN, (unsigned long)scrollKids]);
-            }
+                }
+                @try {
+                    LBReloadDiscoverNativeList(h);
+                } @catch (NSException *ex) {
+                    LBAppendNativeMarker([NSString stringWithFormat:
+                                          @"postChrome reload EX %@", ex.reason ?: @""]);
+                }
+                LBAppendNativeMarker(@"stillAlive keepNativeChrome");
+            });
             sRestoreListMode = NO;
             sTitleOnlyStabilized = YES;
         }
 
         // createCons：reset 未挂子页时先造 cons，再交给原生 resetContent 挂页（禁手工 SGPage）
+        // 用 donor 大类标题，勿用 Legado 13 类摊平
+        NSArray *consTitles = donorTitles.count > 0 ? donorTitles : LBDonorTitlesFromHost(host, prepared);
+        if (consTitles.count == 0) consTitles = @[@"男生", @"女频", @"出版"];
         if (!sNativeChromeBuilt &&
             host.childViewControllers.count == 0 &&
             [host respondsToSelector:@selector(createCons:titles:sourceName:)]) {
             @try {
                 NSMutableArray *cons = [NSMutableArray array];
                 ((void (*)(id, SEL, id, id, id))objc_msgSend)(
-                    host, @selector(createCons:titles:sourceName:), cons, titles, consName);
+                    host, @selector(createCons:titles:sourceName:), cons, consTitles, consName);
                 LBAppendNativeMarker([NSString stringWithFormat:
                                       @"createCons fallback titles=%lu cons=%lu src=%@",
-                                      (unsigned long)titles.count, (unsigned long)cons.count, consName]);
+                                      (unsigned long)consTitles.count, (unsigned long)cons.count, consName]);
                 if (cons.count > 0 && [host respondsToSelector:@selector(resetContent)]) {
-                    // titles 与 cons 数量对齐，避免 reset 用 32 标题挂 19 子页失败
+                    // titles 与 cons 数量对齐
                     NSMutableArray *aligned = [NSMutableArray array];
                     for (NSUInteger i = 0; i < cons.count; i++) {
                         NSString *tn = nil;
@@ -1537,7 +1626,7 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                                 }
                             } @catch (__unused NSException *e) {}
                         }
-                        if (tn.length == 0 && i < titles.count) tn = titles[i];
+                        if (tn.length == 0 && i < consTitles.count) tn = consTitles[i];
                         if (tn.length == 0) tn = [NSString stringWithFormat:@"分类%lu", (unsigned long)(i + 1)];
                         [aligned addObject:tn];
                     }
@@ -1585,7 +1674,8 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         }
 
         sCachedKinds = [kinds copy];
-        if (sSelectedKindIndex >= (NSInteger)titles.count) sSelectedKindIndex = 0;
+        NSUInteger kindCap = donorTitles.count > 0 ? donorTitles.count : titles.count;
+        if (sSelectedKindIndex >= (NSInteger)kindCap && kindCap > 0) sSelectedKindIndex = 0;
 
         // 顶栏仍显示 Legado 源名（donor 只用于建壳）
         if (srcName.length > 0) {
@@ -1593,9 +1683,10 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
             @try { host.title = srcName; } @catch (__unused NSException *e) {}
         }
 
-        LBAppendNativeMarker([NSString stringWithFormat:@"nativeHeader host=%@ src=%@ kinds=%lu sel=%ld",
+        LBAppendNativeMarker([NSString stringWithFormat:@"nativeHeader host=%@ src=%@ donor=%lu legadoKinds=%lu sel=%ld",
                               NSStringFromClass([host class]), srcName ?: @"",
-                              (unsigned long)titles.count, (long)sSelectedKindIndex]);
+                              (unsigned long)donorTitles.count, (unsigned long)kinds.count,
+                              (long)sSelectedKindIndex]);
         LBAppendNativeHostState(host, @"feedDone");
     } @finally {
         sFeedingDiscoverHeader = NO;
@@ -1605,7 +1696,9 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
 /// 书列表灌入后刷新原生子页（禁止再 resetContent，避免拆掉刚建好的 SGPage）
 void LBReloadDiscoverNativeList(UIViewController *host) {
     if (!host) return;
-    LBPinDiscoverContentToFirstPage(host);
+    if (LBDiscoverSingleListFeed()) {
+        LBPinDiscoverContentToFirstPage(host);
+    }
     UIViewController *listVC = nil;
     @try {
         listVC = LBActiveDiscoverListVC(host);
@@ -1723,10 +1816,82 @@ static void LBDiscover_pageTitleSelected(id self, SEL _cmd, id pageTitleView, NS
         }
         return;
     }
-    // 发现态：不调用原生翻页（只有 1 个 BookListCon 时翻到 idx>0 = 空黑页）
+    if (index < 0 || index > 64) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"pageTitle drop badIdx=%ld", (long)index]);
+        return;
+    }
+    // 对齐原版：先走原生翻页（男生/女频/出版 + 标签墙），再按 index 拉 Legado explore
+    if (sOrig_pageTitleSelected) {
+        @try {
+            sOrig_pageTitleSelected(self, _cmd, pageTitleView, index);
+        } @catch (NSException *ex) {
+            LBAppendNativeMarker([NSString stringWithFormat:@"pageTitle orig EX %@",
+                                  ex.reason ?: @""]);
+        }
+    }
+    sSelectedKindIndex = MAX(0, index);
+    LBSetDiscoverTabActive(YES);
+    LBDiscoverFireExploreForIndex(index, nil);
     UIViewController *host = [self isKindOfClass:[UIViewController class]]
         ? (UIViewController *)self : LBPrimaryDiscoverHost();
-    LBDiscoverHandleKindSelect(host, pageTitleView, index);
+    if (host) {
+        __weak UIViewController *weakHost = host;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            UIViewController *h = weakHost;
+            if (!h || !LBIsDiscoverTabActive()) return;
+            LBReloadDiscoverNativeList(h);
+        });
+    }
+}
+
+static void LBDiscover_onHeaderBtn(id self, SEL _cmd, id sender) {
+    // 标签墙点击：先走原生，再按按钮标题匹配 Legado kind
+    if (sOrig_onHeaderBtn) {
+        @try {
+            sOrig_onHeaderBtn(self, _cmd, sender);
+        } @catch (NSException *ex) {
+            LBAppendNativeMarker([NSString stringWithFormat:@"headerBtn orig EX %@",
+                                  ex.reason ?: @""]);
+        }
+    }
+    BOOL discoverCtx = LBIsDiscoverTabActive() || sNativeChromeBuilt || LBSelfLooksDiscoverWorldHost(self);
+    if (!discoverCtx) return;
+
+    NSString *title = nil;
+    NSInteger tagIdx = -1;
+    if ([sender isKindOfClass:[UIButton class]]) {
+        UIButton *btn = (UIButton *)sender;
+        title = btn.currentTitle;
+        if (title.length == 0) title = [btn titleForState:UIControlStateNormal];
+        if (title.length == 0) title = btn.titleLabel.text;
+        if (btn.tag >= 0 && btn.tag < 64) tagIdx = btn.tag;
+    } else if ([sender isKindOfClass:[UIView class]]) {
+        tagIdx = [(UIView *)sender tag];
+        @try {
+            id t = [sender valueForKey:@"title"];
+            if ([t isKindOfClass:[NSString class]]) title = t;
+        } @catch (__unused NSException *e) {}
+    }
+    LBAppendNativeMarker([NSString stringWithFormat:@"headerBtn title=%@ tag=%ld",
+                          title ?: @"-", (long)tagIdx]);
+    LBSetDiscoverTabActive(YES);
+    NSInteger exploreIdx = (tagIdx >= 0) ? tagIdx : sSelectedKindIndex;
+    LBDiscoverFireExploreForIndex(exploreIdx, title);
+    UIViewController *host = [self isKindOfClass:[UIViewController class]]
+        ? (UIViewController *)self : nil;
+    if (!host || ![NSStringFromClass([host class]) containsString:@"BookWorld"]) {
+        host = LBPrimaryDiscoverHost();
+    }
+    if (host) {
+        __weak UIViewController *weakHost = host;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            UIViewController *h = weakHost;
+            if (!h || !LBIsDiscoverTabActive()) return;
+            LBReloadDiscoverNativeList(h);
+        });
+    }
 }
 
 static void LBDiscover_onSwitchBtn(id self, SEL _cmd) {
@@ -1772,6 +1937,15 @@ static void LBHookDiscoverNativeUIOnClass(Class cls) {
         if (m && !sOrig_pageTitleSelected) {
             sOrig_pageTitleSelected = (void (*)(id, SEL, id, NSInteger))method_getImplementation(m);
             method_setImplementation(m, (IMP)LBDiscover_pageTitleSelected);
+        }
+    }
+    SEL selHdr = @selector(onHeaderBtnEvent:);
+    Class ownerHdr = LBClassOwningInstanceMethod(cls, selHdr);
+    if (ownerHdr) {
+        Method m = class_getInstanceMethod(ownerHdr, selHdr);
+        if (m && !sOrig_onHeaderBtn) {
+            sOrig_onHeaderBtn = (void (*)(id, SEL, id))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LBDiscover_onHeaderBtn);
         }
     }
     SEL selSw = @selector(onSwitchBtnEvent);
