@@ -1130,6 +1130,7 @@ static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
                 overlay.textColor = c;
                 overlay.hidden = NO;
                 overlay.alpha = 1;
+                overlay.userInteractionEnabled = NO; // 必须穿透到按钮，否则分类点不动
                 [root bringSubviewToFront:overlay];
             }
             if (dump.count < 6) {
@@ -1496,6 +1497,9 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
                           (unsigned long)titles.count, applied ? 1 : 0]);
     LBRevealDiscoverTitleAndList(host);
     sApplyingKinds = prev;
+    // ApplyKinds 结束后再 unlink + 挂按钮（期间 skip 过）
+    LBAttachDiscoverKindButtonActions(host, tv);
+    LBUnlinkDiscoverTitleContent(host);
     __weak UIViewController *weakHost = host;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
@@ -1504,7 +1508,10 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
         LBRevealDiscoverTitleAndList(h);
         id ptv = nil;
         @try { ptv = [h valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-        if (ptv) LBPaintTitleLabels(ptv, sSelectedKindIndex);
+        if (ptv) {
+            LBPaintTitleLabels(ptv, sSelectedKindIndex);
+            LBAttachDiscoverKindButtonActions(h, ptv);
+        }
     });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
@@ -1513,6 +1520,9 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
         LBRevealDiscoverTitleAndList(h);
         LBEnsureDiscoverListSurface(h);
         LBReloadDiscoverNativeList(h);
+        id ptv = nil;
+        @try { ptv = [h valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+        if (ptv) LBAttachDiscoverKindButtonActions(h, ptv);
     });
 }
 
