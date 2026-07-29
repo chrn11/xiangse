@@ -72,6 +72,10 @@ void LBRemoveDiscoverOverlays(UIViewController *host);
 UIViewController * _Nullable LBActiveDiscoverListVC(UIViewController *host);
 /// 书列表灌入后刷新原生子页
 void LBReloadDiscoverNativeList(UIViewController *host);
+/// 发现列表 VC 无表时：在子页内建 LBLT（非全屏 LBDT 脏表），并挂安全 DS hooks
+UITableView * _Nullable LBEnsureDiscoverListSurface(UIViewController *host);
+/// 给 BookListCon / 列表 VC 挂 numberOfRows / cellForRow 兜底
+void LBEnsurePlazaListTableHooks(Class cls);
 void LBPinDiscoverContentToFirstPage(UIViewController *host);
 void LBInstallDiscoverNativeUIHooks(void);
 /// Legado 阅读护栏：消毒 dicBook/站点后走原生 openReader；点章失败再 Bridge

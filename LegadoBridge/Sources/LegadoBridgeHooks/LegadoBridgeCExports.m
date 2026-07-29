@@ -385,6 +385,10 @@ static void LBEnsurePlazaTableDataSourceMethods(Class cls) {
     }
 }
 
+void LBEnsurePlazaListTableHooks(Class cls) {
+    LBEnsurePlazaTableDataSourceMethods(cls);
+}
+
 static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NSString *keyword) {
     if (![book isKindOfClass:[NSDictionary class]] || book.count == 0) return;
     if (LBIsDiscoverTabActive()) {
@@ -620,10 +624,20 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         } else if (plazaHost && LBIsDiscoverTabActive()) {
             for (UIViewController *h in (LBFindDiscoverHostVCs() ?: @[])) {
+                UITableView *ensured = LBEnsureDiscoverListSurface(h);
+                if (ensured) {
+                    LBEnsurePlazaListTableHooks([feedVC class]);
+                    if (!ensured.dataSource) {
+                        ensured.dataSource = (id<UITableViewDataSource>)feedVC;
+                        ensured.delegate = (id<UITableViewDelegate>)feedVC;
+                    }
+                    @try { [ensured reloadData]; } @catch (__unused NSException *e) {}
+                    tv = ensured;
+                }
                 LBReloadDiscoverNativeList(h);
             }
-            NSString *diag = [NSString stringWithFormat:@"uiInject no UITableView native host=%@ feed=%@",
-                              vcn, NSStringFromClass([feedVC class])];
+            NSString *diag = [NSString stringWithFormat:@"uiInject no UITableView native host=%@ feed=%@ ensured=%d",
+                              vcn, NSStringFromClass([feedVC class]), tv ? 1 : 0];
             [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         } else {

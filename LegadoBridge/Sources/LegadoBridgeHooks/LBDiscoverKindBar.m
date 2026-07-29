@@ -1154,11 +1154,11 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
     id tv = nil;
     @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
     if (!tv) {
-        LBAppendNativeMarker(@"forceTitles skip: no pageTitleView");
-        return;
+        LBAppendNativeMarker(@"forceTitles no pageTitleView (will create)");
     }
 
     BOOL applied = NO;
+    if (tv) {
     for (NSString *selName in @[@"resetTitleNames:", @"setTitleNames:", @"resetTitles:",
                                 @"setTitles:", @"reloadTitles:", @"updateTitleNames:"]) {
         SEL s = NSSelectorFromString(selName);
@@ -1184,6 +1184,7 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
             } @catch (__unused NSException *e) {}
         }
     }
+    } // if (tv)
 
     // KVC 常不刷新按钮：用工厂重建 SGPageTitleView
     Class tvCls = NSClassFromString(@"SGPageTitleView");
@@ -1191,14 +1192,19 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
     if (tvCls && [tvCls respondsToSelector:factory] && [tv isKindOfClass:[UIView class]]) {
         UIView *old = (UIView *)tv;
         CGRect frame = old.frame;
-        if (CGRectIsEmpty(frame) && host.isViewLoaded) {
-            CGFloat w = host.view.bounds.size.width;
-            if (w < 1) w = [UIScreen mainScreen].bounds.size.width;
-            CGFloat top = 64;
-            if (@available(iOS 11.0, *)) {
-                top = MAX(64, host.view.safeAreaInsets.top + 44);
+        CGFloat w = host.isViewLoaded ? host.view.bounds.size.width : 0;
+        if (w < 1) w = [UIScreen mainScreen].bounds.size.width;
+        CGFloat top = 88;
+        if (@available(iOS 11.0, *)) {
+            if (host.isViewLoaded) {
+                top = MAX(88, host.view.safeAreaInsets.top + 44);
             }
-            frame = CGRectMake(0, top, w, 44);
+        }
+        // openConfig 后旧 frame 常变成 y=0，分类条会藏到导航栏下面 → 整页只剩白
+        if (CGRectIsEmpty(frame) || frame.size.width < 2 || frame.size.height < 2 || frame.origin.y < top - 2) {
+            frame = CGRectMake(0, top, w, MAX(38, frame.size.height > 2 ? frame.size.height : 44));
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"forceTitles fixFrame y=%.0f h=%.0f", frame.origin.y, frame.size.height]);
         }
         id delegate = nil;
         id configure = nil;
@@ -1222,6 +1228,8 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
                 [old removeFromSuperview];
                 if (superview) {
                     [superview insertSubview:(UIView *)neu atIndex:MAX(0, z)];
+                    [(UIView *)neu setFrame:frame];
+                    [superview bringSubviewToFront:(UIView *)neu];
                 }
                 @try { [host setValue:neu forKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
                 LBAppendNativeMarker([NSString stringWithFormat:
@@ -1232,6 +1240,35 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
             }
         } @catch (NSException *ex) {
             LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles rebuild EX %@",
+                                  ex.reason ?: @""]);
+        }
+    }
+
+    // 无旧 titleView 时直接新建一条
+    if ((!tv || ![tv isKindOfClass:[UIView class]]) && host.isViewLoaded &&
+        tvCls && [tvCls respondsToSelector:factory]) {
+        CGFloat w = host.view.bounds.size.width;
+        if (w < 1) w = [UIScreen mainScreen].bounds.size.width;
+        CGFloat top = 88;
+        if (@available(iOS 11.0, *)) {
+            top = MAX(88, host.view.safeAreaInsets.top + 44);
+        }
+        CGRect frame = CGRectMake(0, top, w, 44);
+        id configure = nil;
+        @try { configure = [host valueForKey:@"pageTitleViewConfigure"]; } @catch (__unused NSException *e) {}
+        configure = LBDiscoverTitleConfigure(configure) ?: configure;
+        @try {
+            id neu = ((id (*)(id, SEL, CGRect, id, id, id))objc_msgSend)(
+                tvCls, factory, frame, host, titles, configure);
+            if ([neu isKindOfClass:[UIView class]]) {
+                [host.view addSubview:(UIView *)neu];
+                @try { [host setValue:neu forKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+                tv = neu;
+                applied = YES;
+                LBAppendNativeMarker(@"forceTitles create titleView");
+            }
+        } @catch (NSException *ex) {
+            LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles create EX %@",
                                   ex.reason ?: @""]);
         }
     }
@@ -1714,73 +1751,172 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
     }
 }
 
-/// 书列表灌入后：只刷新已有原生 table，禁止新建/铺满/置顶（会盖住标签墙与原生黑底列表）
-void LBReloadDiscoverNativeList(UIViewController *host) {
-    if (!host) return;
-    UIViewController *listVC = nil;
-    @try {
-        listVC = LBActiveDiscoverListVC(host);
-    } @catch (NSException *ex) {
-        LBAppendNativeMarker([NSString stringWithFormat:@"reload activeVC EX %@", ex.reason ?: @""]);
-    }
-    if (!listVC) listVC = host;
+/// 切到无原生表的 Legado 源时：在列表子页内建 LBLT（禁止 LBDT 全屏脏表盖住分类条）
+UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
+    if (!host) return nil;
+    static const NSInteger kLBLT = 0x4C424C54; // 'LBLT'
+    static const NSInteger kLBDT = 0x4C424454; // 'LBDT'
 
-    // 去掉我们曾经误加的「铺满脏表」（tag LBDT），勿动原生表
+    UIViewController *listVC = nil;
+    @try { listVC = LBActiveDiscoverListVC(host); } @catch (__unused NSException *e) {}
+    if (!listVC) listVC = host;
+    @try { (void)listVC.view; } @catch (__unused NSException *e) {}
+
+    // 清 LBDT 脏表
     if (listVC.isViewLoaded && listVC.view) {
         NSMutableArray *junk = [NSMutableArray array];
         for (UIView *sub in listVC.view.subviews) {
-            if ([sub isKindOfClass:[UITableView class]] && sub.tag == 0x4C424454) { // 'LBDT'
+            if ([sub isKindOfClass:[UITableView class]] && sub.tag == kLBDT) {
                 [junk addObject:sub];
             }
         }
-        for (UIView *v in junk) {
-            [v removeFromSuperview];
-            LBAppendNativeMarker(@"reload remove junk overlay TV");
+        for (UIView *v in junk) [v removeFromSuperview];
+    }
+    if (host.isViewLoaded && host.view && host != listVC) {
+        NSMutableArray *junk = [NSMutableArray array];
+        for (UIView *sub in host.view.subviews) {
+            if ([sub isKindOfClass:[UITableView class]] && sub.tag == kLBDT) {
+                [junk addObject:sub];
+            }
         }
+        for (UIView *v in junk) [v removeFromSuperview];
     }
 
     UITableView *tv = nil;
     for (NSString *k in @[@"tableView", @"tv", @"listTableView", @"mainTableView", @"myTableView"]) {
         @try {
             id v = [listVC valueForKey:k];
-            if ([v isKindOfClass:[UITableView class]] && [(UIView *)v tag] != 0x4C424454) {
+            if ([v isKindOfClass:[UITableView class]] && [(UIView *)v tag] != kLBDT) {
                 tv = (UITableView *)v;
                 break;
             }
         } @catch (__unused NSException *e) {}
     }
     if (!tv && listVC.isViewLoaded && listVC.view) {
+        NSMutableArray *q = [NSMutableArray arrayWithObject:listVC.view];
+        NSInteger budget = 80;
+        while (q.count > 0 && budget-- > 0) {
+            UIView *cur = q.firstObject;
+            [q removeObjectAtIndex:0];
+            if ([cur isKindOfClass:[UITableView class]] && cur.tag != kLBDT) {
+                tv = (UITableView *)cur;
+                break;
+            }
+            for (UIView *sub in cur.subviews) [q addObject:sub];
+        }
+    }
+    if (tv) {
+        // 可见性：openConfig 后常白底空壳
         @try {
-            NSMutableArray *q = [NSMutableArray arrayWithObject:listVC.view];
-            NSInteger budget = 60;
-            while (q.count > 0 && budget-- > 0) {
-                UIView *cur = q.firstObject;
-                [q removeObjectAtIndex:0];
-                if ([cur isKindOfClass:[UITableView class]] && cur.tag != 0x4C424454) {
-                    tv = (UITableView *)cur;
-                    break;
-                }
-                for (UIView *sub in cur.subviews) [q addObject:sub];
+            if (tv.backgroundColor == nil ||
+                CGColorGetAlpha(tv.backgroundColor.CGColor) < 0.05) {
+                tv.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
             }
         } @catch (__unused NSException *e) {}
+        return tv;
     }
+
+    // 无表：在 listVC（或 host 标题条下方）建 LBLT
+    UIView *container = nil;
+    CGRect frame = CGRectZero;
+    if (listVC.isViewLoaded && listVC.view && listVC != host) {
+        container = listVC.view;
+        frame = container.bounds;
+        if (frame.size.width < 2 || frame.size.height < 2) {
+            id scroll = nil;
+            @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+            if ([scroll isKindOfClass:[UIView class]]) {
+                CGRect sf = [(UIView *)scroll bounds];
+                if (sf.size.width > 2 && sf.size.height > 2) frame = sf;
+            }
+        }
+    }
+    if (!container || frame.size.width < 2 || frame.size.height < 2) {
+        if (!host.isViewLoaded || !host.view) return nil;
+        container = host.view;
+        CGFloat w = host.view.bounds.size.width;
+        if (w < 1) w = [UIScreen mainScreen].bounds.size.width;
+        CGFloat top = 88 + 44;
+        if (@available(iOS 11.0, *)) {
+            top = MAX(88, host.view.safeAreaInsets.top + 44) + 44;
+        }
+        id titleView = nil;
+        @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+        if ([titleView isKindOfClass:[UIView class]]) {
+            CGRect tf = [(UIView *)titleView frame];
+            if (tf.size.height > 1) {
+                top = MAX(top, CGRectGetMaxY(tf));
+            }
+        }
+        CGFloat h = host.view.bounds.size.height - top;
+        if (h < 80) h = 200;
+        frame = CGRectMake(0, top, w, h);
+        listVC = host;
+    }
+
+    UITableView *neu = [[UITableView alloc] initWithFrame:frame style:UITableViewStylePlain];
+    neu.tag = kLBLT;
+    neu.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    neu.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+    neu.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
+    neu.rowHeight = 88;
+    LBEnsurePlazaListTableHooks([listVC class]);
+    neu.dataSource = (id<UITableViewDataSource>)listVC;
+    neu.delegate = (id<UITableViewDelegate>)listVC;
+    [container addSubview:neu];
+    @try { [listVC setValue:neu forKey:@"tableView"]; } @catch (__unused NSException *e) {}
+    @try {
+        if (container.backgroundColor == nil ||
+            [container.backgroundColor isEqual:[UIColor whiteColor]] ||
+            [container.backgroundColor isEqual:[UIColor clearColor]]) {
+            container.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+        }
+    } @catch (__unused NSException *e) {}
+    // 表加在 host 上时，分类条必须置顶，避免再被盖住
+    if (container == host.view) {
+        id titleView = nil;
+        @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+        if ([titleView isKindOfClass:[UIView class]]) {
+            [container bringSubviewToFront:(UIView *)titleView];
+        }
+    }
+    LBAppendNativeMarker([NSString stringWithFormat:
+                          @"ensureListSurface LBLT %.0fx%.0f@%.0f,%.0f feed=%@",
+                          frame.size.width, frame.size.height,
+                          frame.origin.x, frame.origin.y,
+                          NSStringFromClass([listVC class])]);
+    return neu;
+}
+
+/// 书列表灌入后：软刷新；无表时建 LBLT（不建 LBDT 全屏脏表）
+void LBReloadDiscoverNativeList(UIViewController *host) {
+    if (!host) return;
+    UITableView *tv = LBEnsureDiscoverListSurface(host);
     if (!tv) {
-        LBAppendNativeMarker(@"reload skip: no native tableView (no create)");
+        LBAppendNativeMarker(@"reload skip: no list surface");
         return;
     }
     @try {
-        // 绝不改 frame / bringToFront / 强夺 dataSource
+        // 已有表：不改 frame / 不 bringToFront；LBLT 可保留我们设的 DS
+        BOOL isLBLT = (tv.tag == 0x4C424C54);
+        if (isLBLT && (!tv.dataSource || tv.dataSource == (id)[NSNull null])) {
+            UIViewController *listVC = LBActiveDiscoverListVC(host) ?: host;
+            LBEnsurePlazaListTableHooks([listVC class]);
+            tv.dataSource = (id<UITableViewDataSource>)listVC;
+            tv.delegate = (id<UITableViewDelegate>)listVC;
+        }
         [tv reloadData];
         NSInteger rows = 0;
         @try { rows = [tv numberOfRowsInSection:0]; } @catch (__unused NSException *e) {}
         static NSInteger sReloadLog = 0;
-        if (sReloadLog < 6) {
+        if (sReloadLog < 8) {
             LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"reload soft tv=%.0fx%.0f@%.0f,%.0f rows=%ld ds=%@",
+                                  @"reload soft tv=%.0fx%.0f@%.0f,%.0f rows=%ld ds=%@ tag=%ld",
                                   tv.frame.size.width, tv.frame.size.height,
                                   tv.frame.origin.x, tv.frame.origin.y,
                                   (long)rows,
-                                  tv.dataSource ? NSStringFromClass([tv.dataSource class]) : @"nil"]);
+                                  tv.dataSource ? NSStringFromClass([tv.dataSource class]) : @"nil",
+                                  (long)tv.tag]);
             sReloadLog++;
         }
     } @catch (NSException *ex) {
@@ -1976,16 +2112,49 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
             core, @selector(exploreKindsJSONForSourceUrl:), legadoUrl);
         kinds = LBParseJSONArray(kj);
     }
+    // openConfig 常把分类条顶到 y=0、列表子页掏空 → 白屏；先修 chrome 再保列表面
+    if (host.isViewLoaded && host.view) {
+        @try {
+            if ([host.view.backgroundColor isEqual:[UIColor whiteColor]] ||
+                host.view.backgroundColor == nil) {
+                host.view.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1];
+            }
+        } @catch (__unused NSException *e) {}
+    }
     LBApplyLegadoSourceKindsToChrome(host, kinds, sourceName);
+    UITableView *surface = LBEnsureDiscoverListSurface(host);
     NSString *kindUrl = nil;
     if (kinds.count > 0 && [kinds[0][@"url"] isKindOfClass:[NSString class]]) {
         kindUrl = kinds[0][@"url"];
     }
-    if (legadoUrl.length > 0) {
-        LBTriggerExploreKind(legadoUrl, kindUrl);
-    }
-    LBAppendNativeMarker([NSString stringWithFormat:@"nativeSwitch Legado kinds=%lu kind0=%@",
-                          (unsigned long)kinds.count, kindUrl ?: @"-"]);
+    LBAppendNativeMarker([NSString stringWithFormat:
+                          @"nativeSwitch Legado kinds=%lu kind0=%@ surface=%d",
+                          (unsigned long)kinds.count, kindUrl ?: @"-",
+                          surface ? 1 : 0]);
+    if (legadoUrl.length == 0) return;
+
+    NSString *srcCopy = [legadoUrl copy];
+    NSString *kindCopy = [kindUrl copy];
+    NSString *nameCopy = [sourceName copy];
+    NSArray *kindsCopy = [kinds copy] ?: @[];
+    __weak UIViewController *weakHost = host;
+    // 等 title 重建/layout 完成后再 explore，避免 clear books 撞上空壳；
+    // openConfig 可能稍后再次掏空，延时里再刷一次 chrome+surface
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        UIViewController *h = weakHost;
+        if (!h || !LBIsDiscoverTabActive()) return;
+        LBApplyLegadoSourceKindsToChrome(h, kindsCopy, nameCopy);
+        LBEnsureDiscoverListSurface(h);
+        LBTriggerExploreKind(srcCopy, kindCopy);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            UIViewController *h2 = weakHost;
+            if (!h2 || !LBIsDiscoverTabActive()) return;
+            LBEnsureDiscoverListSurface(h2);
+            LBReloadDiscoverNativeList(h2);
+        });
+    });
 }
 
 static void LBDiscover_openConfigByName(id self, SEL _cmd, NSString *name) {
