@@ -24,6 +24,7 @@ static void (*sOrig_openConfigByName)(id, SEL, NSString *) = NULL;
 static NSString *(*sOrig_getUseSourceName)(id, SEL) = NULL;
 static NSString *sDiscoverUseSourceName = nil;
 static BOOL sFeedingDiscoverHeader = NO;
+static BOOL sApplyingKinds = NO; // ForceTitles/ApplyKinds 期间禁 explore，防连环 clear
 
 static void LBPaintTitleLabels(id tv, NSInteger selectedIndex);
 static void LBRestoreDiscoverTitleSelected(id pageTitleView, NSInteger index);
@@ -37,6 +38,8 @@ static NSArray *LBDonorTitlesFromHost(UIViewController *host, NSDictionary *prep
 static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles);
 static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *kinds, NSString *srcName);
 static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sourceName);
+static NSString *LBFindLegadoExploreUrlByName(NSString *name);
+static void LBRevealDiscoverTitleAndList(UIViewController *host);
 
 static id LBKindCore(void) {
     return LBLegadoCoreIfReady();
@@ -249,6 +252,10 @@ static NSString *LBResolveExploreKindUrl(NSInteger index, NSString *titleHint) {
 }
 
 static void LBDiscoverFireExploreForIndex(NSInteger index, NSString *titleHint) {
+    if (sApplyingKinds || sFeedingDiscoverHeader) {
+        LBAppendNativeMarker(@"nativeExplore skip: applyingKinds");
+        return;
+    }
     id core = LBKindCore();
     NSString *src = core ? LBCurrentExploreSourceUrl(core) : nil;
     NSString *url = LBResolveExploreKindUrl(index, titleHint) ?: @"";
@@ -389,7 +396,12 @@ static void LBAttachDiscoverKindButtonActions(UIViewController *host, id titleVi
         [btn addTarget:host action:sel forControlEvents:UIControlEventTouchUpInside];
         n++;
     }
-    LBUnlinkDiscoverTitleContent(host);
+    // ApplyKinds 时 unlink/pin 会让随后 FindBest 找不到 BookListCon
+    if (!sApplyingKinds) {
+        LBUnlinkDiscoverTitleContent(host);
+    } else {
+        LBAppendNativeMarker(@"kindBtnAttach skipUnlink during applyKinds");
+    }
     LBAppendNativeMarker([NSString stringWithFormat:@"kindBtnAttach n=%lu host=%@",
                           (unsigned long)n, NSStringFromClass([host class])]);
 }
@@ -944,8 +956,8 @@ static void LBInstallBookListSafeViewDidLoad(void) {
 /// donor configure 的 titleColor 多为白色（原生深色页），发现页白底会导致白字不可见。
 /// 新建一份 configure，失败则就地改色。
 static id LBDiscoverTitleConfigure(id donorConfigure) {
-    UIColor *normal = [UIColor colorWithWhite:0.82 alpha:1];
-    UIColor *selected = [UIColor colorWithRed:1.0 green:0.45 blue:0.15 alpha:1];
+    UIColor *normal = [UIColor colorWithWhite:0.20 alpha:1];
+    UIColor *selected = [UIColor colorWithRed:0.90 green:0.35 blue:0.10 alpha:1];
     Class cfgCls = NSClassFromString(@"SGPageTitleViewConfigure");
     id cfg = nil;
     SEL make = NSSelectorFromString(@"pageTitleViewConfigure");
@@ -999,16 +1011,16 @@ static id LBDiscoverTitleConfigure(id donorConfigure) {
 static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
     if (![tv isKindOfClass:[UIView class]]) return;
     UIView *root = (UIView *)tv;
-    // 深底 + 浅字（对齐香色发现黑底），白底白字时完全看不见
+    // 浅底深字：黑内容区上分类条必须显眼
     @try {
-        root.backgroundColor = [UIColor colorWithWhite:0.10 alpha:1];
+        root.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
         root.opaque = YES;
         root.hidden = NO;
         root.alpha = 1;
         root.clipsToBounds = NO;
     } @catch (__unused NSException *e) {}
-    UIColor *normal = [UIColor colorWithWhite:0.82 alpha:1];
-    UIColor *selected = [UIColor colorWithRed:1.0 green:0.45 blue:0.15 alpha:1];
+    UIColor *normal = [UIColor colorWithWhite:0.15 alpha:1];
+    UIColor *selected = [UIColor colorWithRed:0.90 green:0.35 blue:0.10 alpha:1];
 
     NSMutableArray<UIButton *> *btns = [NSMutableArray array];
     NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
@@ -1155,8 +1167,48 @@ static void LBEnableTitleScroll(id tv) {
 }
 
 /// resetContent 后强制用 Legado 分类覆盖 SGPageTitleView（donor bookWorld 会盖掉 arrHeaderBtnTitle）
+static void LBRevealDiscoverTitleAndList(UIViewController *host) {
+    if (!host || !host.isViewLoaded || !host.view) return;
+    id tv = nil;
+    @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+    if ([tv isKindOfClass:[UIView class]]) {
+        UIView *title = (UIView *)tv;
+        if (!title.superview) {
+            [host.view addSubview:title];
+        }
+        [host.view bringSubviewToFront:title];
+        title.hidden = NO;
+        title.alpha = 1;
+        // 浅色条 + 深字，黑底上也能看见（对齐 2cf7b1c 分类可读）
+        title.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
+    }
+    UIViewController *list = nil;
+    @try { list = LBActiveDiscoverListVC(host); } @catch (__unused NSException *e) {}
+    if (list && list.isViewLoaded && list.view) {
+        list.view.hidden = NO;
+        list.view.alpha = 1;
+        if (list.view.superview) {
+            // 不要盖住 title：只保证 list 所在 scroll 内容可见
+            list.view.hidden = NO;
+        }
+    }
+    id scroll = nil;
+    @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+    if ([scroll isKindOfClass:[UIView class]]) {
+        UIView *sv = (UIView *)scroll;
+        sv.hidden = NO;
+        sv.alpha = 1;
+        // 若 scroll 盖住 title，把 title 再置顶
+        if ([tv isKindOfClass:[UIView class]]) {
+            [host.view bringSubviewToFront:(UIView *)tv];
+        }
+    }
+}
+
 static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles) {
     if (!host || titles.count == 0) return;
+    BOOL prev = sApplyingKinds;
+    sApplyingKinds = YES;
     @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
 
     id tv = nil;
@@ -1308,6 +1360,26 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
 
     LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles n=%lu applied=%d",
                           (unsigned long)titles.count, applied ? 1 : 0]);
+    LBRevealDiscoverTitleAndList(host);
+    sApplyingKinds = prev;
+    __weak UIViewController *weakHost = host;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        UIViewController *h = weakHost;
+        if (!h) return;
+        LBRevealDiscoverTitleAndList(h);
+        id ptv = nil;
+        @try { ptv = [h valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+        if (ptv) LBPaintTitleLabels(ptv, sSelectedKindIndex);
+    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        UIViewController *h = weakHost;
+        if (!h || !LBIsDiscoverTabActive()) return;
+        LBRevealDiscoverTitleAndList(h);
+        LBEnsureDiscoverListSurface(h);
+        LBReloadDiscoverNativeList(h);
+    });
 }
 
 /// 分类条跟当前 Legado 源 exploreUrl 解析结果走（换源即换分类），donor 只当壳
@@ -2091,6 +2163,7 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
 /// 书列表灌入后：软刷新；无表时建 LBLT（不建 LBDT 全屏脏表）
 void LBReloadDiscoverNativeList(UIViewController *host) {
     if (!host) return;
+    LBRevealDiscoverTitleAndList(host);
     UITableView *tv = LBEnsureDiscoverListSurface(host);
     if (!tv) {
         LBAppendNativeMarker(@"reload skip: no list surface");
@@ -2471,13 +2544,30 @@ void LBRefreshDiscoverKindBar(void) {
     id core = LBKindCore();
     if (!core) return;
 
+    // 导航栏真实源名优先（避免 selectedExplore 卡在旧的速读谷、屏上却是领域书库）
+    NSString *hostName = nil;
+    @try { hostName = host.navigationItem.title; } @catch (__unused NSException *e) {}
+    if (hostName.length == 0) @try { hostName = host.title; } @catch (__unused NSException *e) {}
+    if (hostName.length == 0) @try {
+        id v = [host valueForKey:@"useSourceName"];
+        if ([v isKindOfClass:[NSString class]]) hostName = v;
+    } @catch (__unused NSException *e) {}
+    if (hostName.length > 0) {
+        NSString *byName = LBFindLegadoExploreUrlByName(hostName);
+        if (byName.length > 0) {
+            @try { [core setValue:byName forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
+            LBAppendNativeMarker([NSString stringWithFormat:@"syncExploreFromNav name=%@ url=%@",
+                                  hostName, byName]);
+        }
+    }
+
     NSString *src = LBCurrentExploreSourceUrl(core);
-    NSString *srcName = nil;
+    NSString *srcName = hostName;
     for (id row in LBParseJSONArray(
              ([core respondsToSelector:@selector(exploreCapableSourcesJSON)]
               ? [core valueForKey:@"exploreCapableSourcesJSON"] : @"[]"))) {
         if ([row isKindOfClass:[NSDictionary class]] && [row[@"url"] isEqual:src]) {
-            srcName = row[@"name"];
+            srcName = row[@"name"] ?: srcName;
             break;
         }
     }
