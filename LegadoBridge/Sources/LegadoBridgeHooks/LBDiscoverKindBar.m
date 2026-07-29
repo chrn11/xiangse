@@ -40,6 +40,7 @@ static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *ki
 static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sourceName);
 static NSString *LBFindLegadoExploreUrlByName(NSString *name);
 static void LBRevealDiscoverTitleAndList(UIViewController *host);
+static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot);
 
 static id LBKindCore(void) {
     return LBLegadoCoreIfReady();
@@ -1032,6 +1033,71 @@ static id LBDiscoverTitleConfigure(id donorConfigure) {
 
 /// 兜底：不改动 SG 内部 layout（易崩），只叠可见 overlay UILabel
 static char kLBKindWantCountKey;
+static char kLBTitleTapHostKey;
+
+static void LBDiscover_titleKindTap(id self, SEL _cmd, UITapGestureRecognizer *gr) {
+    (void)self; (void)_cmd;
+    if (![gr isKindOfClass:[UITapGestureRecognizer class]] || !gr.view) return;
+    UIView *root = gr.view;
+    CGPoint p = [gr locationInView:root];
+    NSMutableArray<UIButton *> *btns = [NSMutableArray array];
+    NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+    while (stack.count) {
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        if ([v isKindOfClass:[UIButton class]] && !v.hidden && v.alpha > 0.05) {
+            [btns addObject:(UIButton *)v];
+        }
+        for (UIView *sub in v.subviews) [stack addObject:sub];
+    }
+    NSArray *sorted = [btns sortedArrayUsingComparator:^NSComparisonResult(UIButton *a, UIButton *b) {
+        return a.frame.origin.x < b.frame.origin.x ? NSOrderedAscending : NSOrderedDescending;
+    }];
+    NSInteger idx = -1;
+    for (NSUInteger i = 0; i < sorted.count; i++) {
+        UIButton *b = sorted[i];
+        CGRect fr = [b convertRect:b.bounds toView:root];
+        if (CGRectContainsPoint(fr, p)) { idx = (NSInteger)i; break; }
+    }
+    if (idx < 0 && sorted.count > 0) {
+        // 点在空隙：按 x 最近按钮
+        CGFloat best = CGFLOAT_MAX;
+        for (NSUInteger i = 0; i < sorted.count; i++) {
+            UIButton *b = sorted[i];
+            CGRect fr = [b convertRect:b.bounds toView:root];
+            CGFloat mid = CGRectGetMidX(fr);
+            CGFloat d = fabs(mid - p.x);
+            if (d < best) { best = d; idx = (NSInteger)i; }
+        }
+    }
+    UIViewController *host = objc_getAssociatedObject(root, &kLBTitleTapHostKey);
+    if (![host isKindOfClass:[UIViewController class]]) host = LBPrimaryDiscoverHost();
+    LBAppendNativeMarker([NSString stringWithFormat:@"kindTapGesture idx=%ld x=%.0f", (long)idx, p.x]);
+    if (idx >= 0) LBDiscoverHandleKindSelect(host, root, idx);
+}
+
+static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot) {
+    if (!host || !titleRoot) return;
+    objc_setAssociatedObject(titleRoot, &kLBTitleTapHostKey, host, OBJC_ASSOCIATION_ASSIGN);
+    for (UIGestureRecognizer *g in titleRoot.gestureRecognizers ?: @[]) {
+        if ([g isKindOfClass:[UITapGestureRecognizer class]] &&
+            [g.accessibilityLabel isEqualToString:@"lbKindTap"]) {
+            return;
+        }
+    }
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc]
+        initWithTarget:host action:@selector(lb_discoverTitleKindTap:)];
+    tap.accessibilityLabel = @"lbKindTap";
+    tap.cancelsTouchesInView = NO;
+    [titleRoot addGestureRecognizer:tap];
+    // 给 host 挂方法
+    Class cls = [host class];
+    SEL sel = @selector(lb_discoverTitleKindTap:);
+    if (!class_getInstanceMethod(cls, sel)) {
+        class_addMethod(cls, sel, (IMP)LBDiscover_titleKindTap, "v@:@");
+    }
+    LBAppendNativeMarker(@"kindTapGesture installed");
+}
 
 static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
     if (![tv isKindOfClass:[UIView class]]) return;
