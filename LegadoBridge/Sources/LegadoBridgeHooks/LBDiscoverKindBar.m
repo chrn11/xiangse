@@ -1036,6 +1036,31 @@ static id LBDiscoverTitleConfigure(id donorConfigure) {
 static char kLBKindWantCountKey;
 static char kLBTitleTapHostKey;
 
+/// 分类条在 host.view 内的 y：host 已在导航下则≈0，全屏铺满则≈safe+44
+static CGFloat LBDiscoverTitleTopInHost(UIViewController *host) {
+    if (!host.isViewLoaded || !host.view) return 0;
+    UIView *hv = host.view;
+    UIWindow *win = hv.window;
+    CGFloat screenTop = 88;
+    if (@available(iOS 11.0, *)) {
+        UIEdgeInsets insets = win ? win.safeAreaInsets : hv.safeAreaInsets;
+        screenTop = insets.top + 44;
+    }
+    if (!win) {
+        // 无 window 时：safeArea 已含 nav 则贴顶，否则用 safe+44
+        if (@available(iOS 11.0, *)) {
+            if (hv.safeAreaInsets.top >= 44) return 0;
+            return MAX(0, hv.safeAreaInsets.top + 44);
+        }
+        return 0;
+    }
+    CGRect hostInWin = [hv convertRect:hv.bounds toView:win];
+    CGFloat y = screenTop - hostInWin.origin.y;
+    if (y < 0) y = 0;
+    if (y > 100) y = 0; // 异常大偏移时贴顶，避免双重下移
+    return y;
+}
+
 void LBBringDiscoverKindHitFront(UIViewController *host) {
     if (!host || !host.isViewLoaded || !host.view) return;
     static const NSInteger kLBKindHit = 0x4C424B48; // 'LBKH'
@@ -1146,7 +1171,9 @@ static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot) {
     // 挂到 keyWindow，避免宿主子树里其它层吃掉点击
     CGRect tf = [titleRoot convertRect:titleRoot.bounds toView:container];
     if (tf.size.width < 2 || tf.size.height < 2) {
-        tf = CGRectMake(0, 88, container.bounds.size.width, 44);
+        CGFloat top = LBDiscoverTitleTopInHost(host);
+        CGRect hostInC = [host.view convertRect:CGRectMake(0, top, 2, 44) toView:container];
+        tf = CGRectMake(0, hostInC.origin.y, container.bounds.size.width, 44);
     }
     tf = CGRectInset(tf, 0, -6);
 
@@ -1159,8 +1186,8 @@ static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot) {
     if (!hit) {
         hit = [[UIView alloc] initWithFrame:tf];
         hit.tag = kLBKindHit;
-        // 调试期半透明，确认盖在分类条上；稳定后改 clear
-        hit.backgroundColor = [[UIColor systemRedColor] colorWithAlphaComponent:0.25];
+        // 稳定：透明；点击由槽位按钮/手势吃
+        hit.backgroundColor = [UIColor clearColor];
         hit.userInteractionEnabled = YES;
         hit.autoresizingMask = UIViewAutoresizingFlexibleWidth;
         UITapGestureRecognizer *tap =
@@ -1177,7 +1204,7 @@ static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot) {
         hit.frame = tf;
         hit.hidden = NO;
         hit.userInteractionEnabled = YES;
-        hit.backgroundColor = [[UIColor systemRedColor] colorWithAlphaComponent:0.25];
+        hit.backgroundColor = [UIColor clearColor];
         LBAppendNativeMarker([NSString stringWithFormat:
                               @"kindHitControl reuse win=%d frame=%.0f,%.0f,%.0fx%.0f",
                               win ? 1 : 0,
@@ -1576,18 +1603,22 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
         UIView *old = (UIView *)tv;
         CGFloat w = host.isViewLoaded ? host.view.bounds.size.width : 0;
         if (w < 1) w = [UIScreen mainScreen].bounds.size.width;
-        CGFloat top = 88;
-        if (@available(iOS 11.0, *)) {
-            if (host.isViewLoaded) {
-                top = MAX(88, host.view.safeAreaInsets.top + 44);
-            }
-        }
+        CGFloat top = LBDiscoverTitleTopInHost(host);
         CGRect frame = old.frame;
-        if (CGRectIsEmpty(frame) || frame.size.width < 2 || frame.size.height < 2 || frame.origin.y < top - 2) {
+        CGFloat winY = -1;
+        @try {
+            if (host.view.window) {
+                winY = [old convertRect:old.bounds toView:host.view.window].origin.y;
+            }
+        } @catch (__unused NSException *e) {}
+        BOOL tooLow = (winY > 0 && winY > 140); // 双重偏移：条跑到 nav 下很远
+        if (CGRectIsEmpty(frame) || frame.size.width < 2 || frame.size.height < 2
+            || fabs(frame.origin.y - top) > 2 || tooLow) {
             frame = CGRectMake(0, top, w, MAX(38, frame.size.height > 2 ? frame.size.height : 44));
             old.frame = frame;
             LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"forceTitles fixFrameOnly y=%.0f h=%.0f", frame.origin.y, frame.size.height]);
+                                  @"forceTitles fixFrameOnly y=%.0f h=%.0f winY=%.0f",
+                                  frame.origin.y, frame.size.height, winY]);
         }
         id configure = nil;
         @try { configure = [old valueForKey:@"configure"]; } @catch (__unused NSException *e) {}
@@ -1606,10 +1637,7 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
         tvCls && [tvCls respondsToSelector:factory]) {
         CGFloat w = host.view.bounds.size.width;
         if (w < 1) w = [UIScreen mainScreen].bounds.size.width;
-        CGFloat top = 88;
-        if (@available(iOS 11.0, *)) {
-            top = MAX(88, host.view.safeAreaInsets.top + 44);
-        }
+        CGFloat top = LBDiscoverTitleTopInHost(host);
         CGRect frame = CGRectMake(0, top, w, 44);
         id configure = nil;
         @try { configure = [host valueForKey:@"pageTitleViewConfigure"]; } @catch (__unused NSException *e) {}
