@@ -1036,11 +1036,17 @@ static id LBDiscoverTitleConfigure(id donorConfigure) {
 static char kLBKindWantCountKey;
 static char kLBTitleTapHostKey;
 
-static void LBDiscover_titleKindTap(id self, SEL _cmd, UITapGestureRecognizer *gr) {
+static void LBDiscover_titleKindTap(id self, SEL _cmd, id sender) {
     (void)self; (void)_cmd;
-    if (![gr isKindOfClass:[UITapGestureRecognizer class]] || !gr.view) return;
-    UIView *root = gr.view;
-    CGPoint p = [gr locationInView:root];
+    if (![sender isKindOfClass:[UITapGestureRecognizer class]]) return;
+    UITapGestureRecognizer *gr = (UITapGestureRecognizer *)sender;
+    UIView *hit = gr.view;
+    if (!hit) return;
+    UIView *root = objc_getAssociatedObject(hit, "lbKindTitleRoot");
+    if (![root isKindOfClass:[UIView class]]) root = hit;
+    CGPoint pInHit = [gr locationInView:hit];
+    CGPoint p = [hit convertPoint:pInHit toView:root];
+
     NSMutableArray<UIButton *> *btns = [NSMutableArray array];
     NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
     while (stack.count) {
@@ -1061,7 +1067,6 @@ static void LBDiscover_titleKindTap(id self, SEL _cmd, UITapGestureRecognizer *g
         if (CGRectContainsPoint(fr, p)) { idx = (NSInteger)i; break; }
     }
     if (idx < 0 && sorted.count > 0) {
-        // 点在空隙：按 x 最近按钮
         CGFloat best = CGFLOAT_MAX;
         for (NSUInteger i = 0; i < sorted.count; i++) {
             UIButton *b = sorted[i];
@@ -1071,33 +1076,51 @@ static void LBDiscover_titleKindTap(id self, SEL _cmd, UITapGestureRecognizer *g
             if (d < best) { best = d; idx = (NSInteger)i; }
         }
     }
-    UIViewController *host = objc_getAssociatedObject(root, &kLBTitleTapHostKey);
+    UIViewController *host = objc_getAssociatedObject(hit, &kLBTitleTapHostKey);
     if (![host isKindOfClass:[UIViewController class]]) host = LBPrimaryDiscoverHost();
     LBAppendNativeMarker([NSString stringWithFormat:@"kindTapGesture idx=%ld x=%.0f", (long)idx, p.x]);
     if (idx >= 0) LBDiscoverHandleKindSelect(host, root, idx);
 }
 
 static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot) {
-    if (!host || !titleRoot) return;
-    objc_setAssociatedObject(titleRoot, &kLBTitleTapHostKey, host, OBJC_ASSOCIATION_ASSIGN);
-    for (UIGestureRecognizer *g in titleRoot.gestureRecognizers ?: @[]) {
-        if ([g isKindOfClass:[UITapGestureRecognizer class]] &&
-            [g.accessibilityLabel isEqualToString:@"lbKindTap"]) {
-            return;
-        }
+    if (!host || !titleRoot || !host.isViewLoaded || !host.view) return;
+    static const NSInteger kLBKindHit = 0x4C424B48; // 'LBKH'
+    UIView *hit = nil;
+    for (UIView *sub in host.view.subviews) {
+        if (sub.tag == kLBKindHit) { hit = sub; break; }
     }
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc]
-        initWithTarget:host action:@selector(lb_discoverTitleKindTap:)];
-    tap.accessibilityLabel = @"lbKindTap";
-    tap.cancelsTouchesInView = NO;
-    [titleRoot addGestureRecognizer:tap];
-    // 给 host 挂方法
+    CGRect tf = titleRoot.frame;
+    if (tf.size.width < 2 || tf.size.height < 2) {
+        tf = CGRectMake(0, 88, host.view.bounds.size.width, 44);
+    }
     Class cls = [host class];
     SEL sel = @selector(lb_discoverTitleKindTap:);
     if (!class_getInstanceMethod(cls, sel)) {
         class_addMethod(cls, sel, (IMP)LBDiscover_titleKindTap, "v@:@");
     }
-    LBAppendNativeMarker(@"kindTapGesture installed");
+    if (!hit) {
+        hit = [[UIView alloc] initWithFrame:tf];
+        hit.tag = kLBKindHit;
+        hit.backgroundColor = [UIColor clearColor];
+        hit.userInteractionEnabled = YES;
+        hit.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        UITapGestureRecognizer *tap =
+            [[UITapGestureRecognizer alloc] initWithTarget:host action:sel];
+        tap.cancelsTouchesInView = YES;
+        [hit addGestureRecognizer:tap];
+        [host.view addSubview:hit];
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"kindHitControl new frame=%.0f,%.0f,%.0fx%.0f",
+                              tf.origin.x, tf.origin.y, tf.size.width, tf.size.height]);
+    } else {
+        hit.frame = tf;
+        hit.hidden = NO;
+        hit.userInteractionEnabled = YES;
+        LBAppendNativeMarker(@"kindHitControl reuse");
+    }
+    objc_setAssociatedObject(hit, &kLBTitleTapHostKey, host, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(hit, "lbKindTitleRoot", titleRoot, OBJC_ASSOCIATION_ASSIGN);
+    [host.view bringSubviewToFront:hit];
 }
 
 static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
@@ -1390,8 +1413,15 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
                               (long)vis, (unsigned long)arrN, overlay.contentSize.height]);
     }
 
-    // 分类条最上
+    // 分类条在内容/叠表之上；透明 hit 再盖在分类条上吃点击
     if (title) [host.view bringSubviewToFront:title];
+    static const NSInteger kLBKindHitFront = 0x4C424B48; // 'LBKH'
+    for (UIView *sub in host.view.subviews) {
+        if (sub.tag == kLBKindHitFront) {
+            [host.view bringSubviewToFront:sub];
+            break;
+        }
+    }
 }
 
 static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles) {
