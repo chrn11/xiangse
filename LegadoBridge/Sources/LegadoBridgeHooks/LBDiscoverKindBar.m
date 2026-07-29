@@ -1036,16 +1036,47 @@ static id LBDiscoverTitleConfigure(id donorConfigure) {
 static char kLBKindWantCountKey;
 static char kLBTitleTapHostKey;
 
+void LBBringDiscoverKindHitFront(UIViewController *host) {
+    if (!host || !host.isViewLoaded || !host.view) return;
+    static const NSInteger kLBKindHit = 0x4C424B48; // 'LBKH'
+    for (UIView *sub in host.view.subviews) {
+        if (sub.tag == kLBKindHit) {
+            [host.view bringSubviewToFront:sub];
+            break;
+        }
+    }
+}
+
 static void LBDiscover_titleKindTap(id self, SEL _cmd, id sender) {
-    (void)self; (void)_cmd;
-    if (![sender isKindOfClass:[UITapGestureRecognizer class]]) return;
-    UITapGestureRecognizer *gr = (UITapGestureRecognizer *)sender;
-    UIView *hit = gr.view;
-    if (!hit) return;
+    (void)_cmd;
+    UIView *hit = nil;
+    CGPoint p = CGPointZero;
+    if ([sender isKindOfClass:[UITapGestureRecognizer class]]) {
+        UITapGestureRecognizer *gr = (UITapGestureRecognizer *)sender;
+        hit = gr.view;
+        if (!hit) return;
+        p = [gr locationInView:hit];
+    } else if ([sender isKindOfClass:[UIView class]]) {
+        hit = (UIView *)sender;
+        while (hit && hit.tag != 0x4C424B48) hit = hit.superview;
+        if (!hit) hit = (UIView *)sender;
+        NSNumber *slot = objc_getAssociatedObject(sender, &kLBKindBtnIndexKey);
+        if ([slot isKindOfClass:[NSNumber class]]) {
+            UIViewController *host = [self isKindOfClass:[UIViewController class]]
+                ? (UIViewController *)self : LBPrimaryDiscoverHost();
+            UIView *root = objc_getAssociatedObject(hit, "lbKindTitleRoot");
+            LBAppendNativeMarker([NSString stringWithFormat:@"kindTapGesture idx=%ld slot",
+                                  (long)slot.integerValue]);
+            LBDiscoverHandleKindSelect(host, root, slot.integerValue);
+            return;
+        }
+        p = CGPointMake(CGRectGetMidX(hit.bounds), CGRectGetMidY(hit.bounds));
+    } else {
+        return;
+    }
     UIView *root = objc_getAssociatedObject(hit, "lbKindTitleRoot");
     if (![root isKindOfClass:[UIView class]]) root = hit;
-    CGPoint pInHit = [gr locationInView:hit];
-    CGPoint p = [hit convertPoint:pInHit toView:root];
+    CGPoint pInRoot = [hit convertPoint:p toView:root];
 
     NSMutableArray<UIButton *> *btns = [NSMutableArray array];
     NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
@@ -1064,7 +1095,7 @@ static void LBDiscover_titleKindTap(id self, SEL _cmd, id sender) {
     for (NSUInteger i = 0; i < sorted.count; i++) {
         UIButton *b = sorted[i];
         CGRect fr = [b convertRect:b.bounds toView:root];
-        if (CGRectContainsPoint(fr, p)) { idx = (NSInteger)i; break; }
+        if (CGRectContainsPoint(fr, pInRoot)) { idx = (NSInteger)i; break; }
     }
     if (idx < 0 && sorted.count > 0) {
         CGFloat best = CGFLOAT_MAX;
@@ -1072,13 +1103,17 @@ static void LBDiscover_titleKindTap(id self, SEL _cmd, id sender) {
             UIButton *b = sorted[i];
             CGRect fr = [b convertRect:b.bounds toView:root];
             CGFloat mid = CGRectGetMidX(fr);
-            CGFloat d = fabs(mid - p.x);
+            CGFloat d = fabs(mid - pInRoot.x);
             if (d < best) { best = d; idx = (NSInteger)i; }
         }
     }
     UIViewController *host = objc_getAssociatedObject(hit, &kLBTitleTapHostKey);
-    if (![host isKindOfClass:[UIViewController class]]) host = LBPrimaryDiscoverHost();
-    LBAppendNativeMarker([NSString stringWithFormat:@"kindTapGesture idx=%ld x=%.0f", (long)idx, p.x]);
+    if (![host isKindOfClass:[UIViewController class]]) {
+        host = [self isKindOfClass:[UIViewController class]]
+            ? (UIViewController *)self : LBPrimaryDiscoverHost();
+    }
+    LBAppendNativeMarker([NSString stringWithFormat:@"kindTapGesture idx=%ld x=%.0f",
+                          (long)idx, pInRoot.x]);
     if (idx >= 0) LBDiscoverHandleKindSelect(host, root, idx);
 }
 
@@ -1089,15 +1124,20 @@ static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot) {
     for (UIView *sub in host.view.subviews) {
         if (sub.tag == kLBKindHit) { hit = sub; break; }
     }
-    CGRect tf = titleRoot.frame;
+    // 必须转到 host.view 坐标系（title 可能不在 host 直系）
+    CGRect tf = [titleRoot convertRect:titleRoot.bounds toView:host.view];
     if (tf.size.width < 2 || tf.size.height < 2) {
         tf = CGRectMake(0, 88, host.view.bounds.size.width, 44);
     }
+    // 略加高，避免点偏
+    tf = CGRectInset(tf, 0, -4);
+
     Class cls = [host class];
     SEL sel = @selector(lb_discoverTitleKindTap:);
     if (!class_getInstanceMethod(cls, sel)) {
         class_addMethod(cls, sel, (IMP)LBDiscover_titleKindTap, "v@:@");
     }
+
     if (!hit) {
         hit = [[UIView alloc] initWithFrame:tf];
         hit.tag = kLBKindHit;
@@ -1116,11 +1156,47 @@ static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot) {
         hit.frame = tf;
         hit.hidden = NO;
         hit.userInteractionEnabled = YES;
-        LBAppendNativeMarker(@"kindHitControl reuse");
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"kindHitControl reuse frame=%.0f,%.0f,%.0fx%.0f",
+                              tf.origin.x, tf.origin.y, tf.size.width, tf.size.height]);
     }
+
+    // 按分类按钮槽位铺透明 UIButton（TouchUpInside 比单手势更稳）
+    for (UIView *old in [hit.subviews copy]) {
+        if ([old isKindOfClass:[UIButton class]]) [old removeFromSuperview];
+    }
+    NSMutableArray<UIButton *> *btns = [NSMutableArray array];
+    NSMutableArray *stack = [NSMutableArray arrayWithObject:titleRoot];
+    while (stack.count) {
+        UIView *v = stack.lastObject;
+        [stack removeLastObject];
+        if ([v isKindOfClass:[UIButton class]] && !v.hidden && v.alpha > 0.05) {
+            [btns addObject:(UIButton *)v];
+        }
+        for (UIView *sub in v.subviews) [stack addObject:sub];
+    }
+    NSArray *sorted = [btns sortedArrayUsingComparator:^NSComparisonResult(UIButton *a, UIButton *b) {
+        return a.frame.origin.x < b.frame.origin.x ? NSOrderedAscending : NSOrderedDescending;
+    }];
+    NSInteger slot = 0;
+    for (UIButton *b in sorted) {
+        CGRect fr = [b convertRect:b.bounds toView:hit];
+        if (fr.size.width < 2) continue;
+        UIButton *slotBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        slotBtn.frame = fr;
+        slotBtn.backgroundColor = [UIColor clearColor];
+        slotBtn.userInteractionEnabled = YES;
+        objc_setAssociatedObject(slotBtn, &kLBKindBtnIndexKey, @(slot),
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [slotBtn addTarget:host action:sel forControlEvents:UIControlEventTouchUpInside];
+        [hit addSubview:slotBtn];
+        slot++;
+    }
+
     objc_setAssociatedObject(hit, &kLBTitleTapHostKey, host, OBJC_ASSOCIATION_ASSIGN);
     objc_setAssociatedObject(hit, "lbKindTitleRoot", titleRoot, OBJC_ASSOCIATION_ASSIGN);
     [host.view bringSubviewToFront:hit];
+    LBAppendNativeMarker([NSString stringWithFormat:@"kindHitSlots n=%ld", (long)slot]);
 }
 
 static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
@@ -1415,13 +1491,7 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
 
     // 分类条在内容/叠表之上；透明 hit 再盖在分类条上吃点击
     if (title) [host.view bringSubviewToFront:title];
-    static const NSInteger kLBKindHitFront = 0x4C424B48; // 'LBKH'
-    for (UIView *sub in host.view.subviews) {
-        if (sub.tag == kLBKindHitFront) {
-            [host.view bringSubviewToFront:sub];
-            break;
-        }
-    }
+    LBBringDiscoverKindHitFront(host);
 }
 
 static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles) {

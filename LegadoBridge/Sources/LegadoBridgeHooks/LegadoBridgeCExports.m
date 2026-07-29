@@ -623,6 +623,14 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 @try {
                     [tv layoutIfNeeded];
                     if (tv.superview) [tv.superview bringSubviewToFront:tv];
+                    // 叠表置顶后勿盖住分类 hit
+                    if (discoverList) {
+                        UIViewController *dxHost = nil;
+                        for (UIViewController *h in (LBFindDiscoverHostVCs() ?: @[])) {
+                            dxHost = h; break;
+                        }
+                        if (dxHost) LBBringDiscoverKindHitFront(dxHost);
+                    }
                     [tv setContentOffset:CGPointZero animated:NO];
                 } @catch (__unused NSException *e) {}
             } @catch (NSException *ex) {

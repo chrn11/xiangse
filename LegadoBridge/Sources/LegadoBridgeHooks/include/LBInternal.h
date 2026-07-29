@@ -74,6 +74,8 @@ UIViewController * _Nullable LBActiveDiscoverListVC(UIViewController *host);
 void LBReloadDiscoverNativeList(UIViewController *host);
 /// 发现列表 VC 无表时：在子页内建 LBLT（非全屏 LBDT 脏表），并挂安全 DS hooks
 UITableView * _Nullable LBEnsureDiscoverListSurface(UIViewController *host);
+/// 分类条透明 hit 置顶（叠表 bringToFront 后必须再调）
+void LBBringDiscoverKindHitFront(UIViewController * _Nullable host);
 /// 给 BookListCon / 列表 VC 挂 numberOfRows / cellForRow 兜底
 void LBEnsurePlazaListTableHooks(Class cls);
 void LBPinDiscoverContentToFirstPage(UIViewController *host);
