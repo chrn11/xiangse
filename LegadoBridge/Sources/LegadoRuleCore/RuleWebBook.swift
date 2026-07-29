@@ -107,12 +107,13 @@ public enum RuleWebBook {
         }
     }
 
-    /// 解析 exploreUrl 为全部分类（名::url 多行 / JSON kinds / 单 URL）。
+    /// 解析 exploreUrl 为全部分类（名::url 多行 / && 分隔 / JSON kinds / 单 URL）。
     public static func parseExploreKinds(_ raw: String) -> [ExploreKind] {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
-        // JSON kinds：[{ "title":"…", "url":"/path/{{page}}.html" }, …]
+        // JSON kinds：[{ "title":"…", "url":"/path/{{page}}.html", "style":{…} }, …]
+        // style 仅影响阅读 App 布局，这里只取 title/url（换源分类仍完整）
         if trimmed.hasPrefix("[") {
             var out: [ExploreKind] = []
             if let data = trimmed.data(using: .utf8),
@@ -122,7 +123,6 @@ public enum RuleWebBook {
                     guard !u.isEmpty else { continue }
                     let tRaw = (item["title"] as? String)
                         ?? (item["name"] as? String)
-                        ?? (item["style"] as? String)
                         ?? ""
                     let t = tRaw.trimmingCharacters(in: .whitespacesAndNewlines)
                     out.append(ExploreKind(title: t.isEmpty ? "分类\(out.count + 1)" : t, url: u))
@@ -131,10 +131,15 @@ public enum RuleWebBook {
             return out
         }
 
-        // 经典多行：分类名::url
-        if trimmed.contains("::") && (trimmed.contains("\n") || trimmed.contains("\r")) {
+        // 阅读官方格式一：可用换行或 && 分隔多条「名称::url」
+        let normalized = trimmed
+            .replacingOccurrences(of: "&&", with: "\n")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+
+        if normalized.contains("::") && (normalized.contains("\n") || normalized != trimmed || trimmed.contains("&&")) {
             var out: [ExploreKind] = []
-            for line in trimmed.components(separatedBy: CharacterSet.newlines) {
+            for line in normalized.components(separatedBy: "\n") {
                 let l = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !l.isEmpty, !l.hasPrefix("°"), !l.hasPrefix("☆") else { continue }
                 guard let range = l.range(of: "::") else { continue }
@@ -143,7 +148,7 @@ public enum RuleWebBook {
                 guard !u.isEmpty else { continue }
                 out.append(ExploreKind(title: title.isEmpty ? "分类\(out.count + 1)" : title, url: u))
             }
-            return out
+            if !out.isEmpty { return out }
         }
 
         // 单行 名::url

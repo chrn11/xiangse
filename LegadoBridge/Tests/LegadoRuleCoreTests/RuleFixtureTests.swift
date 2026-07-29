@@ -75,6 +75,26 @@ final class RuleFixtureTests: XCTestCase {
         XCTAssertEqual(kinds.map(\.title), ["男生", "女频"])
     }
 
+    func testParseExploreKindsAmpSeparated() {
+        let raw = "玄幻::http://a/{{page}}&&仙侠::http://b/{{page}}"
+        let kinds = RuleWebBook.parseExploreKinds(raw)
+        XCTAssertEqual(kinds.count, 2)
+        XCTAssertEqual(kinds[0].title, "玄幻")
+        XCTAssertEqual(kinds[1].url, "http://b/{{page}}")
+    }
+
+    func testParseExploreKindsJSONIgnoresStyleKeepsUrl() {
+        let raw = """
+        [
+          {"title":"今日限免","url":"https://ex/free","style":{"layout_flexGrow":1}},
+          {"title":"频道金榜","url":"https://ex/rank","style":{"layout_wrapBefore":true}}
+        ]
+        """
+        let kinds = RuleWebBook.parseExploreKinds(raw)
+        XCTAssertEqual(kinds.map(\.title), ["今日限免", "频道金榜"])
+        XCTAssertEqual(kinds[1].url, "https://ex/rank")
+    }
+
     // MARK: - CSS
 
     func testCSSSelectorExtractsBookName() throws {

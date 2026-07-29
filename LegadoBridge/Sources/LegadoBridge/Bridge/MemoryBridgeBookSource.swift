@@ -15,6 +15,7 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
     var searchUrl: String?
     var exploreUrl: String?
     var bookSourceGroup: String?
+    var bookSourceType: Int?
     var enabledExplore: Bool
     var concurrentRate: String?
     var jsLib: String?
@@ -39,6 +40,7 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
         searchUrl = part.searchUrl
         exploreUrl = part.exploreUrl
         bookSourceGroup = part.bookSourceGroup
+        bookSourceType = part.bookSourceType
         enabledExplore = part.enabledExplore ?? true
         concurrentRate = part.concurrentRate
         jsLib = part.jsLib

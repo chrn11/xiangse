@@ -525,10 +525,17 @@ import LegadoBridgeHooks
         return s
     }
 
-    /// 可发现源摘要：[{name,url},…]
+    /// 可发现源摘要：[{name,url,type},…]；type=bookSourceType（0文本/1音频/2图片/3文件）
     @objc public var exploreCapableSourcesJSON: String {
-        let rows = SourceRegistry.shared.exploreCapableSources().map {
-            ["name": $0.bookSourceName ?? $0.bookSourceUrl, "url": $0.bookSourceUrl]
+        let rows: [[String: Any]] = SourceRegistry.shared.exploreCapableSources().map { src in
+            var row: [String: Any] = [
+                "name": src.bookSourceName ?? src.bookSourceUrl,
+                "url": src.bookSourceUrl
+            ]
+            if let t = src.bookSourceType {
+                row["type"] = t
+            }
+            return row
         }
         guard let data = try? JSONSerialization.data(withJSONObject: rows),
               let s = String(data: data, encoding: .utf8) else {
