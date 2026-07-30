@@ -326,6 +326,8 @@ static void LBTriggerLegadoExploreForDiscoverTab(void) {
         LBDiscoverAppendMarker(@"discoverTab explore skip: core/API missing");
         return;
     }
+    // 主动走 Legado 发现：退出纯 XBS 态，允许 explore 灌列表
+    LBSetDiscoverNativeXBSMode(NO);
     // 先建原生分类壳，延后拉书，避免 BookListCon 未就绪时 inject 杀进程
     LBRefreshDiscoverKindBar();
     NSString *src = nil;

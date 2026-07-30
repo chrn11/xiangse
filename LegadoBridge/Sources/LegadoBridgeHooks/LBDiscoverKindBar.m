@@ -25,6 +25,41 @@ static NSString *(*sOrig_getUseSourceName)(id, SEL) = NULL;
 static NSString *sDiscoverUseSourceName = nil;
 static BOOL sFeedingDiscoverHeader = NO;
 static BOOL sApplyingKinds = NO; // ForceTitles/ApplyKinds 期间禁 explore，防连环 clear
+static BOOL sDiscoverNativeXBSMode = NO; // 用户切到纯 XBS：禁止再灌 Legado explore/分类
+
+BOOL LBIsDiscoverNativeXBSMode(void) {
+    return sDiscoverNativeXBSMode;
+}
+
+void LBSetDiscoverNativeXBSMode(BOOL on) {
+    sDiscoverNativeXBSMode = on ? YES : NO;
+}
+
+/// 去掉切换列表里的「📄 」等装饰前缀，便于跟书源真名对齐
+static NSString *LBNormalizeSourceDisplayName(NSString *name) {
+    if (name.length == 0) return name;
+    NSString *s = [name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    while (s.length > 0) {
+        unichar c = [s characterAtIndex:0];
+        // 📄=0x1F4C4 在 UTF-16 是代理对；也剥普通装饰符
+        if (c == 0xFE0F || c == 0x200D || c == '#' || c == '*' || c == ' ') {
+            s = [s substringFromIndex:1];
+            continue;
+        }
+        if ([[NSCharacterSet alphanumericCharacterSet] characterIsMember:c] ||
+            (c >= 0x4E00 && c <= 0x9FFF) ||
+            (c >= 0x3400 && c <= 0x4DBF)) {
+            break;
+        }
+        // 其它符号/emoji 前缀（含高位代理）剥掉
+        if (CFStringIsSurrogateHighCharacter(c) && s.length >= 2) {
+            s = [s substringFromIndex:2];
+            continue;
+        }
+        s = [s substringFromIndex:1];
+    }
+    return [s stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
 
 static void LBPaintTitleLabels(id tv, NSInteger selectedIndex);
 static void LBRestoreDiscoverTitleSelected(id pageTitleView, NSInteger index);
@@ -1922,6 +1957,11 @@ static void LBSanitizeDiscoverListCons(UIViewController *host, id scroll) {
 /// 用 Legado 分类灌原生发现：donor bookWorld + 一次性 resetContent（禁手工 SGPage）
 static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, NSString *srcName) {
     if (!host) return;
+    if (LBIsDiscoverNativeXBSMode()) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"feedHeader skip XBS mode src=%@",
+                              srcName ?: @"-"]);
+        return;
+    }
     LBRemoveDiscoverOverlays(host);
 
     NSMutableArray *titles = [NSMutableArray array];
@@ -2692,54 +2732,112 @@ static void LBDiscover_onHeaderBtn(id self, SEL _cmd, id sender) {
     }
 }
 
+static void LBScheduleDiscoverSwitchPoll(UIViewController *host, NSString *beforeName) {
+    NSString *beforeCopy = [beforeName copy] ?: @"";
+    __weak UIViewController *weakHost = host;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.4 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        UIViewController *h = weakHost ?: LBPrimaryDiscoverHost();
+        if (!h || !LBIsDiscoverTabActive()) return;
+        NSString *name = nil;
+        @try {
+            id v = [h valueForKey:@"useSourceName"];
+            if ([v isKindOfClass:[NSString class]]) name = v;
+        } @catch (__unused NSException *e) {}
+        if (name.length == 0) @try { name = h.navigationItem.title; } @catch (__unused NSException *e) {}
+        if (name.length == 0) @try { name = h.title; } @catch (__unused NSException *e) {}
+        if (name.length == 0) return;
+        if ([name isEqualToString:@"切换站点"] || [name isEqualToString:@"书源"]) return;
+        if ([name isEqualToString:beforeCopy]) {
+            // 顶栏名未变时，再看 dicModel.cf_title（原生切换常只改模型）
+            NSString *cf = nil;
+            @try {
+                id dic = [h valueForKey:@"dicModel"];
+                if ([dic isKindOfClass:[NSDictionary class]]) {
+                    id v = dic[@"cf_title"] ?: dic[@"title"] ?: dic[@"sourceName"];
+                    if ([v isKindOfClass:[NSString class]]) cf = v;
+                }
+            } @catch (__unused NSException *e) {}
+            cf = LBNormalizeSourceDisplayName(cf);
+            if (cf.length > 0 && ![cf isEqualToString:LBNormalizeSourceDisplayName(beforeCopy)]) {
+                LBAppendNativeMarker([NSString stringWithFormat:
+                                      @"switchPoll via cf_title before=%@ cf=%@", beforeCopy, cf]);
+                LBHandleDiscoverSourceSwitched(h, cf);
+                return;
+            }
+            LBAppendNativeMarker([NSString stringWithFormat:@"switchPoll unchanged=%@", name]);
+            return;
+        }
+        LBAppendNativeMarker([NSString stringWithFormat:@"switchPoll before=%@ after=%@",
+                              beforeCopy, name]);
+        LBHandleDiscoverSourceSwitched(h, name);
+    });
+}
+
+static NSString *LBReadHostSourceName(UIViewController *host) {
+    if (!host) return nil;
+    NSString *name = nil;
+    @try {
+        id v = [host valueForKey:@"useSourceName"];
+        if ([v isKindOfClass:[NSString class]]) name = v;
+    } @catch (__unused NSException *e) {}
+    if (name.length == 0) @try { name = host.navigationItem.title; } @catch (__unused NSException *e) {}
+    if (name.length == 0) @try { name = host.title; } @catch (__unused NSException *e) {}
+    return name;
+}
+
 static void LBDiscover_onSwitchBtn(id self, SEL _cmd) {
     // 发现态也走香色原生切换（XBS + 已同步的 Legado），禁止自造 ActionSheet
+    UIViewController *host = [self isKindOfClass:[UIViewController class]]
+        ? (UIViewController *)self : LBPrimaryDiscoverHost();
+    NSString *before = LBReadHostSourceName(host);
     if (sOrig_onSwitchBtn) {
         sOrig_onSwitchBtn(self, _cmd);
-        return;
     }
+    LBScheduleDiscoverSwitchPoll(host, before);
 }
 
 static void LBDiscover_onSwitchBtnArg(id self, SEL _cmd, id sender) {
+    UIViewController *host = [self isKindOfClass:[UIViewController class]]
+        ? (UIViewController *)self : LBPrimaryDiscoverHost();
+    NSString *before = LBReadHostSourceName(host);
     if (sOrig_onSwitchBtnArg) {
         sOrig_onSwitchBtnArg(self, _cmd, sender);
-        return;
+    } else if (sOrig_onSwitchBtn) {
+        sOrig_onSwitchBtn(self, @selector(onSwitchBtnEvent));
     }
-    if (sOrig_onSwitchBtn) sOrig_onSwitchBtn(self, @selector(onSwitchBtnEvent));
+    LBScheduleDiscoverSwitchPoll(host, before);
 }
 
 /// 按源名在可发现 Legado 列表里找 url；找不到返回 nil（视为纯 XBS）
 static NSString *LBFindLegadoExploreUrlByName(NSString *name) {
     if (name.length == 0) return nil;
+    NSString *want = LBNormalizeSourceDisplayName(name);
+    if (want.length == 0) want = name;
     id core = LBKindCore();
     if (!core) return nil;
     NSArray *rows = LBParseJSONArray(
         ([core respondsToSelector:@selector(exploreCapableSourcesJSON)]
          ? [core valueForKey:@"exploreCapableSourcesJSON"] : @"[]"));
+    // 1) 精确匹配
     for (id row in rows) {
         if (![row isKindOfClass:[NSDictionary class]]) continue;
-        NSString *n = row[@"name"];
+        NSString *n = LBNormalizeSourceDisplayName(row[@"name"]);
         NSString *u = row[@"url"];
-        if (![n isKindOfClass:[NSString class]] || ![u isKindOfClass:[NSString class]]) continue;
-        if ([n isEqualToString:name]) return u;
+        if (n.length == 0 || ![u isKindOfClass:[NSString class]]) continue;
+        if ([n isEqualToString:want]) return u;
     }
+    // 2) 双向包含，但要求较短方长度 >= 4，避免「书」这种误伤
     for (id row in rows) {
         if (![row isKindOfClass:[NSDictionary class]]) continue;
-        NSString *n = row[@"name"];
+        NSString *n = LBNormalizeSourceDisplayName(row[@"name"]);
         NSString *u = row[@"url"];
-        if (![n isKindOfClass:[NSString class]] || ![u isKindOfClass:[NSString class]]) continue;
-        if ([n containsString:name] || [name containsString:n]) return u;
+        if (n.length == 0 || ![u isKindOfClass:[NSString class]]) continue;
+        NSUInteger minLen = MIN(n.length, want.length);
+        if (minLen < 4) continue;
+        if ([n containsString:want] || [want containsString:n]) return u;
     }
-    // dicModel 带 legadoBridge 时，用 selected 或按名再试
     return nil;
-}
-
-static BOOL LBDicModelLooksLegado(id dic) {
-    if (![dic isKindOfClass:[NSDictionary class]]) return NO;
-    id m = dic[@"legadoBridge"] ?: dic[@"fromLegadoBridge"];
-    if ([m isKindOfClass:[NSString class]] && [(NSString *)m length] > 0) return YES;
-    if ([m isKindOfClass:[NSNumber class]] && [m boolValue]) return YES;
-    return NO;
 }
 
 /// 原生切换书源完成后：Legado → 按该源 exploreUrl 刷新分类+灌书；XBS → 保留原生 bookWorld，清 Legado 残留
@@ -2748,37 +2846,37 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
     LBSetDiscoverTabActive(YES);
     sSelectedKindIndex = 0;
     sLastFeedSig = nil;
-    sDiscoverUseSourceName = [sourceName copy];
+    NSString *cleanName = LBNormalizeSourceDisplayName(sourceName) ?: sourceName;
+    sDiscoverUseSourceName = [cleanName copy];
 
-    @try { host.navigationItem.title = sourceName; } @catch (__unused NSException *e) {}
-    @try { host.title = sourceName; } @catch (__unused NSException *e) {}
-    @try { [host setValue:sourceName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
-    @try { [host setValue:sourceName forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
-    @try { [host setValue:sourceName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
+    @try { host.navigationItem.title = cleanName; } @catch (__unused NSException *e) {}
+    @try { host.title = cleanName; } @catch (__unused NSException *e) {}
+    @try { [host setValue:cleanName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
+    @try { [host setValue:cleanName forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
+    @try { [host setValue:cleanName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
 
-    id dic = nil;
-    @try { dic = [host valueForKey:@"dicModel"]; } @catch (__unused NSException *e) {}
-    NSString *legadoUrl = LBFindLegadoExploreUrlByName(sourceName);
-    BOOL isLegado = (legadoUrl.length > 0) || LBDicModelLooksLegado(dic);
+    NSString *legadoUrl = LBFindLegadoExploreUrlByName(cleanName);
+    // 只按「可发现 Legado 名」判定；禁止看残留 dicModel 的 fromLegadoBridge（切 XBS 后仍可能带）
+    BOOL isLegado = (legadoUrl.length > 0);
 
     LBAppendNativeMarker([NSString stringWithFormat:
-                          @"nativeSwitch name=%@ legado=%d url=%@",
-                          sourceName, isLegado ? 1 : 0, legadoUrl ?: @"-"]);
+                          @"nativeSwitch name=%@ clean=%@ legado=%d url=%@",
+                          sourceName, cleanName, isLegado ? 1 : 0, legadoUrl ?: @"-"]);
 
     if (!isLegado) {
-        // 纯 XBS：分类/标签/书都交给原生 openConfig 结果，清掉我们强加的 kinds
+        LBSetDiscoverNativeXBSMode(YES);
         sCachedKinds = nil;
-        @try { LBClearDiscoverExploreBooks(); } @catch (__unused NSException *e) {}
-        // 顶栏跟 dicModel.arrHeaderBtnTitle / bookWorld keys
-        NSArray *donorTitles = LBDonorTitlesFromHost(host, [dic isKindOfClass:[NSDictionary class]] ? dic : nil);
-        if (donorTitles.count > 0) {
-            LBForceLegadoTitlesOnChrome(host, donorTitles);
+        // 只清 Legado pending，禁止掏空原生 XBS 刚 openConfig 灌好的列表
+        @try { LBClearDiscoverExplorePendingOnly(); } @catch (__unused NSException *e) {}
+        id core = LBKindCore();
+        if (core) {
+            @try { [core setValue:nil forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
         }
-        LBAppendNativeMarker([NSString stringWithFormat:@"nativeSwitch XBS titles=%lu",
-                              (unsigned long)donorTitles.count]);
+        LBAppendNativeMarker([NSString stringWithFormat:@"nativeSwitch XBS mode=1 name=%@", cleanName]);
         return;
     }
 
+    LBSetDiscoverNativeXBSMode(NO);
     id core = LBKindCore();
     if (core && legadoUrl.length > 0) {
         @try { [core setValue:legadoUrl forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
@@ -2799,7 +2897,7 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
             }
         } @catch (__unused NSException *e) {}
     }
-    LBApplyLegadoSourceKindsToChrome(host, kinds, sourceName);
+    LBApplyLegadoSourceKindsToChrome(host, kinds, cleanName);
     UITableView *surface = LBEnsureDiscoverListSurface(host);
     NSString *kindUrl = nil;
     if (kinds.count > 0 && [kinds[0][@"url"] isKindOfClass:[NSString class]]) {
@@ -2835,6 +2933,8 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
 }
 
 static void LBDiscover_openConfigByName(id self, SEL _cmd, NSString *name) {
+    LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName enter name=%@ feeding=%d",
+                          name ?: @"-", sFeedingDiscoverHeader ? 1 : 0]);
     if (sOrig_openConfigByName) {
         sOrig_openConfigByName(self, _cmd, name);
     }
@@ -2950,20 +3050,24 @@ void LBRefreshDiscoverKindBar(void) {
     if (!core) return;
 
     // 导航栏真实源名优先（避免 selectedExplore 卡在旧的速读谷、屏上却是领域书库）
-    NSString *hostName = nil;
-    @try { hostName = host.navigationItem.title; } @catch (__unused NSException *e) {}
-    if (hostName.length == 0) @try { hostName = host.title; } @catch (__unused NSException *e) {}
-    if (hostName.length == 0) @try {
-        id v = [host valueForKey:@"useSourceName"];
-        if ([v isKindOfClass:[NSString class]]) hostName = v;
-    } @catch (__unused NSException *e) {}
+    NSString *hostName = LBReadHostSourceName(host);
     if (hostName.length > 0) {
         NSString *byName = LBFindLegadoExploreUrlByName(hostName);
-        if (byName.length > 0) {
-            @try { [core setValue:byName forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
-            LBAppendNativeMarker([NSString stringWithFormat:@"syncExploreFromNav name=%@ url=%@",
-                                  hostName, byName]);
+        if (byName.length == 0) {
+            // 当前顶栏是纯 XBS：进入 XBS 态并停止灌 Legado
+            LBSetDiscoverNativeXBSMode(YES);
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"refreshKind skip XBS host=%@", hostName]);
+            return;
         }
+        LBSetDiscoverNativeXBSMode(NO);
+        @try { [core setValue:byName forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
+        LBAppendNativeMarker([NSString stringWithFormat:@"syncExploreFromNav name=%@ url=%@",
+                              hostName, byName]);
+    }
+    if (LBIsDiscoverNativeXBSMode()) {
+        LBAppendNativeMarker(@"refreshKind skip XBS mode flag");
+        return;
     }
 
     NSString *src = LBCurrentExploreSourceUrl(core);

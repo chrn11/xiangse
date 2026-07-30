@@ -1426,12 +1426,31 @@ static BOOL LBEnsureBookSearchVCPresented(NSString *keyword) {
     return YES;
 }
 
+void LBClearDiscoverExplorePendingOnly(void) {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ LBClearDiscoverExplorePendingOnly(); });
+        return;
+    }
+    @try {
+        if (sPendingSearchBooks) [sPendingSearchBooks removeAllObjects];
+        if (sLastAppliedSearchBooks) [sLastAppliedSearchBooks removeAllObjects];
+        [@"uiInject clear explore pending only"
+            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    } @catch (__unused NSException *e) {}
+}
+
 void LBClearDiscoverExploreBooks(void) {
     if (![NSThread isMainThread]) {
         dispatch_async(dispatch_get_main_queue(), ^{ LBClearDiscoverExploreBooks(); });
         return;
     }
     @try {
+        // 用户正在看纯 XBS 发现：禁止掏空原生 bookWorld 列表
+        if (LBIsDiscoverNativeXBSMode()) {
+            LBClearDiscoverExplorePendingOnly();
+            return;
+        }
         if (sPendingSearchBooks) [sPendingSearchBooks removeAllObjects];
         if (sLastAppliedSearchBooks) [sLastAppliedSearchBooks removeAllObjects];
         // 多次 explore 并发时只清一次 UI，避免 inject 后被第二次 clear 打成空屏
@@ -1505,6 +1524,13 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
     BOOL exploreMode = [keyword isEqualToString:@"explore"]
         || [keyword hasPrefix:@"explore:"]
         || [keyword hasPrefix:@"explore|"];
+    // 用户已切到纯 XBS：丢掉迟到的 Legado explore，避免覆盖原生书单
+    if (exploreMode && LBIsDiscoverNativeXBSMode()) {
+        [@"uiInject skip explore (native XBS mode)"
+            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return;
+    }
     if (exploreMode && !LBIsDiscoverTabActive()) {
         LBSetDiscoverTabActive(YES);
     }
