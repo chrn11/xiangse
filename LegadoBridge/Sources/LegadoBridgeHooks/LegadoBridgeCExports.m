@@ -9015,7 +9015,7 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
     UIView *host = vc.view;
     UIView *strip = [host viewWithTag:0x4C425730];
     if (strip && [strip viewWithTag:0x4C425732]) {
-        // 已挂过：仅同步显隐
+        // 已挂过：同步显隐 + 贴紧底栏顶边
         id hidden = LBG6ToolbarIvar(reader, @"toolBarHidden");
         BOOL isHidden = YES;
         @try {
@@ -9023,6 +9023,14 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
             else if (hidden) isHidden = NO;
         } @catch (__unused NSException *e) {}
         strip.hidden = isHidden || bottom.hidden || bottom.alpha < 0.05;
+        CGRect bf = bottom.frame;
+        if (bf.size.width > 2) {
+            strip.frame = CGRectMake(0, MAX(0, CGRectGetMinY(bf) - 36), host.bounds.size.width, 36);
+        }
+        if (!strip.hidden) {
+            [host bringSubviewToFront:strip];
+            [host bringSubviewToFront:bottom];
+        }
         return;
     }
     if (strip) [strip removeFromSuperview];
@@ -9064,22 +9072,23 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
     strip = [[UIView alloc] initWithFrame:CGRectZero];
     strip.tag = 0x4C425730;
     strip.accessibilityIdentifier = @"legado_wave0_strip";
-    strip.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.92];
-    strip.translatesAutoresizingMaskIntoConstraints = NO;
+    strip.backgroundColor = [[UIColor colorWithWhite:0.12 alpha:1] colorWithAlphaComponent:0.92];
+    strip.translatesAutoresizingMaskIntoConstraints = YES; // 跟底栏 frame，避免 AutoLayout 锚到底栏失败漂到正文区
     [host addSubview:strip];
-    [NSLayoutConstraint activateConstraints:@[
-        [strip.leadingAnchor constraintEqualToAnchor:host.leadingAnchor],
-        [strip.trailingAnchor constraintEqualToAnchor:host.trailingAnchor],
-        [strip.bottomAnchor constraintEqualToAnchor:bottom.topAnchor],
-        [strip.heightAnchor constraintEqualToConstant:36],
-    ]];
+    CGRect bf = bottom.frame;
+    if (bf.size.width < 2 || bf.size.height < 2) {
+        bf = CGRectMake(0, host.bounds.size.height - 56, host.bounds.size.width, 56);
+    }
+    strip.frame = CGRectMake(0, MAX(0, CGRectGetMinY(bf) - 36), host.bounds.size.width, 36);
+    strip.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
 
     UIButton *(^makeBtn)(NSString *, NSInteger) = ^UIButton *(NSString *text, NSInteger tag) {
         UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
         b.tag = tag;
         [b setTitle:text forState:UIControlStateNormal];
+        [b setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
         b.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
-        b.translatesAutoresizingMaskIntoConstraints = NO;
+        b.translatesAutoresizingMaskIntoConstraints = YES;
         return b;
     };
     UIButton *reviewBtn = makeBtn(@"书评", 0x4C425732);
@@ -9090,12 +9099,11 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
     ttsBtn.accessibilityIdentifier = @"legado_wave0_tts";
     [strip addSubview:ttsBtn];
     [strip addSubview:reviewBtn];
-    [NSLayoutConstraint activateConstraints:@[
-        [reviewBtn.trailingAnchor constraintEqualToAnchor:strip.trailingAnchor constant:-16],
-        [reviewBtn.centerYAnchor constraintEqualToAnchor:strip.centerYAnchor],
-        [ttsBtn.trailingAnchor constraintEqualToAnchor:reviewBtn.leadingAnchor constant:-16],
-        [ttsBtn.centerYAnchor constraintEqualToAnchor:strip.centerYAnchor],
-    ]];
+    CGFloat bw = 52, bh = 36;
+    reviewBtn.frame = CGRectMake(strip.bounds.size.width - 16 - bw, 0, bw, bh);
+    ttsBtn.frame = CGRectMake(CGRectGetMinX(reviewBtn.frame) - 12 - bw, 0, bw, bh);
+    reviewBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleHeight;
+    ttsBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleHeight;
 
     NSString *bookCopy = [bookUrl copy];
     NSString *srcCopy = sourceUrl.length > 0 ? [sourceUrl copy] : nil;
