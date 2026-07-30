@@ -157,7 +157,11 @@ enum XiangseAdapter {
     }
 
     /// 搜索条目 → 香色原生详情/书架可消费字典（含 bridge token；进度/缓存仍由原生持有）
-    static func searchBookDict(_ r: SearchBookResult, binding: BookBinding? = nil) -> [String: Any] {
+    static func searchBookDict(
+        _ r: SearchBookResult,
+        binding: BookBinding? = nil,
+        source: (any BridgeSourceProtocol)? = nil
+    ) -> [String: Any] {
         let token = binding?.bridgeToken
             ?? BookBindingStore.makeToken(bookUrl: r.bookUrl, sourceUrl: r.sourceUrl)
         var d: [String: Any] = [
@@ -178,7 +182,16 @@ enum XiangseAdapter {
             "canAddBookShelf": true,
             "fromLegadoBridge": true
         ]
-        if let cover = r.coverUrl { d["coverUrl"] = cover }
+        if let cover = r.coverUrl {
+            let base = r.bookUrl.isEmpty ? r.sourceUrl : r.bookUrl
+            let decoded = CoverDecodeHelper.decodeCoverURL(
+                cover,
+                decodeJs: source?.coverDecodeJs,
+                baseUrl: base,
+                source: source
+            )
+            d["coverUrl"] = decoded
+        }
         if let intro = r.intro { d["intro"] = intro }
         if let kind = r.kind {
             d["kind"] = kind

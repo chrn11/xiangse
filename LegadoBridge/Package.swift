@@ -23,7 +23,8 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("Foundation"),
                 .linkedFramework("UIKit"),
-                .linkedFramework("WebKit")
+                .linkedFramework("WebKit"),
+                .linkedFramework("AVFoundation")
             ]
         ),
         .target(
@@ -95,7 +96,8 @@ let package = Package(
                 .linkedFramework("Foundation"),
                 .linkedFramework("WebKit"),
                 .linkedFramework("JavaScriptCore"),
-                .linkedFramework("Security")
+                .linkedFramework("Security"),
+                .linkedFramework("AVFoundation")
             ]
         ),
         .testTarget(

@@ -160,6 +160,25 @@ public enum BridgeRuleTypes {
         }
     }
 
+    public struct ReviewRule: Codable {
+        public var reviewUrl: String?
+        public var avatarRule: String?
+        public var contentRule: String?
+        public var postUrl: String?
+
+        public init(
+            reviewUrl: String? = nil,
+            avatarRule: String? = nil,
+            contentRule: String? = nil,
+            postUrl: String? = nil
+        ) {
+            self.reviewUrl = reviewUrl
+            self.avatarRule = avatarRule
+            self.contentRule = contentRule
+            self.postUrl = postUrl
+        }
+    }
+
     public struct ContentRule: Codable {
         public var content: String?
         public var title: String?
@@ -196,3 +215,4 @@ public typealias BridgeSearchRule = BridgeRuleTypes.SearchRule
 public typealias BridgeExploreRule = BridgeRuleTypes.ExploreRule
 public typealias BridgeBookInfoRule = BridgeRuleTypes.BookInfoRule
 public typealias BridgeContentRule = BridgeRuleTypes.ContentRule
+public typealias BridgeReviewRule = BridgeRuleTypes.ReviewRule

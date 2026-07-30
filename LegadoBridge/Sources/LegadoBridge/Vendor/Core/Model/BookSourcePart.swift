@@ -109,6 +109,18 @@ public struct BookSourcePart: Codable, Identifiable {
         public var avatarRule: String?
         public var contentRule: String?
         public var postUrl: String?
+
+        public init(
+            reviewUrl: String? = nil,
+            avatarRule: String? = nil,
+            contentRule: String? = nil,
+            postUrl: String? = nil
+        ) {
+            self.reviewUrl = reviewUrl
+            self.avatarRule = avatarRule
+            self.contentRule = contentRule
+            self.postUrl = postUrl
+        }
     }
 }
 
@@ -132,19 +144,19 @@ public struct BookSourceCheckResult {
     }
 }
 
-struct HttpTTSConfig: Codable {
-    var id: Int64
-    var name: String
-    var url: String
-    var header: String?
-    var concurrentRate: String?
-    var loginUrl: String?
-    var loginUi: String?
-    var loginCheckJs: String?
-    var contentType: String?
-    var enabled: Bool?
+public struct HttpTTSConfig: Codable {
+    public var id: Int64
+    public var name: String
+    public var url: String
+    public var header: String?
+    public var concurrentRate: String?
+    public var loginUrl: String?
+    public var loginUi: String?
+    public var loginCheckJs: String?
+    public var contentType: String?
+    public var enabled: Bool?
 
-    init(id: Int64 = Int64(Date().timeIntervalSince1970 * 1000), name: String = "", url: String = "") {
+    public init(id: Int64 = Int64(Date().timeIntervalSince1970 * 1000), name: String = "", url: String = "") {
         self.id = id
         self.name = name
         self.url = url

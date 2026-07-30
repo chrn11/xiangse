@@ -5,7 +5,9 @@
 /// 禁止 Bridge overlay 标签栏/表（tag LBKB/LBPV）；分类走 SGPageTitleView + createCons。
 
 static BOOL sDiscoverTabActive = NO;
+static BOOL sBookSearchUserIntent = NO;
 static NSTimeInterval sPreferDiscoverInjectUntil = 0;
+static NSTimeInterval sBookSearchIntentUntil = 0;
 static NSTimeInterval sLastDiscoverTriggerTs = 0;
 static void (*sOrig_setSquare)(id, SEL, BOOL) = NULL;
 static void (*sOrig_onSegmentChanged)(id, SEL) = NULL;
@@ -37,10 +39,34 @@ void LBSetDiscoverTabActive(BOOL active) {
     if (active) {
         // 人手点发现后需足够长窗口，避免 World 空白页盖住后 sticky 失效
         sPreferDiscoverInjectUntil = [[NSDate date] timeIntervalSince1970] + 120.0;
+    } else {
+        sPreferDiscoverInjectUntil = 0;
     }
     NSString *line = [NSString stringWithFormat:@"discoverTab active=%d stickyUntil=%.0f",
                       active ? 1 : 0, sPreferDiscoverInjectUntil];
     LBDiscoverAppendMarker(line);
+}
+
+void LBSetBookSearchUserIntent(BOOL active) {
+    sBookSearchUserIntent = active;
+    NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+    sBookSearchIntentUntil = active ? (now + 45.0) : 0;
+    if (active) {
+        sDiscoverTabActive = NO;
+        sPreferDiscoverInjectUntil = 0;
+    }
+    LBDiscoverAppendMarker([NSString stringWithFormat:@"bookSearch intent=%d until=%.0f",
+                            active ? 1 : 0, sBookSearchIntentUntil]);
+}
+
+BOOL LBIsBookSearchUserIntent(void) {
+    if (!sBookSearchUserIntent) return NO;
+    NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+    if (sBookSearchIntentUntil > 0 && now > sBookSearchIntentUntil) {
+        sBookSearchUserIntent = NO;
+        return NO;
+    }
+    return YES;
 }
 
 static BOOL LBClassNameLooksDiscoverHost(NSString *cn) {
@@ -135,6 +161,7 @@ static UINavigationController *LBDiscoverActiveNav(void) {
 
 /// 弹出栈顶 BookSearch，避免盖住发现宿主
 static void LBPopBookSearchIfNeeded(UINavigationController *nav) {
+    if (LBIsBookSearchUserIntent()) return;
     if (!nav) return;
     NSArray *stack = nav.viewControllers;
     if (stack.count == 0) return;
@@ -458,6 +485,7 @@ static void LBDiscover_onSegmentChanged(id self, SEL _cmd) {
         LBScheduleDiscoverHostRescue();
     } else {
         sDiscoverTabActive = NO;
+        sPreferDiscoverInjectUntil = 0;
     }
 }
 
@@ -600,6 +628,7 @@ static void LBDiscover_setSelectedSegmentIndex(id self, SEL _cmd, NSInteger idx)
         LBScheduleDiscoverHostRescue();
     } else {
         sDiscoverTabActive = NO;
+        sPreferDiscoverInjectUntil = 0;
         LBDiscoverAppendMarker([NSString stringWithFormat:
                                 @"discoverTab setSelectedSegmentIndex idx=%ld title=%@ discover=0 sticky=%d",
                                 (long)idx, title, LBIsDiscoverTabActive() ? 1 : 0]);

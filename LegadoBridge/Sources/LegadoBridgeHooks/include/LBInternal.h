@@ -63,6 +63,9 @@ void LBInstallRuntimeValidateHooks(void);
 /// 顶栏「发现」是否处于激活（setSquare / segment）
 BOOL LBIsDiscoverTabActive(void);
 void LBSetDiscoverTabActive(BOOL active);
+/// 用户从书架/顶栏主动打开搜索（C-01：避免发现 sticky 抢路由）
+void LBSetBookSearchUserIntent(BOOL active);
+BOOL LBIsBookSearchUserIntent(void);
 NSArray *LBFindDiscoverHostVCs(void);
 /// 推出/复用原生广场壳（BookWorld/Store）；禁止 push BookSearch 冒充发现
 BOOL LBEnsureNativeDiscoverHostPresented(void);
@@ -101,6 +104,11 @@ BOOL LBReadingDicLooksLegado(NSDictionary * _Nullable dic);
 NSString * _Nullable LBReadingBookUrlFromDic(NSDictionary * _Nullable dic);
 NSString * _Nullable LBReadingSourceUrlFromDic(NSDictionary * _Nullable dic);
 NSDictionary * _Nullable LBReadingDicFromObject(id _Nullable object);
+
+/// Wave0：书评列表 / 封面解密 C 桥
+void LBPresentBookReviewsJSON(NSString *bookUrl, NSString *json);
+NSString * _Nullable LBDecodeCoverURL(NSString *url, NSString * _Nullable sourceUrl);
+void LBPresentAudioPlayer(NSString *bookUrl, NSString *chapterUrl, NSString * _Nullable chapterTitle);
 
 NS_ASSUME_NONNULL_END
 

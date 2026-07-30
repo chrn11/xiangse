@@ -63,6 +63,7 @@ void LBTriggerMixedSearch(NSString *keyword, NSString *sourceUrl) {
         });
         return;
     }
+    LBSetBookSearchUserIntent(YES);
 
     // 指定 sourceUrl 时直调引擎（保留筛选）；startSearch 共存 Hook 会把 sourceUrl 丢掉并搜全源
     if (sourceUrl.length > 0) {
@@ -125,6 +126,7 @@ static void LBSetSearchKeywordOnVC(UIViewController *vc, NSString *keyword);
 static NSArray<UIWindow *> *LBAllAppWindows(void);
 static UINavigationController *LBFindBestNavigationController(UIViewController *from);
 static BOOL LBEnsureBookSearchVCPresented(NSString *keyword);
+NSString *LBDecodeCoverURL(NSString *url, NSString *sourceUrl);
 
 /// 是否为搜索结果页控制器（避免误命中 BookShelfController）
 static BOOL LBVCLooksLikeBookSearch(UIViewController *vc) {
@@ -870,9 +872,17 @@ static NSString *LBAbsoluteCoverURL(NSDictionary *book) {
         }
     }
     if (coverUrl.length == 0) return @"";
+    NSString *sourceUrl = nil;
+    for (NSString *k in @[@"sourceUrl"]) {
+        id v = book[k];
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
+            sourceUrl = v;
+            break;
+        }
+    }
     if ([coverUrl hasPrefix:@"http://"] || [coverUrl hasPrefix:@"https://"] ||
-        [coverUrl hasPrefix:@"data:"]) {
-        return coverUrl;
+        [coverUrl hasPrefix:@"data:"] || [coverUrl hasPrefix:@"cipher:"]) {
+        return LBDecodeCoverURL(coverUrl, sourceUrl);
     }
     NSString *base = nil;
     for (NSString *k in @[@"sourceUrl", @"bookUrl", @"url"]) {
@@ -895,9 +905,9 @@ static NSString *LBAbsoluteCoverURL(NSDictionary *book) {
             return [root stringByAppendingString:coverUrl];
         }
         NSURL *abs = [NSURL URLWithString:coverUrl relativeToURL:bu];
-        return abs.absoluteString ?: coverUrl;
+        coverUrl = abs.absoluteString ?: coverUrl;
     }
-    return coverUrl;
+    return LBDecodeCoverURL(coverUrl, sourceUrl);
 }
 
 static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic);
@@ -1314,7 +1324,7 @@ void LBInstallSearchUIAppearFlush(void) {
 
 /// 发现态：只灌原生 BookList/BookWorld，禁止抢 push BookSearch。
 static BOOL LBEnsureBookSearchVCPresented(NSString *keyword) {
-    if (LBIsDiscoverTabActive()) {
+    if (LBIsDiscoverTabActive() && !LBIsBookSearchUserIntent()) {
         BOOL hostOk = LBEnsureNativeDiscoverHostPresented();
         NSArray *hosts = LBFindDiscoverHostVCs();
         for (UIViewController *vc in hosts) {
@@ -8363,7 +8373,10 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
     } @catch (__unused NSException *e) {}
     if (root) {
         CGPoint p = [touch locationInView:root];
+        CGFloat w = root.bounds.size.width;
         CGFloat h = root.bounds.size.height;
+        // 左/右 1/3 留给原生翻章，midTap 只吃中区
+        if (w > 1.0 && (p.x < w / 3.0 || p.x > w * 2.0 / 3.0)) return NO;
         if (h > 1.0 && (p.y < 110.0 || p.y > h - 200.0)) return NO;
         // 触摸落在已显示的 header/bottom 上也不抢
         for (NSString *k in @[ @"toolBarHeader", @"toolBarBottom", @"toolBarPageSlider",
@@ -10910,4 +10923,30 @@ void LBHandleContentRequest(NSString *chapterUrl, NSString *bookUrl, NSString *s
         core, @selector(handleContentRequestWithChapterUrl:bookUrl:sourceUrl:),
         chapterUrl ?: @"", bookUrl ?: @"", sourceUrl
     );
+}
+
+NSString *LBDecodeCoverURL(NSString *url, NSString *sourceUrl) {
+    if (url.length == 0) return url;
+    Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+    if (!coreClass) return url;
+    id core = [coreClass performSelector:@selector(shared)];
+    if (![core respondsToSelector:@selector(decodeCoverURL:sourceUrl:)]) return url;
+    return ((NSString *(*)(id, SEL, NSString *, NSString *))objc_msgSend)(
+        core, @selector(decodeCoverURL:sourceUrl:), url, sourceUrl
+    ) ?: url;
+}
+
+void LBOpenTTS(NSString *bookUrl, NSString *chapterUrl, NSString *chapterTitle) {
+    Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+    if (!coreClass) return;
+    id core = [coreClass performSelector:@selector(shared)];
+    if (![core respondsToSelector:@selector(openTTSForBookUrl:chapterUrl:chapterTitle:speakText:ttsURLTemplate:)]) return;
+    ((void (*)(id, SEL, NSString *, NSString *, NSString *, NSString *, NSString *))objc_msgSend)(
+        core, @selector(openTTSForBookUrl:chapterUrl:chapterTitle:speakText:ttsURLTemplate:),
+        bookUrl ?: @"", chapterUrl ?: @"", chapterTitle, nil, nil
+    );
+}
+
+void LBPresentAudioPlayer(NSString *bookUrl, NSString *chapterUrl, NSString *chapterTitle) {
+    LBOpenTTS(bookUrl, chapterUrl, chapterTitle);
 }

@@ -17,10 +17,14 @@ public protocol BridgeSourceProtocol: AnyObject {
     var concurrentRate: String? { get }
     var jsLib: String? { get }
     var variable: String? { get }
+    /// 封面解密 JS（可选）；空则跳过
+    var coverDecodeJs: String? { get }
 
     func getSearchRule() -> BridgeSearchRule?
     func getExploreRule() -> BridgeExploreRule?
     func getBookInfoRule() -> BridgeBookInfoRule?
     func getTocRule() -> TocRule?
     func getContentRule() -> BridgeContentRule?
+    /// 书评规则（可选）
+    func getReviewRule() -> BridgeReviewRule?
 }

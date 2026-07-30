@@ -1,0 +1,30 @@
+[
+  {
+    "bookSourceUrl": "https://fixture.local/bookvariable/",
+    "bookSourceName": "书本变量夹具",
+    "bookSourceGroup": "验收探针",
+    "enabled": true,
+    "enabledExplore": false,
+    "searchUrl": "https://fixture.local/bookvariable/search?key={{key}}",
+    "ruleSearch": {
+      "bookList": "class.book",
+      "name": "tag.a@text",
+      "bookUrl": "tag.a@href",
+      "author": "text.作者·"
+    },
+    "ruleBookInfo": {
+      "name": "tag.h1@text",
+      "author": "class.author@text",
+      "tocUrl": "tag.a.toc@href",
+      "initRule": "@js:java.put('infoVisited','1'); result;"
+    },
+    "ruleToc": {
+      "chapterList": "class.chapter a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "@js:var mark=java.get('infoVisited'); java.put('contentMark', mark||'0'); '正文变量='+java.get('contentMark');"
+    }
+  }
+]

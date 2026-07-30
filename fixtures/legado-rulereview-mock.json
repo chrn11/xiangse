@@ -1,0 +1,30 @@
+[
+  {
+    "bookSourceUrl": "https://fixture.local/rulereview/",
+    "bookSourceName": "书评夹具",
+    "bookSourceGroup": "验收探针",
+    "enabled": true,
+    "searchUrl": "https://fixture.local/rulereview/search?key={{key}}",
+    "ruleSearch": {
+      "bookList": "class.book",
+      "name": "tag.a@text",
+      "bookUrl": "tag.a@href"
+    },
+    "ruleBookInfo": {
+      "name": "tag.h1@text"
+    },
+    "ruleToc": {
+      "chapterList": "class.chapter a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "id.content@text"
+    },
+    "ruleReview": {
+      "reviewUrl": "https://fixture.local/rulereview/reviews.html",
+      "avatarRule": "class.avatar@src",
+      "contentRule": "class.content@text"
+    }
+  }
+]

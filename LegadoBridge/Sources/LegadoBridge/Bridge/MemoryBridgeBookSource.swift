@@ -20,6 +20,9 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
     var concurrentRate: String?
     var jsLib: String?
     var variable: String?
+    var coverDecodeJs: String?
+    /// 书评规则（可选）
+    var ruleReview: BookSourcePart.ReviewRulePart?
 
     private var ruleSearch: BridgeSearchRule?
     private var ruleExplore: BridgeExploreRule?
@@ -45,6 +48,8 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
         concurrentRate = part.concurrentRate
         jsLib = part.jsLib
         variable = part.variable
+        coverDecodeJs = part.coverDecodeJs
+        ruleReview = part.ruleReview
         ruleSearch = part.ruleSearch.map(Self.mapSearch)
         ruleExplore = part.ruleExplore.map(Self.mapExplore)
         ruleBookInfo = part.ruleBookInfo.map(Self.mapBookInfo)
@@ -52,13 +57,11 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
         ruleContent = part.ruleContent.map(Self.mapContent)
     }
 
-    /// 是否具备发现能力：开启且 exploreUrl 可解析出可请求地址
+    /// 是否具备发现能力：开启且 exploreUrl 非空（解析失败仍列出，便于切源；拉取时再报错）
     var supportsExplore: Bool {
         guard enabledExplore else { return false }
-        guard let raw = exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-            return false
-        }
-        return RuleWebBook.resolveExploreFetchURL(raw) != nil
+        let raw = exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !raw.isEmpty
     }
 
     convenience init(json: [String: Any]) throws {
@@ -72,6 +75,16 @@ final class MemoryBridgeBookSource: BridgeSourceProtocol {
     func getBookInfoRule() -> BridgeBookInfoRule? { ruleBookInfo }
     func getTocRule() -> TocRule? { ruleToc }
     func getContentRule() -> BridgeContentRule? { ruleContent }
+
+    func getReviewRule() -> BridgeReviewRule? {
+        guard let r = ruleReview else { return nil }
+        return BridgeReviewRule(
+            reviewUrl: r.reviewUrl,
+            avatarRule: r.avatarRule,
+            contentRule: r.contentRule,
+            postUrl: r.postUrl
+        )
+    }
 
     private static func mapSearch(_ r: BookSourcePart.SearchRulePart) -> BridgeSearchRule {
         BridgeSearchRule(

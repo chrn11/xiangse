@@ -1,0 +1,30 @@
+[
+  {
+    "bookSourceUrl": "https://fixture.local/review/",
+    "bookSourceName": "书评夹具",
+    "enabled": true,
+    "searchUrl": "https://fixture.local/review/search?key={{key}}",
+    "ruleSearch": {
+      "bookList": "class.book",
+      "name": "tag.a@text",
+      "bookUrl": "tag.a@href"
+    },
+    "ruleReview": {
+      "reviewUrl": "https://fixture.local/mock_reviews.html",
+      "avatarRule": "class.avatar@src",
+      "contentRule": "class.content@text"
+    },
+    "ruleBookInfo": {
+      "name": "tag.h1@text",
+      "tocUrl": "tag.a@href"
+    },
+    "ruleToc": {
+      "chapterList": "class.chapter a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "id.content@text"
+    }
+  }
+]

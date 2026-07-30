@@ -518,7 +518,11 @@ static void LBPresentExploreSourcePicker(UIViewController *host) {
     @try { json = [core valueForKey:@"exploreCapableSourcesJSON"]; } @catch (__unused NSException *e) {}
     NSArray *rows = LBParseJSONArray(json ?: @"[]");
     if (rows.count == 0) {
-        LBLegadoShowResult(@"无可发现的 Legado 书源");
+        UIAlertController *empty = [UIAlertController alertControllerWithTitle:@"切换发现源"
+                                                                     message:@"暂无可发现书源（需启用且含发现地址）"
+                                                              preferredStyle:UIAlertControllerStyleAlert];
+        [empty addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+        [host presentViewController:empty animated:YES completion:nil];
         return;
     }
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"切换发现源"
@@ -1760,13 +1764,34 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
 }
 
 /// 分类条跟当前 Legado 源 exploreUrl 解析结果走（换源即换分类），donor 只当壳
+static NSArray *LBDedupExploreKinds(NSArray *kinds) {
+    if (kinds.count == 0) return kinds;
+    NSMutableArray *out = [NSMutableArray array];
+    NSMutableSet *seen = [NSMutableSet set];
+    for (id item in kinds) {
+        if (![item isKindOfClass:[NSDictionary class]]) continue;
+        NSDictionary *dict = (NSDictionary *)item;
+        NSString *title = dict[@"title"];
+        if (![title isKindOfClass:[NSString class]] || title.length == 0) title = @"分类";
+        if ([seen containsObject:title]) continue;
+        [seen addObject:title];
+        [out addObject:dict];
+    }
+    return out.count > 0 ? out : kinds;
+}
+
 static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *kinds, NSString *srcName) {
     if (!host) return;
+    kinds = LBDedupExploreKinds(kinds);
     NSMutableArray *titles = [NSMutableArray array];
+    NSMutableSet *seen = [NSMutableSet set];
     for (id item in kinds) {
         if (![item isKindOfClass:[NSDictionary class]]) continue;
         NSString *t = item[@"title"];
-        [titles addObject:([t isKindOfClass:[NSString class]] && t.length > 0) ? t : @"分类"];
+        NSString *title = ([t isKindOfClass:[NSString class]] && t.length > 0) ? t : @"分类";
+        if ([seen containsObject:title]) continue; // B-03 去重
+        [seen addObject:title];
+        [titles addObject:title];
     }
     if (titles.count == 0) [titles addObject:@"发现"];
     if (srcName.length > 0) {

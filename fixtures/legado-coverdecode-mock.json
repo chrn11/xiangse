@@ -1,0 +1,19 @@
+[
+  {
+    "bookSourceUrl": "https://fixture.local/coverdecode/",
+    "bookSourceName": "封面解密夹具",
+    "enabled": true,
+    "searchUrl": "https://fixture.local/coverdecode/search?key={{key}}",
+    "coverDecodeJs": "result = src.replace('cipher:','https://');",
+    "ruleSearch": {
+      "bookList": "class.book",
+      "name": "tag.h1@text",
+      "bookUrl": "tag.a@href",
+      "coverUrl": "tag.img@src"
+    },
+    "ruleBookInfo": {
+      "name": "tag.h1@text",
+      "coverUrl": "tag.img.cover@src"
+    }
+  }
+]

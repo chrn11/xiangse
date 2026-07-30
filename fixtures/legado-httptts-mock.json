@@ -1,0 +1,25 @@
+[
+  {
+    "bookSourceUrl": "https://fixture.local/httptts/",
+    "bookSourceName": "听书夹具",
+    "bookSourceGroup": "验收探针",
+    "enabled": true,
+    "searchUrl": "https://fixture.local/httptts/search?key={{key}}",
+    "ruleSearch": {
+      "bookList": "class.book",
+      "name": "tag.a@text",
+      "bookUrl": "tag.a@href"
+    },
+    "ruleBookInfo": {
+      "name": "tag.h1@text"
+    },
+    "ruleToc": {
+      "chapterList": "class.chapter a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "id.content@text"
+    }
+  }
+]

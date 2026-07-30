@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 import LegadoRuleCore
 import LegadoBridgeHooks
 
@@ -35,6 +38,7 @@ import LegadoBridgeHooks
         // 书籍绑定与书源分文件；启动时一并恢复，避免重启串源
         _ = BookBindingStore.shared.restoreFromDiskIfNeeded()
         _ = ReplaceRuleStore.shared.restoreFromDiskIfNeeded()
+        BookVariableStore.restoreFromDiskIfNeeded()
         ReplaceRuleStore.shared.installPresetsIfEmpty()
         if count > 0 {
             let enabled = SourceRegistry.shared.allSources().filter {
@@ -267,6 +271,11 @@ import LegadoBridgeHooks
                 NativeSourceInjector.removeFromNativeManager(names: names)
             }
         }
+    }
+
+    @objc(isSourceEnabled:)
+    public func isSourceEnabled(_ url: String) -> Bool {
+        SourceRegistry.shared.isEnabled(url: url)
     }
 
     @objc(sourceJSON:)
@@ -536,6 +545,15 @@ import LegadoBridgeHooks
                 kinds = fenlei.map { ["title": $0.0, "url": $0.1] }
             }
         }
+        // B-03：同名分类只保留首次（避免「历史」双份）
+        var seen = Set<String>()
+        kinds = kinds.filter { row in
+            let t = (row["title"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = t.isEmpty ? (row["url"] ?? "") : t
+            if key.isEmpty || seen.contains(key) { return false }
+            seen.insert(key)
+            return true
+        }
         guard let data = try? JSONSerialization.data(withJSONObject: kinds),
               let s = String(data: data, encoding: .utf8) else {
             return "[]"
@@ -545,7 +563,7 @@ import LegadoBridgeHooks
 
     /// 可发现源摘要：[{name,url,type},…]；type=bookSourceType（0文本/1音频/2图片/3文件）
     @objc public var exploreCapableSourcesJSON: String {
-        let rows: [[String: Any]] = SourceRegistry.shared.exploreCapableSources().map { src in
+        let rows: [[String: Any]] = SourceRegistry.shared.switchableSources().map { src in
             var row: [String: Any] = [
                 "name": src.bookSourceName ?? src.bookSourceUrl,
                 "url": src.bookSourceUrl
@@ -1107,5 +1125,192 @@ import LegadoBridgeHooks
                 userInfo: userInfo
             )
         }
+    }
+
+    // MARK: - Wave0 能力：封面解密 / 书评 / 听书
+
+    @objc(bookVariableJSONForBookUrl:)
+    public func bookVariableJSON(forBookUrl bookUrl: String) -> String {
+        BookVariableStore.jsonString(for: bookUrl)
+    }
+
+    @objc(putBookVariableForBookUrl:key:value:)
+    public func putBookVariable(forBookUrl bookUrl: String, key: String, value: String) {
+        BookVariableStore.put(key, value: value, bookUrl: bookUrl)
+    }
+
+    @objc(fetchReviewsForBookUrl:completion:)
+    public func fetchReviews(forBookUrl bookUrl: String, completion: @escaping (String) -> Void) {
+        let binding = BookBindingStore.shared.binding(forBookUrl: bookUrl)
+        let sourceUrl = binding?.sourceUrl
+        Task {
+            let json = fetchReviewsJSON(bookUrl: bookUrl, sourceUrl: sourceUrl)
+            await MainActor.run { completion(json) }
+        }
+    }
+
+    @objc(isAudioURL:)
+    public func isAudioURL(_ url: String) -> Bool {
+        HttpTTSEngine.isAudioURL(url)
+    }
+
+    @objc(buildHttpTTSURLWithConfigJSON:speakText:)
+    public func buildHttpTTSURL(configJSON: String, speakText: String) -> String {
+        guard let data = configJSON.data(using: .utf8),
+              let cfg = try? JSONDecoder().decode(HttpTTSConfig.self, from: data) else {
+            return ""
+        }
+        return HttpTTSEngine.buildRequestURL(config: cfg, speakText: speakText)
+    }
+
+    @objc(fetchAudioToTempFileWithURL:completion:)
+    public func fetchAudioToTempFile(url: String, completion: @escaping (String) -> Void) {
+        queue.async {
+            let data = HttpTTSEngine.fetchAudioData(from: url)
+            guard let data, !data.isEmpty else {
+                DispatchQueue.main.async { completion("") }
+                return
+            }
+            let path = NSTemporaryDirectory() + "lb_tts_\(abs(url.hashValue)).mp3"
+            do {
+                try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+                DispatchQueue.main.async { completion(path) }
+            } catch {
+                DispatchQueue.main.async { completion("") }
+            }
+        }
+    }
+
+    /// 封面 URL 解密（coverDecodeJs）
+    @objc(decodeCoverURL:sourceUrl:)
+    public func decodeCoverURL(_ url: String, sourceUrl: String?) -> String {
+        let src = sourceUrl.flatMap { SourceRegistry.shared.source(forUrl: $0) }
+        let base = src?.bookSourceUrl ?? sourceUrl ?? ""
+        return CoverDecodeHelper.decodeCoverURL(
+            url,
+            decodeJs: src?.coverDecodeJs,
+            baseUrl: base,
+            source: src
+        )
+    }
+
+    /// 拉取书评并返回 JSON 数组字符串
+    @objc(fetchReviewsJSONForBookUrl:sourceUrl:)
+    public func fetchReviewsJSON(bookUrl: String, sourceUrl: String?) -> String {
+        let sem = DispatchSemaphore(value: 0)
+        var output = "[]"
+        Task {
+            do {
+                guard let source = resolveEnabledSource(requested: sourceUrl, bookUrl: bookUrl) else {
+                    throw LegadoBridgeError.sourceNotFound
+                }
+                let reviews = try await BridgeWebBook.fetchReviews(source: source, bookUrl: bookUrl)
+                let rows: [[String: String]] = reviews.map {
+                    ["avatar": $0.avatar, "content": $0.content, "raw": $0.raw]
+                }
+                if let data = try? JSONSerialization.data(withJSONObject: rows),
+                   let s = String(data: data, encoding: .utf8) {
+                    output = s
+                }
+            } catch {
+                output = #"[[\"error\":\"\#(error.localizedDescription)\"]]"#
+            }
+            sem.signal()
+        }
+        _ = sem.wait(timeout: .now() + 30)
+        return output
+    }
+
+    /// 异步拉取书评并弹出列表（ObjC 入口）
+    @objc(presentReviewsForBookUrl:sourceUrl:)
+    public func presentReviews(bookUrl: String, sourceUrl: String?) {
+        Task {
+            let json = fetchReviewsJSON(bookUrl: bookUrl, sourceUrl: sourceUrl)
+            await MainActor.run {
+                LBPresentBookReviewsJSON(bookUrl, json)
+            }
+        }
+    }
+
+    /// 直链播放音频 URL
+    @objc(playAudioURL:)
+    @discardableResult
+    public func playAudioURL(_ url: String) -> Bool {
+        let ok = LBAudioPlayer.shared.prepare(url: url)
+        if ok { LBAudioPlayer.shared.play() }
+        return ok
+    }
+
+    /// 打开听书播控页；优先直链，否则用 HttpTTS 模板合成
+    @objc(openTTSForBookUrl:chapterUrl:chapterTitle:speakText:ttsURLTemplate:)
+    public func openTTS(
+        bookUrl: String,
+        chapterUrl: String,
+        chapterTitle: String?,
+        speakText: String?,
+        ttsURLTemplate: String?
+    ) {
+        Task { @MainActor in
+            let vc = LBAudioPlayerVC()
+            vc.bookUrl = bookUrl
+            vc.chapterTitle = chapterTitle ?? ""
+            let player = LBAudioPlayer.shared
+
+            // 1) 直链：章节 URL 或正文
+            if HttpTTSEngine.isDirectAudioURL(chapterUrl) {
+                _ = player.prepare(url: chapterUrl)
+                player.play()
+                presentAudioVC(vc)
+                return
+            }
+
+            // 2) HttpTTS 模板
+            if let tpl = ttsURLTemplate?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !tpl.isEmpty,
+               let text = speakText?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !text.isEmpty {
+                do {
+                    let config = HttpTTSConfig(url: tpl)
+                    let data = try await HttpTTSEngine.fetchAudio(config: config, speakText: text)
+                    if player.prepare(data: data) {
+                        player.play()
+                        presentAudioVC(vc)
+                        return
+                    }
+                } catch {
+                    DebugLogger.shared.log("[openTTS] \(error)")
+                }
+            }
+
+            // 3) 回退：把章节 URL 当直链再试一次
+            if player.prepare(url: chapterUrl) {
+                player.play()
+                presentAudioVC(vc)
+            }
+        }
+    }
+
+    @objc(presentAudioPlayerForBookUrl:chapterUrl:chapterTitle:)
+    public func presentAudioPlayer(bookUrl: String, chapterUrl: String, chapterTitle: String?) {
+        openTTS(
+            bookUrl: bookUrl,
+            chapterUrl: chapterUrl,
+            chapterTitle: chapterTitle,
+            speakText: nil,
+            ttsURLTemplate: nil
+        )
+    }
+
+    private func presentAudioVC(_ vc: LBAudioPlayerVC) {
+#if canImport(UIKit)
+        let nav = UINavigationController(rootViewController: vc)
+        nav.modalPresentationStyle = .formSheet
+        guard let scene = UIApplication.shared.connectedScenes
+            .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+              let root = scene.windows.first?.rootViewController else { return }
+        var top = root
+        while let presented = top.presentedViewController { top = presented }
+        top.present(nav, animated: true)
+#endif
     }
 }

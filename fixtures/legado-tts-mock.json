@@ -1,0 +1,25 @@
+[
+  {
+    "bookSourceUrl": "https://fixture.local/tts/",
+    "bookSourceName": "听书夹具",
+    "enabled": true,
+    "searchUrl": "https://fixture.local/tts/search?key={{key}}",
+    "ruleSearch": {
+      "bookList": "class.book",
+      "name": "tag.a@text",
+      "bookUrl": "tag.a@href"
+    },
+    "ruleToc": {
+      "chapterList": "class.chapter",
+      "chapterName": "class.title@text",
+      "chapterUrl": "class.audio@src"
+    },
+    "ruleContent": {
+      "content": "class.audio@src"
+    },
+    "tts": {
+      "url": "https://tts.fixture.local/speak?text={{speakText}}&voice=zh",
+      "name": "夹具语音"
+    }
+  }
+]

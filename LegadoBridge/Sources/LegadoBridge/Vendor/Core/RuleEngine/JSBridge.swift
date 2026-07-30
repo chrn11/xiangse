@@ -73,10 +73,13 @@ class JSBridge: JsEncodeUtils {
         javaObject?.setObject(connectHeaderBlock, forKeyedSubscript: "connect" as NSString)
 
         // ====== 变量存取 ======
+        // bookUrl 非空 → 书本级 BookVariableStore；否则 → 源级 SourceSessionStore
 
         let putBlock: @convention(block) (String, String) -> String = { [weak self] key, value in
             self?.context?.variables[key] = value
-            if let sourceUrl = self?.context?.source?.bookSourceUrl {
+            if let bookUrl = self?.context?.bookUrl, !bookUrl.isEmpty {
+                BookVariableStore.put(key, value: value, bookUrl: bookUrl)
+            } else if let sourceUrl = self?.context?.source?.bookSourceUrl {
                 SourceSessionStore.put(key, value: value, sourceUrl: sourceUrl)
             }
             return value
@@ -85,6 +88,10 @@ class JSBridge: JsEncodeUtils {
 
         let getBlock: @convention(block) (String) -> String = { [weak self] key in
             if let local = self?.context?.variables[key], !local.isEmpty { return local }
+            if let bookUrl = self?.context?.bookUrl, !bookUrl.isEmpty {
+                let fromBook = BookVariableStore.get(key, bookUrl: bookUrl)
+                if !fromBook.isEmpty { return fromBook }
+            }
             return SourceSessionStore.get(key, sourceUrl: self?.context?.source?.bookSourceUrl)
         }
         javaObject?.setObject(getBlock, forKeyedSubscript: "get" as NSString)
@@ -371,6 +378,38 @@ class JSBridge: JsEncodeUtils {
         sourceObject?.setObject(getKeyBlock, forKeyedSubscript: "getTag" as NSString)
 
         Self.bindGlobal(sourceObject, name: "source", into: jsContext)
+        injectBookObject(into: jsContext)
+    }
+
+    // MARK: - book 对象注入（书本级变量）
+
+    private func injectBookObject(into jsContext: JSContext) {
+        let bookObject = JSValue(newObjectIn: jsContext)
+
+        bookObject?.setObject({ [weak self] in self?.context?.bookUrl ?? "" }, forKeyedSubscript: "bookUrl" as NSString)
+        bookObject?.setObject({ [weak self] in self?.context?.bookName ?? "" }, forKeyedSubscript: "name" as NSString)
+
+        let getKeyBlock: @convention(block) () -> String = { [weak self] in
+            self?.context?.bookUrl ?? ""
+        }
+        bookObject?.setObject(getKeyBlock, forKeyedSubscript: "getKey" as NSString)
+
+        let getVariableBlock: @convention(block) (String) -> String = { [weak self] key in
+            if let local = self?.context?.variables[key], !local.isEmpty { return local }
+            return BookVariableStore.get(key, bookUrl: self?.context?.bookUrl)
+        }
+        bookObject?.setObject(getVariableBlock, forKeyedSubscript: "getVariable" as NSString)
+
+        let putVariableBlock: @convention(block) (String, String) -> String = { [weak self] key, value in
+            self?.context?.variables[key] = value
+            if let bookUrl = self?.context?.bookUrl, !bookUrl.isEmpty {
+                BookVariableStore.put(key, value: value, bookUrl: bookUrl)
+            }
+            return value
+        }
+        bookObject?.setObject(putVariableBlock, forKeyedSubscript: "putVariable" as NSString)
+
+        Self.bindGlobal(bookObject, name: "book", into: jsContext)
     }
 
     // MARK: - cookie 对象注入

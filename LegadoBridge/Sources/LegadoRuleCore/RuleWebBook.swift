@@ -233,6 +233,8 @@ public enum RuleWebBook {
         source: any BridgeSourceProtocol,
         book: inout BridgeBook
     ) async throws -> BridgeBook {
+        ruleEngine.bindBook(bookUrl: book.bookUrl, bookName: book.name, source: source)
+        defer { ruleEngine.clearBoundBook() }
         guard let infoRule = source.getBookInfoRule() else {
             throw WebBookError.noRule("书籍信息规则")
         }
@@ -293,7 +295,13 @@ public enum RuleWebBook {
         if let coverUrl = infoRule.coverUrl {
             let parsed = ruleEngine.getString(ruleStr: coverUrl, elementContext: elementCtx, baseUrl: redirectUrl)
             if !parsed.isEmpty {
-                book.coverUrl = URL(string: parsed, relativeTo: URL(string: redirectUrl))?.absoluteURL.absoluteString ?? parsed
+                let absolute = URL(string: parsed, relativeTo: URL(string: redirectUrl))?.absoluteURL.absoluteString ?? parsed
+                book.coverUrl = CoverDecodeHelper.decodeCoverURL(
+                    absolute,
+                    decodeJs: source.coverDecodeJs,
+                    baseUrl: redirectUrl,
+                    source: source
+                )
             }
         }
         if let tocUrl = infoRule.tocUrl {
@@ -315,6 +323,7 @@ public enum RuleWebBook {
 
         book.sourceUrl = source.bookSourceUrl
         book.sourceName = source.bookSourceName
+        book.variable = BookVariableStore.jsonString(for: book.bookUrl)
         return book
     }
 
@@ -324,6 +333,8 @@ public enum RuleWebBook {
         source: any BridgeSourceProtocol,
         book: BridgeBook
     ) async throws -> [BridgeChapter] {
+        ruleEngine.bindBook(bookUrl: book.bookUrl, bookName: book.name, source: source)
+        defer { ruleEngine.clearBoundBook() }
         guard let tocRule = source.getTocRule() else {
             throw WebBookError.noRule("目录规则")
         }
@@ -420,6 +431,8 @@ public enum RuleWebBook {
         book: BridgeBook,
         chapter: BridgeChapter
     ) async throws -> String {
+        ruleEngine.bindBook(bookUrl: book.bookUrl, bookName: book.name, source: source)
+        defer { ruleEngine.clearBoundBook() }
         guard let contentRule = source.getContentRule() else {
             throw WebBookError.noRule("正文规则")
         }
@@ -508,6 +521,71 @@ public enum RuleWebBook {
         return content
     }
 
+    // MARK: - 书评
+
+    /// 拉取书评列表（最小实现：reviewUrl + 列表规则解析）
+    public static func fetchReviews(
+        source: any BridgeSourceProtocol,
+        bookUrl: String
+    ) async throws -> [BookReview] {
+        guard let reviewRule = source.getReviewRule(),
+              let reviewUrlRule = reviewRule.reviewUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !reviewUrlRule.isEmpty else {
+            throw WebBookError.noRule("书评规则")
+        }
+
+        ruleEngine.bindBook(bookUrl: bookUrl, source: source)
+        defer { ruleEngine.clearBoundBook() }
+
+        let analyzedUrl = AnalyzeUrl.analyze(
+            ruleUrl: reviewUrlRule,
+            key: bookUrl,
+            baseUrl: bookUrl.isEmpty ? source.bookSourceUrl : bookUrl,
+            source: source
+        )
+        var (body, redirectUrl) = try await AnalyzeUrl.getResponseBody(
+            analyzedUrl: analyzedUrl,
+            source: source
+        )
+        (body, redirectUrl) = applyLoginCheckIfNeeded(source: source, body: body, url: redirectUrl)
+        guard !body.isEmpty else { throw WebBookError.emptyResponse }
+        return try parseReviews(body: body, baseUrl: redirectUrl, reviewRule: reviewRule, source: source)
+    }
+
+    /// 本地夹具：无网络解析书评
+    public static func parseReviews(
+        body: String,
+        baseUrl: String,
+        reviewRule: BridgeReviewRule,
+        source: (any BridgeSourceProtocol)? = nil
+    ) throws -> [BookReview] {
+        let listRule = "class.review-item"
+        let elements = try ruleEngine.getElements(ruleStr: listRule, body: body, baseUrl: baseUrl, source: source)
+        var reviews: [BookReview] = []
+        let avatarRule = reviewRule.avatarRule ?? "class.avatar@src"
+        let textRule = reviewRule.contentRule ?? "class.content@text"
+        for el in elements {
+            let avatarRaw = ruleEngine.getString(ruleStr: avatarRule, elementContext: el, baseUrl: baseUrl)
+            let content = ruleEngine.getString(ruleStr: textRule, elementContext: el, baseUrl: baseUrl)
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let avatar: String
+            if avatarRaw.isEmpty {
+                avatar = ""
+            } else {
+                avatar = URL(string: avatarRaw, relativeTo: URL(string: baseUrl))?.absoluteURL.absoluteString ?? avatarRaw
+            }
+            let raw: String
+            if let soup = el.element as? Element {
+                raw = (try? soup.outerHtml()) ?? trimmed
+            } else {
+                raw = trimmed
+            }
+            reviews.append(BookReview(avatar: avatar, content: trimmed, raw: raw))
+        }
+        return reviews
+    }
+
     // MARK: - 本地规则解析（夹具 / 无网络）
 
     /// 对给定 body 执行规则，返回字符串结果（供确定性夹具）
@@ -515,18 +593,31 @@ public enum RuleWebBook {
         rule: String,
         body: String,
         baseUrl: String = "https://fixture.local/",
-        variables: [String: String] = [:]
+        variables: [String: String] = [:],
+        bookUrl: String? = nil,
+        source: (any BridgeSourceProtocol)? = nil
     ) throws -> String {
         let ctx = try makeElementContext(body: body, baseUrl: baseUrl)
-        if variables.isEmpty {
+        if variables.isEmpty && (bookUrl == nil || bookUrl?.isEmpty == true) && source == nil {
             return RuleEngine().getString(ruleStr: rule, elementContext: ctx, baseUrl: baseUrl)
         }
-        // 有预置变量时走完整 ExecutionContext，供 @js / @get 夹具
+        // 有预置变量 / 书本上下文时走完整 ExecutionContext，供 @js / @get / bookVariable 夹具
         let engine = RuleEngine()
+        if let bookUrl, !bookUrl.isEmpty {
+            engine.bindBook(bookUrl: bookUrl, source: source)
+        }
+        defer { engine.clearBoundBook() }
         let exec = ExecutionContext()
         exec.variables = variables
         exec.baseURL = URL(string: baseUrl)
         exec.document = ctx.element
+        exec.bookUrl = bookUrl
+        exec.source = source
+        if let bookUrl, !bookUrl.isEmpty {
+            for (k, v) in BookVariableStore.variables(for: bookUrl) {
+                if exec.variables[k] == nil { exec.variables[k] = v }
+            }
+        }
         if let json = ctx.element as? [String: Any] {
             exec.jsonDict = json
             exec.jsonValue = json
@@ -924,7 +1015,13 @@ public enum RuleWebBook {
             item.bookUrl = parsedBookUrl
             let parsedCover = ruleEngine.getString(ruleStr: coverUrlRule, elementContext: el, baseUrl: baseUrl)
             if !parsedCover.isEmpty {
-                item.coverUrl = URL(string: parsedCover, relativeTo: URL(string: baseUrl))?.absoluteURL.absoluteString ?? parsedCover
+                let absolute = URL(string: parsedCover, relativeTo: URL(string: baseUrl))?.absoluteURL.absoluteString ?? parsedCover
+                item.coverUrl = CoverDecodeHelper.decodeCoverURL(
+                    absolute,
+                    decodeJs: source.coverDecodeJs,
+                    baseUrl: baseUrl,
+                    source: source
+                )
             }
             let parsedIntro = ruleEngine.getString(ruleStr: introRule, elementContext: el, baseUrl: baseUrl)
             item.intro = parsedIntro.isEmpty ? nil : normalizeIntro(parsedIntro)
@@ -1107,6 +1204,20 @@ public enum RuleWebBook {
         }
         return (pattern, rest, false)
     }
+
+    /// 封面 URL 解密（coverDecodeJs）
+    private static func decodeCoverURL(
+        _ url: String,
+        source: any BridgeSourceProtocol,
+        baseUrl: String
+    ) -> String {
+        CoverDecodeHelper.decodeCoverURL(
+            url,
+            decodeJs: source.coverDecodeJs,
+            baseUrl: baseUrl,
+            source: source
+        )
+    }
 }
 
 /// 与 legado-ios WebBook / Bridge 兼容的搜索结果
@@ -1123,4 +1234,17 @@ public struct SearchBookResult {
     public var sourceName: String = ""
 
     public init() {}
+}
+
+/// 书评条目
+public struct BookReview: Equatable {
+    public var avatar: String
+    public var content: String
+    public var raw: String
+
+    public init(avatar: String = "", content: String = "", raw: String = "") {
+        self.avatar = avatar
+        self.content = content
+        self.raw = raw
+    }
 }

@@ -1,0 +1,67 @@
+[
+  {
+    "bookSourceComment": "",
+    "bookSourceGroup": "写源by河鹅和",
+    "bookSourceName": "笔趣读",
+    "bookSourceType": 0,
+    "bookSourceUrl": "https://www.biqudv.com",
+    "bookUrlPattern": "https://www.biqudv.com/\\d+_\\d+\\.html",
+    "customOrder": 0,
+    "enabled": true,
+    "enabledCookieJar": true,
+    "enabledExplore": true,
+    "exploreUrl": "",
+    "header": "{\"User-Agent\": \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36\"}",
+    "lastUpdateTime": "1732245696761",
+    "loginUi": "[\n    {\n        name: \"用户名\",\n        type: \"text\"\n    },\n    {\n        name: \"密码\",\n        type: \"password\"\n    },\n    {\n    \t   name: \"手机号\",\n    \t   type: \"text\"\n    },\n    {\n        name: \"登录\",\n        type: \"button\",\n        action: \"login(true)\"\n    },\n    {\n        name: \"登出\",\n        type: \"button\",\n        action: \"cookie.removeCookie(source.getKey());source.setVariable('');java.toast('登出成功')\"\n    },\n    {\n        name: \"注册\",\n        type: \"button\",\n        action: \"login(false)\"\n    },\n    {\n        name: \"显示密码\",\n        type: \"button\",\n        action: \"java.toast('\\\\n密码：'+result.密码)\"\n    }\n]",
+    "loginUrl": "function login(b){\n\tif(b==undefined)return true;\n\tinfo=result\n\tso=source.key\n\tpwd=java.md5Encode(info.密码)\n\timgurl=so+'/code.jpg?'+Math.random()\n\tcode=java.getVerificationCode(imgurl)\n if(b){\n\t\turl=so+'/qs_login_go.php,'\n\t\tbody=`user_name=${info.用户名}&user_pass=${pwd}&user_code=${code}`}\n\telse{\n\t\turl=so+'/qs_register_go.php,'\n\t\tbody=`name=${info.用户名}&mobile=${info.手机号}&pass=${pwd}&pass2=${pwd}&code=${code}`\n\t\t}\n\tpost=JSON.stringify({\n  \"body\": String(body),\n  \"method\": \"POST\"\n})\n url+=post\n result=java.ajax(url)\n java.toast(result)\n c=cookie.getCookie(source.key)\n source.setVariable(c)\n\t}",
+    "respondTime": 180000,
+    "ruleBookInfo": {
+      "author": "[property=\"og:novel:author\"]@content",
+      "coverUrl": "{{n=baseUrl.match(/_(\\d+)/)\nresult='/img/'+n[n.length-1]+'.jpg'}}",
+      "init": "",
+      "intro": "[property=\"og:description\"]@content",
+      "kind": "[property=\"og:novel:category\"]@content",
+      "lastChapter": "[property=\"og:novel:latest_chapter_name\"]@content",
+      "name": "[property=\"og:novel:book_name\"]@content",
+      "tocUrl": "{{baseUrl.replace(/\\.html/,\"/1/desc.html\")}}"
+    },
+    "ruleContent": {
+      "content": "<js>\nvar bes = result.match(/PHA\\+[A-Za-z0-9+\\/]+={0,2}/g);\nif (!bes) {\n    var ml = java.webView(null,baseUrl,null);\n    java.setContent(ml)\n    var txt = java.getString(\".word_read>p@text\");\n    java.longToast(\"正文解密失败，转为webView动态加载。\");\n} else {\nvar result = [];\nfor (var i = 0; i < bes.length; i++) {\n    var bsej = java.base64Decode(bes[i]);\n    var txtt = String(bsej);\n    result.push(txtt);\n      }\n\tvar txt = result.join('\\n');\n}\ntxt;\n</js>",
+      "nextContentUrl": "text.下一@href\n@js:\nvar next=/-\\d+\\.html/.test(result) ? result : '';\nnext;",
+      "payAction": "",
+      "replaceRegex": "",
+      "webJs": ""
+    },
+    "ruleExplore": {
+      "bookList": "",
+      "bookUrl": "",
+      "coverUrl": "",
+      "intro": "",
+      "name": ""
+    },
+    "ruleReview": {},
+    "ruleSearch": {
+      "author": ".s3@text",
+      "bookList": "<js>\nif(/验证码/.test(result)){java.toast('请重新登录')}\nelse if(/更换搜索词试试/.test(result)){java.toast('请更换搜索词')}\nresult</js>\n.container li",
+      "bookUrl": ".s2 a@href",
+      "checkKeyWord": "我的模拟",
+      "coverUrl": ".s2 a@href\n<js>\nn=result.match(/_(\\d+)/)\nresult='/img/'+n[n.length-1]+'.jpg'\n</js>",
+      "intro": "",
+      "kind": ".s1@text&&.s5@text##\\[|\\]",
+      "lastChapter": ".s4@text",
+      "name": ".s2@text",
+      "wordCount": ""
+    },
+    "ruleToc": {
+      "chapterList": "-.section-list li a",
+      "chapterName": "text",
+      "chapterUrl": "href",
+      "formatJs": "",
+      "nextTocUrl": "option@value",
+      "preUpdateJs": ""
+    },
+    "searchUrl": "{{cookie.setCookie(source.key,source.getVariable())}}\n/search.html,{\n  \"body\": \"s={{key}}\",\n  \"method\": \"POST\"\n}",
+    "weight": 0
+  }
+]

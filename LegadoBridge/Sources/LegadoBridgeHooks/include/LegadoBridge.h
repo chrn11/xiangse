@@ -55,4 +55,11 @@ FOUNDATION_EXPORT NSString * _Nullable LBStartBrowserAwait(NSString *urlStr,
                                                            NSString * _Nullable title,
                                                            NSTimeInterval timeoutSec);
 
+/// 封面 URL 解密（coverDecodeJs）
+FOUNDATION_EXPORT NSString * _Nullable LBDecodeCoverURL(NSString *url, NSString * _Nullable sourceUrl);
+/// 展示书评列表（JSON 数组字符串）
+FOUNDATION_EXPORT void LBPresentBookReviewsJSON(NSString *bookUrl, NSString *json);
+/// 打开听书播控（直链章节 URL）
+FOUNDATION_EXPORT void LBOpenTTS(NSString *bookUrl, NSString *chapterUrl, NSString * _Nullable chapterTitle);
+
 #endif /* LegadoBridge_h */

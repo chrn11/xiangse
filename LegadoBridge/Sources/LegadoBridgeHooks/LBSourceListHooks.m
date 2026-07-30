@@ -1,7 +1,11 @@
 #import "LBInternal.h"
 #import "LegadoBridge.h"
+#import <UIKit/UIKit.h>
+#import <objc/message.h>
 
 // 书源列表组
+
+static void LBInstallInvertAvailabilityGuard(void);
 
 #pragma mark - Source List Hooks (站点管理列表)
 
@@ -585,6 +589,7 @@ void LBInstallSourceListHooks(void) {
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 
     LBInstallNativeSourceListLegadoButton();
+    LBInstallInvertAvailabilityGuard();
     LBCapabilityMarkEnabled(LBHookGroupSourceList, [NSString stringWithFormat:@"tap=%@", [hooked componentsJoinedByString:@","]]);
     } @catch (NSException *e) {
         LBCapabilityMarkFailed(LBHookGroupSourceList, e.reason ?: @"exception");
@@ -722,4 +727,199 @@ static void LBInstallNativeSourceListLegadoButton(void) {
         [installed addObject:ownerKey];
         NSLog(@"[LegadoBridge] hooked %@ viewDidAppear: for Legado bar button", ownerKey);
     }
+}
+
+#pragma mark - A-09 反转可用性 fail-open
+
+/// 对勾选源中的注入源走 Core 启停；原生路径包 @try，避免踢回主屏
+static void LBToggleLegadoSourcesByNames(NSArray *names) {
+    if (names.count == 0) return;
+    id core = LBLegadoCoreIfReady();
+    if (!core) return;
+    for (id raw in names) {
+        if (![raw isKindOfClass:[NSString class]]) continue;
+        NSString *name = LBLegadoStripDisplaySuffix((NSString *)raw);
+        NSDictionary *model = LBLegadoNativeModel(name);
+        NSString *url = nil;
+        if ([model isKindOfClass:[NSDictionary class]]) {
+            url = model[@"bookSourceUrl"] ?: model[@"sourceUrl"] ?: model[@"legadoBookSourceUrl"];
+        }
+        if (url.length == 0 && core && [core respondsToSelector:@selector(allSourcesInfo)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            for (NSDictionary *dict in [core performSelector:@selector(allSourcesInfo)]) {
+                if (![dict isKindOfClass:[NSDictionary class]]) continue;
+                NSString *n = dict[@"bookSourceName"];
+                if ([n isKindOfClass:[NSString class]] &&
+                    ([n isEqualToString:name] || [name hasSuffix:n] || [n isEqualToString:[name stringByReplacingOccurrencesOfString:@"·Legado" withString:@""]])) {
+                    url = dict[@"bookSourceUrl"];
+                    break;
+                }
+            }
+#pragma clang diagnostic pop
+        }
+        if (url.length == 0) continue;
+        BOOL enabled = YES;
+        if ([core respondsToSelector:@selector(isSourceEnabled:)]) {
+            enabled = ((BOOL (*)(id, SEL, NSString *))objc_msgSend)(core, @selector(isSourceEnabled:), url);
+        } else {
+            id en = model[@"enable"];
+            if ([en isKindOfClass:[NSString class]]) enabled = [en isEqualToString:@"1"];
+            else if ([en isKindOfClass:[NSNumber class]]) enabled = [en boolValue];
+        }
+        if ([core respondsToSelector:@selector(setSourceEnabled:enabled:)]) {
+            ((void (*)(id, SEL, NSString *, BOOL))objc_msgSend)(
+                core, @selector(setSourceEnabled:enabled:), url, !enabled
+            );
+        }
+    }
+}
+
+static NSArray *LBCollectSelectedSourceNames(id listVC) {
+    NSMutableArray *out = [NSMutableArray array];
+    for (NSString *key in @[@"arrSelectedSourceNames", @"selectedSourceNames", @"arrSelected", @"selectedNames"]) {
+        @try {
+            id v = [listVC valueForKey:key];
+            if ([v isKindOfClass:[NSArray class]]) {
+                for (id item in (NSArray *)v) {
+                    if ([item isKindOfClass:[NSString class]]) [out addObject:item];
+                    else if ([item isKindOfClass:[NSDictionary class]]) {
+                        NSString *n = item[@"sourceName"] ?: item[@"bookSourceName"] ?: item[@"title"];
+                        if ([n isKindOfClass:[NSString class]]) [out addObject:n];
+                    }
+                }
+            }
+        } @catch (__unused NSException *e) {}
+    }
+    // indexPathsForSelectedRows
+    @try {
+        UITableView *tv = nil;
+        if ([listVC respondsToSelector:@selector(tableView)]) {
+            tv = ((UITableView *(*)(id, SEL))objc_msgSend)(listVC, @selector(tableView));
+        }
+        if ([tv isKindOfClass:[UITableView class]]) {
+            for (NSIndexPath *ip in tv.indexPathsForSelectedRows ?: @[]) {
+                NSString *n = LBLegadoSourceNameAtIndexPath(listVC, ip);
+                if (n.length) [out addObject:n];
+            }
+        }
+    } @catch (__unused NSException *e) {}
+    return out;
+}
+
+static void LBPostSourceListRefresh(void) {
+    @try {
+        [[NSNotificationCenter defaultCenter]
+            postNotificationName:@"dNotifyName_UpdateSourceList" object:nil];
+    } @catch (__unused NSException *e) {}
+}
+
+/// 拆分勾选源：注入源走 Core，原生源才调 onFanzhuanEvent
+static void LBInvertAvailabilityForListVC(id listVC) {
+    if (!listVC) return;
+    NSArray *names = LBCollectSelectedSourceNames(listVC);
+    NSMutableArray *legadoNames = [NSMutableArray array];
+    BOOL hasNative = NO;
+    for (id raw in names) {
+        if (![raw isKindOfClass:[NSString class]]) continue;
+        NSString *name = LBLegadoStripDisplaySuffix((NSString *)raw);
+        if (LBLegadoIsSourceName(name) || LBLegadoModelMarkedInDicList(listVC, name)) {
+            [legadoNames addObject:name];
+        } else {
+            hasNative = YES;
+        }
+    }
+    LBToggleLegadoSourcesByNames(legadoNames);
+    if (!hasNative) {
+        LBPostSourceListRefresh();
+        NSString *msg = [NSString stringWithFormat:@"invert legadoOnly n=%lu", (unsigned long)legadoNames.count];
+        [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_a09_invert.txt"]
+              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return;
+    }
+}
+
+typedef void (*LBOnFanzhuanFn)(id, SEL);
+
+static NSMutableDictionary<NSString *, NSValue *> *LBOrigOnFanzhuanMap(void) {
+    static NSMutableDictionary *map;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ map = [NSMutableDictionary dictionary]; });
+    return map;
+}
+
+static void LBConfig_onFanzhuanEvent_IMP(id self, SEL _cmd) {
+    @try {
+        LBInvertAvailabilityForListVC(self);
+        NSArray *names = LBCollectSelectedSourceNames(self);
+        BOOL hasNative = NO;
+        for (id raw in names) {
+            if (![raw isKindOfClass:[NSString class]]) continue;
+            NSString *name = LBLegadoStripDisplaySuffix((NSString *)raw);
+            if (!LBLegadoIsSourceName(name) && !LBLegadoModelMarkedInDicList(self, name)) {
+                hasNative = YES;
+                break;
+            }
+        }
+        if (!hasNative) return;
+        NSString *key = NSStringFromClass(object_getClass(self));
+        NSValue *val = LBOrigOnFanzhuanMap()[key];
+        if (!val) {
+            Class cls = object_getClass(self);
+            while (cls && !val) {
+                val = LBOrigOnFanzhuanMap()[NSStringFromClass(cls)];
+                cls = class_getSuperclass(cls);
+            }
+        }
+        if (val) {
+            LBOnFanzhuanFn orig = (LBOnFanzhuanFn)val.pointerValue;
+            if (orig) {
+                @try {
+                    orig(self, _cmd);
+                } @catch (NSException *e) {
+                    NSString *msg = [NSString stringWithFormat:@"invert native fail-open: %@", e.reason ?: @""];
+                    [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_a09_invert.txt"]
+                          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                    NSLog(@"[LegadoBridge] %@", msg);
+                    LBPostSourceListRefresh();
+                }
+            }
+        }
+    } @catch (NSException *e) {
+        NSString *msg = [NSString stringWithFormat:@"invert outer fail-open: %@", e.reason ?: @""];
+        [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_a09_invert.txt"]
+              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        NSLog(@"[LegadoBridge] %@", msg);
+    }
+}
+
+static void LBInstallOnFanzhuanHookOnClass(Class requested) {
+    if (!requested) return;
+    SEL sel = NSSelectorFromString(@"onFanzhuanEvent");
+    Class owner = LBClassOwningInstanceMethod(requested, sel);
+    if (!owner) return;
+    NSString *ownerKey = NSStringFromClass(owner);
+    if (LBOrigOnFanzhuanMap()[ownerKey]) return;
+    Method m = class_getInstanceMethod(owner, sel);
+    if (!m) return;
+    IMP prev = method_getImplementation(m);
+    LBOrigOnFanzhuanMap()[ownerKey] = [NSValue valueWithPointer:prev];
+    method_setImplementation(m, (IMP)LBConfig_onFanzhuanEvent_IMP);
+    NSLog(@"[LegadoBridge] hooked %@ onFanzhuanEvent (via %@)", ownerKey, NSStringFromClass(requested));
+}
+
+static void LBInstallInvertAvailabilityGuard(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSArray<NSString *> *fanzhuanClasses = @[
+            @"ConfigSourceModelListCon",
+            @"ConfigSourceModelListCon_NoneSourceModel",
+            @"ConfigSourceListBase",
+            @"ConfigSourceModelConBase"
+        ];
+        for (NSString *cn in fanzhuanClasses) {
+            LBInstallOnFanzhuanHookOnClass(NSClassFromString(cn));
+        }
+        NSLog(@"[LegadoBridge] A-09 onFanzhuanEvent guard installed");
+    });
 }

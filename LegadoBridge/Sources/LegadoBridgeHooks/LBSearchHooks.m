@@ -5,9 +5,47 @@
 
 #pragma mark - Search Hooks
 
+/// C-01：书架/顶栏搜索入口标记用户意图，避免发现 sticky 把 BookSearch 弹掉或改推广场
+static void LBInstallBookSearchEntryHooks(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSArray<NSString *> *classes = @[
+            @"BookShelfController", @"BookShelfVCBase1", @"BookShelfVCBase2",
+            @"BookWorldHomeCon", @"BookStoreBaseCon", @"ShudanHomeCon"
+        ];
+        NSArray<NSString *> *sels = @[@"onSearchBtnEvent", @"onSearchEvent"];
+        for (NSString *cn in classes) {
+            Class cls = NSClassFromString(cn);
+            if (!cls) continue;
+            for (NSString *selName in sels) {
+                SEL sel = NSSelectorFromString(selName);
+                Class owner = LBClassOwningInstanceMethod(cls, sel);
+                if (!owner) continue;
+                Method m = class_getInstanceMethod(owner, sel);
+                if (!m) continue;
+                IMP orig = method_getImplementation(m);
+                NSString *ownerKey = [NSString stringWithFormat:@"%@.%@", NSStringFromClass(owner), selName];
+                static NSMutableSet *installed;
+                static dispatch_once_t onceSet;
+                dispatch_once(&onceSet, ^{ installed = [NSMutableSet set]; });
+                if ([installed containsObject:ownerKey]) continue;
+                IMP hook = imp_implementationWithBlock(^void(id selfObj) {
+                    LBSetBookSearchUserIntent(YES);
+                    ((void (*)(id, SEL))orig)(selfObj, sel);
+                });
+                method_setImplementation(m, hook);
+                [installed addObject:ownerKey];
+                NSLog(@"[LegadoBridge] C-01 hooked %@ %@", ownerKey, selName);
+            }
+        }
+    });
+}
+
 void LBInstallSearchHooks(void) {
     @try {
         NSMutableArray *installed = [NSMutableArray array];
+        LBInstallBookSearchEntryHooks();
+        [installed addObject:@"searchEntryIntent"];
         // 搜索页出现时冲刷 pending 结果
         LBInstallSearchUIAppearFlush();
         // 装 BookSearch didSelect（点书防崩推详情）

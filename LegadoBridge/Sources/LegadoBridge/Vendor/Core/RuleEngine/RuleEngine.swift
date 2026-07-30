@@ -178,6 +178,9 @@ class ExecutionContext {
     var jsonValue: Any?
     var baseURL: URL?
     var source: (any BridgeSourceProtocol)?
+    /// 非空时 java.put/get 走书本级 BookVariableStore（与源级 SourceSessionStore 分离）
+    var bookUrl: String?
+    var bookName: String?
     var variables: [String: String] = [:]
     var lastResult: RuleResult = .none
     /// AnalyzeRule 当前正文（java.setContent / getElement）
@@ -274,6 +277,10 @@ enum RuleKind: String, CaseIterable {
 // MARK: - 规则引擎
 class RuleEngine {
     private var executors: [RuleExecutor] = []
+    /// 当前绑定的书本上下文（详情/目录/正文解析时由 RuleWebBook 设置）
+    var boundBookUrl: String?
+    var boundBookName: String?
+    var boundSource: (any BridgeSourceProtocol)?
     
     init() {
         // 按优先级注册解析器
@@ -282,6 +289,19 @@ class RuleEngine {
         executors.append(CSSParser())
         executors.append(RegexParser())
         executors.append(JavaScriptParser())
+    }
+
+    /// 绑定书本级变量上下文；结束后务必 clearBoundBook()
+    func bindBook(bookUrl: String?, bookName: String? = nil, source: (any BridgeSourceProtocol)? = nil) {
+        boundBookUrl = bookUrl
+        boundBookName = bookName
+        boundSource = source
+    }
+
+    func clearBoundBook() {
+        boundBookUrl = nil
+        boundBookName = nil
+        boundSource = nil
     }
     
     func execute(
@@ -579,9 +599,19 @@ class RuleEngine {
     ) -> ExecutionContext {
         let context = ExecutionContext()
         context.variables = sourceContext?.variables ?? [:]
-        context.source = sourceContext?.source
+        context.source = sourceContext?.source ?? boundSource
         context.baseURL = URL(string: baseUrl ?? sourceContext?.baseURL?.absoluteString ?? "")
         context.lastResult = sourceContext?.lastResult ?? .none
+        context.bookUrl = sourceContext?.bookUrl ?? boundBookUrl
+        context.bookName = sourceContext?.bookName ?? boundBookName
+        if let bookUrl = context.bookUrl, !bookUrl.isEmpty {
+            for (k, v) in BookVariableStore.variables(for: bookUrl) {
+                if context.variables[k] == nil {
+                    context.variables[k] = v
+                }
+            }
+        }
+        context.ruleEngine = self
 
         guard let input else {
             return context

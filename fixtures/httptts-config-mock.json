@@ -1,0 +1,6 @@
+{
+  "id": 1,
+  "name": "mock-tts",
+  "url": "https://fixture.local/tts?q={{speakText}}",
+  "enabled": true
+}

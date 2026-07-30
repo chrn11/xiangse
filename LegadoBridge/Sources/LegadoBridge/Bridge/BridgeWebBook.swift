@@ -41,4 +41,11 @@ enum BridgeWebBook {
     ) async throws -> String {
         try await RuleWebBook.getContent(source: source, book: book, chapter: chapter)
     }
+
+    static func fetchReviews(
+        source: MemoryBridgeBookSource,
+        bookUrl: String
+    ) async throws -> [BookReview] {
+        try await RuleWebBook.fetchReviews(source: source, bookUrl: bookUrl)
+    }
 }

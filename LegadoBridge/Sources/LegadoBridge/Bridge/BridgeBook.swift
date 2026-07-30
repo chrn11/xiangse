@@ -13,6 +13,8 @@ public struct BridgeBook {
     public var tocHtml: String?
     public var sourceUrl: String = ""
     public var sourceName: String = ""
+    /// 书本级变量 JSON（与 BookVariableStore 同步的可选快照）
+    public var variable: String = ""
 
     public init() {}
 
@@ -23,7 +25,8 @@ public struct BridgeBook {
         coverUrl: String = "",
         intro: String = "",
         sourceUrl: String = "",
-        sourceName: String = ""
+        sourceName: String = "",
+        variable: String = ""
     ) {
         self.name = name
         self.author = author
@@ -32,6 +35,7 @@ public struct BridgeBook {
         self.intro = intro
         self.sourceUrl = sourceUrl
         self.sourceName = sourceName
+        self.variable = variable
     }
 }
 
@@ -39,10 +43,13 @@ public struct BridgeChapter {
     public var title: String = ""
     public var url: String = ""
     public var index: Int = 0
+    /// 直链音频（可选）；优先于正文内嵌 URL
+    public var audioUrl: String?
 
-    public init(title: String = "", url: String = "", index: Int = 0) {
+    public init(title: String = "", url: String = "", index: Int = 0, audioUrl: String? = nil) {
         self.title = title
         self.url = url
         self.index = index
+        self.audioUrl = audioUrl
     }
 }

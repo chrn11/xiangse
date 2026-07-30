@@ -505,6 +505,11 @@ final class SourceRegistry {
 
     /// 具备发现能力且已启用的书源
     func exploreCapableSources(groupFilter: String? = nil) -> [MemoryBridgeBookSource] {
+        switchableSources(groupFilter: groupFilter).filter(\.supportsExplore)
+    }
+
+    /// 发现页切源列表：已启用且 exploreUrl 非空（放宽 resolve 校验，B-05/B-07）
+    func switchableSources(groupFilter: String? = nil) -> [MemoryBridgeBookSource] {
         allSources().filter { source in
             guard isEnabled(url: source.bookSourceUrl), source.supportsExplore else { return false }
             guard let filter = groupFilter?.trimmingCharacters(in: .whitespacesAndNewlines),
