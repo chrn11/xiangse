@@ -1208,30 +1208,34 @@ class AnalyzeUrl {
                     }
                 }
             }
-            let analyzer2 = AnalyzeUrl(
-                mUrl: analyzedUrl.url,
-                baseUrl: source?.bookSourceUrl ?? analyzedUrl.url,
-                source: nil // 禁用 CookieJar 注入
+            // 不经 AnalyzeUrl/RateLimiter：与 MCP download_url 同路径直连
+            guard let directURL = URL(string: analyzedUrl.url) else {
+                return (body: body, url: finalUrl)
+            }
+            var req = URLRequest(url: directURL)
+            req.httpMethod = "GET"
+            req.timeoutInterval = 30
+            req.setValue(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                forHTTPHeaderField: "User-Agent"
             )
-            analyzer2.headerMap = analyzedUrl.headers
-            analyzer2.headerMap.removeValue(forKey: "Cookie")
-            analyzer2.headerMap.removeValue(forKey: "X-Cookie-Jar")
-            analyzer2.method = analyzedUrl.method
-            analyzer2.body = analyzedUrl.body
-            analyzer2.charset = analyzedUrl.charset
-            analyzer2.useWebView = false
-            let retry = try await analyzer2.getStrResponseAwait(
-                jsStr: nil,
-                sourceRegex: nil,
-                useWebView: false
-            )
-            body = retry.body ?? ""
-            finalUrl = retry.url
+            req.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+            req.httpShouldHandleCookies = false
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+            body = String(data: data, encoding: .utf8)
+                ?? String(data: data, encoding: .isoLatin1)
+                ?? ""
+            if let http = resp as? HTTPURLResponse, let u = http.url {
+                finalUrl = u.absoluteString
+            }
             let probe = [
                 "ts=\(ISO8601DateFormatter().string(from: Date()))",
-                "phase=emptyBodyCookieRetry",
+                "phase=emptyBodyDirectRetry",
                 "url=\(analyzedUrl.url)",
                 "retryUrl=\(finalUrl)",
+                "httpStatus=\(status)",
+                "dataLen=\(data.count)",
                 "bodyLen=\(body.count)",
                 "clearedKeys=\(keys.joined(separator: ","))",
             ].joined(separator: "\n")
