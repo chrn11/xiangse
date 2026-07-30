@@ -442,11 +442,18 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                 });
                 return YES;
             }
-            // legado://tts?bookUrl=...&chapterUrl=...&title=...[&speakText=...][&ttsUrl=...]
+            // legado://tts|listen|audio?... — Wave0 听书（不经桥接页导航栏）
+            NSString *absLower = url.absoluteString.lowercaseString ?: @"";
             BOOL wantTTS = [host isEqualToString:@"tts"]
                 || [host isEqualToString:@"audio"]
+                || [host isEqualToString:@"listen"]
                 || [pathLower containsString:@"/tts"]
-                || [pathLower containsString:@"/audio"];
+                || [pathLower containsString:@"/audio"]
+                || [pathLower containsString:@"/listen"]
+                || [absLower containsString:@"://tts?"]
+                || [absLower containsString:@"://tts/"]
+                || [absLower hasSuffix:@"://tts"]
+                || [absLower containsString:@"://listen?"];
             if (wantTTS) {
                 NSString *bookUrl = LBQueryParameterFromURL(url, @"bookUrl");
                 NSString *chapterUrl = LBQueryParameterFromURL(url, @"chapterUrl");
@@ -458,24 +465,27 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                     return YES;
                 }
                 if (chapterUrl.length == 0) chapterUrl = @"";
-                [[NSString stringWithFormat:@"openURL tts book=%@ ch=%@ title=%@",
-                  bookUrl, chapterUrl, title ?: @""]
+                [[NSString stringWithFormat:@"openURL tts book=%@ ch=%@ title=%@ abs=%@",
+                  bookUrl, chapterUrl, title ?: @"", url.absoluteString ?: @""]
                     writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_tts_openurl.txt"]
                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                NSString *bookCopy = [bookUrl copy];
+                NSString *chCopy = [chapterUrl copy];
+                NSString *titleCopy = title.length > 0 ? [title copy] : @"听书";
+                NSString *speakCopy = speakText.length > 0 ? [speakText copy] : nil;
+                NSString *ttsCopy = ttsUrl.length > 0 ? [ttsUrl copy] : nil;
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    if (speakText.length > 0 || ttsUrl.length > 0) {
-                        Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
-                        id core = coreClass ? [coreClass performSelector:@selector(shared)] : nil;
-                        if (core && [core respondsToSelector:@selector(openTTSForBookUrl:chapterUrl:chapterTitle:speakText:ttsURLTemplate:)]) {
-                            ((void (*)(id, SEL, NSString *, NSString *, NSString *, NSString *, NSString *))objc_msgSend)(
-                                core,
-                                @selector(openTTSForBookUrl:chapterUrl:chapterTitle:speakText:ttsURLTemplate:),
-                                bookUrl, chapterUrl, title, speakText, ttsUrl
-                            );
-                            return;
-                        }
+                    Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+                    id core = coreClass ? [coreClass performSelector:@selector(shared)] : nil;
+                    if (core && [core respondsToSelector:@selector(openTTSForBookUrl:chapterUrl:chapterTitle:speakText:ttsURLTemplate:)]) {
+                        ((void (*)(id, SEL, NSString *, NSString *, NSString *, NSString *, NSString *))objc_msgSend)(
+                            core,
+                            @selector(openTTSForBookUrl:chapterUrl:chapterTitle:speakText:ttsURLTemplate:),
+                            bookCopy, chCopy, titleCopy, speakCopy, ttsCopy
+                        );
+                    } else {
+                        LBOpenTTS(bookCopy, chCopy, titleCopy);
                     }
-                    LBOpenTTS(bookUrl, chapterUrl, title);
                 });
                 return YES;
             }
