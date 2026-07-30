@@ -6948,6 +6948,12 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                 @try {
                     if (readerVC.isViewLoaded && readerVC.view) {
                         UIView *host = readerVC.view;
+                        // 若已有原生 TextReadTV 可见正文，禁止再叠透明 overlay
+                        if (textReadTV && !((UIView *)textReadTV).hidden &&
+                            ((UIView *)textReadTV).alpha > 0.05) {
+                            LBAppendOpenReaderTrace(@"contentInject skipOverlay hasTextReadTV");
+                            [okPaths addObject:@"skipOverlayHasTV"];
+                        } else {
                         UITextView *overlay = (UITextView *)[host viewWithTag:92011];
                         if (!overlay) {
                             CGFloat top = 88, bottom = 72;
@@ -6955,19 +6961,29 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
                                                   MAX(120, host.bounds.size.height - top - bottom));
                             overlay = [[UITextView alloc] initWithFrame:f];
                             overlay.tag = 92011;
+                            overlay.accessibilityIdentifier = @"legado_bridge_overlay92011";
                             overlay.editable = NO;
-                            overlay.backgroundColor = [UIColor clearColor];
+                            // 禁止 clearColor：透明叠在原生正文上必叠字
+                            overlay.backgroundColor = [UIColor whiteColor];
                             overlay.font = [UIFont systemFontOfSize:18];
                             overlay.textColor = [UIColor darkTextColor];
                             overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth |
                                 UIViewAutoresizingFlexibleHeight;
                             [host addSubview:overlay];
                         }
-                        overlay.text = [NSString stringWithFormat:@"%@\n\n%@", title, body];
+                        // 乱码标题（UTF-8 被当 Latin1）不拼进正文
+                        NSString *safeTitle = title;
+                        if ([safeTitle containsString:@"ç¬¬"] || [safeTitle containsString:@"Ã"]) {
+                            safeTitle = @"";
+                        }
+                        overlay.text = safeTitle.length > 0
+                            ? [NSString stringWithFormat:@"%@\n\n%@", safeTitle, body]
+                            : body;
                         overlay.accessibilityLabel = body;
                         overlay.hidden = NO;
                         [host bringSubviewToFront:overlay];
                         [okPaths addObject:@"overlay92011"];
+                        }
                     }
                     if (textReadTV) {
                         LBStampTextReadTVProbe(textReadTV, nil, body);
@@ -7232,52 +7248,49 @@ static BOOL LBInjectNativeChapterContent(UIViewController *readerVC,
         }
 
         // 4d) divisionResponse 未上屏时：Attr 辅助灌 TV（不挂 overlay、不算 nativePaged）
+        // 禁止同时灌 textViewL+textViewR 并 bringToFront —— 双页叠字根因之一
         if (pageResult && !nativePaged &&
             [pageResult isKindOfClass:[NSArray class]] && [(NSArray *)pageResult count] > 0) {
             id sample0 = [(NSArray *)pageResult firstObject];
             if ([sample0 isKindOfClass:[NSAttributedString class]] ||
                 [sample0 isKindOfClass:[NSString class]]) {
-                NSMutableArray *tvs = [NSMutableArray array];
-                if (textReadTV) [tvs addObject:textReadTV];
-                for (NSString *k in @[@"textViewL", @"textViewR", @"textView", @"curPageTV"]) {
-                    @try {
-                        id v = [readerVC valueForKey:k];
-                        if (v && ![tvs containsObject:v]) [tvs addObject:v];
-                    } @catch (__unused NSException *e) {}
+                id preferTV = textReadTV;
+                if (!preferTV) {
+                    for (NSString *k in @[@"textViewL", @"textView", @"curPageTV", @"textViewR"]) {
+                        @try {
+                            id v = [readerVC valueForKey:k];
+                            if (v) { preferTV = v; break; }
+                        } @catch (__unused NSException *e) {}
+                    }
                 }
-                for (id tv in tvs) {
+                if (preferTV) {
                     @try {
                         if ([sample0 isKindOfClass:[NSAttributedString class]]) {
-                            if ([tv respondsToSelector:@selector(setAttributedText:)]) {
+                            if ([preferTV respondsToSelector:@selector(setAttributedText:)]) {
                                 ((void (*)(id, SEL, id))objc_msgSend)(
-                                    tv, @selector(setAttributedText:), sample0);
+                                    preferTV, @selector(setAttributedText:), sample0);
                             } else {
-                                [tv setValue:sample0 forKey:@"attributedText"];
+                                [preferTV setValue:sample0 forKey:@"attributedText"];
                             }
-                            @try { [tv setValue:sample0 forKey:@"pageAttrStr"]; } @catch (__unused NSException *e) {}
-                            @try { [tv setValue:sample0 forKey:@"attrStr"]; } @catch (__unused NSException *e) {}
-                            @try { [tv setValue:sample0 forKey:@"contentAttr"]; } @catch (__unused NSException *e) {}
                         } else {
                             NSString *s = (NSString *)sample0;
-                            if ([tv respondsToSelector:@selector(setText:)]) {
-                                ((void (*)(id, SEL, id))objc_msgSend)(tv, @selector(setText:), s);
+                            if ([preferTV respondsToSelector:@selector(setText:)]) {
+                                ((void (*)(id, SEL, id))objc_msgSend)(preferTV, @selector(setText:), s);
                             }
                         }
-                        if ([tv isKindOfClass:[UIView class]]) {
-                            ((UIView *)tv).hidden = NO;
-                            ((UIView *)tv).alpha = 1;
-                            [((UIView *)tv).superview bringSubviewToFront:(UIView *)tv];
-                            [((UIView *)tv) setNeedsDisplay];
+                        if ([preferTV isKindOfClass:[UIView class]]) {
+                            ((UIView *)preferTV).hidden = NO;
+                            ((UIView *)preferTV).alpha = 1;
                         }
                         [okPaths addObject:[NSString stringWithFormat:@"attrToTV@%@",
-                                            NSStringFromClass([tv class])]];
+                                            NSStringFromClass([preferTV class])]];
                     } @catch (NSException *ex) {
                         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                                  @"contentInject attrToTV EX %@",
                                                  ex.reason ?: @""]);
                     }
                 }
-                LBAppendOpenReaderTrace(@"contentInject attr assist (no overlay, await setPageModel)");
+                LBAppendOpenReaderTrace(@"contentInject attr assist (singleTV, no overlay)");
             }
         }
     } @catch (NSException *ex) {
@@ -7476,11 +7489,8 @@ LB_INJECT_FINISH:
         } @catch (__unused NSException *e) {}
         // 不主动 gotoCp/showPage：divisionResponse 已上屏；误调易二次布局 SIGABRT
         @try {
-            UIView *ov = [readerVC.view viewWithTag:92011];
-            if (ov) {
-                [ov removeFromSuperview];
-                [okPaths addObject:@"overlayRemoved"];
-            }
+            LBNativeReaderStripBridgeOverlays(readerVC);
+            [okPaths addObject:@"overlayRemoved"];
         } @catch (__unused NSException *e) {}
         sLastNativePagedOkTs = CFAbsoluteTimeGetCurrent();
         sLastNativePagedKey = [dedupeKey copy];
@@ -7573,6 +7583,11 @@ LB_INJECT_FINISH:
             @try {
                 if (LBBridgeDebugLoaded() && readerVC.isViewLoaded && readerVC.view) {
                     UIView *host = readerVC.view;
+                    if (textReadTV && !((UIView *)textReadTV).hidden &&
+                        ((UIView *)textReadTV).alpha > 0.05) {
+                        LBAppendOpenReaderTrace(@"contentInject skipOverlay2 hasTextReadTV");
+                        [okPaths addObject:@"skipOverlayHasTV"];
+                    } else {
                     UITextView *overlay = (UITextView *)[host viewWithTag:92011];
                     if (!overlay) {
                         CGFloat top = 88, bottom = 72;
@@ -7580,19 +7595,27 @@ LB_INJECT_FINISH:
                                               MAX(120, host.bounds.size.height - top - bottom));
                         overlay = [[UITextView alloc] initWithFrame:f];
                         overlay.tag = 92011;
+                        overlay.accessibilityIdentifier = @"legado_bridge_overlay92011";
                         overlay.editable = NO;
-                        overlay.backgroundColor = [UIColor clearColor];
+                        overlay.backgroundColor = [UIColor whiteColor];
                         overlay.font = [UIFont systemFontOfSize:18];
                         overlay.textColor = [UIColor darkTextColor];
                         overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth |
                             UIViewAutoresizingFlexibleHeight;
                         [host addSubview:overlay];
                     }
-                    overlay.text = [NSString stringWithFormat:@"%@\n\n%@", title, body];
+                    NSString *safeTitle = title;
+                    if ([safeTitle containsString:@"ç¬¬"] || [safeTitle containsString:@"Ã"]) {
+                        safeTitle = @"";
+                    }
+                    overlay.text = safeTitle.length > 0
+                        ? [NSString stringWithFormat:@"%@\n\n%@", safeTitle, body]
+                        : body;
                     overlay.accessibilityLabel = body;
                     overlay.hidden = NO;
                     [host bringSubviewToFront:overlay];
                     [okPaths addObject:@"overlay92011"];
+                    }
                 } else if (!LBBridgeDebugLoaded()) {
                     LBAppendOpenReaderTrace(@"contentInject native_bind_failed divisionTextMiss");
                     [okPaths addObject:@"native_bind_failed"];
@@ -7709,7 +7732,8 @@ static void LBDeliverContentToVisibleReaders(NSString *phase) {
                         LBAppendOpenReaderTrace([NSString stringWithFormat:
                                                  @"deliver nativeInject_OK phase=%@ cls=%@",
                                                  phase ?: @"?", cn]);
-                        // 仅当未走原生分页（仍含 overlay/fallback）时才 UITextView 直灌
+                        // 原生已上屏：必须拆 bridge overlay，禁止再灌 UITextView（叠字根因）
+                        LBNativeReaderStripBridgeOverlays(vc);
                         NSString *orMarker = nil;
                         @try {
                             orMarker = [NSString stringWithContentsOfFile:
@@ -7718,10 +7742,15 @@ static void LBDeliverContentToVisibleReaders(NSString *phase) {
                                                                encoding:NSUTF8StringEncoding
                                                                   error:NULL];
                         } @catch (__unused NSException *e) {}
-                        BOOL needTV = (orMarker &&
+                        BOOL nativePagedOk = (orMarker &&
+                                              ([orMarker containsString:@"nativePaged=1"] ||
+                                               [orMarker containsString:@"divisionResponse"] ||
+                                               [orMarker containsString:@"showContent"]));
+                        BOOL needTV = (!nativePagedOk && orMarker &&
                                        ([orMarker containsString:@"overlay92011"] ||
                                         [orMarker containsString:@"tvKVCTextFallback"] ||
-                                        [orMarker containsString:@"native-page-miss"]));
+                                        [orMarker containsString:@"native-page-miss"] ||
+                                        [orMarker containsString:@"native_bind_failed"]));
                         if (needTV) {
                             LBInjectPendingContentIntoReader(
                                 vc, [NSString stringWithFormat:@"%@-tv", phase ?: @"deliver"]);
@@ -7985,6 +8014,13 @@ static void LBInjectPendingContentIntoReader(UIViewController *readerVC, NSStrin
     NSDictionary *payload = sPendingResetContent;
     if (![payload isKindOfClass:[NSDictionary class]] || payload.count == 0) {
         LBAppendOpenReaderTrace([NSString stringWithFormat:@"injectSkip empty phase=%@", phase ?: @""]);
+        return;
+    }
+    // nativeFull：禁止再找任意 UITextView 直灌（会叠在原生分页上）
+    if (sLegadoReaderMode == 1) {
+        LBNativeReaderStripBridgeOverlays(readerVC);
+        LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                 @"injectSkip nativeFullNoTV phase=%@", phase ?: @""]);
         return;
     }
     NSString *body = nil;
@@ -8954,10 +8990,12 @@ static char kLBG6Wave0TitleKey;
 }
 @end
 
-/// Wave0：仅在 Legado 原生阅读壳底栏追加「书评/听书」，不碰桥接兜底页导航栏
+/// Wave0：Legado 阅读壳在底栏上方挂独立条「听书/书评」，不叠进换源图标
 static void LBG6AttachLegadoWave0Actions(id reader) {
     if (!reader || ![reader isKindOfClass:[UIViewController class]]) return;
     if (sLegadoReaderMode != 1) return;
+    UIViewController *vc = (UIViewController *)reader;
+    if (!vc.isViewLoaded || !vc.view) return;
     id dic = nil;
     @try { dic = [reader valueForKey:@"dicBook"]; } @catch (__unused NSException *e) {}
     if (![dic isKindOfClass:[NSDictionary class]]) dic = sPendingNativeFullBook;
@@ -8966,8 +9004,28 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
 
     id bottomObj = LBG6ToolbarIvar(reader, @"toolBarBottom");
     UIView *bottom = [bottomObj isKindOfClass:[UIView class]] ? (UIView *)bottomObj : nil;
-    if (!bottom) return;
-    if ([bottom viewWithTag:0x4C425732]) return;
+    if (!bottom || !bottom.superview) return;
+    // 清掉旧版挂在底栏内部的按钮（会叠在换源上）
+    for (UIView *sub in [bottom.subviews copy]) {
+        if (sub.tag == 0x4C425732 || sub.tag == 0x4C425733) {
+            [sub removeFromSuperview];
+        }
+    }
+
+    UIView *host = vc.view;
+    UIView *strip = [host viewWithTag:0x4C425730];
+    if (strip && [strip viewWithTag:0x4C425732]) {
+        // 已挂过：仅同步显隐
+        id hidden = LBG6ToolbarIvar(reader, @"toolBarHidden");
+        BOOL isHidden = YES;
+        @try {
+            if ([hidden respondsToSelector:@selector(boolValue)]) isHidden = [hidden boolValue];
+            else if (hidden) isHidden = NO;
+        } @catch (__unused NSException *e) {}
+        strip.hidden = isHidden || bottom.hidden || bottom.alpha < 0.05;
+        return;
+    }
+    if (strip) [strip removeFromSuperview];
 
     NSString *bookUrl = nil;
     for (NSString *k in @[@"bookUrl", @"url", @"href"]) {
@@ -8997,16 +9055,30 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
             break;
         }
     }
+    if ([title containsString:@"ç¬¬"] || [title containsString:@"Ã"]) title = @"章节";
 
     static LBG6Wave0ActionProxy *sWave0Proxy;
     static dispatch_once_t onceProxy;
     dispatch_once(&onceProxy, ^{ sWave0Proxy = [[LBG6Wave0ActionProxy alloc] init]; });
 
+    strip = [[UIView alloc] initWithFrame:CGRectZero];
+    strip.tag = 0x4C425730;
+    strip.accessibilityIdentifier = @"legado_wave0_strip";
+    strip.backgroundColor = [[UIColor whiteColor] colorWithAlphaComponent:0.92];
+    strip.translatesAutoresizingMaskIntoConstraints = NO;
+    [host addSubview:strip];
+    [NSLayoutConstraint activateConstraints:@[
+        [strip.leadingAnchor constraintEqualToAnchor:host.leadingAnchor],
+        [strip.trailingAnchor constraintEqualToAnchor:host.trailingAnchor],
+        [strip.bottomAnchor constraintEqualToAnchor:bottom.topAnchor],
+        [strip.heightAnchor constraintEqualToConstant:36],
+    ]];
+
     UIButton *(^makeBtn)(NSString *, NSInteger) = ^UIButton *(NSString *text, NSInteger tag) {
         UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
         b.tag = tag;
         [b setTitle:text forState:UIControlStateNormal];
-        b.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+        b.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
         b.translatesAutoresizingMaskIntoConstraints = NO;
         return b;
     };
@@ -9016,13 +9088,13 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
     ttsBtn.accessibilityLabel = @"听书";
     reviewBtn.accessibilityIdentifier = @"legado_wave0_review";
     ttsBtn.accessibilityIdentifier = @"legado_wave0_tts";
-    [bottom addSubview:reviewBtn];
-    [bottom addSubview:ttsBtn];
+    [strip addSubview:ttsBtn];
+    [strip addSubview:reviewBtn];
     [NSLayoutConstraint activateConstraints:@[
-        [reviewBtn.trailingAnchor constraintEqualToAnchor:bottom.trailingAnchor constant:-12],
-        [reviewBtn.centerYAnchor constraintEqualToAnchor:bottom.centerYAnchor],
-        [ttsBtn.trailingAnchor constraintEqualToAnchor:reviewBtn.leadingAnchor constant:-10],
-        [ttsBtn.centerYAnchor constraintEqualToAnchor:bottom.centerYAnchor],
+        [reviewBtn.trailingAnchor constraintEqualToAnchor:strip.trailingAnchor constant:-16],
+        [reviewBtn.centerYAnchor constraintEqualToAnchor:strip.centerYAnchor],
+        [ttsBtn.trailingAnchor constraintEqualToAnchor:reviewBtn.leadingAnchor constant:-16],
+        [ttsBtn.centerYAnchor constraintEqualToAnchor:strip.centerYAnchor],
     ]];
 
     NSString *bookCopy = [bookUrl copy];
@@ -9038,7 +9110,17 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
     [reviewBtn addTarget:sWave0Proxy action:@selector(onReview:) forControlEvents:UIControlEventTouchUpInside];
     [ttsBtn addTarget:sWave0Proxy action:@selector(onTTS:) forControlEvents:UIControlEventTouchUpInside];
 
-    LBAppendOpenReaderTrace(@"G6 wave0 actions attached review+tts");
+    id hidden = LBG6ToolbarIvar(reader, @"toolBarHidden");
+    BOOL isHidden = YES;
+    @try {
+        if ([hidden respondsToSelector:@selector(boolValue)]) isHidden = [hidden boolValue];
+        else if (hidden) isHidden = NO;
+    } @catch (__unused NSException *e) {}
+    strip.hidden = isHidden || bottom.hidden;
+    [host bringSubviewToFront:strip];
+    if (!bottom.hidden) [host bringSubviewToFront:bottom];
+
+    LBAppendOpenReaderTrace(@"G6 wave0 strip attached review+tts above bottom");
 }
 
 static void LBG6ChangeToolBarHook(id self, SEL _cmd) {
@@ -9165,16 +9247,46 @@ static void LBNativeReaderHideHostNavBar(id readerVC, BOOL hide) {
     } @catch (__unused NSException *e) {}
 }
 
-/// 去掉桥接调试叠层（tag=92011），避免盖住原生正文。
+/// 去掉桥接调试叠层（tag=92011/92001），避免盖住原生正文叠字。
+/// 注意：不拆 0x4C425730 听书条（那是 Wave0 产品入口）。
 static void LBNativeReaderStripBridgeOverlays(id readerVC) {
     if (![readerVC isKindOfClass:[UIViewController class]]) return;
     UIViewController *vc = (UIViewController *)readerVC;
     if (!vc.isViewLoaded || !vc.view) return;
     @try {
-        UIView *ov = [vc.view viewWithTag:92011];
-        if (ov) {
-            [ov removeFromSuperview];
-            LBAppendOpenReaderTrace(@"nativeChrome strip overlay92011");
+        NSInteger removed = 0;
+        for (NSNumber *tagNum in @[ @92011, @92001 ]) {
+            NSInteger tag = tagNum.integerValue;
+            UIView *ov = [vc.view viewWithTag:tag];
+            while (ov) {
+                [ov removeFromSuperview];
+                removed++;
+                ov = [vc.view viewWithTag:tag];
+            }
+        }
+        // 深搜：误挂在 content 容器里的同 tag / identifier
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:vc.view];
+        while (stack.count) {
+            UIView *v = stack.lastObject;
+            [stack removeLastObject];
+            for (UIView *sub in [v.subviews copy]) {
+                BOOL kill = (sub.tag == 92011 || sub.tag == 92001);
+                if (!kill) {
+                    NSString *aid = sub.accessibilityIdentifier ?: @"";
+                    kill = [aid isEqualToString:@"legado_bridge_overlay92011"] ||
+                           [aid hasPrefix:@"legado_bridge_overlay"];
+                }
+                if (kill) {
+                    [sub removeFromSuperview];
+                    removed++;
+                    continue;
+                }
+                [stack addObject:sub];
+            }
+        }
+        if (removed > 0) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"nativeChrome strip overlays n=%ld", (long)removed]);
         }
     } @catch (__unused NSException *e) {}
 }
