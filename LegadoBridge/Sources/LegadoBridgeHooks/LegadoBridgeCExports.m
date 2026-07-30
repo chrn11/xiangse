@@ -1501,21 +1501,37 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
     }
     if (keyword.length > 0) sPendingSearchKeyword = [keyword copy];
 
+    // explore 结果必须进发现宿主，不能因 sticky 被清/搜索意图抢路由而灌进 BookSearch
+    BOOL exploreMode = [keyword isEqualToString:@"explore"]
+        || [keyword hasPrefix:@"explore:"]
+        || [keyword hasPrefix:@"explore|"];
+    if (exploreMode && !LBIsDiscoverTabActive()) {
+        LBSetDiscoverTabActive(YES);
+    }
+    BOOL discoverActive = LBIsDiscoverTabActive() || exploreMode;
+
     NSArray *vcs = LBFindBookSearchVCs();
-    NSArray *discoverHosts = LBIsDiscoverTabActive() ? LBFindDiscoverHostVCs() : @[];
+    NSArray *discoverHosts = discoverActive ? LBFindDiscoverHostVCs() : @[];
     // 每次 Apply 都 dump，便于对照「空列表」实际持有者
     LBDumpVisibleVCTree();
     if (vcs.count == 0 && discoverHosts.count == 0) {
-        BOOL ensured = LBEnsureBookSearchVCPresented(keyword);
-        vcs = LBFindBookSearchVCs();
-        if (LBIsDiscoverTabActive()) {
+        BOOL ensured = NO;
+        if (exploreMode || discoverActive) {
+            ensured = LBEnsureNativeDiscoverHostPresented();
             discoverHosts = LBFindDiscoverHostVCs();
+        } else {
+            ensured = LBEnsureBookSearchVCPresented(keyword);
+            vcs = LBFindBookSearchVCs();
+        }
+        if (LBIsDiscoverTabActive() || exploreMode) {
+            discoverHosts = LBFindDiscoverHostVCs();
+            discoverActive = YES;
         }
         if (vcs.count == 0 && discoverHosts.count == 0) {
             NSString *marker = [NSString stringWithFormat:
-                                @"uiInject pending n=%lu key=%@ (no BookSearchVC/discoverHost yet ensure=%d discover=%d)",
+                                @"uiInject pending n=%lu key=%@ (no BookSearchVC/discoverHost yet ensure=%d discover=%d explore=%d)",
                                 (unsigned long)sPendingSearchBooks.count, keyword ?: @"",
-                                ensured ? 1 : 0, LBIsDiscoverTabActive() ? 1 : 0];
+                                ensured ? 1 : 0, discoverActive ? 1 : 0, exploreMode ? 1 : 0];
             [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
             return;
@@ -1525,16 +1541,17 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
     if (discoverHosts.count > 0) {
         [targets addObjectsFromArray:discoverHosts];
     }
-    // 发现态禁止灌 BookSearch（那是搜索页，不是发现）
-    if (targets.count == 0 && vcs.count > 0 && !LBIsDiscoverTabActive()) {
+    // 发现态 / explore 禁止灌 BookSearch（那是搜索页，不是发现）
+    if (targets.count == 0 && vcs.count > 0 && !discoverActive) {
         [targets addObjectsFromArray:vcs];
-    } else if (discoverHosts.count > 0 && vcs.count > 0 && !LBIsDiscoverTabActive()) {
+    } else if (discoverHosts.count > 0 && vcs.count > 0 && !discoverActive && !exploreMode) {
         [targets addObjectsFromArray:vcs];
     }
-    if (targets.count == 0 && LBIsDiscoverTabActive()) {
+    if (targets.count == 0 && discoverActive) {
         NSString *marker = [NSString stringWithFormat:
-                            @"uiInject wait native plaza n=%lu key=%@ (no World yet)",
-                            (unsigned long)sPendingSearchBooks.count, keyword ?: @""];
+                            @"uiInject wait native plaza n=%lu key=%@ (no World yet explore=%d)",
+                            (unsigned long)sPendingSearchBooks.count, keyword ?: @"",
+                            exploreMode ? 1 : 0];
         [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
                  atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         return;
@@ -1560,31 +1577,31 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
         }
     }
     [sPendingSearchBooks removeAllObjects];
-    if (LBIsDiscoverTabActive()) {
+    if (discoverActive) {
         LBEnsureNativeDiscoverHostPresented();
         for (UIViewController *h in (LBFindDiscoverHostVCs() ?: @[])) {
             // 多页原生模式：只刷新当前可见 BookListCon，禁止钉死第一页/同步到空兄弟页
             LBReloadDiscoverNativeList(h);
         }
     }
-    NSString *marker = [NSString stringWithFormat:@"uiInject ok vcs=%lu applied=%lu key=%@ targets=%@ discover=%d",
+    NSString *marker = [NSString stringWithFormat:@"uiInject ok vcs=%lu applied=%lu key=%@ targets=%@ discover=%d explore=%d",
                         (unsigned long)targets.count, (unsigned long)applied, keyword ?: @"",
-                        [vcNames componentsJoinedByString:@","], LBIsDiscoverTabActive() ? 1 : 0];
+                        [vcNames componentsJoinedByString:@","], discoverActive ? 1 : 0, exploreMode ? 1 : 0];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    if (LBIsDiscoverTabActive()) {
+    if (discoverActive) {
         LBRefreshDiscoverKindBar();
     }
     // 原生搜索结束常回写空 FilteredDS；延迟再灌两次，并再次置顶发现壳
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (LBIsDiscoverTabActive()) {
+        if (LBIsDiscoverTabActive() || exploreMode) {
             LBEnsureNativeDiscoverHostPresented();
             LBRefreshDiscoverKindBar();
         }
         LBReapplyLastSearchBooks();
     });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (LBIsDiscoverTabActive()) {
+        if (LBIsDiscoverTabActive() || exploreMode) {
             LBEnsureNativeDiscoverHostPresented();
             LBRefreshDiscoverKindBar();
         }
@@ -8892,6 +8909,134 @@ static void LBG6BringToolbarToFront(id reader) {
     LBAppendOpenReaderTrace(@"G6 bringToolbarFront light");
 }
 
+static char kLBG6Wave0BookUrlKey;
+static char kLBG6Wave0SourceUrlKey;
+static char kLBG6Wave0ChapterUrlKey;
+static char kLBG6Wave0TitleKey;
+
+@interface LBG6Wave0ActionProxy : NSObject
+@end
+@implementation LBG6Wave0ActionProxy
+- (void)onReview:(UIButton *)sender {
+    NSString *bu = objc_getAssociatedObject(sender, &kLBG6Wave0BookUrlKey);
+    NSString *su = objc_getAssociatedObject(sender, &kLBG6Wave0SourceUrlKey);
+    if (bu.length == 0) return;
+    Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+    id core = coreClass ? [coreClass performSelector:@selector(shared)] : nil;
+#pragma clang diagnostic pop
+    if (core && [core respondsToSelector:@selector(presentReviewsForBookUrl:sourceUrl:)]) {
+        ((void (*)(id, SEL, NSString *, NSString *))objc_msgSend)(
+            core, @selector(presentReviewsForBookUrl:sourceUrl:), bu, su
+        );
+    }
+}
+- (void)onTTS:(UIButton *)sender {
+    NSString *bu = objc_getAssociatedObject(sender, &kLBG6Wave0BookUrlKey);
+    NSString *cu = objc_getAssociatedObject(sender, &kLBG6Wave0ChapterUrlKey) ?: @"";
+    NSString *ti = objc_getAssociatedObject(sender, &kLBG6Wave0TitleKey) ?: @"章节";
+    if (bu.length == 0) return;
+    Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+    id core = coreClass ? [coreClass performSelector:@selector(shared)] : nil;
+#pragma clang diagnostic pop
+    if (core && [core respondsToSelector:@selector(openTTSForBookUrl:chapterUrl:chapterTitle:speakText:ttsURLTemplate:)]) {
+        ((void (*)(id, SEL, NSString *, NSString *, NSString *, NSString *, NSString *))objc_msgSend)(
+            core,
+            @selector(openTTSForBookUrl:chapterUrl:chapterTitle:speakText:ttsURLTemplate:),
+            bu, cu, ti, nil, nil
+        );
+    } else {
+        LBOpenTTS(bu, cu, ti);
+    }
+}
+@end
+
+/// Wave0：仅在 Legado 原生阅读壳底栏追加「书评/听书」，不碰桥接兜底页导航栏
+static void LBG6AttachLegadoWave0Actions(id reader) {
+    if (!reader || ![reader isKindOfClass:[UIViewController class]]) return;
+    if (sLegadoReaderMode != 1) return;
+    id dic = nil;
+    @try { dic = [reader valueForKey:@"dicBook"]; } @catch (__unused NSException *e) {}
+    if (![dic isKindOfClass:[NSDictionary class]]) dic = sPendingNativeFullBook;
+    if (![dic isKindOfClass:[NSDictionary class]]) return;
+    if (!(dic[@"legadoBridge"] || dic[@"fromLegadoBridge"])) return;
+
+    id bottomObj = LBG6ToolbarIvar(reader, @"toolBarBottom");
+    UIView *bottom = [bottomObj isKindOfClass:[UIView class]] ? (UIView *)bottomObj : nil;
+    if (!bottom) return;
+    if ([bottom viewWithTag:0x4C425732]) return;
+
+    NSString *bookUrl = nil;
+    for (NSString *k in @[@"bookUrl", @"url", @"href"]) {
+        id v = dic[k];
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
+            bookUrl = v;
+            break;
+        }
+    }
+    if (bookUrl.length == 0) return;
+    NSString *sourceUrl = nil;
+    id sv = dic[@"sourceUrl"];
+    if ([sv isKindOfClass:[NSString class]]) sourceUrl = sv;
+    NSString *chapterUrl = nil;
+    for (NSString *k in @[@"chapterUrl", @"curChapterUrl", @"cpUrl"]) {
+        id v = dic[k];
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
+            chapterUrl = v;
+            break;
+        }
+    }
+    NSString *title = nil;
+    for (NSString *k in @[@"cpTitle", @"chapterTitle", @"title", @"name"]) {
+        id v = dic[k];
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
+            title = v;
+            break;
+        }
+    }
+
+    static LBG6Wave0ActionProxy *sWave0Proxy;
+    static dispatch_once_t onceProxy;
+    dispatch_once(&onceProxy, ^{ sWave0Proxy = [[LBG6Wave0ActionProxy alloc] init]; });
+
+    UIButton *(^makeBtn)(NSString *, NSInteger) = ^UIButton *(NSString *text, NSInteger tag) {
+        UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
+        b.tag = tag;
+        [b setTitle:text forState:UIControlStateNormal];
+        b.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+        b.translatesAutoresizingMaskIntoConstraints = NO;
+        return b;
+    };
+    UIButton *reviewBtn = makeBtn(@"书评", 0x4C425732);
+    UIButton *ttsBtn = makeBtn(@"听书", 0x4C425733);
+    [bottom addSubview:reviewBtn];
+    [bottom addSubview:ttsBtn];
+    [NSLayoutConstraint activateConstraints:@[
+        [reviewBtn.trailingAnchor constraintEqualToAnchor:bottom.trailingAnchor constant:-12],
+        [reviewBtn.centerYAnchor constraintEqualToAnchor:bottom.centerYAnchor],
+        [ttsBtn.trailingAnchor constraintEqualToAnchor:reviewBtn.leadingAnchor constant:-10],
+        [ttsBtn.centerYAnchor constraintEqualToAnchor:bottom.centerYAnchor],
+    ]];
+
+    NSString *bookCopy = [bookUrl copy];
+    NSString *srcCopy = sourceUrl.length > 0 ? [sourceUrl copy] : nil;
+    NSString *chCopy = chapterUrl.length > 0 ? [chapterUrl copy] : @"";
+    NSString *titleCopy = title.length > 0 ? [title copy] : @"章节";
+    for (UIButton *b in @[reviewBtn, ttsBtn]) {
+        objc_setAssociatedObject(b, &kLBG6Wave0BookUrlKey, bookCopy, OBJC_ASSOCIATION_COPY_NONATOMIC);
+        objc_setAssociatedObject(b, &kLBG6Wave0SourceUrlKey, srcCopy, OBJC_ASSOCIATION_COPY_NONATOMIC);
+        objc_setAssociatedObject(b, &kLBG6Wave0ChapterUrlKey, chCopy, OBJC_ASSOCIATION_COPY_NONATOMIC);
+        objc_setAssociatedObject(b, &kLBG6Wave0TitleKey, titleCopy, OBJC_ASSOCIATION_COPY_NONATOMIC);
+    }
+    [reviewBtn addTarget:sWave0Proxy action:@selector(onReview:) forControlEvents:UIControlEventTouchUpInside];
+    [ttsBtn addTarget:sWave0Proxy action:@selector(onTTS:) forControlEvents:UIControlEventTouchUpInside];
+
+    LBAppendOpenReaderTrace(@"G6 wave0 actions attached review+tts");
+}
+
 static void LBG6ChangeToolBarHook(id self, SEL _cmd) {
     NSTimeInterval now = [NSDate date].timeIntervalSince1970;
     if (sG6LastChangeToolBarTs > 0 && (now - sG6LastChangeToolBarTs) < 0.20) {
@@ -8912,6 +9057,7 @@ static void LBG6ChangeToolBarHook(id self, SEL _cmd) {
     } @catch (__unused NSException *e) {}
     if (!isHidden) {
         LBG6BringToolbarToFront(self);
+        LBG6AttachLegadoWave0Actions(self);
         __weak id weakSelf = self;
         // 原生动画会在 hook 后把 pageSlider alpha 拉回，多拍几次强制藏
         for (NSNumber *sec in @[ @0.15, @0.35, @0.60, @0.90 ]) {
@@ -8921,6 +9067,7 @@ static void LBG6ChangeToolBarHook(id self, SEL _cmd) {
                 id strong = weakSelf;
                 if (!strong || sLegadoReaderMode != 1) return;
                 LBG6SanitizePageSliderOverflow(strong);
+                LBG6AttachLegadoWave0Actions(strong);
             });
         }
     } else {
