@@ -8943,6 +8943,14 @@ static void LBG6BringToolbarToFront(id reader) {
         LBAppendOpenReaderTrace(cd);
     }
     LBAppendOpenReaderTrace(@"G6 bringToolbarFront light");
+    // Wave0 听书条必须压在正文层之上，否则会出现「听书字下面透出正文」
+    UIView *wave0 = [vc.view viewWithTag:0x4C425730];
+    if (wave0 && !wave0.hidden) {
+        [vc.view bringSubviewToFront:wave0];
+    }
+    if ([bottom isKindOfClass:[UIView class]] && !((UIView *)bottom).hidden) {
+        [vc.view bringSubviewToFront:(UIView *)bottom];
+    }
 }
 
 static char kLBG6Wave0BookUrlKey;
@@ -9005,28 +9013,26 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
     id bottomObj = LBG6ToolbarIvar(reader, @"toolBarBottom");
     UIView *bottom = [bottomObj isKindOfClass:[UIView class]] ? (UIView *)bottomObj : nil;
     if (!bottom || !bottom.superview) return;
-    // 清掉旧版挂在底栏内部的按钮（会叠在换源上）
+    // 清掉旧版挂在底栏图标行上的按钮（叠换源）+ 挂在 bottom 内的旧条
     for (UIView *sub in [bottom.subviews copy]) {
-        if (sub.tag == 0x4C425732 || sub.tag == 0x4C425733) {
+        if (sub.tag == 0x4C425730 || sub.tag == 0x4C425732 || sub.tag == 0x4C425733) {
             [sub removeFromSuperview];
         }
     }
 
     UIView *host = vc.view;
+    const CGFloat stripH = 36.0;
+    // 用 bottom 在 host 中的真实坐标，避免 frame 坐标系不一致
+    CGRect bf = [bottom convertRect:bottom.bounds toView:host];
+    if (bf.size.width < 2 || bf.size.height < 2) {
+        bf = CGRectMake(0, host.bounds.size.height - 56, host.bounds.size.width, 56);
+    }
+    CGRect stripFrame = CGRectMake(0, MAX(0, CGRectGetMinY(bf) - stripH), host.bounds.size.width, stripH);
+
     UIView *strip = [host viewWithTag:0x4C425730];
     if (strip && [strip viewWithTag:0x4C425732]) {
-        // 已挂过：同步显隐 + 贴紧底栏顶边
-        id hidden = LBG6ToolbarIvar(reader, @"toolBarHidden");
-        BOOL isHidden = YES;
-        @try {
-            if ([hidden respondsToSelector:@selector(boolValue)]) isHidden = [hidden boolValue];
-            else if (hidden) isHidden = NO;
-        } @catch (__unused NSException *e) {}
-        strip.hidden = isHidden || bottom.hidden || bottom.alpha < 0.05;
-        CGRect bf = bottom.frame;
-        if (bf.size.width > 2) {
-            strip.frame = CGRectMake(0, MAX(0, CGRectGetMinY(bf) - 36), host.bounds.size.width, 36);
-        }
+        strip.frame = stripFrame;
+        strip.hidden = bottom.hidden || bottom.alpha < 0.05;
         if (!strip.hidden) {
             [host bringSubviewToFront:strip];
             [host bringSubviewToFront:bottom];
@@ -9069,18 +9075,13 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
     static dispatch_once_t onceProxy;
     dispatch_once(&onceProxy, ^{ sWave0Proxy = [[LBG6Wave0ActionProxy alloc] init]; });
 
-    strip = [[UIView alloc] initWithFrame:CGRectZero];
+    strip = [[UIView alloc] initWithFrame:stripFrame];
     strip.tag = 0x4C425730;
     strip.accessibilityIdentifier = @"legado_wave0_strip";
-    strip.backgroundColor = [[UIColor colorWithWhite:0.12 alpha:1] colorWithAlphaComponent:0.92];
-    strip.translatesAutoresizingMaskIntoConstraints = YES; // 跟底栏 frame，避免 AutoLayout 锚到底栏失败漂到正文区
-    [host addSubview:strip];
-    CGRect bf = bottom.frame;
-    if (bf.size.width < 2 || bf.size.height < 2) {
-        bf = CGRectMake(0, host.bounds.size.height - 56, host.bounds.size.width, 56);
-    }
-    strip.frame = CGRectMake(0, MAX(0, CGRectGetMinY(bf) - 36), host.bounds.size.width, 36);
+    strip.backgroundColor = [UIColor colorWithWhite:0.16 alpha:1]; // 不透明，挡住正文
+    strip.translatesAutoresizingMaskIntoConstraints = YES;
     strip.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+    [host addSubview:strip];
 
     UIButton *(^makeBtn)(NSString *, NSInteger) = ^UIButton *(NSString *text, NSInteger tag) {
         UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -9089,6 +9090,7 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
         [b setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
         b.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
         b.translatesAutoresizingMaskIntoConstraints = YES;
+        b.backgroundColor = [UIColor clearColor];
         return b;
     };
     UIButton *reviewBtn = makeBtn(@"书评", 0x4C425732);
@@ -9099,9 +9101,10 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
     ttsBtn.accessibilityIdentifier = @"legado_wave0_tts";
     [strip addSubview:ttsBtn];
     [strip addSubview:reviewBtn];
-    CGFloat bw = 52, bh = 36;
-    reviewBtn.frame = CGRectMake(strip.bounds.size.width - 16 - bw, 0, bw, bh);
-    ttsBtn.frame = CGRectMake(CGRectGetMinX(reviewBtn.frame) - 12 - bw, 0, bw, bh);
+    CGFloat btnW = 52, btnH = stripH;
+    CGFloat sw = stripFrame.size.width;
+    reviewBtn.frame = CGRectMake(sw - 16 - btnW, 0, btnW, btnH);
+    ttsBtn.frame = CGRectMake(CGRectGetMinX(reviewBtn.frame) - 12 - btnW, 0, btnW, btnH);
     reviewBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleHeight;
     ttsBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleHeight;
 
@@ -9118,17 +9121,11 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
     [reviewBtn addTarget:sWave0Proxy action:@selector(onReview:) forControlEvents:UIControlEventTouchUpInside];
     [ttsBtn addTarget:sWave0Proxy action:@selector(onTTS:) forControlEvents:UIControlEventTouchUpInside];
 
-    id hidden = LBG6ToolbarIvar(reader, @"toolBarHidden");
-    BOOL isHidden = YES;
-    @try {
-        if ([hidden respondsToSelector:@selector(boolValue)]) isHidden = [hidden boolValue];
-        else if (hidden) isHidden = NO;
-    } @catch (__unused NSException *e) {}
-    strip.hidden = isHidden || bottom.hidden;
+    strip.hidden = bottom.hidden || bottom.alpha < 0.05;
     [host bringSubviewToFront:strip];
     if (!bottom.hidden) [host bringSubviewToFront:bottom];
 
-    LBAppendOpenReaderTrace(@"G6 wave0 strip attached review+tts above bottom");
+    LBAppendOpenReaderTrace(@"G6 wave0 strip attached opaque above bottom");
 }
 
 static void LBG6ChangeToolBarHook(id self, SEL _cmd) {
