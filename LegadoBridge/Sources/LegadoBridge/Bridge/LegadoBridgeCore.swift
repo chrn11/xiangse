@@ -1309,10 +1309,15 @@ import LegadoBridgeHooks
             }
 
             // 3) 回退：把章节 URL 当直链再试一次
-            if player.prepare(url: chapterUrl) {
+            if !chapterUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                _ = player.prepare(url: chapterUrl)
                 player.play()
-                presentAudioVC(vc)
             }
+            // 无论音频是否就绪都弹出播控页（失败时仍可看到标题/关闭）
+            if vc.chapterTitle.isEmpty {
+                vc.chapterTitle = "听书"
+            }
+            presentAudioVC(vc)
         }
     }
 

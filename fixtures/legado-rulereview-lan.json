@@ -1,0 +1,30 @@
+[
+  {
+    "bookSourceUrl": "http://192.168.1.4:8765/rulereview/",
+    "bookSourceName": "书评夹具LAN",
+    "bookSourceGroup": "验收探针",
+    "enabled": true,
+    "searchUrl": "http://192.168.1.4:8765/mock_search.html?q={{key}}",
+    "ruleSearch": {
+      "bookList": "class.book",
+      "name": "tag.a@text",
+      "bookUrl": "tag.a@href"
+    },
+    "ruleBookInfo": {
+      "name": "tag.h1@text"
+    },
+    "ruleToc": {
+      "chapterList": "class.chapter a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "id.content@text"
+    },
+    "ruleReview": {
+      "reviewUrl": "http://192.168.1.4:8765/mock_reviews.html",
+      "avatarRule": "class.avatar@src",
+      "contentRule": "class.content@text"
+    }
+  }
+]
