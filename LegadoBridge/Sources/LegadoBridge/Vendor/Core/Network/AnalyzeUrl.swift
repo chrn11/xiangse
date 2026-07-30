@@ -1039,6 +1039,10 @@ class AnalyzeUrl {
         if request.value(forHTTPHeaderField: "User-Agent") == nil {
             request.setValue(Self.defaultUA, forHTTPHeaderField: "User-Agent")
         }
+        // CookieJar 已手动写 Cookie 头时禁止 URLSession 再叠系统 Cookie，否则真机常见空体
+        if request.value(forHTTPHeaderField: "Cookie") != nil || enabledCookieJar {
+            request.httpShouldHandleCookies = false
+        }
 
         // 重试逻辑
         var lastError: Error?
@@ -1097,6 +1101,9 @@ class AnalyzeUrl {
 
         if request.value(forHTTPHeaderField: "User-Agent") == nil {
             request.setValue(Self.defaultUA, forHTTPHeaderField: "User-Agent")
+        }
+        if request.value(forHTTPHeaderField: "Cookie") != nil || enabledCookieJar {
+            request.httpShouldHandleCookies = false
         }
 
         let (data, response) = try await URLSession.shared.data(for: request)
