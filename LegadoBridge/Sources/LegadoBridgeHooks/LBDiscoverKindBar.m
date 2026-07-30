@@ -2447,6 +2447,10 @@ static void LBRepairDiscoverTableFrame(UIViewController *host, UIViewController 
 
 /// 优先修复 BookListCon 原生表；仅无子页时才建 LBLT（禁止盖住分类条的全屏脏表）
 UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
+    if (LBIsDiscoverNativeXBSMode()) {
+        // 纯 XBS：禁止自造/改写 table，交给原生 bookWorld 填表
+        return nil;
+    }
     if (!host) return nil;
     static const NSInteger kLBLT = 0x4C424C54; // 'LBLT'
     static const NSInteger kLBDT = 0x4C424454; // 'LBDT'
@@ -2608,6 +2612,10 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
 /// 书列表灌入后：软刷新；无表时建 LBLT（不建 LBDT 全屏脏表）
 void LBReloadDiscoverNativeList(UIViewController *host) {
     if (!host) return;
+    if (LBIsDiscoverNativeXBSMode()) {
+        LBAppendNativeMarker(@"reload skip: native XBS mode");
+        return;
+    }
     LBRevealDiscoverTitleAndList(host);
     UITableView *tv = LBEnsureDiscoverListSurface(host);
     if (!tv) {
@@ -2871,6 +2879,16 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
         id core = LBKindCore();
         if (core) {
             @try { [core setValue:nil forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
+        }
+        // 尽量让原生自己 reset 出 bookWorld 列表（勿再走 openConfig，避免 Hook 重入）
+        if ([host respondsToSelector:@selector(resetContent)]) {
+            @try {
+                ((void (*)(id, SEL))objc_msgSend)(host, @selector(resetContent));
+                LBAppendNativeMarker(@"nativeSwitch XBS resetContent");
+            } @catch (NSException *ex) {
+                LBAppendNativeMarker([NSString stringWithFormat:@"nativeSwitch XBS reset EX %@",
+                                      ex.reason ?: @""]);
+            }
         }
         LBAppendNativeMarker([NSString stringWithFormat:@"nativeSwitch XBS mode=1 name=%@", cleanName]);
         return;
