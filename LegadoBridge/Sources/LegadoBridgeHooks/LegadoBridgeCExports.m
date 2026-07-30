@@ -733,6 +733,12 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
 
 static void LBReapplyLastSearchBooks(void) {
     if (sLastAppliedSearchBooks.count == 0) return;
+    if (LBIsDiscoverNativeXBSMode()) {
+        [@"uiInject reapply skip (native XBS mode)"
+            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        return;
+    }
     NSMutableArray *vcs = [NSMutableArray array];
     [vcs addObjectsFromArray:LBFindBookSearchVCs() ?: @[]];
     if (LBIsDiscoverTabActive()) {
@@ -1434,7 +1440,43 @@ void LBClearDiscoverExplorePendingOnly(void) {
     @try {
         if (sPendingSearchBooks) [sPendingSearchBooks removeAllObjects];
         if (sLastAppliedSearchBooks) [sLastAppliedSearchBooks removeAllObjects];
-        [@"uiInject clear explore pending only"
+        // 只剔除带 Legado 标记的灌书，保留原生 XBS bookWorld 行
+        NSArray *hosts = LBFindDiscoverHostVCs() ?: @[];
+        for (UIViewController *vc in hosts) {
+            NSMutableArray *targets = [NSMutableArray arrayWithObject:vc];
+            UIViewController *list = nil;
+            @try { list = LBActiveDiscoverListVC(vc); } @catch (__unused NSException *e) {}
+            if (list && list != vc) [targets addObject:list];
+            for (UIViewController *child in vc.childViewControllers) {
+                if (![targets containsObject:child]) [targets addObject:child];
+            }
+            for (UIViewController *t in targets) {
+                for (NSString *key in @[@"arrBaseData", @"itemList", @"arrSearchItems"]) {
+                    id arr = nil;
+                    @try { arr = [t valueForKey:key]; } @catch (__unused NSException *e) {}
+                    if (![arr isKindOfClass:[NSArray class]] || [(NSArray *)arr count] == 0) continue;
+                    NSMutableArray *kept = [NSMutableArray array];
+                    for (id item in (NSArray *)arr) {
+                        if (![item isKindOfClass:[NSDictionary class]]) {
+                            [kept addObject:item];
+                            continue;
+                        }
+                        NSDictionary *d = (NSDictionary *)item;
+                        if (d[@"legadoBridge"] || d[@"fromLegadoBridge"]) continue;
+                        [kept addObject:item];
+                    }
+                    if (kept.count != [(NSArray *)arr count]) {
+                        @try { [t setValue:kept forKey:key]; } @catch (__unused NSException *e) {}
+                    }
+                }
+                UITableView *tv = nil;
+                @try { tv = [t valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
+                if ([tv isKindOfClass:[UITableView class]]) {
+                    @try { [tv reloadData]; } @catch (__unused NSException *e) {}
+                }
+            }
+        }
+        [@"uiInject clear explore pending + strip legado rows"
             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     } @catch (__unused NSException *e) {}
