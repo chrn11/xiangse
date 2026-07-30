@@ -414,6 +414,71 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                 LBOpenNativeChapterAtIndex(bookUrl, sourceUrl, idx);
                 return YES;
             }
+            // legado://reviews?bookUrl=...&sourceUrl=... — Wave0 书评（不经桥接页导航栏）
+            BOOL wantReviews = [host isEqualToString:@"reviews"]
+                || [host isEqualToString:@"bookreview"]
+                || [pathLower containsString:@"/reviews"]
+                || [pathLower containsString:@"/bookreview"];
+            if (wantReviews) {
+                NSString *bookUrl = LBQueryParameterFromURL(url, @"bookUrl");
+                NSString *sourceUrl = LBQueryParameterFromURL(url, @"sourceUrl");
+                if (bookUrl.length == 0) {
+                    LBLegadoShowResult(@"reviews 缺少 bookUrl");
+                    return YES;
+                }
+                [[NSString stringWithFormat:@"openURL reviews book=%@ src=%@", bookUrl, sourceUrl ?: @""]
+                    writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_reviews_openurl.txt"]
+                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+                    id core = coreClass ? [coreClass performSelector:@selector(shared)] : nil;
+                    if (core && [core respondsToSelector:@selector(presentReviewsForBookUrl:sourceUrl:)]) {
+                        ((void (*)(id, SEL, NSString *, NSString *))objc_msgSend)(
+                            core, @selector(presentReviewsForBookUrl:sourceUrl:), bookUrl, sourceUrl
+                        );
+                    } else {
+                        LBLegadoShowResult(@"书评 Core 入口不可用");
+                    }
+                });
+                return YES;
+            }
+            // legado://tts?bookUrl=...&chapterUrl=...&title=...[&speakText=...][&ttsUrl=...]
+            BOOL wantTTS = [host isEqualToString:@"tts"]
+                || [host isEqualToString:@"audio"]
+                || [pathLower containsString:@"/tts"]
+                || [pathLower containsString:@"/audio"];
+            if (wantTTS) {
+                NSString *bookUrl = LBQueryParameterFromURL(url, @"bookUrl");
+                NSString *chapterUrl = LBQueryParameterFromURL(url, @"chapterUrl");
+                NSString *title = LBQueryParameterFromURL(url, @"title");
+                NSString *speakText = LBQueryParameterFromURL(url, @"speakText");
+                NSString *ttsUrl = LBQueryParameterFromURL(url, @"ttsUrl");
+                if (bookUrl.length == 0) {
+                    LBLegadoShowResult(@"tts 缺少 bookUrl");
+                    return YES;
+                }
+                if (chapterUrl.length == 0) chapterUrl = @"";
+                [[NSString stringWithFormat:@"openURL tts book=%@ ch=%@ title=%@",
+                  bookUrl, chapterUrl, title ?: @""]
+                    writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_tts_openurl.txt"]
+                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (speakText.length > 0 || ttsUrl.length > 0) {
+                        Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+                        id core = coreClass ? [coreClass performSelector:@selector(shared)] : nil;
+                        if (core && [core respondsToSelector:@selector(openTTSForBookUrl:chapterUrl:chapterTitle:speakText:ttsURLTemplate:)]) {
+                            ((void (*)(id, SEL, NSString *, NSString *, NSString *, NSString *, NSString *))objc_msgSend)(
+                                core,
+                                @selector(openTTSForBookUrl:chapterUrl:chapterTitle:speakText:ttsURLTemplate:),
+                                bookUrl, chapterUrl, title, speakText, ttsUrl
+                            );
+                            return;
+                        }
+                    }
+                    LBOpenTTS(bookUrl, chapterUrl, title);
+                });
+                return YES;
+            }
             // legado://nativeOpenFile?src=file://... 或 ?path=/var/.../Inbox/x.txt
             // MCP 无法可靠触发系统 document-open；用深链把 file:// 交给本 Hook 的原生 TXT/xbs 分流。
             BOOL wantNativeOpenFile = [host isEqualToString:@"nativeopenfile"]
