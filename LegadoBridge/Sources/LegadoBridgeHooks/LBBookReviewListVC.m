@@ -74,27 +74,50 @@
 
 /// 从 JSON 字符串解析并展示书评
 void LBPresentBookReviewsJSON(NSString *bookUrl, NSString *json) {
-    if (bookUrl.length == 0 || json.length == 0) return;
-    NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+    if (bookUrl.length == 0) return;
+    NSString *raw = json.length > 0 ? json : @"[]";
+    NSData *data = [raw dataUsingEncoding:NSUTF8StringEncoding];
     id obj = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
-    if (![obj isKindOfClass:[NSArray class]]) return;
+    if (![obj isKindOfClass:[NSArray class]]) {
+        obj = @[ @{ @"content" : raw, @"avatar" : @"", @"raw" : @"" } ];
+    }
+    NSArray *rows = (NSArray *)obj;
     dispatch_async(dispatch_get_main_queue(), ^{
         LBBookReviewListVC *vc = [LBBookReviewListVC new];
         vc.bookUrl = bookUrl;
-        vc.reviews = (NSArray *)obj;
+        vc.reviews = rows;
         UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
         nav.modalPresentationStyle = UIModalPresentationFormSheet;
         UIWindow *win = nil;
         for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-            if (scene.activationState == UISceneActivationStateForegroundActive &&
-                [scene isKindOfClass:[UIWindowScene class]]) {
-                win = ((UIWindowScene *)scene).windows.firstObject;
-                break;
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            UIWindowScene *ws = (UIWindowScene *)scene;
+            if (ws.activationState != UISceneActivationStateForegroundActive &&
+                ws.activationState != UISceneActivationStateForegroundInactive) {
+                continue;
             }
+            for (UIWindow *w in ws.windows) {
+                if (w.isKeyWindow || w.rootViewController) {
+                    win = w;
+                    if (w.isKeyWindow) break;
+                }
+            }
+            if (win) break;
         }
-        if (!win) return;
+        if (!win) {
+            win = [UIApplication sharedApplication].windows.firstObject;
+        }
         UIViewController *root = win.rootViewController;
+        if (!root) {
+            [@"FAIL: no rootVC" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_reviews_present.txt"]
+                                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            return;
+        }
         while (root.presentedViewController) root = root.presentedViewController;
-        [root presentViewController:nav animated:YES completion:nil];
+        [root presentViewController:nav animated:YES completion:^{
+            [[NSString stringWithFormat:@"OK present reviews n=%lu", (unsigned long)rows.count]
+                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_reviews_present.txt"]
+                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        }];
     });
 }

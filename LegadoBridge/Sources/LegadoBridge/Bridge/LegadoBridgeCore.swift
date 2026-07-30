@@ -1217,7 +1217,10 @@ import LegadoBridgeHooks
                     box.value = s
                 }
             } catch {
-                box.value = #"[[\"error\":\"\#(error.localizedDescription)\"]]"#
+                let msg = error.localizedDescription
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+                box.value = #"[{"content":"错误: \#(msg)","avatar":"","raw":""}]"#
             }
         }
         _ = sem.wait(timeout: .now() + 30)
@@ -1243,7 +1246,10 @@ import LegadoBridgeHooks
                     json = s
                 }
             } catch {
-                json = #"[[\"error\":\"\#(error.localizedDescription)\"]]"#
+                let msg = error.localizedDescription
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+                json = #"[{"content":"错误: \#(msg)","avatar":"","raw":""}]"#
             }
             let payload = json
             await MainActor.run {
