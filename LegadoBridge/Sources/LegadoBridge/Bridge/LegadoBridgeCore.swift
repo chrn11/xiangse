@@ -1228,7 +1228,23 @@ import LegadoBridgeHooks
     @objc(presentReviewsForBookUrl:sourceUrl:)
     public func presentReviews(bookUrl: String, sourceUrl: String?) {
         Task {
-            let json = fetchReviewsJSON(bookUrl: bookUrl, sourceUrl: sourceUrl)
+            // 禁止在此调用 fetchReviewsJSON：其内部 Task+信号量，嵌套在外层 Task 会死锁。
+            var json = "[]"
+            do {
+                guard let source = resolveEnabledSource(requested: sourceUrl, bookUrl: bookUrl) else {
+                    throw LegadoBridgeError.sourceNotFound
+                }
+                let reviews = try await BridgeWebBook.fetchReviews(source: source, bookUrl: bookUrl)
+                let rows: [[String: String]] = reviews.map {
+                    ["avatar": $0.avatar, "content": $0.content, "raw": $0.raw]
+                }
+                if let data = try? JSONSerialization.data(withJSONObject: rows),
+                   let s = String(data: data, encoding: .utf8) {
+                    json = s
+                }
+            } catch {
+                json = #"[[\"error\":\"\#(error.localizedDescription)\"]]"#
+            }
             await MainActor.run {
                 LBPresentBookReviewsJSON(bookUrl, json)
             }
