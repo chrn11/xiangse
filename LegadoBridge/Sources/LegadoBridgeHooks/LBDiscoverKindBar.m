@@ -2880,16 +2880,7 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
         if (core) {
             @try { [core setValue:nil forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
         }
-        // 尽量让原生自己 reset 出 bookWorld 列表（勿再走 openConfig，避免 Hook 重入）
-        if ([host respondsToSelector:@selector(resetContent)]) {
-            @try {
-                ((void (*)(id, SEL))objc_msgSend)(host, @selector(resetContent));
-                LBAppendNativeMarker(@"nativeSwitch XBS resetContent");
-            } @catch (NSException *ex) {
-                LBAppendNativeMarker([NSString stringWithFormat:@"nativeSwitch XBS reset EX %@",
-                                      ex.reason ?: @""]);
-            }
-        }
+        // 不在这里 resetContent：原生 openConfig 已建好 bookWorld，再 reset 常把列表打成黑屏空壳
         LBAppendNativeMarker([NSString stringWithFormat:@"nativeSwitch XBS mode=1 name=%@", cleanName]);
         return;
     }
