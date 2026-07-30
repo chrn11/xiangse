@@ -1,45 +1,45 @@
+# 本地/Agent 私有（不入库）
 .test_tools/
-analysis/unpacked/
-analysis/repack-work/
-analysis/payload.zip
+.cursor/
+.audit/
+open/
+start
+stop
+HANDOFF.md
+
+# 本机分析、取证、进度板、会话产物、说明文档（本地可留，不入库）
+analysis/
+docs/
+
+# fixtures：临时证据与探针（仅保留非 _ 前缀共享夹具）
+fixtures/_*
+fixtures/_*/
+fixtures/*.runtime.json
+fixtures/_devkit/
+
+# 本地/Agent 辅助脚本（CI 只用 tools/ci 与 tools/repack）
+tools/xiangse_devkit.py
+tools/ios_mcp_client.py
+tools/frida/
+tools/frida_inspect.py
+tools/reader-forensics/
+
+# 构建产物
+dist/
+dist-ci/
+dist-ci-*/
+artifacts/
+__pycache__/
+
+# Xcode / SPM
 *.xcuserstate
 DerivedData/
 .build/
 LegadoBridge/.build/
-fixtures/*.runtime.json
-fixtures/_devkit/
-# 硬规则6（2026-07-20 修订）：fixtures/_ 前缀全部为临时证据，文件与目录同覆；
-# 仅 _accept 合同脚本豁免可提交（下方 ! 放行必须保持在本行之后）
-fixtures/_*
 
-fixtures/_accept_*/
-!fixtures/_accept_*.py
-fixtures/_diag_*/
-fixtures/_probe_*/
-fixtures/_tmp_*/
-fixtures/_accept_result_*/
-fixtures/_accept_screenshot*/
-fixtures/_fresh_trace_*/
-fixtures/_install_*/
-fixtures/_peek_*/
-fixtures/_shot_*/
-analysis/reader-forensics/_tmp_*/
-analysis/_hook103_tmp/
-dist-ci-*/
-artifacts/
-# 默认排除 IPA，但放行 ipa/ 目录下的源 IPA（用于 CI 重打包）
+# 默认排除 IPA；仅放行 CI 基线包（禁止 hook103 / 其它旁路包入库）
 *.ipa
-!ipa/*.ipa
 !ipa/.gitkeep
-# 2026-07-20 修订补充：文件形态证据、原始 fault dump 与构建产物目录
-analysis/reader-forensics/_tmp_*
-analysis/reader-forensics/*_fault_*.json
-dist/
-dist-ci/
-__pycache__/
-
-
-.audit/
-
-.cursor/
-
+!ipa/香色闺阁2.56.1_未加密.ipa
+*hook103*
+ipa/*hook103*

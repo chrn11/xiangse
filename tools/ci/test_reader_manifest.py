@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""reader-build-manifest 与 devkit 门禁单元测试（无需 macOS / 真机）。"""
+"""reader-build-manifest 门禁单元测试（无需 macOS / 真机）。"""
 from __future__ import annotations
 
 import json
@@ -7,14 +7,13 @@ import sys
 import tempfile
 import unittest
 import zipfile
-from datetime import datetime, timezone
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from tools.ci.acceptance_contract import is_dump_stale  # noqa: E402
 from tools.repack.manifest import (  # noqa: E402
     REQUIRED_FIELDS,
     build_manifest,
@@ -22,7 +21,6 @@ from tools.repack.manifest import (  # noqa: E402
     validate_manifest,
     write_manifest,
 )
-import tools.xiangse_devkit as devkit  # noqa: E402
 
 
 def _sample_manifest(**overrides) -> dict:
@@ -111,14 +109,14 @@ class ManifestTests(unittest.TestCase):
             self.assertIsNotNone(loaded["legado_bridge_sha256"])
 
 
-class DevkitManifestTests(unittest.TestCase):
+class DumpStaleTests(unittest.TestCase):
     def test_stale_dump_detected(self) -> None:
         install_state = {
             "installed_at_utc": "2026-07-16T10:00:00Z",
             "manifest": {"built_at_utc": "2026-07-16T09:00:00Z"},
         }
         dump = "=== legado debug dump 2026-07-16T08:00:00Z ===\n"
-        self.assertTrue(devkit._is_dump_stale(dump, install_state))
+        self.assertTrue(is_dump_stale(dump, install_state))
 
     def test_fresh_dump_ok(self) -> None:
         install_state = {
@@ -126,15 +124,7 @@ class DevkitManifestTests(unittest.TestCase):
             "manifest": {"built_at_utc": "2026-07-16T09:00:00Z"},
         }
         dump = "=== legado debug dump 2026-07-16T11:00:00Z ===\n"
-        self.assertFalse(devkit._is_dump_stale(dump, install_state))
-
-    def test_guard_manifest_exits_on_mismatch(self) -> None:
-        args = mock.Mock(expected_variant="legado-debug", expected_run=None, expected_sha=None)
-        client = mock.Mock()
-        client.read_build_manifest.return_value = _sample_manifest(variant="baseline-debug")
-        with self.assertRaises(SystemExit) as ctx:
-            devkit._guard_manifest(client, args, require_device=True)
-        self.assertEqual(ctx.exception.code, 3)
+        self.assertFalse(is_dump_stale(dump, install_state))
 
 
 class IpaZipManifestTests(unittest.TestCase):
@@ -155,31 +145,6 @@ class IpaZipManifestTests(unittest.TestCase):
             with zipfile.ZipFile(ipa) as zf:
                 names = [n for n in zf.namelist() if n.endswith("reader-build-manifest.json")]
             self.assertEqual(len(names), 1)
-
-
-class McpClientManifestTests(unittest.TestCase):
-    def test_app_paths_includes_top_level_bundle_path(self) -> None:
-        from tools.ios_mcp_client import McpClient
-
-        client = McpClient("http://example.test")
-        client.call = mock.Mock(
-            return_value={
-                "bundle_path": "/var/containers/Bundle/Application/UUID/StandarReader.app",
-                "paths": {"documents": "/var/mobile/.../Documents"},
-            }
-        )
-        paths = client.app_paths()
-        self.assertIn("bundle_path", paths)
-        self.assertIn("bundle", paths)
-        self.assertTrue(paths["bundle_path"].endswith("StandarReader.app"))
-
-    def test_extract_read_file_json_format(self) -> None:
-        from tools.ios_mcp_client import McpClient
-
-        text = McpClient._extract_read_file_text(
-            {"format": "json", "content": '{"variant":"baseline-debug"}'}
-        )
-        self.assertIn("baseline-debug", text)
 
 
 if __name__ == "__main__":
