@@ -1666,6 +1666,9 @@ class CSSParser: RuleExecutor {
 
     private static func isTerminalAttr(_ part: String) -> Bool {
         let lower = part.lowercased()
+        // 含 `@` 的是链式规则（a@text / a@href / #list dd@html），必须走 executeAtChain；
+        // 整串当属性名会 el.attr("a@text")=="" → 章名空 → chapters=0 卡死 nativeRead（6dad7d1 回归）。
+        if part.contains("@") { return false }
         if lower.hasPrefix("js:") || lower.hasPrefix("@js:") { return false }
         if lower.hasPrefix("class.") || lower.hasPrefix("tag.") || lower.hasPrefix("id.") || lower.hasPrefix("text.") {
             return false

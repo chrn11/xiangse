@@ -123,6 +123,41 @@ final class RuleFixtureTests: XCTestCase {
         )
     }
 
+    /// 回归（6dad7d1→）：裸 `a@text`/`a@href` 不得被 isTerminalAttr 误判为属性名，
+    /// 否则章名空 → parseChapters 丢章 → chapters=0 卡死 nativeRead。
+    func testBareAtTextExtractsChapterName() throws {
+        let body = """
+        <html><body><div id="list"><dl>
+        <dd><a href="/chapter/doupo_1.html">第一章 陨落的天才</a></dd>
+        <dd><a href="/chapter/doupo_2.html">第二章 斗气大陆</a></dd>
+        </dl></div></body></html>
+        """
+        let name = try RuleWebBook.evaluateString(rule: "a@text", body: body)
+        XCTAssertTrue(name.contains("第一章"), "裸 a@text 应取出章名，实际: \(name)")
+    }
+
+    func testBareAtHrefExtractsChapterUrl() throws {
+        let body = """
+        <html><body><div id="list"><dl>
+        <dd><a href="/chapter/doupo_1.html">第一章 陨落的天才</a></dd>
+        </dl></div></body></html>
+        """
+        let url = try RuleWebBook.evaluateString(
+            rule: "a@href", body: body, baseUrl: "http://192.168.1.4:8765/book/doupo.html")
+        XCTAssertTrue(url.contains("doupo_1.html"), "裸 a@href 应取出章 URL，实际: \(url)")
+    }
+
+    func testBareCssListReturnsTwoChapters() throws {
+        let body = """
+        <html><body><div id="list"><dl>
+        <dd><a href="/chapter/doupo_1.html">第一章 陨落的天才</a></dd>
+        <dd><a href="/chapter/doupo_2.html">第二章 斗气大陆</a></dd>
+        </dl></div></body></html>
+        """
+        let count = try RuleWebBook.evaluateElementCount(rule: "#list dd", body: body)
+        XCTAssertEqual(count, 2, "#list dd 应返回 2 个章节元素，实际: \(count)")
+    }
+
     /// 起点搜索 HTML：class.res-book-item 与 bookList `<js>…getElement…` 不得解析成 0
     func testQidianResBookItemClassAndJsBookList() throws {
         let body = """
