@@ -35,17 +35,8 @@ static __weak LBBridgeReaderVC *sVisibleBridgeReader = nil;
                                          style:UIBarButtonItemStylePlain
                                         target:self
                                         action:@selector(lb_close)];
-
-    NSMutableArray *rightItems = [NSMutableArray array];
-    [rightItems addObject:[[UIBarButtonItem alloc] initWithTitle:@"听书"
-                                                           style:UIBarButtonItemStylePlain
-                                                          target:self
-                                                          action:@selector(lb_openTTS)]];
-    [rightItems addObject:[[UIBarButtonItem alloc] initWithTitle:@"书评"
-                                                           style:UIBarButtonItemStylePlain
-                                                          target:self
-                                                          action:@selector(lb_openReviews)]];
-    self.navigationItem.rightBarButtonItems = rightItems;
+    // 书评/听书不得挂在桥接兜底页导航栏（会把失败回退伪装成产品 UI，破坏原版还原观感）。
+    // Wave0 入口应走原版菜单/对拍入口；C API：LBOpenTTS / LBPresentBookReviewsJSON。
 
     UITextView *tv = [[UITextView alloc] initWithFrame:CGRectZero];
     tv.translatesAutoresizingMaskIntoConstraints = NO;
@@ -89,25 +80,6 @@ static __weak LBBridgeReaderVC *sVisibleBridgeReader = nil;
     } else if (self.navigationController) {
         [self.navigationController popViewControllerAnimated:YES];
     }
-}
-
-- (void)lb_openTTS {
-    if (self.bookUrl.length == 0) return;
-    NSString *ch = self.chapterUrl ?: @"";
-    NSString *title = self.chapterTitle.length > 0 ? self.chapterTitle : @"章节";
-    LBOpenTTS(self.bookUrl, ch, title);
-}
-
-- (void)lb_openReviews {
-    if (self.bookUrl.length == 0) return;
-    Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
-    if (!coreClass) return;
-    id core = [coreClass performSelector:@selector(shared)];
-    if (![core respondsToSelector:@selector(presentReviewsForBookUrl:sourceUrl:)]) return;
-    NSString *src = LBReadingSourceUrlForBookUrl(self.bookUrl);
-    ((void (*)(id, SEL, NSString *, NSString *))objc_msgSend)(
-        core, @selector(presentReviewsForBookUrl:sourceUrl:), self.bookUrl, src
-    );
 }
 
 - (void)applyContentUserInfo:(NSDictionary *)userInfo {

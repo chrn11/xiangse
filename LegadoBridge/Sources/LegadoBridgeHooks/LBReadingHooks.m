@@ -679,8 +679,11 @@ static void LBWireCatalogAssistOnVC(UIViewController *vc) {
                         LBCatalogReverseArrayOnVC(selfObj);
                     }), "v@:");
                 }
-                [b removeTarget:nil action:NULL forControlEvents:UIControlEventTouchUpInside];
-                [b addTarget:vc action:sel forControlEvents:UIControlEventTouchUpInside];
+                // 不 removeTarget:nil，避免拆掉原版倒序；仅在尚未挂我们的 action 时追加
+                NSArray *acts = [b actionsForTarget:vc forControlEvent:UIControlEventTouchUpInside];
+                if (![acts containsObject:NSStringFromSelector(sel)]) {
+                    [b addTarget:vc action:sel forControlEvents:UIControlEventTouchUpInside];
+                }
             }
         }
         if ([v isKindOfClass:[UISearchBar class]]) {
@@ -692,7 +695,10 @@ static void LBWireCatalogAssistOnVC(UIViewController *vc) {
                 assist.catalogVC = vc;
                 objc_setAssociatedObject(vc, &kAssistKey, assist, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             }
-            sb.delegate = assist;
+            // 仅在无原版 delegate 时接管；有则保留原版搜索
+            if (sb.delegate == nil) {
+                sb.delegate = assist;
+            }
             sb.hidden = NO;
             sb.userInteractionEnabled = YES;
         }

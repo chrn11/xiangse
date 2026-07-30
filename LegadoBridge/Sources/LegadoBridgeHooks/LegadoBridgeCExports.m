@@ -880,9 +880,30 @@ static NSString *LBAbsoluteCoverURL(NSDictionary *book) {
             break;
         }
     }
+    // 普通 http(s)/data 保持原样，避免搜索列表刷封面时频繁拉起 Core/JS；
+    // 仅 cipher: 或源 JSON 含 coverDecodeJs 时才解密。
+    BOOL maybeEncoded = [coverUrl hasPrefix:@"cipher:"];
+    if (!maybeEncoded && sourceUrl.length > 0) {
+        Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+        id core = coreClass ? [coreClass performSelector:@selector(shared)] : nil;
+        if (core && [core respondsToSelector:@selector(sourceJSON:)]) {
+            NSString *json = ((NSString *(*)(id, SEL, NSString *))objc_msgSend)(
+                core, @selector(sourceJSON:), sourceUrl);
+            if ([json isKindOfClass:[NSString class]] &&
+                [json rangeOfString:@"coverDecodeJs"].location != NSNotFound) {
+                maybeEncoded = YES;
+            }
+        }
+    }
     if ([coverUrl hasPrefix:@"http://"] || [coverUrl hasPrefix:@"https://"] ||
         [coverUrl hasPrefix:@"data:"] || [coverUrl hasPrefix:@"cipher:"]) {
-        return LBDecodeCoverURL(coverUrl, sourceUrl);
+        if (maybeEncoded) {
+            return LBDecodeCoverURL(coverUrl, sourceUrl) ?: coverUrl;
+        }
+        if (![coverUrl hasPrefix:@"cipher:"]) {
+            return coverUrl;
+        }
+        return LBDecodeCoverURL(coverUrl, sourceUrl) ?: coverUrl;
     }
     NSString *base = nil;
     for (NSString *k in @[@"sourceUrl", @"bookUrl", @"url"]) {
@@ -892,22 +913,26 @@ static NSString *LBAbsoluteCoverURL(NSDictionary *book) {
             break;
         }
     }
-    if (base.length == 0) return coverUrl;
+    if (base.length == 0) {
+        return maybeEncoded ? (LBDecodeCoverURL(coverUrl, sourceUrl) ?: coverUrl) : coverUrl;
+    }
     NSURL *bu = [NSURL URLWithString:base];
-    if (!bu) return coverUrl;
+    if (!bu) {
+        return maybeEncoded ? (LBDecodeCoverURL(coverUrl, sourceUrl) ?: coverUrl) : coverUrl;
+    }
     // 只要站点根：scheme://host
     if (bu.host.length > 0 && bu.scheme.length > 0) {
         NSString *root = [NSString stringWithFormat:@"%@://%@", bu.scheme, bu.host];
         if ([coverUrl hasPrefix:@"//"]) {
-            return [NSString stringWithFormat:@"%@:%@", bu.scheme, coverUrl];
+            coverUrl = [NSString stringWithFormat:@"%@:%@", bu.scheme, coverUrl];
+        } else if ([coverUrl hasPrefix:@"/"]) {
+            coverUrl = [root stringByAppendingString:coverUrl];
+        } else {
+            NSURL *abs = [NSURL URLWithString:coverUrl relativeToURL:bu];
+            coverUrl = abs.absoluteString ?: coverUrl;
         }
-        if ([coverUrl hasPrefix:@"/"]) {
-            return [root stringByAppendingString:coverUrl];
-        }
-        NSURL *abs = [NSURL URLWithString:coverUrl relativeToURL:bu];
-        coverUrl = abs.absoluteString ?: coverUrl;
     }
-    return LBDecodeCoverURL(coverUrl, sourceUrl);
+    return maybeEncoded ? (LBDecodeCoverURL(coverUrl, sourceUrl) ?: coverUrl) : coverUrl;
 }
 
 static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic);
