@@ -369,6 +369,7 @@ static NSString *LBSearchBookKey(NSDictionary *book) {
 
 static BOOL LBArrayHasLegadoBooks(id cur);
 static IMP sOrigHeightForRow = NULL;
+static void LBHookedPlazaDidSelect(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip);
 
 static CGFloat LBHookedHeightForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip) {
     @try {
@@ -389,6 +390,7 @@ static void LBEnsurePlazaTableDataSourceMethods(Class cls) {
     SEL rowsSel = @selector(tableView:numberOfRowsInSection:);
     SEL cellSel = @selector(tableView:cellForRowAtIndexPath:);
     SEL hSel = @selector(tableView:heightForRowAtIndexPath:);
+    SEL didSel = @selector(tableView:didSelectRowAtIndexPath:);
     Method rowsM = class_getInstanceMethod(cls, rowsSel);
     if (!rowsM) {
         class_addMethod(cls, rowsSel, (IMP)LBHookedNumberOfRows, "q@:@q");
@@ -408,10 +410,20 @@ static void LBEnsurePlazaTableDataSourceMethods(Class cls) {
     } else if (method_getImplementation(hM) != (IMP)LBHookedHeightForRow) {
         LBInstallHookOnClassOnly(cls, hSel, (IMP)LBHookedHeightForRow, &sOrigHeightForRow);
     }
+    // B-06：BookListCon 常无 didSelect，点书无响应；无则 class_add，有则 hook
+    Method didM = class_getInstanceMethod(cls, didSel);
+    if (!didM) {
+        class_addMethod(cls, didSel, (IMP)LBHookedPlazaDidSelect, "v@:@@");
+    } else if (method_getImplementation(didM) != (IMP)LBHookedPlazaDidSelect) {
+        static IMP sOrigPlazaDidSelect = NULL;
+        LBInstallHookOnClassOnly(cls, didSel, (IMP)LBHookedPlazaDidSelect, &sOrigPlazaDidSelect);
+    }
 }
 
 void LBEnsurePlazaListTableHooks(Class cls) {
     LBEnsurePlazaTableDataSourceMethods(cls);
+    // 确保搜索/广场 didSelect 旁路已挂（点书进目录）
+    LBInstallCatalogUIAppearFlush();
 }
 
 static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NSString *keyword) {
@@ -888,6 +900,94 @@ static NSString *LBAbsoluteCoverURL(NSDictionary *book) {
     return coverUrl;
 }
 
+static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic);
+static BOOL LBItemLooksLikeChapter(id item);
+
+static char kLBDiscBookKey;
+static char kLBDiscHostKey;
+
+@interface LBDiscoverBookTapProxy : NSObject
+@end
+@implementation LBDiscoverBookTapProxy
+- (void)openBook:(UIButton *)sender {
+    NSDictionary *book = objc_getAssociatedObject(sender, &kLBDiscBookKey);
+    UIViewController *host = objc_getAssociatedObject(sender, &kLBDiscHostKey);
+    if (![book isKindOfClass:[NSDictionary class]]) return;
+    if (![host isKindOfClass:[UIViewController class]]) {
+        NSArray *hosts = LBFindDiscoverHostVCs() ?: @[];
+        host = hosts.firstObject;
+    }
+    if (!host) return;
+    NSString *line = [NSString stringWithFormat:@"discoverTapOpen book=%@",
+                      book[@"bookName"] ?: book[@"name"] ?: @"?"];
+    [line writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_select.txt"]
+           atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    LBPushLegadoBookDetailFromSearch(host, book);
+}
+@end
+
+static LBDiscoverBookTapProxy *LBDiscoverBookTapProxyShared(void) {
+    static LBDiscoverBookTapProxy *p;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ p = [LBDiscoverBookTapProxy new]; });
+    return p;
+}
+
+static UIViewController *LBDiscoverOpenHostForList(id listOrSelf) {
+    NSArray *hosts = LBFindDiscoverHostVCs() ?: @[];
+    if (hosts.count > 0) return hosts.firstObject;
+    if ([listOrSelf isKindOfClass:[UIViewController class]]) {
+        UIViewController *vc = (UIViewController *)listOrSelf;
+        if (vc.navigationController) return vc;
+        UIViewController *p = vc.parentViewController;
+        while (p) {
+            if (p.navigationController) return p;
+            p = p.parentViewController;
+        }
+        return vc;
+    }
+    return nil;
+}
+
+static BOOL LBTryOpenLegadoBookFromPlaza(id listVC, NSDictionary *book, NSString *via) {
+    if (![book isKindOfClass:[NSDictionary class]]) return NO;
+    if (LBItemLooksLikeChapter(book)) return NO;
+    id bu = book[@"bookUrl"] ?: book[@"url"];
+    if (![bu isKindOfClass:[NSString class]] || [(NSString *)bu length] == 0) return NO;
+    UIViewController *host = LBDiscoverOpenHostForList(listVC);
+    if (!host) host = [listVC isKindOfClass:[UIViewController class]] ? listVC : nil;
+    if (!host) return NO;
+    NSString *mark = [NSString stringWithFormat:@"plazaOpen via=%@ book=%@ host=%@",
+                      via ?: @"?", book[@"bookName"] ?: book[@"name"] ?: bu,
+                      NSStringFromClass([host class])];
+    [mark writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_select.txt"]
+           atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    return LBPushLegadoBookDetailFromSearch(host, book);
+}
+
+static void LBHookedPlazaDidSelect(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip) {
+    (void)_cmd;
+    if (LBVCIsBookShelfContext(self)) return;
+    @try {
+        id cur = [self valueForKey:@"arrBaseData"];
+        if ([cur isKindOfClass:[NSArray class]] && ip &&
+            ip.row >= 0 && ip.row < (NSInteger)[(NSArray *)cur count]) {
+            id item = [(NSArray *)cur objectAtIndex:(NSUInteger)ip.row];
+            if ([item isKindOfClass:[NSDictionary class]] &&
+                LBTryOpenLegadoBookFromPlaza(self, (NSDictionary *)item, @"didSelect")) {
+                if (tv && ip) {
+                    @try { [tv deselectRowAtIndexPath:ip animated:YES]; } @catch (__unused NSException *e) {}
+                }
+                return;
+            }
+        }
+    } @catch (NSException *e) {
+        NSString *ex = [NSString stringWithFormat:@"plazaDidSelect EX %@", e.reason ?: @""];
+        [ex writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_select.txt"]
+             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    }
+}
+
 static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictionary *book) {
     // 对齐香色原生列表观感：浅底、深字、左封面右标题+副文（字数/最新章）
     static NSString *cid = @"LBDiscoverCoverCellV2";
@@ -1025,6 +1125,31 @@ static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictiona
     UIView *sel = [[UIView alloc] init];
     sel.backgroundColor = [UIColor colorWithWhite:0.94 alpha:1];
     cell.selectedBackgroundView = sel;
+
+    // 透明按钮：坐标点/无障碍常碰不到原生 didSelect（BookListCon 甚至无该方法）
+    const NSInteger kOpenTag = 0x4C424F42; // 'LBOB'
+    UIButton *openBtn = [cell.contentView viewWithTag:kOpenTag];
+    if (![openBtn isKindOfClass:[UIButton class]]) {
+        openBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        openBtn.tag = kOpenTag;
+        openBtn.backgroundColor = [UIColor clearColor];
+        [openBtn addTarget:LBDiscoverBookTapProxyShared()
+                    action:@selector(openBook:)
+          forControlEvents:UIControlEventTouchUpInside];
+        [cell.contentView addSubview:openBtn];
+    }
+    openBtn.frame = cell.contentView.bounds;
+    openBtn.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [cell.contentView bringSubviewToFront:openBtn];
+    UIViewController *host = nil;
+    id ds = tv.dataSource;
+    if ([ds isKindOfClass:[UIViewController class]]) host = (UIViewController *)ds;
+    host = LBDiscoverOpenHostForList(host) ?: host;
+    objc_setAssociatedObject(openBtn, &kLBDiscBookKey, book, OBJC_ASSOCIATION_COPY_NONATOMIC);
+    objc_setAssociatedObject(openBtn, &kLBDiscHostKey, host, OBJC_ASSOCIATION_ASSIGN);
+    NSString *a11y = book[@"bookName"] ?: book[@"name"] ?: @"书";
+    if ([a11y isKindOfClass:[NSString class]]) openBtn.accessibilityLabel = (NSString *)a11y;
+
     return cell;
 }
 
@@ -10353,7 +10478,13 @@ void LBInstallCatalogUIAppearFlush(void) {
         NSString *key = [NSString stringWithFormat:@"searchSel:%@", NSStringFromClass(owner)];
         if ([sSearchSelHooked containsObject:key]) continue;
         Method m = class_getInstanceMethod(owner, selSel);
-        if (!m) continue;
+        // B-06：BookListCon 无 didSelect 时原先直接跳过 → 点书无响应；改为挂到 cls 自身
+        if (!m) {
+            if (!class_addMethod(cls, selSel, (IMP)LBHookedPlazaDidSelect, "v@:@@")) continue;
+            [sSearchSelHooked addObject:key];
+            NSLog(@"[LegadoBridge] added plaza didSelect @%@", cn);
+            continue;
+        }
         void (*prev)(id, SEL, UITableView *, NSIndexPath *) =
             (void (*)(id, SEL, UITableView *, NSIndexPath *))method_getImplementation(m);
         IMP hook = imp_implementationWithBlock(^void(id selfObj, UITableView *tv, NSIndexPath *ip) {

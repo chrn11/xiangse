@@ -1526,6 +1526,8 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
             overlay.separatorColor = [UIColor colorWithWhite:0.90 alpha:1];
             overlay.rowHeight = 108;
             overlay.estimatedRowHeight = 108;
+            overlay.allowsSelection = YES;
+            overlay.allowsSelectionDuringEditing = NO;
             [host.view addSubview:overlay];
             LBAppendNativeMarker([NSString stringWithFormat:
                                   @"reveal feedOverlay new arr=%lu frame=%.0fx%.0f@%.0f,%.0f",
