@@ -9012,6 +9012,10 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
     };
     UIButton *reviewBtn = makeBtn(@"书评", 0x4C425732);
     UIButton *ttsBtn = makeBtn(@"听书", 0x4C425733);
+    reviewBtn.accessibilityLabel = @"书评";
+    ttsBtn.accessibilityLabel = @"听书";
+    reviewBtn.accessibilityIdentifier = @"legado_wave0_review";
+    ttsBtn.accessibilityIdentifier = @"legado_wave0_tts";
     [bottom addSubview:reviewBtn];
     [bottom addSubview:ttsBtn];
     [NSLayoutConstraint activateConstraints:@[

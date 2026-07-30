@@ -891,10 +891,27 @@ import LegadoBridgeHooks
                 book.sourceUrl = source.bookSourceUrl
                 book.sourceName = source.bookSourceName
                 // 搜索缓存常无 tocUrl；getBookInfo 失败时也会把 tocUrl 写成 bookUrl，须重跑资料页
+                // 详情偶发空体/Cloudflare：领域书库等源目录与详情同页，软失败后仍用 bookUrl 拉 TOC
                 if book.tocUrl.isEmpty || book.tocUrl == book.bookUrl {
-                    _ = try await BridgeWebBook.getBookInfo(source: source, book: &book)
+                    do {
+                        _ = try await BridgeWebBook.getBookInfo(source: source, book: &book)
+                    } catch {
+                        writeCatalogMarker(
+                            "bookInfo softFail book=\(bookUrl) \(error.localizedDescription); continue toc=bookUrl"
+                        )
+                        if book.tocUrl.isEmpty {
+                            book.tocUrl = book.bookUrl
+                        }
+                    }
                 }
-                let chapters = try await BridgeWebBook.getChapterList(source: source, book: book)
+                var chapters: [BridgeChapter]
+                do {
+                    chapters = try await BridgeWebBook.getChapterList(source: source, book: book)
+                } catch {
+                    // 单次空响应常见于连续 explore+详情；短等后重试一次
+                    try await Task.sleep(nanoseconds: 700_000_000)
+                    chapters = try await BridgeWebBook.getChapterList(source: source, book: book)
+                }
                 bookCache[bookUrl] = book
                 let tocOneLine = book.tocUrl
                     .components(separatedBy: .whitespacesAndNewlines)
