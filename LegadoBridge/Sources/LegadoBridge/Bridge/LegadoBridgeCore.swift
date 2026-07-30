@@ -1197,9 +1197,13 @@ import LegadoBridgeHooks
     /// 拉取书评并返回 JSON 数组字符串
     @objc(fetchReviewsJSONForBookUrl:sourceUrl:)
     public func fetchReviewsJSON(bookUrl: String, sourceUrl: String?) -> String {
+        final class OutBox: @unchecked Sendable {
+            var value = "[]"
+        }
+        let box = OutBox()
         let sem = DispatchSemaphore(value: 0)
-        var output = "[]"
         Task {
+            defer { sem.signal() }
             do {
                 guard let source = resolveEnabledSource(requested: sourceUrl, bookUrl: bookUrl) else {
                     throw LegadoBridgeError.sourceNotFound
@@ -1210,15 +1214,14 @@ import LegadoBridgeHooks
                 }
                 if let data = try? JSONSerialization.data(withJSONObject: rows),
                    let s = String(data: data, encoding: .utf8) {
-                    output = s
+                    box.value = s
                 }
             } catch {
-                output = #"[[\"error\":\"\#(error.localizedDescription)\"]]"#
+                box.value = #"[[\"error\":\"\#(error.localizedDescription)\"]]"#
             }
-            sem.signal()
         }
         _ = sem.wait(timeout: .now() + 30)
-        return output
+        return box.value
     }
 
     /// 异步拉取书评并弹出列表（ObjC 入口）
