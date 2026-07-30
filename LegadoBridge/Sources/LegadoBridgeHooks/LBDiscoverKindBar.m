@@ -26,6 +26,7 @@ static NSString *sDiscoverUseSourceName = nil;
 static BOOL sFeedingDiscoverHeader = NO;
 static BOOL sApplyingKinds = NO; // ForceTitles/ApplyKinds 期间禁 explore，防连环 clear
 static BOOL sDiscoverNativeXBSMode = NO; // 用户切到纯 XBS：禁止再灌 Legado explore/分类
+static BOOL sHandlingDiscoverSwitch = NO; // 防止 openConfig ↔ Handle 重入
 
 BOOL LBIsDiscoverNativeXBSMode(void) {
     return sDiscoverNativeXBSMode;
@@ -2851,6 +2852,9 @@ static NSString *LBFindLegadoExploreUrlByName(NSString *name) {
 /// 原生切换书源完成后：Legado → 按该源 exploreUrl 刷新分类+灌书；XBS → 保留原生 bookWorld，清 Legado 残留
 static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sourceName) {
     if (!host || sourceName.length == 0) return;
+    if (sHandlingDiscoverSwitch) return;
+    sHandlingDiscoverSwitch = YES;
+    @try {
     LBSetDiscoverTabActive(YES);
     sSelectedKindIndex = 0;
     sLastFeedSig = nil;
@@ -2874,14 +2878,19 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
     if (!isLegado) {
         LBSetDiscoverNativeXBSMode(YES);
         sCachedKinds = nil;
-        // 只清 Legado pending，禁止掏空原生 XBS 刚 openConfig 灌好的列表
+        sNativeChromeBuilt = NO; // 丢掉 Legado 建的壳，让原生 openConfig 重建 bookWorld
+        // 只清 Legado pending/灌行，禁止掏空整表结构
         @try { LBClearDiscoverExplorePendingOnly(); } @catch (__unused NSException *e) {}
         id core = LBKindCore();
         if (core) {
             @try { [core setValue:nil forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
         }
-        // 不在这里 resetContent：原生 openConfig 已建好 bookWorld，再 reset 常把列表打成黑屏空壳
-        LBAppendNativeMarker([NSString stringWithFormat:@"nativeSwitch XBS mode=1 name=%@", cleanName]);
+        // 再跑原生 openConfig（Hook 因 sHandlingDiscoverSwitch 不会重入 Handle）
+        BOOL opened = NO;
+        @try { opened = LBInvokeOpenConfigByName(host, cleanName); } @catch (__unused NSException *e) {}
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"nativeSwitch XBS mode=1 name=%@ openCfg=%d",
+                              cleanName, opened ? 1 : 0]);
         return;
     }
 
@@ -2926,12 +2935,14 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
                    dispatch_get_main_queue(), ^{
         UIViewController *h = weakHost;
         if (!h || !LBIsDiscoverTabActive()) return;
+        if (LBIsDiscoverNativeXBSMode()) return;
         LBEnsureDiscoverListSurface(h);
         LBTriggerExploreKind(srcCopy, kindCopy);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             UIViewController *h2 = weakHost;
             if (!h2 || !LBIsDiscoverTabActive()) return;
+            if (LBIsDiscoverNativeXBSMode()) return;
             LBEnsureDiscoverListSurface(h2);
             LBReloadDiscoverNativeList(h2);
             id tv = nil;
@@ -2939,16 +2950,19 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
             if (tv) LBPaintTitleLabels(tv, sSelectedKindIndex);
         });
     });
+    } @finally {
+        sHandlingDiscoverSwitch = NO;
+    }
 }
 
 static void LBDiscover_openConfigByName(id self, SEL _cmd, NSString *name) {
-    LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName enter name=%@ feeding=%d",
-                          name ?: @"-", sFeedingDiscoverHeader ? 1 : 0]);
+    LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName enter name=%@ feeding=%d handling=%d",
+                          name ?: @"-", sFeedingDiscoverHeader ? 1 : 0, sHandlingDiscoverSwitch ? 1 : 0]);
     if (sOrig_openConfigByName) {
         sOrig_openConfigByName(self, _cmd, name);
     }
-    // 建壳阶段的 openConfig 不算用户切换
-    if (sFeedingDiscoverHeader) return;
+    // 建壳 / 正在 Handle 内主动 openConfig：不算二次用户切换
+    if (sFeedingDiscoverHeader || sHandlingDiscoverSwitch) return;
     if (!(LBIsDiscoverTabActive() || sNativeChromeBuilt || LBSelfLooksDiscoverWorldHost(self))) return;
     if (![name isKindOfClass:[NSString class]] || name.length == 0) return;
     UIViewController *host = [self isKindOfClass:[UIViewController class]]
