@@ -1245,8 +1245,9 @@ import LegadoBridgeHooks
             } catch {
                 json = #"[[\"error\":\"\#(error.localizedDescription)\"]]"#
             }
+            let payload = json
             await MainActor.run {
-                LBPresentBookReviewsJSON(bookUrl, json)
+                LBPresentBookReviewsJSON(bookUrl, payload)
             }
         }
     }
