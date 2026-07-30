@@ -1187,7 +1187,59 @@ class AnalyzeUrl {
                 phase: "done"
             )
         }
-        return (body: response.body ?? "", url: response.url)
+        var body = response.body ?? ""
+        var finalUrl = response.url
+        // 真机对照：download_url 有体、AnalyzeUrl 空体——常见坏 CookieJar；清 Cookie 再直连一次
+        if body.isEmpty, source != nil {
+            let keys = [
+                source?.bookSourceUrl,
+                Self.getSubDomain(from: source?.bookSourceUrl ?? ""),
+                Self.getSubDomain(from: analyzedUrl.url),
+                analyzedUrl.url,
+            ].compactMap { $0 }.filter { !$0.isEmpty }
+            for k in Set(keys) {
+                CookieManager.shared.removeCookie(for: k)
+            }
+            if let host = URL(string: analyzedUrl.url)?.host {
+                let storage = HTTPCookieStorage.shared
+                if let cookies = storage.cookies {
+                    for cookie in cookies where cookie.domain.contains(host) || host.contains(cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))) {
+                        storage.deleteCookie(cookie)
+                    }
+                }
+            }
+            let analyzer2 = AnalyzeUrl(
+                mUrl: analyzedUrl.url,
+                baseUrl: source?.bookSourceUrl ?? analyzedUrl.url,
+                source: nil // 禁用 CookieJar 注入
+            )
+            analyzer2.headerMap = analyzedUrl.headers
+            analyzer2.headerMap.removeValue(forKey: "Cookie")
+            analyzer2.headerMap.removeValue(forKey: "X-Cookie-Jar")
+            analyzer2.method = analyzedUrl.method
+            analyzer2.body = analyzedUrl.body
+            analyzer2.charset = analyzedUrl.charset
+            analyzer2.useWebView = false
+            let retry = try await analyzer2.getStrResponseAwait(
+                jsStr: nil,
+                sourceRegex: nil,
+                useWebView: false
+            )
+            body = retry.body ?? ""
+            finalUrl = retry.url
+            let probe = [
+                "ts=\(ISO8601DateFormatter().string(from: Date()))",
+                "phase=emptyBodyCookieRetry",
+                "url=\(analyzedUrl.url)",
+                "retryUrl=\(finalUrl)",
+                "bodyLen=\(body.count)",
+                "clearedKeys=\(keys.joined(separator: ","))",
+            ].joined(separator: "\n")
+            let path = (NSHomeDirectory() as NSString)
+                .appendingPathComponent("Documents/legado_empty_body_retry.txt")
+            try? probe.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+        return (body: body, url: finalUrl)
     }
 
     /// 8.7 真机门禁：证明本轮走了 BackstageWebView，且渲染后正文含针时可对照
