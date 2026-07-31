@@ -624,14 +624,27 @@ static NSArray *LBCatalogReadChapters(id catalogVC) {
 
 static void LBCatalogWriteChapters(id catalogVC, NSArray *chapters) {
     if (!catalogVC || !chapters) return;
+    BOOL wrote = NO;
     @try {
-        if ([catalogVC respondsToSelector:@selector(setArrSource:)]) {
-            ((void (*)(id, SEL, id))objc_msgSend)(catalogVC, @selector(setArrSource:), chapters);
-        } else {
-            [catalogVC setValue:chapters forKey:@"arrCatalog"];
+        // setArrSource: 会再包一层 {index,title,value}；优先原地改现有可变数组
+        if ([catalogVC respondsToSelector:@selector(arrSource)]) {
+            id cur = ((id (*)(id, SEL))objc_msgSend)(catalogVC, @selector(arrSource));
+            if ([cur isKindOfClass:[NSMutableArray class]]) {
+                [(NSMutableArray *)cur setArray:chapters];
+                wrote = YES;
+            }
         }
-    } @catch (__unused NSException *e) {
-        @try { [catalogVC setValue:chapters forKey:@"arrCatalog"]; } @catch (__unused NSException *e2) {}
+    } @catch (__unused NSException *e) {}
+    if (!wrote) {
+        @try {
+            if ([catalogVC respondsToSelector:@selector(setArrSource:)]) {
+                ((void (*)(id, SEL, id))objc_msgSend)(catalogVC, @selector(setArrSource:), chapters);
+                wrote = YES;
+            }
+        } @catch (__unused NSException *e) {}
+    }
+    if (!wrote) {
+        @try { [catalogVC setValue:chapters forKey:@"arrCatalog"]; } @catch (__unused NSException *e) {}
     }
     @try {
         if ([catalogVC respondsToSelector:@selector(reloadData)]) {
@@ -707,9 +720,21 @@ static void LBCatalogFilterByKeyword(id catalogVC, NSString *keyword) {
 }
 @end
 
+static void LBEnsureCatalogReverseSelector(UIViewController *vc) {
+    if (!vc) return;
+    Class cls = object_getClass(vc);
+    SEL sel = @selector(lb_catalogReverseTapped);
+    if (![vc respondsToSelector:sel]) {
+        class_addMethod(cls, sel, imp_implementationWithBlock(^void(id selfObj) {
+            LBCatalogReverseArrayOnVC(selfObj);
+        }), "v@:");
+    }
+}
+
 static void LBWireCatalogAssistOnVC(UIViewController *vc) {
     if (!vc.isViewLoaded || !vc.view) return;
-    // 倒序按钮
+    LBEnsureCatalogReverseSelector(vc);
+    __block BOOL foundReverseBtn = NO;
     void (^walk)(UIView *) = NULL;
     __block __weak void (^weakWalk)(UIView *) = nil;
     weakWalk = walk = ^(UIView *v) {
@@ -719,17 +744,11 @@ static void LBWireCatalogAssistOnVC(UIViewController *vc) {
             NSString *acc = b.accessibilityLabel ?: @"";
             if ([t containsString:@"倒序"] || [t containsString:@"正序"] ||
                 [acc containsString:@"倒序"] || [acc containsString:@"正序"]) {
+                foundReverseBtn = YES;
                 b.hidden = NO;
                 b.enabled = YES;
                 b.userInteractionEnabled = YES;
-                Class cls = object_getClass(vc);
                 SEL sel = @selector(lb_catalogReverseTapped);
-                if (![vc respondsToSelector:sel]) {
-                    class_addMethod(cls, sel, imp_implementationWithBlock(^void(id selfObj) {
-                        LBCatalogReverseArrayOnVC(selfObj);
-                    }), "v@:");
-                }
-                // 不 removeTarget:nil，避免拆掉原版倒序；仅在尚未挂我们的 action 时追加
                 NSArray *acts = [b actionsForTarget:vc forControlEvent:UIControlEventTouchUpInside];
                 if (![acts containsObject:NSStringFromSelector(sel)]) {
                     [b addTarget:vc action:sel forControlEvents:UIControlEventTouchUpInside];
@@ -745,7 +764,7 @@ static void LBWireCatalogAssistOnVC(UIViewController *vc) {
                 assist.catalogVC = vc;
                 objc_setAssociatedObject(vc, &kAssistKey, assist, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             }
-            // 仅在无原版 delegate 时接管；有则保留原版搜索
+            // 无原版 delegate 时接管；有 UISearchController 则靠 updateSearchResults hook
             if (sb.delegate == nil) {
                 sb.delegate = assist;
             }
@@ -755,6 +774,27 @@ static void LBWireCatalogAssistOnVC(UIViewController *vc) {
         for (UIView *sub in v.subviews) weakWalk(sub);
     };
     walk(vc.view);
+
+    // 真机 CatalogCon 常只有「到底部」，无「倒序」——补导航栏按钮
+    if (!foundReverseBtn) {
+        static char kRevItemKey;
+        if (!objc_getAssociatedObject(vc, &kRevItemKey)) {
+            UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithTitle:@"倒序"
+                                                                     style:UIBarButtonItemStylePlain
+                                                                    target:vc
+                                                                    action:@selector(lb_catalogReverseTapped)];
+            NSMutableArray *rights = [NSMutableArray array];
+            if (vc.navigationItem.rightBarButtonItems.count > 0) {
+                [rights addObjectsFromArray:vc.navigationItem.rightBarButtonItems];
+            } else if (vc.navigationItem.rightBarButtonItem) {
+                [rights addObject:vc.navigationItem.rightBarButtonItem];
+            }
+            // rightBarButtonItems[0] 最靠右；把倒序放后面 → 显示在「到底部」左侧
+            [rights addObject:item];
+            vc.navigationItem.rightBarButtonItems = rights;
+            objc_setAssociatedObject(vc, &kRevItemKey, item, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
 }
 
 static void LBInstallCatalogOrderAndSearchAssist(void) {
