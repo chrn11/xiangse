@@ -71,6 +71,10 @@ NSArray *LBFindDiscoverHostVCs(void);
 BOOL LBEnsureNativeDiscoverHostPresented(void);
 /// 清除发现页 Bridge overlay 子视图（tag LBKB/LBPV）
 void LBRemoveDiscoverOverlays(UIViewController *host);
+/// 按当前发现宿主源名判断是否应走纯原生发现（找不到 Legado explore 名 → YES）
+BOOL LBDiscoverShouldUseNativeXBS(void);
+/// 进入发现 Tab / 刷新前同步 XBS↔Legado；返回 YES 表示当前为纯原生发现（最小干预）
+BOOL LBDiscoverSyncModeForCurrentSource(void);
 /// 当前选中的 BookListCon 子页
 UIViewController * _Nullable LBActiveDiscoverListVC(UIViewController *host);
 /// 书列表灌入后刷新原生子页

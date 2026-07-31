@@ -321,14 +321,21 @@ static void LBTriggerLegadoExploreForDiscoverTab(void) {
     sDiscoverTabActive = YES;
 
     BOOL hostOk = LBEnsureNativeDiscoverHostPresented();
+    // 先按当前发现源同步态：纯 XBS 禁止 ForceLegado / explore / 掏空
+    BOOL xbs = LBDiscoverSyncModeForCurrentSource();
+    if (xbs) {
+        LBDiscoverAppendMarker([NSString stringWithFormat:
+                                @"discoverTab XBS skip explore hostOk=%d",
+                                hostOk ? 1 : 0]);
+        return;
+    }
+
     id core = LBLegadoManagerCore();
     if (!core || ![core respondsToSelector:@selector(handleExploreRequestWithSourceUrl:exploreUrl:page:)]) {
         LBDiscoverAppendMarker(@"discoverTab explore skip: core/API missing");
         return;
     }
-    // 主动走 Legado 发现：退出纯 XBS 态，允许 explore 灌列表
-    LBSetDiscoverNativeXBSMode(NO);
-    // 先建原生分类壳，延后拉书，避免 BookListCon 未就绪时 inject 杀进程
+    // Legado 发现：分类壳 + explore
     LBRefreshDiscoverKindBar();
     NSString *src = nil;
     @try {
@@ -354,6 +361,7 @@ static void LBTriggerLegadoExploreForDiscoverTab(void) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         if (!LBIsDiscoverTabActive()) return;
+        if (LBDiscoverSyncModeForCurrentSource()) return;
         LBRefreshDiscoverKindBar();
         if (src.length == 0) return;
         @try {

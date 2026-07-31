@@ -20,6 +20,10 @@ FOUNDATION_EXPORT void LBClearDiscoverExplorePendingOnly(void);
 /// 发现页当前是否处于「用户切到纯 XBS」态（此时禁止再灌 Legado explore）
 FOUNDATION_EXPORT BOOL LBIsDiscoverNativeXBSMode(void);
 FOUNDATION_EXPORT void LBSetDiscoverNativeXBSMode(BOOL on);
+/// 按当前发现宿主源名判断是否应走纯原生发现（找不到 Legado explore 名 → YES）
+FOUNDATION_EXPORT BOOL LBDiscoverShouldUseNativeXBS(void);
+/// 进入发现 Tab / 刷新前同步 XBS↔Legado；返回 YES 表示当前为纯原生发现（最小干预）
+FOUNDATION_EXPORT BOOL LBDiscoverSyncModeForCurrentSource(void);
 /// 在原生发现壳上刷新 SGPageTitleView 分类（禁止 Bridge overlay 标签栏）
 FOUNDATION_EXPORT void LBRefreshDiscoverKindBar(void);
 /// 把目录章节灌入可见 CatalogCon/详情/阅读页的 arrCatalog 并 reload

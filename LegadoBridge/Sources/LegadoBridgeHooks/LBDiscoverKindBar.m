@@ -75,6 +75,8 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
 static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *kinds, NSString *srcName);
 static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sourceName);
 static NSString *LBFindLegadoExploreUrlByName(NSString *name);
+static NSString *LBReadHostSourceName(UIViewController *host);
+static BOOL LBInvokeOpenConfigByName(id host, NSString *cfgName);
 static void LBRevealDiscoverTitleAndList(UIViewController *host);
 static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot);
 
@@ -111,20 +113,30 @@ static void LBAppendNativeMarker(NSString *line) {
     [next writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 }
 
-/// 清除历史 Bridge overlay（标签栏 / 表）
+/// 清除历史 Bridge overlay（标签栏 / 表 / 分类 hit）
 void LBRemoveDiscoverOverlays(UIViewController *host) {
     if (!host.isViewLoaded || !host.view) return;
+    static const NSInteger kLBKindHit = 0x4C424B48; // 'LBKH'
     NSMutableArray *remove = [NSMutableArray array];
     for (UIView *sub in host.view.subviews) {
-        if (sub.tag == kLBKindBarTag || sub.tag == kLBOverlayTVTag) {
+        if (sub.tag == kLBKindBarTag || sub.tag == kLBOverlayTVTag || sub.tag == kLBKindHit) {
             [remove addObject:sub];
         }
     }
     for (UIView *v in remove) [v removeFromSuperview];
+    UIWindow *win = host.view.window;
+    if (win) {
+        NSMutableArray *winJunk = [NSMutableArray array];
+        for (UIView *sub in win.subviews) {
+            if (sub.tag == kLBKindHit) [winJunk addObject:sub];
+        }
+        for (UIView *v in winJunk) [v removeFromSuperview];
+    }
 }
 
-/// 发现态：分类只换数据，固定灌第一个 BookListCon（分类条用当前 Legado 源 kinds）
+/// 发现态：Legado 分类只换数据，固定灌第一个 BookListCon；纯 XBS 必须多页原生翻页
 static BOOL LBDiscoverSingleListFeed(void) {
+    if (LBIsDiscoverNativeXBSMode()) return NO;
     return YES;
 }
 
@@ -138,6 +150,7 @@ static BOOL LBSelfLooksDiscoverWorldHost(id self) {
 /// 内容区钉在第一页，避免滑到空兄弟页；标题选中态另行恢复
 void LBPinDiscoverContentToFirstPage(UIViewController *host) {
     if (!host) return;
+    if (LBIsDiscoverNativeXBSMode()) return;
     id scroll = nil;
     @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
     if (!scroll) return;
@@ -312,6 +325,10 @@ static NSString *LBResolveExploreKindUrl(NSInteger index, NSString *titleHint) {
 }
 
 static void LBDiscoverFireExploreForIndex(NSInteger index, NSString *titleHint) {
+    if (LBIsDiscoverNativeXBSMode()) {
+        LBAppendNativeMarker(@"nativeExplore skip XBS");
+        return;
+    }
     if (sApplyingKinds || sFeedingDiscoverHeader) {
         LBAppendNativeMarker(@"nativeExplore skip: applyingKinds");
         return;
@@ -337,6 +354,10 @@ static void LBDiscoverFireExploreForIndex(NSInteger index, NSString *titleHint) 
 
 /// 分类切换：原生多页翻页后，按 index 触发 explore（不再钉死第一页）
 static void LBDiscoverHandleKindSelect(UIViewController *host, id pageTitleView, NSInteger index) {
+    if (LBIsDiscoverNativeXBSMode()) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"nativeTab skip XBS idx=%ld", (long)index]);
+        return;
+    }
     if (sHandlingKindSelect) return;
     // SG 若仍用被污染的 btn.tag 回调，会传来 0x4C424Bxx；直接丢弃
     if (index < 0 || index > 64) {
@@ -406,9 +427,13 @@ static void LBEnsureDiscoverKindBtnMethod(Class cls) {
     class_addMethod(cls, sel, (IMP)LBDiscover_kindBtnTouch, "v@:@");
 }
 
-/// 断开标题条与内容滚动联动，避免选分类时翻到不存在的空页
+/// 断开标题条与内容滚动联动，避免选分类时翻到不存在的空页（仅 Legado 单列表灌书）
 static void LBUnlinkDiscoverTitleContent(UIViewController *host) {
     if (!host) return;
+    if (LBIsDiscoverNativeXBSMode()) {
+        LBAppendNativeMarker(@"unlink skip XBS");
+        return;
+    }
     id tv = nil;
     id scroll = nil;
     @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
@@ -430,6 +455,11 @@ static void LBUnlinkDiscoverTitleContent(UIViewController *host) {
 
 static void LBAttachDiscoverKindButtonActions(UIViewController *host, id titleView) {
     if (!host || ![titleView isKindOfClass:[UIView class]]) return;
+    // 纯 XBS：禁止改按钮 target / unlink / hit overlay，交给原生 SGPage
+    if (LBIsDiscoverNativeXBSMode()) {
+        LBAppendNativeMarker(@"kindBtnAttach skip XBS");
+        return;
+    }
     LBEnsureDiscoverKindBtnMethod([host class]);
     SEL sel = @selector(lb_discoverKindBtn:);
     UIView *root = (UIView *)titleView;
@@ -1019,56 +1049,55 @@ static void LBInstallBookListSafeViewDidLoad(void) {
 }
 
 /// donor configure 的 titleColor 多为白色（原生深色页），发现页白底会导致白字不可见。
-/// 新建一份 configure，失败则就地改色。
+/// 优先保留宿主 configure；仅当字色过亮时改深色，避免另起一套硬编码主题。
+static BOOL LBColorLooksTooLight(UIColor *c) {
+    if (!c) return YES;
+    CGFloat r = 0, g = 0, b = 0, a = 1;
+    if (![c getRed:&r green:&g blue:&b alpha:&a]) {
+        CGFloat w = 0;
+        if ([c getWhite:&w alpha:&a]) {
+            return (w > 0.85 && a > 0.5);
+        }
+        return NO;
+    }
+    CGFloat luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    return (luma > 0.85 && a > 0.5);
+}
+
 static id LBDiscoverTitleConfigure(id donorConfigure) {
-    UIColor *normal = [UIColor colorWithWhite:0.20 alpha:1];
-    UIColor *selected = [UIColor colorWithRed:0.90 green:0.35 blue:0.10 alpha:1];
+    UIColor *fallbackNormal = [UIColor colorWithWhite:0.20 alpha:1];
+    UIColor *fallbackSelected = [UIColor colorWithRed:0.90 green:0.35 blue:0.10 alpha:1];
+    id cfg = donorConfigure;
     Class cfgCls = NSClassFromString(@"SGPageTitleViewConfigure");
-    id cfg = nil;
-    SEL make = NSSelectorFromString(@"pageTitleViewConfigure");
-    if (cfgCls && [cfgCls respondsToSelector:make]) {
-        @try { cfg = ((id (*)(id, SEL))objc_msgSend)(cfgCls, make); } @catch (__unused NSException *e) {}
+    BOOL fresh = NO;
+    if (!cfg) {
+        SEL make = NSSelectorFromString(@"pageTitleViewConfigure");
+        if (cfgCls && [cfgCls respondsToSelector:make]) {
+            @try { cfg = ((id (*)(id, SEL))objc_msgSend)(cfgCls, make); fresh = YES; } @catch (__unused NSException *e) {}
+        }
+        if (!cfg && cfgCls) {
+            @try { cfg = [[cfgCls alloc] init]; fresh = YES; } @catch (__unused NSException *e) {}
+        }
     }
-    if (!cfg && cfgCls) {
-        @try { cfg = [[cfgCls alloc] init]; } @catch (__unused NSException *e) {}
-    }
-    if (!cfg) cfg = donorConfigure;
     if (!cfg) return nil;
 
-    NSDictionary *kv = @{
-        @"titleColor": normal,
-        @"titleSelectedColor": selected,
-        @"indicatorColor": selected,
-        @"titleFont": [UIFont systemFontOfSize:15],
-        @"titleSelectedFont": [UIFont boldSystemFontOfSize:16],
-        @"titleAdditionalWidth": @20,
-        @"equivalence": @NO,
-        @"isShowIndicator": @YES,
-        @"showIndicator": @YES,
-        @"isNeedBounces": @YES,
-        @"bounces": @YES,
-        @"isOpenTitleTextZoom": @YES,
-        @"openTitleTextZoom": @YES,
-        @"titleTextZoomScale": @0.18,
-        @"indicatorStyle": @0,
-        @"indicatorHeight": @2,
-        @"indicatorWidth": @16,
-        @"indicatorSpacing": @4,
-        @"contentInsetSpacing": @16,
-        @"spacingBetweenButtons": @24,
-        @"startSpacing": @12,
-    };
-    NSMutableArray *okKeys = [NSMutableArray array];
-    for (NSString *k in kv) {
-        @try {
-            [cfg setValue:kv[k] forKey:k];
-            [okKeys addObject:k];
-        } @catch (__unused NSException *e) {}
+    UIColor *titleColor = nil;
+    UIColor *selectedColor = nil;
+    @try { titleColor = [cfg valueForKey:@"titleColor"]; } @catch (__unused NSException *e) {}
+    @try { selectedColor = [cfg valueForKey:@"titleSelectedColor"]; } @catch (__unused NSException *e) {}
+    if (![titleColor isKindOfClass:[UIColor class]] || LBColorLooksTooLight(titleColor)) {
+        @try { [cfg setValue:fallbackNormal forKey:@"titleColor"]; } @catch (__unused NSException *e) {}
+        titleColor = fallbackNormal;
     }
-    LBAppendNativeMarker([NSString stringWithFormat:@"titleCfg cls=%@ fresh=%d keys=%@",
+    if (![selectedColor isKindOfClass:[UIColor class]] || LBColorLooksTooLight(selectedColor)) {
+        @try { [cfg setValue:fallbackSelected forKey:@"titleSelectedColor"]; } @catch (__unused NSException *e) {}
+        @try { [cfg setValue:fallbackSelected forKey:@"indicatorColor"]; } @catch (__unused NSException *e) {}
+        selectedColor = fallbackSelected;
+    }
+    LBAppendNativeMarker([NSString stringWithFormat:@"titleCfg cls=%@ fresh=%d lightFix=%d",
                           NSStringFromClass([cfg class]),
-                          (cfg != donorConfigure) ? 1 : 0,
-                          [okKeys componentsJoinedByString:@","]]);
+                          fresh ? 1 : 0,
+                          LBColorLooksTooLight(titleColor) ? 0 : 1]);
     return cfg;
 }
 
@@ -1103,6 +1132,7 @@ static CGFloat LBDiscoverTitleTopInHost(UIViewController *host) {
 
 void LBBringDiscoverKindHitFront(UIViewController *host) {
     if (!host || !host.isViewLoaded || !host.view) return;
+    if (LBIsDiscoverNativeXBSMode()) return;
     static const NSInteger kLBKindHit = 0x4C424B48; // 'LBKH'
     UIWindow *win = host.view.window;
     UIView *container = win ?: host.view;
@@ -1196,6 +1226,22 @@ static void LBDiscover_titleKindTap(id self, SEL _cmd, id sender) {
 
 static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot) {
     if (!host || !titleRoot || !host.isViewLoaded || !host.view) return;
+    if (LBIsDiscoverNativeXBSMode()) {
+        // 清掉历史 hit overlay，避免挡原生分类点击
+        static const NSInteger kLBKindHit = 0x4C424B48; // 'LBKH'
+        UIWindow *win = host.view.window;
+        UIView *container = win ?: host.view;
+        NSMutableArray *junk = [NSMutableArray array];
+        for (UIView *sub in container.subviews) {
+            if (sub.tag == kLBKindHit) [junk addObject:sub];
+        }
+        for (UIView *sub in host.view.subviews) {
+            if (sub.tag == kLBKindHit) [junk addObject:sub];
+        }
+        for (UIView *v in junk) [v removeFromSuperview];
+        LBAppendNativeMarker(@"kindTap skip XBS (removed hit)");
+        return;
+    }
     static const NSInteger kLBKindHit = 0x4C424B48; // 'LBKH'
     UIWindow *win = host.view.window;
     UIView *container = win ?: host.view;
@@ -1302,6 +1348,10 @@ static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot) {
 
 static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
     if (![tv isKindOfClass:[UIView class]]) return;
+    if (LBIsDiscoverNativeXBSMode()) {
+        // 纯原生：不改字色/不叠 overlay，交给宿主 configure
+        return;
+    }
     UIView *root = (UIView *)tv;
     // 浅底深字：黑内容区上分类条必须显眼
     @try {
@@ -1601,6 +1651,10 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
 
 static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles) {
     if (!host || titles.count == 0) return;
+    if (LBIsDiscoverNativeXBSMode()) {
+        LBAppendNativeMarker(@"forceTitles skip XBS");
+        return;
+    }
     BOOL prev = sApplyingKinds;
     sApplyingKinds = YES;
     @try { [host setValue:titles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
@@ -1818,6 +1872,10 @@ static NSArray *LBDedupExploreKinds(NSArray *kinds) {
 
 static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *kinds, NSString *srcName) {
     if (!host) return;
+    if (LBIsDiscoverNativeXBSMode()) {
+        LBAppendNativeMarker(@"applyKinds skip XBS");
+        return;
+    }
     kinds = LBDedupExploreKinds(kinds);
     NSMutableArray *titles = [NSMutableArray array];
     NSMutableSet *seen = [NSMutableSet set];
@@ -2659,6 +2717,20 @@ static void LBDiscover_pageTitleSelected(id self, SEL _cmd, id pageTitleView, NS
         }
         return;
     }
+    // 纯原生发现：完全放行 SGPageTitleView + createCons 翻页，禁止钉页/explore
+    if (LBIsDiscoverNativeXBSMode()) {
+        if (sOrig_pageTitleSelected) {
+            @try {
+                sOrig_pageTitleSelected(self, _cmd, pageTitleView, index);
+            } @catch (NSException *ex) {
+                LBAppendNativeMarker([NSString stringWithFormat:@"pageTitle XBS orig EX %@",
+                                      ex.reason ?: @""]);
+            }
+        }
+        LBAppendNativeMarker([NSString stringWithFormat:@"pageTitle XBS passthrough idx=%ld",
+                              (long)index]);
+        return;
+    }
     if (index < 0 || index > 64) {
         LBAppendNativeMarker([NSString stringWithFormat:@"pageTitle drop badIdx=%ld", (long)index]);
         return;
@@ -2687,13 +2759,14 @@ static void LBDiscover_pageTitleSelected(id self, SEL _cmd, id pageTitleView, NS
                        dispatch_get_main_queue(), ^{
             UIViewController *h = weakHost;
             if (!h || !LBIsDiscoverTabActive()) return;
+            if (LBIsDiscoverNativeXBSMode()) return;
             LBReloadDiscoverNativeList(h);
         });
     }
 }
 
 static void LBDiscover_onHeaderBtn(id self, SEL _cmd, id sender) {
-    // 标签墙点击：先走原生，再按按钮标题匹配 Legado kind
+    // 标签墙点击：先走原生；Legado 态再按按钮标题匹配 kind
     if (sOrig_onHeaderBtn) {
         @try {
             sOrig_onHeaderBtn(self, _cmd, sender);
@@ -2704,6 +2777,10 @@ static void LBDiscover_onHeaderBtn(id self, SEL _cmd, id sender) {
     }
     BOOL discoverCtx = LBIsDiscoverTabActive() || sNativeChromeBuilt || LBSelfLooksDiscoverWorldHost(self);
     if (!discoverCtx) return;
+    if (LBIsDiscoverNativeXBSMode()) {
+        LBAppendNativeMarker(@"headerBtn XBS passthrough only");
+        return;
+    }
 
     NSString *title = nil;
     NSInteger tagIdx = -1;
@@ -2736,6 +2813,7 @@ static void LBDiscover_onHeaderBtn(id self, SEL _cmd, id sender) {
                        dispatch_get_main_queue(), ^{
             UIViewController *h = weakHost;
             if (!h || !LBIsDiscoverTabActive()) return;
+            if (LBIsDiscoverNativeXBSMode()) return;
             LBReloadDiscoverNativeList(h);
         });
     }
@@ -3057,6 +3135,89 @@ void LBInstallDiscoverNativeUIHooks(void) {
     });
 }
 
+/// 按当前发现宿主源名判断：找不到可发现 Legado 名 → 纯原生（fail-open 保标签墙）
+BOOL LBDiscoverShouldUseNativeXBS(void) {
+    UIViewController *host = LBPrimaryDiscoverHost();
+    NSString *name = LBReadHostSourceName(host);
+    if (name.length > 0) {
+        if ([name isEqualToString:@"切换站点"] || [name isEqualToString:@"书源"] ||
+            [name isEqualToString:@"发现"]) {
+            return YES;
+        }
+        NSString *legadoUrl = LBFindLegadoExploreUrlByName(name);
+        return (legadoUrl.length == 0);
+    }
+    id core = LBKindCore();
+    if (core) {
+        NSString *src = nil;
+        @try {
+            id v = [core valueForKey:@"selectedExploreSourceUrl"];
+            if ([v isKindOfClass:[NSString class]]) src = v;
+        } @catch (__unused NSException *e) {}
+        if (src.length > 0) {
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"shouldXBS hostName空 selectedExplore=%@ → XBS=1",
+                                  src]);
+        }
+    }
+    return YES;
+}
+
+BOOL LBDiscoverSyncModeForCurrentSource(void) {
+    BOOL xbs = LBDiscoverShouldUseNativeXBS();
+    LBSetDiscoverNativeXBSMode(xbs);
+    UIViewController *host = LBPrimaryDiscoverHost();
+    if (xbs) {
+        if (host) {
+            @try { LBRemoveDiscoverOverlays(host); } @catch (__unused NSException *e) {}
+        }
+        sCachedKinds = nil;
+        sNativeChromeBuilt = NO;
+        id core = LBKindCore();
+        if (core) {
+            @try { [core setValue:nil forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
+        }
+        @try { LBClearDiscoverExplorePendingOnly(); } @catch (__unused NSException *e) {}
+
+        NSString *name = LBReadHostSourceName(host);
+        BOOL opened = NO;
+        if (host && name.length > 0 &&
+            ![name isEqualToString:@"切换站点"] &&
+            ![name isEqualToString:@"书源"] &&
+            ![name isEqualToString:@"发现"]) {
+            static NSString *sLastXBSRestoreName = nil;
+            static CFAbsoluteTime sLastXBSRestoreAt = 0;
+            CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+            BOOL sameRecent = (sLastXBSRestoreName &&
+                               [sLastXBSRestoreName isEqualToString:name] &&
+                               (now - sLastXBSRestoreAt) < 2.5);
+            if (!sameRecent) {
+                sLastXBSRestoreName = [name copy];
+                sLastXBSRestoreAt = now;
+                BOOL prevHandling = sHandlingDiscoverSwitch;
+                sHandlingDiscoverSwitch = YES;
+                @try {
+                    opened = LBInvokeOpenConfigByName(host, name);
+                } @catch (__unused NSException *e) {
+                    opened = NO;
+                } @finally {
+                    sHandlingDiscoverSwitch = prevHandling;
+                }
+            }
+        }
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"syncMode XBS=1 host=%@ name=%@ openCfg=%d",
+                              host ? NSStringFromClass([host class]) : @"-",
+                              name ?: @"-", opened ? 1 : 0]);
+    } else {
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"syncMode XBS=0 host=%@ name=%@",
+                              host ? NSStringFromClass([host class]) : @"-",
+                              LBReadHostSourceName(host) ?: @"-"]);
+    }
+    return xbs;
+}
+
 /// 刷新原生分类标签（原 LBRefreshDiscoverKindBar，已去掉 overlay）
 void LBRefreshDiscoverKindBar(void) {
     if (![NSThread isMainThread]) {
@@ -3072,27 +3233,13 @@ void LBRefreshDiscoverKindBar(void) {
     id core = LBKindCore();
     if (!core) return;
 
-    // 导航栏真实源名优先（避免 selectedExplore 卡在旧的速读谷、屏上却是领域书库）
-    NSString *hostName = LBReadHostSourceName(host);
-    if (hostName.length > 0) {
-        NSString *byName = LBFindLegadoExploreUrlByName(hostName);
-        if (byName.length == 0) {
-            // 当前顶栏是纯 XBS：进入 XBS 态并停止灌 Legado
-            LBSetDiscoverNativeXBSMode(YES);
-            LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"refreshKind skip XBS host=%@", hostName]);
-            return;
-        }
-        LBSetDiscoverNativeXBSMode(NO);
-        @try { [core setValue:byName forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
-        LBAppendNativeMarker([NSString stringWithFormat:@"syncExploreFromNav name=%@ url=%@",
-                              hostName, byName]);
-    }
-    if (LBIsDiscoverNativeXBSMode()) {
-        LBAppendNativeMarker(@"refreshKind skip XBS mode flag");
+    // 统一走 Sync：XBS 最小干预；Legado 才灌 kinds
+    if (LBDiscoverSyncModeForCurrentSource()) {
+        LBAppendNativeMarker(@"refreshKind skip after sync XBS");
         return;
     }
 
+    NSString *hostName = LBReadHostSourceName(host);
     NSString *src = LBCurrentExploreSourceUrl(core);
     NSString *srcName = hostName;
     for (id row in LBParseJSONArray(
