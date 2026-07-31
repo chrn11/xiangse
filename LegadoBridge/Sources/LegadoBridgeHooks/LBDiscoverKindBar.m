@@ -1098,11 +1098,17 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
             } @catch (__unused NSException *e) {}
             sNativeChromeBuilt = NO;
             NSMutableArray *cons = [NSMutableArray array];
+            NSArray *titlesArg = [wantTitles isKindOfClass:[NSArray class]]
+                ? [wantTitles mutableCopy] : [@[@"男生", @"女频", @"出版"] mutableCopy];
+            if (![titlesArg isKindOfClass:[NSMutableArray class]]) {
+                titlesArg = [titlesArg mutableCopy] ?: [NSMutableArray arrayWithObjects:@"男生", @"女频", @"出版", nil];
+            }
             ((void (*)(id, SEL, id, id, id))objc_msgSend)(
-                host, @selector(createCons:titles:sourceName:), cons, wantTitles, title);
+                host, @selector(createCons:titles:sourceName:), cons, titlesArg, title);
             LBAppendNativeMarker([NSString stringWithFormat:
                                   @"xbsRestore createCons titles=%lu cons=%lu",
-                                  (unsigned long)wantTitles.count, (unsigned long)cons.count]);
+                                  (unsigned long)[titlesArg count], (unsigned long)cons.count]);
+            @try { [host setValue:titlesArg forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
             if ([host respondsToSelector:@selector(resetContent)]) {
                 ((void (*)(id, SEL))objc_msgSend)(host, @selector(resetContent));
                 didReset = YES;
