@@ -204,8 +204,13 @@ void LBPinDiscoverContentToFirstPage(UIViewController *host) {
         } @catch (__unused NSException *e) {}
     }
 
-    void (^pinSV)(UIScrollView *) = ^(UIScrollView *sv) {
+    // 只钉住横向翻页容器；禁止误伤内部 UITableView/UICollectionView（否则列表拖不动）
+    void (^pinPageSV)(UIScrollView *) = ^(UIScrollView *sv) {
         if (!sv) return;
+        if ([sv isKindOfClass:[UITableView class]] ||
+            [sv isKindOfClass:[UICollectionView class]]) {
+            return;
+        }
         @try {
             sv.scrollEnabled = NO;
             sv.pagingEnabled = NO;
@@ -213,7 +218,7 @@ void LBPinDiscoverContentToFirstPage(UIViewController *host) {
         } @catch (__unused NSException *e) {}
     };
     if ([scroll isKindOfClass:[UIScrollView class]]) {
-        pinSV((UIScrollView *)scroll);
+        pinPageSV((UIScrollView *)scroll);
         UIScrollView *sv = (UIScrollView *)scroll;
         @try {
             CGSize cs = sv.contentSize;
@@ -228,7 +233,7 @@ void LBPinDiscoverContentToFirstPage(UIViewController *host) {
         while (stack.count && budget-- > 0) {
             UIView *v = stack.lastObject;
             [stack removeLastObject];
-            if ([v isKindOfClass:[UIScrollView class]]) pinSV((UIScrollView *)v);
+            if ([v isKindOfClass:[UIScrollView class]]) pinPageSV((UIScrollView *)v);
             for (UIView *sub in v.subviews) [stack addObject:sub];
         }
     }
@@ -1688,8 +1693,19 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
         }
     }
 
+    // host.view 常在导航栏下方：title.maxY≈38；切勿再抬到 129（会在分类条下留出一整块空白）
     CGFloat titleBottom = title ? CGRectGetMaxY(title.frame) : 0;
-    if (titleBottom < 100) titleBottom = 129;
+    if (titleBottom < 2) {
+        titleBottom = LBDiscoverTitleTopInHost(host) + 44;
+    }
+    if (titleBottom < 36) titleBottom = 44;
+    LBAppendNativeMarker([NSString stringWithFormat:
+                          @"reveal titleBottom=%.0f titleFrame=%.0f,%.0f,%.0fx%.0f",
+                          titleBottom,
+                          title ? title.frame.origin.x : -1,
+                          title ? title.frame.origin.y : -1,
+                          title ? title.frame.size.width : 0,
+                          title ? title.frame.size.height : 0]);
 
     id scroll = nil;
     @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
@@ -1753,6 +1769,16 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
             overlay.backgroundColor = [UIColor whiteColor];
             overlay.separatorColor = [UIColor colorWithWhite:0.90 alpha:1];
         }
+        // 显式恢复滚动：历史上 pin 曾误伤表，且 contentInset 残留会造成「上面空白+拖不动」
+        overlay.scrollEnabled = YES;
+        overlay.userInteractionEnabled = YES;
+        overlay.bounces = YES;
+        if (@available(iOS 11.0, *)) {
+            overlay.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+        }
+        overlay.contentInset = UIEdgeInsetsZero;
+        overlay.scrollIndicatorInsets = UIEdgeInsetsZero;
+        overlay.tableHeaderView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, of.size.width, 0.01)];
         overlay.dataSource = (id<UITableViewDataSource>)list;
         overlay.delegate = (id<UITableViewDelegate>)list;
         @try {
@@ -2681,10 +2707,16 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
             tv.delegate = (id<UITableViewDelegate>)listVC;
             tv.rowHeight = 108;
             tv.estimatedRowHeight = 108;
-            LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"ensureListSurface fixDS arr=%lu was=%@",
-                                  (unsigned long)arrN, dsn.length ? dsn : @"nil"]);
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"ensureListSurface fixDS arr=%lu was=%@",
+                              (unsigned long)arrN, dsn.length ? dsn : @"nil"]);
         }
+        tv.scrollEnabled = YES;
+        tv.userInteractionEnabled = YES;
+        if (@available(iOS 11.0, *)) {
+            tv.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+        }
+        tv.contentInset = UIEdgeInsetsZero;
         LBAppendNativeMarker([NSString stringWithFormat:
                               @"ensureListSurface reuse tv=%.0fx%.0f@%.0f,%.0f tag=%ld owner=%@",
                               tv.frame.size.width, tv.frame.size.height,
