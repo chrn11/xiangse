@@ -720,12 +720,14 @@ static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
         if (![bw isKindOfClass:[NSDictionary class]]) return;
         NSDictionary *bwd = (NSDictionary *)bw;
         NSUInteger topKeys = bwd.count;
-        if (topKeys < 6) return; // 过薄（如仅 actionID/parserID）会建空 SGPage 后崩
+        if (topKeys < 3) return;
         NSUInteger nested = 0;
         for (id v in bwd.allValues) {
             if ([v isKindOfClass:[NSArray class]]) nested += [(NSArray *)v count] * 5;
             else if ([v isKindOfClass:[NSDictionary class]]) nested += [(NSDictionary *)v count];
         }
+        // 顶层 <6 但嵌套够（番茄标签墙仅 3 大类）仍可作 donor；真薄壳（仅 actionID 等）跳过
+        if (topKeys < 6 && nested < 20) return;
         NSUInteger score = topKeys * 10 + nested;
         if ([stype containsString:@"dom"] || [stype containsString:@"text"] || stype.length == 0) {
             score += 100;
@@ -905,21 +907,31 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
         }
     }
 
-    // T1/T2：本源 bookWorld 过薄（如番茄20250516 仅男生/女频/出版 3 key）时，
-    // 禁止直接采用；改借富 donor（如番茄20250628）重建标签墙。
+    // T1：番茄系顶层常仅「男生/女频/出版」3 key，富源看嵌套标签数，不能用 topKeys>=6 误杀。
+    // 本源嵌套过薄（如 20250516 空壳）才借富 donor。
     NSDictionary *donorBW = nil;
     NSString *donorName = nil;
     NSUInteger ownKeys = 0;
+    NSUInteger ownNested = 0;
     if ([picked isKindOfClass:[NSDictionary class]]) {
         id bw = picked[@"bookWorld"];
         if ([bw isKindOfClass:[NSDictionary class]]) {
-            ownKeys = [(NSDictionary *)bw count];
-            if (ownKeys >= 6) {
-                donorBW = (NSDictionary *)bw;
+            NSDictionary *own = (NSDictionary *)bw;
+            ownKeys = own.count;
+            for (id v in own.allValues) {
+                if ([v isKindOfClass:[NSArray class]]) {
+                    ownNested += [(NSArray *)v count];
+                } else if ([v isKindOfClass:[NSDictionary class]]) {
+                    ownNested += [(NSDictionary *)v count];
+                }
+            }
+            // 至少 3 个顶栏 + 足够嵌套（标签墙/子分类）才自用
+            if (ownKeys >= 3 && ownNested >= 12) {
+                donorBW = own;
             } else {
                 LBAppendNativeMarker([NSString stringWithFormat:
-                                      @"xbsRestore thinOwnBW keys=%lu name=%@ → try donor",
-                                      (unsigned long)ownKeys, want]);
+                                      @"xbsRestore thinOwnBW keys=%lu nested=%lu name=%@ → try donor",
+                                      (unsigned long)ownKeys, (unsigned long)ownNested, want]);
             }
         }
     }
@@ -936,10 +948,17 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
         LBAppendNativeMarker([NSString stringWithFormat:@"xbsRestore fail noBW name=%@", want]);
         return NO;
     }
-    if (donorBW.count < 6) {
-        LBAppendNativeMarker([NSString stringWithFormat:
-                              @"xbsRestore stillThin keys=%lu want=%@ (need explore)",
-                              (unsigned long)donorBW.count, want]);
+    {
+        NSUInteger n = 0;
+        for (id v in donorBW.allValues) {
+            if ([v isKindOfClass:[NSArray class]]) n += [(NSArray *)v count];
+            else if ([v isKindOfClass:[NSDictionary class]]) n += [(NSDictionary *)v count];
+        }
+        if (donorBW.count < 3 || (donorBW.count <= 3 && n < 12)) {
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"xbsRestore stillThin keys=%lu nested=%lu want=%@ (need explore)",
+                                  (unsigned long)donorBW.count, (unsigned long)n, want]);
+        }
     }
 
     NSMutableDictionary *model = [picked isKindOfClass:[NSDictionary class]]
