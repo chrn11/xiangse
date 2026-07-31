@@ -587,7 +587,14 @@ static NSString *LBSwitchVC_ResolveSourceUrl(NSString *name) {
         NSString *url = model[@"bookSourceUrl"] ?: model[@"sourceUrl"] ?: model[@"url"];
         if ([url isKindOfClass:[NSString class]] && url.length > 0) return url;
     }
+    // CoreIfReady 可能因初始化闸门返回 nil；换源路径直接 shared
     id core = LBLegadoCoreIfReady();
+    if (!core) {
+        Class cls = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+        if (cls) {
+            core = ((id (*)(id, SEL))objc_msgSend)(cls, @selector(shared));
+        }
+    }
     if (core && [core respondsToSelector:@selector(allSourcesInfo)]) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
@@ -832,7 +839,16 @@ static void LBSwitchVC_onOkBtnEvent_IMP(id self, SEL _cmd) {
         if ([v isKindOfClass:[NSString class]]) name = (NSString *)v;
     }
     name = LBLegadoStripDisplaySuffix(name);
-    if (LBLegadoShouldBlockSourceName(self, name)) {
+    BOOL isLegado = LBLegadoShouldBlockSourceName(self, name);
+    if (!isLegado && name.length > 0) {
+        isLegado = (LBSwitchVC_ResolveSourceUrl(name).length > 0);
+    }
+    @try {
+        NSString *diag = [NSString stringWithFormat:@"onOk name=%@ legado=%d\n", name ?: @"", isLegado ? 1 : 0];
+        [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_b4_onok.txt"]
+               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    } @catch (__unused NSException *e) {}
+    if (isLegado) {
         LBSwitchVC_StartLegadoSwitch(self, name);
         return;
     }
@@ -883,9 +899,18 @@ static void LBInstallBookSourceSwitchHooks(void) {
     SEL okSel = @selector(onOkBtnEvent);
     Method okM = class_getInstanceMethod(switchCls, okSel);
     if (okM && !LBOrig_SwitchVC_onOk) {
-        LBOrig_SwitchVC_onOk = (void (*)(id, SEL))method_getImplementation(okM);
-        method_setImplementation(okM, (IMP)LBSwitchVC_onOkBtnEvent_IMP);
-        NSLog(@"[LegadoBridge] hooked BookSourceSwitchVC2 onOkBtnEvent");
+        Class okOwner = LBClassOwningInstanceMethod(switchCls, okSel);
+        Method targetM = okOwner ? class_getInstanceMethod(okOwner, okSel) : okM;
+        LBOrig_SwitchVC_onOk = (void (*)(id, SEL))method_getImplementation(targetM);
+        const char *enc = method_getTypeEncoding(targetM);
+        // 始终挂到 SwitchVC 自身，避免改父类 IMP
+        class_replaceMethod(switchCls, okSel, (IMP)LBSwitchVC_onOkBtnEvent_IMP, enc);
+        NSString *hookMark = [NSString stringWithFormat:@"okOwner=%@ replaceOn=BookSourceSwitchVC2\n",
+                              okOwner ? NSStringFromClass(okOwner) : @"?"];
+        [hookMark writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_b4_hooks.txt"]
+                   atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        NSLog(@"[LegadoBridge] hooked BookSourceSwitchVC2 onOkBtnEvent (owner=%@)",
+              okOwner ? NSStringFromClass(okOwner) : @"?");
     }
 
     static dispatch_once_t onceObs;
