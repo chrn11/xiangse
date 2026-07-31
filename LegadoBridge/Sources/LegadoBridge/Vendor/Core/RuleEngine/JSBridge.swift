@@ -687,7 +687,7 @@ class CacheStore {
 
 // MARK: - JSBridgeHTTPClient
 
-class JSBridgeHTTPClient: NSObject, URLSessionDelegate {
+class JSBridgeHTTPClient: NSObject, URLSessionDelegate, URLSessionTaskDelegate {
     private static let shared = JSBridgeHTTPClient()
 
     private static let session: URLSession = {
@@ -699,9 +699,8 @@ class JSBridgeHTTPClient: NSObject, URLSessionDelegate {
         return URLSession(configuration: config, delegate: shared, delegateQueue: nil)
     }()
 
-    func urlSession(
-        _ session: URLSession,
-        didReceive challenge: URLAuthenticationChallenge,
+    private func acceptServerTrust(
+        _ challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
@@ -710,6 +709,23 @@ class JSBridgeHTTPClient: NSObject, URLSessionDelegate {
             return
         }
         completionHandler(.performDefaultHandling, nil)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        acceptServerTrust(challenge, completionHandler: completionHandler)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        acceptServerTrust(challenge, completionHandler: completionHandler)
     }
 
     static func syncGet(url: String, headers: [String: String]?) -> String? {

@@ -280,19 +280,31 @@ void LBLegadoImportData(NSData *data) {
 }
 
 /// J4：书源导入允许非标准 TLS（yckceo 等）
-@interface LBLegadoInsecureSessionDelegate : NSObject <NSURLSessionDelegate>
+@interface LBLegadoInsecureSessionDelegate : NSObject <NSURLSessionDelegate, NSURLSessionTaskDelegate>
 @end
 @implementation LBLegadoInsecureSessionDelegate
-- (void)URLSession:(NSURLSession *)session
-didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
- completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential * _Nullable))completionHandler {
+static void LBLegadoHandleAuthChallenge(NSURLAuthenticationChallenge *challenge,
+                                       void (^completionHandler)(NSURLSessionAuthChallengeDisposition, NSURLCredential * _Nullable)) {
     if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust]
         && challenge.protectionSpace.serverTrust) {
-        NSURLCredential *cred = [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust];
+        SecTrustRef trust = challenge.protectionSpace.serverTrust;
+        // 强制信任：不依赖系统评估结果（外网书源证书常非标准）
+        NSURLCredential *cred = [NSURLCredential credentialForTrust:trust];
         completionHandler(NSURLSessionAuthChallengeUseCredential, cred);
         return;
     }
     completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
+}
+- (void)URLSession:(NSURLSession *)session
+didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
+ completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential * _Nullable))completionHandler {
+    LBLegadoHandleAuthChallenge(challenge, completionHandler);
+}
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
+ completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential * _Nullable))completionHandler {
+    LBLegadoHandleAuthChallenge(challenge, completionHandler);
 }
 @end
 
