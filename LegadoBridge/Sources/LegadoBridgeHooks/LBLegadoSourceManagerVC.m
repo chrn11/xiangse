@@ -15,7 +15,13 @@
 @property (nonatomic, strong) UITextField *nameField;
 @property (nonatomic, strong) UITextField *urlField;
 @property (nonatomic, strong) UITextField *searchField;
+@property (nonatomic, strong) UITextField *exploreField;
 @property (nonatomic, strong) UITextField *groupField;
+@property (nonatomic, strong) UITextView *ruleSearchView;
+@property (nonatomic, strong) UITextView *ruleExploreView;
+@property (nonatomic, strong) UITextView *ruleBookInfoView;
+@property (nonatomic, strong) UITextView *ruleTocView;
+@property (nonatomic, strong) UITextView *ruleContentView;
 @property (nonatomic, strong) UITextView *jsonView;
 @property (nonatomic, assign) NSInteger mode; // 0 结构化 1 JSON
 @end
@@ -525,12 +531,19 @@ static id LBLegadoManagerCore(void) {
         target:self
         action:@selector(onSaveTapped)];
 
-    self.nameField = [self makeField:@"书源名称"];
+    self.nameField = [self makeField:@"书源名称 bookSourceName"];
     self.urlField = [self makeField:@"bookSourceUrl"];
     self.urlField.enabled = NO;
     self.urlField.textColor = [UIColor secondaryLabelColor];
     self.searchField = [self makeField:@"searchUrl"];
+    self.exploreField = [self makeField:@"exploreUrl"];
     self.groupField = [self makeField:@"分组 bookSourceGroup"];
+
+    self.ruleSearchView = [self makeRuleView];
+    self.ruleExploreView = [self makeRuleView];
+    self.ruleBookInfoView = [self makeRuleView];
+    self.ruleTocView = [self makeRuleView];
+    self.ruleContentView = [self makeRuleView];
 
     self.jsonView = [[UITextView alloc] initWithFrame:CGRectZero];
     self.jsonView.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular];
@@ -553,6 +566,17 @@ static id LBLegadoManagerCore(void) {
     return field;
 }
 
+- (UITextView *)makeRuleView {
+    UITextView *tv = [[UITextView alloc] initWithFrame:CGRectZero];
+    tv.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
+    tv.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    tv.autocorrectionType = UITextAutocorrectionTypeNo;
+    tv.delegate = self;
+    tv.layer.cornerRadius = 6;
+    tv.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    return tv;
+}
+
 - (id)core {
     Class coreClass = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
     if (!coreClass) return nil;
@@ -560,6 +584,31 @@ static id LBLegadoManagerCore(void) {
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
     return [coreClass performSelector:@selector(shared)];
 #pragma clang diagnostic pop
+}
+
+- (NSString *)prettyJSONObject:(id)obj {
+    if (!obj || obj == [NSNull null]) return @"{}";
+    NSError *err = nil;
+    if (![NSJSONSerialization isValidJSONObject:obj]) return @"{}";
+    NSData *data = [NSJSONSerialization dataWithJSONObject:obj
+                                                   options:NSJSONWritingPrettyPrinted
+                                                     error:&err];
+    if (!data || err) return @"{}";
+    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"{}";
+}
+
+- (id)parseJSONText:(NSString *)text error:(NSError **)outError {
+    NSString *trim = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trim.length == 0) return @{};
+    NSData *data = [trim dataUsingEncoding:NSUTF8StringEncoding];
+    if (!data) {
+        if (outError) {
+            *outError = [NSError errorWithDomain:@"LegadoBridge" code:1
+                                       userInfo:@{NSLocalizedDescriptionKey: @"编码失败"}];
+        }
+        return nil;
+    }
+    return [NSJSONSerialization JSONObjectWithData:data options:0 error:outError];
 }
 
 - (void)loadFromCore {
@@ -571,26 +620,23 @@ static id LBLegadoManagerCore(void) {
     }
     self.jsonView.text = json.length > 0 ? json : @"{}";
 
-    NSArray *info = nil;
-    if ([core respondsToSelector:@selector(allSourcesInfo)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-        info = [core performSelector:@selector(allSourcesInfo)];
-#pragma clang diagnostic pop
+    NSDictionary *root = nil;
+    if (json.length > 0) {
+        NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+        id obj = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
+        if ([obj isKindOfClass:[NSDictionary class]]) root = obj;
     }
-    for (NSDictionary *dict in info) {
-        if (![dict isKindOfClass:[NSDictionary class]]) continue;
-        NSString *url = dict[@"bookSourceUrl"];
-        if (![url isEqualToString:self.sourceUrl]) continue;
-        self.nameField.text = [dict[@"bookSourceName"] isKindOfClass:[NSString class]] ? dict[@"bookSourceName"] : @"";
-        self.urlField.text = url;
-        self.searchField.text = [dict[@"searchUrl"] isKindOfClass:[NSString class]] ? dict[@"searchUrl"] : @"";
-        self.groupField.text = [dict[@"bookSourceGroup"] isKindOfClass:[NSString class]] ? dict[@"bookSourceGroup"] : @"";
-        break;
-    }
-    if (self.urlField.text.length == 0) {
-        self.urlField.text = self.sourceUrl;
-    }
+
+    self.nameField.text = [root[@"bookSourceName"] isKindOfClass:[NSString class]] ? root[@"bookSourceName"] : @"";
+    self.urlField.text = [root[@"bookSourceUrl"] isKindOfClass:[NSString class]] ? root[@"bookSourceUrl"] : (self.sourceUrl ?: @"");
+    self.searchField.text = [root[@"searchUrl"] isKindOfClass:[NSString class]] ? root[@"searchUrl"] : @"";
+    self.exploreField.text = [root[@"exploreUrl"] isKindOfClass:[NSString class]] ? root[@"exploreUrl"] : @"";
+    self.groupField.text = [root[@"bookSourceGroup"] isKindOfClass:[NSString class]] ? root[@"bookSourceGroup"] : @"";
+    self.ruleSearchView.text = [self prettyJSONObject:root[@"ruleSearch"]];
+    self.ruleExploreView.text = [self prettyJSONObject:root[@"ruleExplore"]];
+    self.ruleBookInfoView.text = [self prettyJSONObject:root[@"ruleBookInfo"]];
+    self.ruleTocView.text = [self prettyJSONObject:root[@"ruleToc"]];
+    self.ruleContentView.text = [self prettyJSONObject:root[@"ruleContent"]];
 }
 
 - (void)onModeChanged:(UISegmentedControl *)seg {
@@ -607,15 +653,40 @@ static id LBLegadoManagerCore(void) {
     NSError *error = nil;
     BOOL ok = NO;
     if (self.mode == 0) {
-        if ([core respondsToSelector:@selector(updateStructuredFieldsForUrl:name:searchUrl:group:error:)]) {
-            ok = ((BOOL (*)(id, SEL, NSString *, NSString *, NSString *, NSString *, NSError **))objc_msgSend)(
-                core,
-                @selector(updateStructuredFieldsForUrl:name:searchUrl:group:error:),
-                self.sourceUrl,
-                self.nameField.text ?: @"",
-                self.searchField.text ?: @"",
-                self.groupField.text ?: @"",
-                &error
+        // 结构化：以完整 JSON 为底，写回基本字段 + 六大块规则
+        NSMutableDictionary *root = nil;
+        id parsed = [self parseJSONText:self.jsonView.text error:&error];
+        if ([parsed isKindOfClass:[NSDictionary class]]) {
+            root = [parsed mutableCopy];
+        } else {
+            root = [NSMutableDictionary dictionary];
+        }
+        root[@"bookSourceName"] = self.nameField.text ?: @"";
+        root[@"bookSourceUrl"] = self.sourceUrl ?: (self.urlField.text ?: @"");
+        root[@"searchUrl"] = self.searchField.text ?: @"";
+        root[@"exploreUrl"] = self.exploreField.text ?: @"";
+        root[@"bookSourceGroup"] = self.groupField.text ?: @"";
+
+        NSArray *ruleKeys = @[@"ruleSearch", @"ruleExplore", @"ruleBookInfo", @"ruleToc", @"ruleContent"];
+        NSArray *ruleViews = @[self.ruleSearchView, self.ruleExploreView, self.ruleBookInfoView, self.ruleTocView, self.ruleContentView];
+        for (NSUInteger i = 0; i < ruleKeys.count; i++) {
+            NSError *ruleErr = nil;
+            id ruleObj = [self parseJSONText:((UITextView *)ruleViews[i]).text error:&ruleErr];
+            if (ruleErr) {
+                [self showMessage:[NSString stringWithFormat:@"%@ JSON 无效: %@", ruleKeys[i], ruleErr.localizedDescription]];
+                return;
+            }
+            if (ruleObj) root[ruleKeys[i]] = ruleObj;
+        }
+
+        NSData *data = [NSJSONSerialization dataWithJSONObject:root options:0 error:&error];
+        if (!data || error) {
+            [self showMessage:error.localizedDescription ?: @"序列化失败"];
+            return;
+        }
+        if ([core respondsToSelector:@selector(updateSourceJSON:forUrl:error:)]) {
+            ok = ((BOOL (*)(id, SEL, NSData *, NSString *, NSError **))objc_msgSend)(
+                core, @selector(updateSourceJSON:forUrl:error:), data, self.sourceUrl, &error
             );
         }
     } else {
@@ -624,7 +695,6 @@ static id LBLegadoManagerCore(void) {
             [self showMessage:@"JSON 为空"];
             return;
         }
-        // 保存前校验
         id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
         if (!obj || error) {
             [self showMessage:error.localizedDescription ?: @"JSON 解析失败"];
@@ -649,6 +719,9 @@ static id LBLegadoManagerCore(void) {
         [self showMessage:error.localizedDescription ?: @"保存失败"];
         return;
     }
+    NSString *marker = [NSString stringWithFormat:@"M5 editor save ok mode=%ld url=%@", (long)self.mode, self.sourceUrl ?: @""];
+    [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_m5_editor_save.txt"]
+              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     [self.navigationController popViewControllerAnimated:YES];
 }
 
@@ -661,16 +734,32 @@ static id LBLegadoManagerCore(void) {
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return 1;
+    return self.mode == 0 ? 6 : 1;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return self.mode == 0 ? 4 : 1;
+    if (self.mode == 1) return 1;
+    if (section == 0) return 5; // 基本：名/url/search/explore/group
+    return 1; // 各大块规则 JSON
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    if (self.mode == 1) return @"完整 JSON";
+    switch (section) {
+        case 0: return @"基本";
+        case 1: return @"搜索 ruleSearch";
+        case 2: return @"发现 ruleExplore";
+        case 3: return @"详情 ruleBookInfo";
+        case 4: return @"目录 ruleToc";
+        case 5: return @"正文 ruleContent";
+        default: return nil;
+    }
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (self.mode == 1) return 360;
-    return 52;
+    if (self.mode == 1) return 420;
+    if (indexPath.section == 0) return 52;
+    return 140;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -688,32 +777,63 @@ static id LBLegadoManagerCore(void) {
         return cell;
     }
 
-    static NSString *fieldId = @"LBFieldCell";
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:fieldId];
+    if (indexPath.section == 0) {
+        static NSString *fieldId = @"LBFieldCell";
+        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:fieldId];
+        if (!cell) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:fieldId];
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        }
+        for (UIView *v in [cell.contentView.subviews copy]) {
+            if ([v isKindOfClass:[UITextField class]] || [v isKindOfClass:[UITextView class]]) {
+                [v removeFromSuperview];
+            }
+        }
+        UITextField *field = nil;
+        switch (indexPath.row) {
+            case 0: field = self.nameField; break;
+            case 1: field = self.urlField; break;
+            case 2: field = self.searchField; break;
+            case 3: field = self.exploreField; break;
+            default: field = self.groupField; break;
+        }
+        field.frame = CGRectInset(cell.contentView.bounds, 16, 8);
+        field.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [cell.contentView addSubview:field];
+        return cell;
+    }
+
+    static NSString *ruleId = @"LBRuleCell";
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:ruleId];
     if (!cell) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:fieldId];
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:ruleId];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
     }
-    for (UIView *v in cell.contentView.subviews) {
-        if ([v isKindOfClass:[UITextField class]]) [v removeFromSuperview];
+    for (UIView *v in [cell.contentView.subviews copy]) {
+        if ([v isKindOfClass:[UITextView class]]) [v removeFromSuperview];
     }
-    UITextField *field = nil;
-    switch (indexPath.row) {
-        case 0: field = self.nameField; break;
-        case 1: field = self.urlField; break;
-        case 2: field = self.searchField; break;
-        default: field = self.groupField; break;
+    UITextView *tv = nil;
+    switch (indexPath.section) {
+        case 1: tv = self.ruleSearchView; break;
+        case 2: tv = self.ruleExploreView; break;
+        case 3: tv = self.ruleBookInfoView; break;
+        case 4: tv = self.ruleTocView; break;
+        default: tv = self.ruleContentView; break;
     }
-    field.frame = CGRectInset(cell.contentView.bounds, 16, 8);
-    field.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [cell.contentView addSubview:field];
+    tv.frame = CGRectInset(cell.contentView.bounds, 12, 6);
+    tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [cell.contentView addSubview:tv];
     return cell;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    return self.mode == 0
-        ? @"保存前会写回 SourceRegistry 并同步原生站点列表。bookSourceUrl 不可在此改。"
-        : @"保存前校验 JSON 与 Legado 格式；通过后覆盖该源并保留本地启停。";
+    if (self.mode == 1) {
+        return @"保存前校验 JSON 与 Legado 格式；通过后覆盖该源并保留本地启停。";
+    }
+    if (section == 5) {
+        return @"六大块：基本 + 搜索/发现/详情/目录/正文。规则区填 JSON 对象。bookSourceUrl 不可改。";
+    }
+    return nil;
 }
 
 @end
