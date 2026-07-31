@@ -118,13 +118,15 @@ static void LBAppendNativeMarker(NSString *line) {
     [next writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 }
 
-/// 清除历史 Bridge overlay（标签栏 / 表 / 分类 hit）
+/// 清除历史 Bridge overlay（标签栏 / 表 / 分类 hit / feed 叠表）
 void LBRemoveDiscoverOverlays(UIViewController *host) {
     if (!host.isViewLoaded || !host.view) return;
     static const NSInteger kLBKindHit = 0x4C424B48; // 'LBKH'
+    static const NSInteger kLBFO = 0x4C42464F; // 'LBFO'
     NSMutableArray *remove = [NSMutableArray array];
     for (UIView *sub in host.view.subviews) {
-        if (sub.tag == kLBKindBarTag || sub.tag == kLBOverlayTVTag || sub.tag == kLBKindHit) {
+        if (sub.tag == kLBKindBarTag || sub.tag == kLBOverlayTVTag ||
+            sub.tag == kLBKindHit || sub.tag == kLBFO) {
             [remove addObject:sub];
         }
     }
@@ -136,6 +138,12 @@ void LBRemoveDiscoverOverlays(UIViewController *host) {
             if (sub.tag == kLBKindHit) [winJunk addObject:sub];
         }
         for (UIView *v in winJunk) [v removeFromSuperview];
+    }
+    // 切回 XBS 时恢复原生翻页层交互（Legado 叠表期间曾关掉）
+    id scroll = nil;
+    @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+    if ([scroll isKindOfClass:[UIView class]]) {
+        ((UIView *)scroll).userInteractionEnabled = YES;
     }
 }
 
@@ -1778,19 +1786,26 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
         }
         overlay.contentInset = UIEdgeInsetsZero;
         overlay.scrollIndicatorInsets = UIEdgeInsetsZero;
-        overlay.tableHeaderView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, of.size.width, 0.01)];
+        overlay.tableHeaderView = nil;
         overlay.dataSource = (id<UITableViewDataSource>)list;
         overlay.delegate = (id<UITableViewDelegate>)list;
         @try {
             [overlay reloadData];
             [overlay layoutIfNeeded];
         } @catch (__unused NSException *e) {}
+        // 原生 pageContent 翻页层会抢垂直拖动手势；叠表期间关掉其交互
+        if ([scroll isKindOfClass:[UIView class]]) {
+            UIView *sv = (UIView *)scroll;
+            sv.userInteractionEnabled = NO;
+            [host.view sendSubviewToBack:sv];
+        }
         [host.view bringSubviewToFront:overlay];
         NSInteger vis = 0;
         @try { vis = (NSInteger)overlay.visibleCells.count; } @catch (__unused NSException *e) {}
         LBAppendNativeMarker([NSString stringWithFormat:
-                              @"reveal feedOverlay vis=%ld rows~%lu csh=%.0f",
-                              (long)vis, (unsigned long)arrN, overlay.contentSize.height]);
+                              @"reveal feedOverlay vis=%ld rows~%lu csh=%.0f scroll=%d",
+                              (long)vis, (unsigned long)arrN, overlay.contentSize.height,
+                              overlay.scrollEnabled ? 1 : 0]);
     }
 
     // 分类条在内容/叠表之上；透明 hit 再盖在分类条上吃点击
