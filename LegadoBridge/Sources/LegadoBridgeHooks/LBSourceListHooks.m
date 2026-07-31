@@ -6,6 +6,7 @@
 // 书源列表组
 
 static void LBInstallInvertAvailabilityGuard(void);
+static void LBInstallSourceListUpdateObserver(void);
 
 #pragma mark - Source List Hooks (站点管理列表)
 
@@ -44,15 +45,23 @@ static NSArray *LBBSM_getSortedSourceNamesByPriority_IMP(id self, SEL _cmd, id p
     return merged;
 }
 
+// 合并缓存：导入新源后必须主动失效，否则 UI 仍吃旧表直至杀进程
+static __weak NSDictionary *sCachedOrig;
+static NSArray *sCachedLegadoNames;
+static NSDictionary *sCachedMerged;
+
+void LBInvalidateSourceListMergeCache(void) {
+    sCachedOrig = nil;
+    sCachedLegadoNames = nil;
+    sCachedMerged = nil;
+}
+
 static NSDictionary *LBBSM_dicModelList_IMP(id self, SEL _cmd) {
     NSDictionary *orig = LBOrig_BSM_dicModelList ? LBOrig_BSM_dicModelList(self, _cmd) : @{};
     NSArray *legadoNames = LBLegadoGetSourceNames();
     if (legadoNames.count == 0) return orig ?: @{};
 
     // 性能：UI 会高频调 getter；同 orig 指针 + 同 Legado 名集时复用合并结果
-    static __weak NSDictionary *sCachedOrig;
-    static NSArray *sCachedLegadoNames;
-    static NSDictionary *sCachedMerged;
     if (sCachedMerged && orig == sCachedOrig &&
         sCachedLegadoNames.count == legadoNames.count &&
         [sCachedLegadoNames isEqualToArray:legadoNames]) {
@@ -590,6 +599,7 @@ void LBInstallSourceListHooks(void) {
 
     LBInstallNativeSourceListLegadoButton();
     LBInstallInvertAvailabilityGuard();
+    LBInstallSourceListUpdateObserver();
     LBCapabilityMarkEnabled(LBHookGroupSourceList, [NSString stringWithFormat:@"tap=%@", [hooked componentsJoinedByString:@","]]);
     } @catch (NSException *e) {
         LBCapabilityMarkFailed(LBHookGroupSourceList, e.reason ?: @"exception");
@@ -807,11 +817,139 @@ static NSArray *LBCollectSelectedSourceNames(id listVC) {
     return out;
 }
 
-static void LBPostSourceListRefresh(void) {
+void LBPostSourceListRefresh(void) {
+    // 原生监听 dNotifyName_UpdateBookSourceModelList；旧错误名一并发以防漏网
     @try {
-        [[NSNotificationCenter defaultCenter]
-            postNotificationName:@"dNotifyName_UpdateSourceList" object:nil];
+        NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+        [nc postNotificationName:@"dNotifyName_UpdateBookSourceModelList" object:nil];
+        [nc postNotificationName:@"dNotifyName_UpdateSourceList" object:nil];
     } @catch (__unused NSException *e) {}
+}
+
+static void LBTryReloadSourceListVC(UIViewController *vc) {
+    if (!vc) return;
+    NSString *cn = NSStringFromClass(vc.class);
+    BOOL isSourceUI =
+        [cn containsString:@"ConfigSource"] ||
+        [cn containsString:@"SourceModel"] ||
+        [cn isEqualToString:@"LBLegadoSourceManagerVC"];
+    if (!isSourceUI) return;
+
+    @try {
+        if ([vc respondsToSelector:@selector(reloadSources)]) {
+            ((void (*)(id, SEL))objc_msgSend)(vc, @selector(reloadSources));
+            return;
+        }
+    } @catch (__unused NSException *e) {}
+    @try {
+        if ([vc respondsToSelector:@selector(reloadData)]) {
+            ((void (*)(id, SEL))objc_msgSend)(vc, @selector(reloadData));
+        }
+    } @catch (__unused NSException *e) {}
+    @try {
+        UITableView *tv = nil;
+        if ([vc respondsToSelector:@selector(tableView)]) {
+            tv = ((UITableView *(*)(id, SEL))objc_msgSend)(vc, @selector(tableView));
+        }
+        if ([tv isKindOfClass:[UITableView class]]) {
+            [tv reloadData];
+        }
+    } @catch (__unused NSException *e) {}
+    // 常见原生刷新入口
+    for (NSString *selName in @[@"refresh", @"onRefresh", @"reload", @"loadData", @"reloadSourceList"]) {
+        SEL sel = NSSelectorFromString(selName);
+        if (![vc respondsToSelector:sel]) continue;
+        @try {
+            ((void (*)(id, SEL))objc_msgSend)(vc, sel);
+        } @catch (__unused NSException *e) {}
+    }
+}
+
+static void LBWalkReloadSourceListVCs(UIViewController *root) {
+    if (!root) return;
+    LBTryReloadSourceListVC(root);
+    for (UIViewController *child in root.childViewControllers) {
+        LBWalkReloadSourceListVCs(child);
+    }
+    if (root.presentedViewController) {
+        LBWalkReloadSourceListVCs(root.presentedViewController);
+    }
+    if ([root isKindOfClass:[UINavigationController class]]) {
+        for (UIViewController *vc in ((UINavigationController *)root).viewControllers) {
+            LBWalkReloadSourceListVCs(vc);
+        }
+    }
+    if ([root isKindOfClass:[UITabBarController class]]) {
+        for (UIViewController *vc in ((UITabBarController *)root).viewControllers ?: @[]) {
+            LBWalkReloadSourceListVCs(vc);
+        }
+    }
+}
+
+void LBRefreshVisibleSourceListUIs(void) {
+    void (^work)(void) = ^{
+        LBInvalidateSourceListMergeCache();
+        LBPostSourceListRefresh();
+        // AK：仅主线程碰 windows
+        UIWindow *window = LBLegadoKeyWindow();
+        if (!window) return;
+        LBWalkReloadSourceListVCs(window.rootViewController);
+        // 再扫一层可见 window（部分弹层挂在独立 window）
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            if (scene.activationState != UISceneActivationStateForegroundActive &&
+                scene.activationState != UISceneActivationStateForegroundInactive) {
+                continue;
+            }
+            for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+                if (!w.isHidden) LBWalkReloadSourceListVCs(w.rootViewController);
+            }
+        }
+    };
+    if ([NSThread isMainThread]) {
+        work();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), work);
+    }
+}
+
+static void LBOnBookSourceModelListUpdated(NSNotification *note) {
+    (void)note;
+    LBInvalidateSourceListMergeCache();
+    // 不递归再 post；只刷可见 VC
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindow *window = LBLegadoKeyWindow();
+        if (window) LBWalkReloadSourceListVCs(window.rootViewController);
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            if (scene.activationState != UISceneActivationStateForegroundActive &&
+                scene.activationState != UISceneActivationStateForegroundInactive) {
+                continue;
+            }
+            for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+                if (!w.isHidden) LBWalkReloadSourceListVCs(w.rootViewController);
+            }
+        }
+    });
+}
+
+static void LBInstallSourceListUpdateObserver(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+        [nc addObserverForName:@"dNotifyName_UpdateBookSourceModelList"
+                        object:nil
+                         queue:nil
+                    usingBlock:^(NSNotification *note) {
+            LBOnBookSourceModelListUpdated(note);
+        }];
+        [nc addObserverForName:@"dNotifyName_UpdateSourceList"
+                        object:nil
+                         queue:nil
+                    usingBlock:^(NSNotification *note) {
+            LBOnBookSourceModelListUpdated(note);
+        }];
+    });
 }
 
 /// 拆分勾选源：注入源走 Core，原生源才调 onFanzhuanEvent

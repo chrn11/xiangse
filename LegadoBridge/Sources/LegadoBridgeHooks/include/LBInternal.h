@@ -29,6 +29,11 @@ void LBLegadoShowImportAlert(void);
 void LBLegadoImportData(NSData *data);
 void LBLegadoFetchAndImport(NSURL *url);
 
+/// 导入/启停后：清 dicModelList 合并缓存，并刷新可见的站点/书源列表 UI
+void LBInvalidateSourceListMergeCache(void);
+void LBRefreshVisibleSourceListUIs(void);
+void LBPostSourceListRefresh(void);
+
 /// 向上查找真正实现该实例方法的类
 Class _Nullable LBClassOwningInstanceMethod(Class _Nullable cls, SEL sel);
 

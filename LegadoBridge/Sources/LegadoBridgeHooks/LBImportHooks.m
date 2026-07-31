@@ -61,6 +61,7 @@ static id LBLegadoDetectAndImport(NSData *data) {
             NSLog(@"[LegadoBridge] import error: %@", importError);
         } else {
             NSLog(@"[LegadoBridge] Legado JSON imported");
+            LBRefreshVisibleSourceListUIs();
         }
     } @catch (NSException *e) {
         NSLog(@"[LegadoBridge] import hook exception: %@", e);
@@ -270,6 +271,7 @@ void LBLegadoImportData(NSData *data) {
         } else {
             // 写成功标记
             [@"imported OK" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_import_result.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+            LBRefreshVisibleSourceListUIs();
             LBLegadoShowResult(@"书源导入成功");
         }
     } @catch (NSException *e) {
@@ -348,6 +350,7 @@ void LBLegadoFetchAndImport(NSURL *url) {
             } else {
                 [[NSString stringWithFormat:@"import ok count=%ld", (long)count]
                     writeToFile:markPath atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                LBRefreshVisibleSourceListUIs();
                 LBLegadoShowResult([NSString stringWithFormat:@"导入 %ld 个书源", (long)count]);
             }
         });
@@ -823,6 +826,7 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
                                 NSLog(@"[LegadoBridge] openURL import error: %@", importError);
                             } else {
                                 NSLog(@"[LegadoBridge] openURL Legado JSON imported: %@", url.lastPathComponent);
+                                LBRefreshVisibleSourceListUIs();
                             }
                         }
                         // 已作为 Legado 书源处理，短路原生流程

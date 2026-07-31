@@ -85,6 +85,26 @@ static id LBLegadoManagerCore(void) {
             target:self
             action:@selector(onCloseTapped)];
     }
+    // 导入弹窗挂在 window root 上时，本页不会走 viewWillAppear；靠通知即时刷新
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(onSourceListUpdated:)
+               name:@"dNotifyName_UpdateBookSourceModelList"
+             object:nil];
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(onSourceListUpdated:)
+               name:@"dNotifyName_UpdateSourceList"
+             object:nil];
+    [self reloadSources];
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)onSourceListUpdated:(NSNotification *)note {
+    (void)note;
     [self reloadSources];
 }
 
