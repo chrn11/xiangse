@@ -3605,6 +3605,67 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
     return xbs;
 }
 
+/// T4：管理页等入口按源名切发现（走 openConfig / HandleDiscoverSourceSwitched）
+void LBSwitchDiscoverToSourceName(NSString *sourceName) {
+    if (sourceName.length == 0) return;
+    if (![NSThread isMainThread]) {
+        NSString *name = [sourceName copy];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBSwitchDiscoverToSourceName(name);
+        });
+        return;
+    }
+    LBSetDiscoverTabActive(YES);
+    // 尽量把书架顶栏切到「发现」
+    @try {
+        UIWindow *win = LBLegadoKeyWindow();
+        UIViewController *root = win.rootViewController;
+        NSMutableArray *stack = [NSMutableArray array];
+        if (root) [stack addObject:root];
+        NSInteger budget = 40;
+        while (stack.count && budget-- > 0) {
+            UIViewController *vc = stack.lastObject;
+            [stack removeLastObject];
+            NSString *cn = NSStringFromClass([vc class]);
+            if ([cn containsString:@"BookShelf"] && [vc respondsToSelector:@selector(setSquare:)]) {
+                ((void (*)(id, SEL, BOOL))objc_msgSend)(vc, @selector(setSquare:), YES);
+                break;
+            }
+            if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
+            if ([vc isKindOfClass:[UINavigationController class]]) {
+                UIViewController *top = [(UINavigationController *)vc topViewController];
+                if (top) [stack addObject:top];
+                for (UIViewController *c in [(UINavigationController *)vc viewControllers]) {
+                    [stack addObject:c];
+                }
+            } else if ([vc isKindOfClass:[UITabBarController class]]) {
+                UIViewController *sel = [(UITabBarController *)vc selectedViewController];
+                if (sel) [stack addObject:sel];
+            } else {
+                for (UIViewController *c in vc.childViewControllers) [stack addObject:c];
+            }
+        }
+    } @catch (__unused NSException *e) {}
+
+    LBEnsureNativeDiscoverHostPresented();
+    UIViewController *host = LBPrimaryDiscoverHost();
+    if (!host) {
+        NSArray *found = LBFindDiscoverHostVCs();
+        host = found.count ? found.firstObject : nil;
+    }
+    if (!host) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"switchDiscover missHost name=%@", sourceName]);
+        return;
+    }
+    LBAppendNativeMarker([NSString stringWithFormat:@"switchDiscover name=%@ host=%@",
+                          sourceName, NSStringFromClass([host class])]);
+    // 优先走原生 openConfig（hook 内会再调 HandleDiscoverSourceSwitched）
+    if (LBInvokeOpenConfigByName(host, sourceName)) {
+        return;
+    }
+    LBHandleDiscoverSourceSwitched(host, sourceName);
+}
+
 /// 刷新原生分类标签（原 LBRefreshDiscoverKindBar，已去掉 overlay）
 void LBRefreshDiscoverKindBar(void) {
     if (![NSThread isMainThread]) {

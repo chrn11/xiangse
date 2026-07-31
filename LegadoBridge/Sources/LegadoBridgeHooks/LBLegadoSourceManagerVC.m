@@ -2,7 +2,7 @@
 #import <objc/message.h>
 #import "LegadoBridge.h"
 
-/// Legado 书源管理页：列表、启停、删除、结构化+JSON 编辑、订阅刷新、分组筛选、发现入口
+/// Legado 书源管理页：列表、启停、删除、结构化+JSON 编辑、订阅刷新、分组筛选；「发现」真切发现源
 @interface LBLegadoSourceManagerVC : UITableViewController
 @property (nonatomic, copy) NSArray<NSDictionary *> *sources;
 @property (nonatomic, copy, nullable) NSString *focusSourceUrl;
@@ -146,7 +146,7 @@ static id LBLegadoManagerCore(void) {
     if (![groups isKindOfClass:[NSArray class]]) groups = @[];
 
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"按分组筛选"
-                                                                   message:@"筛选后列表仅显示该组书源；发现入口也会尊重当前筛选。"
+                                                                   message:@"筛选后列表仅显示该组书源。"
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) weakSelf = self;
     [sheet addAction:[UIAlertAction actionWithTitle:@"全部" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
@@ -173,32 +173,67 @@ static id LBLegadoManagerCore(void) {
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
+/// T4：真正切发现源；禁止「已触发发现」Alert 冒充
 - (void)onExploreTapped {
-    id core = LBLegadoManagerCore();
-    if (!core || ![core respondsToSelector:@selector(handleExploreRequestWithSourceUrl:exploreUrl:page:)]) {
-        [self showMessage:@"发现 API 未就绪"];
-        return;
-    }
-    // 当前筛选列表中优先挑第一个带发现能力的源；否则交给 Core 扫全部可发现源
-    NSString *sourceUrl = nil;
+    NSMutableArray<NSDictionary *> *candidates = [NSMutableArray array];
     for (NSDictionary *dict in self.sources) {
+        if (![dict isKindOfClass:[NSDictionary class]]) continue;
         id flag = dict[@"exploreSupported"];
         BOOL ok = [flag isKindOfClass:[NSNumber class]] ? [(NSNumber *)flag boolValue] : NO;
-        if (ok) {
-            sourceUrl = [self sourceUrlFromDict:dict];
-            break;
-        }
+        if (!ok) continue;
+        NSString *name = dict[@"bookSourceName"];
+        if (![name isKindOfClass:[NSString class]] || name.length == 0) continue;
+        [candidates addObject:dict];
     }
-    ((void (*)(id, SEL, NSString *, NSString *, NSInteger))objc_msgSend)(
-        core,
-        @selector(handleExploreRequestWithSourceUrl:exploreUrl:page:),
-        sourceUrl,
-        nil,
-        1
-    );
-    [self showMessage:sourceUrl.length > 0
-        ? [NSString stringWithFormat:@"已触发发现：%@", sourceUrl]
-        : @"已触发发现（全部可发现源）；结果走搜索通知"];
+    if (candidates.count == 0) {
+        [self showMessage:@"当前筛选下没有可发现的书源"];
+        return;
+    }
+
+    UIAlertController *sheet = [UIAlertController
+        alertControllerWithTitle:@"切换发现源"
+                         message:@"选择后关闭本页，发现页标题与内容随所选源变化"
+                  preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    for (NSDictionary *dict in candidates) {
+        NSString *name = dict[@"bookSourceName"];
+        [sheet addAction:[UIAlertAction actionWithTitle:name
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(UIAlertAction *a) {
+            (void)a;
+            [weakSelf applyDiscoverSourceNamed:name];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    UIPopoverPresentationController *pop = sheet.popoverPresentationController;
+    if (pop) {
+        pop.barButtonItem = self.navigationItem.rightBarButtonItems.lastObject;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)applyDiscoverSourceNamed:(NSString *)name {
+    if (name.length == 0) return;
+    NSString *target = [name copy];
+    void (^go)(void) = ^{
+        LBSwitchDiscoverToSourceName(target);
+    };
+    if (self.presentingViewController) {
+        [self.presentingViewController dismissViewControllerAnimated:YES completion:go];
+        return;
+    }
+    UINavigationController *nav = self.navigationController;
+    if (nav && nav.viewControllers.firstObject != self) {
+        [nav popViewControllerAnimated:YES];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), go);
+        return;
+    }
+    if (nav.presentingViewController) {
+        [nav.presentingViewController dismissViewControllerAnimated:YES completion:go];
+        return;
+    }
+    go();
 }
 
 - (void)onSubscribeRefreshTapped {
