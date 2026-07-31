@@ -788,6 +788,19 @@ class RuleEngine {
 
         var jsError: String?
         exec.jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
+        // 探针提前：即便后续桥接崩溃也能看到进了 getJsElements
+        do {
+            let path = (NSHomeDirectory() as NSString)
+                .appendingPathComponent("Documents/legado_js_elements_probe.txt")
+            let pre = "ts=\(ISO8601DateFormatter().string(from: Date())) enter codePrefix=\(jsCode.prefix(60).replacingOccurrences(of: "\n", with: " "))\n"
+            if let data = pre.data(using: .utf8) {
+                if FileManager.default.fileExists(atPath: path), let fh = FileHandle(forWritingAtPath: path) {
+                    fh.seekToEndOfFile(); fh.write(data); try? fh.close()
+                } else {
+                    try? data.write(to: URL(fileURLWithPath: path))
+                }
+            }
+        }
         let value = exec.jsContext.evaluateScript(jsCode)
         if let jsError, !jsError.isEmpty {
             DebugLogger.shared.log("[getJsElements] \(jsError)")
@@ -797,15 +810,18 @@ class RuleEngine {
             let path = (NSHomeDirectory() as NSString)
                 .appendingPathComponent("Documents/legado_js_elements_probe.txt")
             let isArr = value?.isArray ?? false
-            let len: Int = {
-                guard let value,
-                      let lv = value.objectForKeyedSubscript("length" as NSString),
-                      lv.isNumber,
-                      let n = lv.toNumber() else { return -1 }
-                return n.intValue
-            }()
-            let via = Self.jsArrayLikeItems(value ?? JSValue(nullIn: exec.jsContext)!)?.count ?? -1
-            let line = "ts=\(ISO8601DateFormatter().string(from: Date())) isArray=\(isArr) length=\(len) viaItems=\(via) err=\(jsError ?? "") codePrefix=\(jsCode.prefix(80).replacingOccurrences(of: "\n", with: " "))\n"
+            var len = -1
+            if let value,
+               let lv = value.objectForKeyedSubscript("length" as NSString),
+               lv.isNumber,
+               let n = lv.toNumber() {
+                len = n.intValue
+            }
+            var via = -1
+            if let value {
+                via = Self.jsArrayLikeItems(value)?.count ?? -1
+            }
+            let line = "ts=\(ISO8601DateFormatter().string(from: Date())) isArray=\(isArr) length=\(len) viaItems=\(via) err=\(jsError ?? "")\n"
             if let data = line.data(using: .utf8) {
                 if FileManager.default.fileExists(atPath: path),
                    let fh = FileHandle(forWritingAtPath: path) {
@@ -1063,6 +1079,13 @@ class RuleEngine {
         guard let ruleStr = ruleStr, !ruleStr.isEmpty else { return "" }
 
         let effectiveBaseUrl = baseUrl ?? elementContext.baseUrl
+
+        // R9：JS bookList 返回的对象数组项是字典；`title`/`author` 须按 JSON 字段取，
+        // 不能走 CSS（JSONPathParser 只认 `$` 前缀，否则 3 条→全被空 name 过滤）。
+        if let dict = Self.jsItemAsStringKeyedDict(elementContext.element) {
+            let fromJson = getStringFromJson(ruleStr: ruleStr, json: dict)
+            if !fromJson.isEmpty { return fromJson }
+        }
 
         // AllInOne 匹配组：`$2` / `$1@js:…` / `$4##\".*"` / `@js:…$3…`
         if let groups = elementContext.element as? [String] {
