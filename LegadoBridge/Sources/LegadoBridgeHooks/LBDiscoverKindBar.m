@@ -3558,6 +3558,17 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
                 } @finally {
                     sHandlingDiscoverSwitch = prevHandling;
                 }
+                // T2：syncMode 入口也会 restore，同样延迟软刷
+                if (opened) {
+                    sXBSPendingNativeRefresh = YES;
+                    __weak UIViewController *weakHost = host;
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                                   dispatch_get_main_queue(), ^{
+                        UIViewController *h = weakHost;
+                        if (!h) return;
+                        LBReloadDiscoverNativeList(h);
+                    });
+                }
             }
         }
         LBAppendNativeMarker([NSString stringWithFormat:
