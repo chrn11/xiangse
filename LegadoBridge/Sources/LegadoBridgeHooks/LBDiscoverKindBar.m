@@ -3645,7 +3645,15 @@ void LBInstallDiscoverNativeUIHooks(void) {
 /// 按当前发现宿主源名判断：找不到可发现 Legado 名 → 纯原生（fail-open 保标签墙）
 BOOL LBDiscoverShouldUseNativeXBS(void) {
     UIViewController *host = LBPrimaryDiscoverHost();
-    NSString *name = LBReadHostSourceName(host);
+    // 刚切源写入的桥接名优先：宿主 title/useSourceName 可能仍滞后（管理页 pop 后 Sync 误判 XBS）
+    NSString *name = nil;
+    if (sDiscoverUseSourceName.length > 0) {
+        name = sDiscoverUseSourceName;
+    } else if (sLastHandledSwitchName.length > 0) {
+        name = sLastHandledSwitchName;
+    } else {
+        name = LBReadHostSourceName(host);
+    }
     if (name.length > 0) {
         if ([name isEqualToString:@"切换站点"] || [name isEqualToString:@"书源"] ||
             [name isEqualToString:@"发现"]) {
@@ -3686,7 +3694,12 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
         }
         @try { LBClearDiscoverExplorePendingOnly(); } @catch (__unused NSException *e) {}
 
-        NSString *name = LBReadHostSourceName(host);
+        NSString *name = nil;
+        if (sDiscoverUseSourceName.length > 0) {
+            name = sDiscoverUseSourceName;
+        } else {
+            name = LBReadHostSourceName(host);
+        }
         BOOL opened = NO;
         if (host && name.length > 0 &&
             ![name isEqualToString:@"切换站点"] &&
