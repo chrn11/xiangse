@@ -1075,6 +1075,11 @@ static void LBInvertAvailabilityForListVC(id listVC) {
               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         return;
     }
+    // 混合勾选：Legado 已启停，原生留给 orig onFanzhuanEvent
+    NSString *msg = [NSString stringWithFormat:@"invert mixed legado=%lu native=1",
+                     (unsigned long)legadoNames.count];
+    [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_a09_invert.txt"]
+          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 }
 
 typedef void (*LBOnFanzhuanFn)(id, SEL);
