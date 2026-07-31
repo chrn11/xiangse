@@ -646,7 +646,11 @@ class AnalyzeUrl {
         }()
         // 顶层 try/catch + eval：保留多语句脚本「最后表达式」完成值。
         // 直接把脚本塞进 try{} 时 JSC 常把完成值丢掉（起点 getApiUrl(...) 实测回 undefined）。
-        let evalSourceLiteral = Self.jsSingleQuoted(trimmed)
+        // 源码用 JSON 字符串字面量嵌入，避免脚本内单引号截断 eval('...')。
+        let evalSourceJSON: String = {
+            let data = try? JSONSerialization.data(withJSONObject: trimmed, options: [])
+            return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+        }()
         let wrapped = """
         var baseUrl = '\(escapedBase)';
         var key = \(keyLiteral);
@@ -656,7 +660,7 @@ class AnalyzeUrl {
         var __analyzeUrlEvalErrMsg = '';
         var __analyzeUrlEvalOut = undefined;
         try {
-          __analyzeUrlEvalOut = eval('\(evalSourceLiteral)');
+          __analyzeUrlEvalOut = eval(\(evalSourceJSON));
           if (__analyzeUrlEvalOut !== undefined && __analyzeUrlEvalOut !== null
               && (typeof result === 'undefined' || result === null || result === '')) {
             result = __analyzeUrlEvalOut;

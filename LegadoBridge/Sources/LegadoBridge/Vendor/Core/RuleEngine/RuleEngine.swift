@@ -760,6 +760,9 @@ class RuleEngine {
                   let match = regex.firstMatch(in: ruleStr, range: NSRange(ruleStr.startIndex..., in: ruleStr)),
                   let range = Range(match.range(at: 1), in: ruleStr) {
             jsCode = String(ruleStr[range])
+        } else if ruleStr.lowercased().hasPrefix("<js>") {
+            // 兼容未闭合 </js> 的书源（yckceo / 本地夹具常见）
+            jsCode = String(ruleStr.dropFirst(4))
         } else {
             jsCode = ruleStr
         }
