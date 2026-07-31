@@ -538,6 +538,369 @@ static void LBInstallDidSelectAndOpenModelOnClass(Class requested) {
     }
 }
 
+#pragma mark - B4 阅读换源（BookSourceSwitchVC2）
+
+static void (*LBOrig_SwitchVC_didSelect)(id, SEL, id, NSIndexPath *) = NULL;
+static void (*LBOrig_SwitchVC_onOk)(id, SEL) = NULL;
+
+static NSString *LBSwitchVC_BookField(id book, NSArray<NSString *> *keys) {
+    if (!book || keys.count == 0) return nil;
+    for (NSString *k in keys) {
+        id v = nil;
+        if ([book isKindOfClass:[NSDictionary class]]) {
+            v = [(NSDictionary *)book objectForKey:k];
+        } else {
+            @try { v = [book valueForKey:k]; } @catch (__unused NSException *e) { v = nil; }
+        }
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) return (NSString *)v;
+        if ([v isKindOfClass:[NSNumber class]]) return [(NSNumber *)v stringValue];
+    }
+    return nil;
+}
+
+static NSInteger LBSwitchVC_BookIndex(id book) {
+    NSArray *keys = @[@"cpIndex", @"chapterIndex", @"curChapterIndex", @"index"];
+    for (NSString *k in keys) {
+        id v = nil;
+        if ([book isKindOfClass:[NSDictionary class]]) {
+            v = [(NSDictionary *)book objectForKey:k];
+        } else {
+            @try { v = [book valueForKey:k]; } @catch (__unused NSException *e) { v = nil; }
+        }
+        if ([v isKindOfClass:[NSNumber class]]) return [(NSNumber *)v integerValue];
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
+            return [(NSString *)v integerValue];
+        }
+    }
+    return -1;
+}
+
+static NSString *LBSwitchVC_ResolveSourceUrl(NSString *name) {
+    if (name.length == 0) return nil;
+    NSString *lookup = name;
+    if ([name hasSuffix:@"·Legado"]) {
+        lookup = [name substringToIndex:name.length - @"·Legado".length];
+    }
+    NSDictionary *model = LBLegadoNativeModel(lookup);
+    if (!model) model = LBLegadoNativeModel(name);
+    if ([model isKindOfClass:[NSDictionary class]]) {
+        NSString *url = model[@"bookSourceUrl"] ?: model[@"sourceUrl"] ?: model[@"url"];
+        if ([url isKindOfClass:[NSString class]] && url.length > 0) return url;
+    }
+    id core = LBLegadoCoreIfReady();
+    if (core && [core respondsToSelector:@selector(allSourcesInfo)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        NSArray *info = [core performSelector:@selector(allSourcesInfo)];
+#pragma clang diagnostic pop
+        for (NSDictionary *dict in info) {
+            if (![dict isKindOfClass:[NSDictionary class]]) continue;
+            NSString *n = dict[@"bookSourceName"];
+            if ([n isKindOfClass:[NSString class]] &&
+                ([n isEqualToString:lookup] || [n isEqualToString:name])) {
+                NSString *url = dict[@"bookSourceUrl"];
+                if ([url isKindOfClass:[NSString class]] && url.length > 0) return url;
+            }
+        }
+    }
+    return nil;
+}
+
+static void LBSwitchVC_StartLegadoSwitch(id switchVC, NSString *sourceName) {
+    if (!switchVC || sourceName.length == 0) return;
+    NSString *srcUrl = LBSwitchVC_ResolveSourceUrl(sourceName);
+    if (srcUrl.length == 0) {
+        LBLegadoShowResult(@"未找到该 Legado 源");
+        return;
+    }
+    id book = nil;
+    @try { book = [switchVC valueForKey:@"dicBook"]; } @catch (__unused NSException *e) {}
+    if (!book) {
+        @try { book = [switchVC valueForKey:@"dicFatBook"]; } @catch (__unused NSException *e) {}
+    }
+    NSString *bookName = LBSwitchVC_BookField(book, @[@"bookName", @"name", @"title", @"novelName"]);
+    NSString *author = LBSwitchVC_BookField(book, @[@"author", @"writer"]);
+    NSString *oldUrl = LBSwitchVC_BookField(book, @[@"bookUrl", @"url", @"detailUrl", @"novelUrl"]);
+    NSString *chapterTitle = LBSwitchVC_BookField(book, @[@"cpTitle", @"chapterName", @"chapterTitle", @"lastChapterTitle"]);
+    // 阅读页 title 常是章名，避免把章名当书名
+    if (bookName.length == 0 || [bookName isEqualToString:chapterTitle]) {
+        NSString *alt = LBSwitchVC_BookField(book, @[@"bookName", @"name", @"novelName"]);
+        if (alt.length > 0) bookName = alt;
+    }
+    NSInteger chapterIndex = LBSwitchVC_BookIndex(book);
+    if (bookName.length == 0) {
+        LBLegadoShowResult(@"无法换源：缺少书名");
+        return;
+    }
+    if (oldUrl.length == 0) oldUrl = @"";
+
+    id core = LBLegadoCoreIfReady();
+    SEL sel = @selector(switchReadingSourceWithBookName:author:oldBookUrl:newSourceUrl:chapterTitle:chapterIndex:);
+    if (!core || ![core respondsToSelector:sel]) {
+        LBLegadoShowResult(@"换源接口不可用");
+        return;
+    }
+    NSString *probe = [NSString stringWithFormat:
+                       @"start name=%@ src=%@ book=%@ old=%@ ch=%@ idx=%ld\n",
+                       sourceName, srcUrl, bookName, oldUrl,
+                       chapterTitle ?: @"", (long)chapterIndex];
+    [probe writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_b4_switch_start.txt"]
+            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+
+    ((void (*)(id, SEL, NSString *, NSString *, NSString *, NSString *, NSString *, NSInteger))objc_msgSend)(
+        core, sel, bookName, author ?: @"", oldUrl, srcUrl, chapterTitle ?: @"", chapterIndex
+    );
+    LBLegadoShowResult(@"正在换源…");
+}
+
+static void LBSwitchVC_DismissSelf(id switchVC) {
+    if (![switchVC isKindOfClass:[UIViewController class]]) return;
+    UIViewController *vc = (UIViewController *)switchVC;
+    UINavigationController *nav = vc.navigationController;
+    if (nav && nav.topViewController == vc) {
+        [nav popViewControllerAnimated:YES];
+        return;
+    }
+    if (vc.presentingViewController) {
+        [vc dismissViewControllerAnimated:YES completion:nil];
+    }
+}
+
+static void LBSwitchVC_ApplySwitchedInfo(NSDictionary *info) {
+    if (![info isKindOfClass:[NSDictionary class]]) return;
+    NSString *err = info[@"error"];
+    if ([err isKindOfClass:[NSString class]] && err.length > 0) {
+        LBLegadoShowResult([NSString stringWithFormat:@"换源失败：%@", err]);
+        return;
+    }
+    NSString *newBookUrl = info[@"newBookUrl"];
+    NSString *sourceUrl = info[@"sourceUrl"];
+    NSString *sourceName = info[@"sourceName"];
+    NSString *matchedUrl = info[@"matchedUrl"];
+    NSString *matchedTitle = info[@"matchedTitle"];
+    NSNumber *matchedIndex = info[@"matchedIndex"];
+    if (![matchedUrl isKindOfClass:[NSString class]] || matchedUrl.length == 0) {
+        matchedUrl = info[@"firstUrl"];
+    }
+    if (![matchedTitle isKindOfClass:[NSString class]] || matchedTitle.length == 0) {
+        matchedTitle = info[@"firstTitle"];
+    }
+    NSInteger idx = [matchedIndex respondsToSelector:@selector(integerValue)] ? matchedIndex.integerValue : 0;
+
+    // 关掉换源页
+    UIWindow *win = LBLegadoKeyWindow();
+    UIViewController *root = win.rootViewController;
+    while (root.presentedViewController) root = root.presentedViewController;
+    NSMutableArray *stack = [NSMutableArray array];
+    if (root) [stack addObject:root];
+    while (stack.count > 0) {
+        UIViewController *cur = stack.lastObject;
+        [stack removeLastObject];
+        if ([NSStringFromClass([cur class]) isEqualToString:@"BookSourceSwitchVC2"]) {
+            LBSwitchVC_DismissSelf(cur);
+        }
+        if ([cur isKindOfClass:[UINavigationController class]]) {
+            for (UIViewController *c in ((UINavigationController *)cur).viewControllers) {
+                [stack addObject:c];
+            }
+        }
+        for (UIViewController *c in cur.childViewControllers) {
+            [stack addObject:c];
+        }
+    }
+
+    // 更新可见阅读壳 dicBook / dicFatBook
+    UIViewController *reader = nil;
+    if (win) {
+        NSMutableArray *rstack = [NSMutableArray array];
+        if (win.rootViewController) [rstack addObject:win.rootViewController];
+        while (rstack.count > 0) {
+            UIViewController *cur = rstack.lastObject;
+            [rstack removeLastObject];
+            NSString *cn = NSStringFromClass([cur class]);
+            if ([cn containsString:@"TextReader"] || [cn containsString:@"Reader"] ||
+                [cn containsString:@"ReadPage"] || [cn containsString:@"Reading"]) {
+                @try {
+                    id db = [cur valueForKey:@"dicBook"];
+                    if (db) { reader = cur; break; }
+                } @catch (__unused NSException *e) {}
+            }
+            if ([cur isKindOfClass:[UINavigationController class]]) {
+                for (UIViewController *c in ((UINavigationController *)cur).viewControllers.reverseObjectEnumerator) {
+                    [rstack addObject:c];
+                }
+            }
+            if (cur.presentedViewController) [rstack addObject:cur.presentedViewController];
+            for (UIViewController *c in cur.childViewControllers) [rstack addObject:c];
+        }
+    }
+
+    void (^patchBook)(id) = ^(id bookObj) {
+        if (!bookObj) return;
+        NSMutableDictionary *md = nil;
+        if ([bookObj isKindOfClass:[NSMutableDictionary class]]) {
+            md = (NSMutableDictionary *)bookObj;
+        } else if ([bookObj isKindOfClass:[NSDictionary class]]) {
+            md = [(NSDictionary *)bookObj mutableCopy];
+        }
+        if (!md) return;
+        if ([newBookUrl isKindOfClass:[NSString class]] && newBookUrl.length > 0) {
+            md[@"bookUrl"] = newBookUrl;
+            md[@"url"] = newBookUrl;
+        }
+        if ([sourceUrl isKindOfClass:[NSString class]] && sourceUrl.length > 0) {
+            md[@"sourceUrl"] = sourceUrl;
+            md[@"bookSourceUrl"] = sourceUrl;
+        }
+        if ([sourceName isKindOfClass:[NSString class]] && sourceName.length > 0) {
+            md[@"sourceName"] = sourceName;
+            md[@"bookSourceName"] = sourceName;
+        }
+        if ([matchedUrl isKindOfClass:[NSString class]] && matchedUrl.length > 0) {
+            md[@"chapterUrl"] = matchedUrl;
+            md[@"cpUrl"] = matchedUrl;
+            md[@"curChapterUrl"] = matchedUrl;
+        }
+        if ([matchedTitle isKindOfClass:[NSString class]] && matchedTitle.length > 0) {
+            md[@"cpTitle"] = matchedTitle;
+            md[@"chapterName"] = matchedTitle;
+            md[@"title"] = matchedTitle;
+        }
+        md[@"cpIndex"] = @(idx);
+        md[@"chapterIndex"] = @(idx);
+        md[@"legadoBridge"] = @"1";
+        if (reader) {
+            @try { [reader setValue:md forKey:@"dicBook"]; } @catch (__unused NSException *e) {}
+            @try { [reader setValue:md forKey:@"dicFatBook"]; } @catch (__unused NSException *e) {}
+        }
+    };
+    if (reader) {
+        id db = nil;
+        @try { db = [reader valueForKey:@"dicBook"]; } @catch (__unused NSException *e) {}
+        patchBook(db);
+        id fat = nil;
+        @try { fat = [reader valueForKey:@"dicFatBook"]; } @catch (__unused NSException *e) {}
+        if (fat && fat != db) patchBook(fat);
+        if ([matchedTitle isKindOfClass:[NSString class]] && matchedTitle.length > 0) {
+            @try { [reader setValue:matchedTitle forKey:@"title"]; } @catch (__unused NSException *e) {}
+        }
+    }
+
+    if ([matchedUrl isKindOfClass:[NSString class]] && matchedUrl.length > 0 &&
+        [newBookUrl isKindOfClass:[NSString class]] && newBookUrl.length > 0) {
+        NSString *su = [sourceUrl isKindOfClass:[NSString class]] ? sourceUrl : @"";
+        LBHandleContentRequest(matchedUrl, newBookUrl, su);
+    }
+
+    NSString *toast = [NSString stringWithFormat:@"已换源%@",
+                       ([matchedTitle isKindOfClass:[NSString class]] && matchedTitle.length > 0)
+                           ? [NSString stringWithFormat:@" · %@", matchedTitle] : @""];
+    LBLegadoShowResult(toast);
+}
+
+static void LBSwitchVC_tableView_didSelect_IMP(id self, SEL _cmd, id tableView, NSIndexPath *indexPath) {
+    NSString *name = LBLegadoSourceNameAtIndexPath(self, indexPath);
+    if (LBLegadoShouldBlockSourceName(self, name)) {
+        // Legado：只选中，不进管理页；点确定再真正换源
+        if ([self respondsToSelector:@selector(setUseSourceName:)]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(self, @selector(setUseSourceName:), name);
+        } else {
+            @try { [self setValue:name forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
+        }
+        LBLegadoDeselectRow(tableView, indexPath);
+        if ([tableView respondsToSelector:@selector(reloadData)]) {
+            ((void (*)(id, SEL))objc_msgSend)(tableView, @selector(reloadData));
+        }
+        return;
+    }
+    if (LBOrig_SwitchVC_didSelect) {
+        LBOrig_SwitchVC_didSelect(self, _cmd, tableView, indexPath);
+    }
+}
+
+static void LBSwitchVC_onOkBtnEvent_IMP(id self, SEL _cmd) {
+    NSString *name = nil;
+    @try {
+        id v = [self valueForKey:@"useSourceName"];
+        if ([v isKindOfClass:[NSString class]]) name = (NSString *)v;
+    } @catch (__unused NSException *e) {}
+    if (name.length == 0 && [self respondsToSelector:@selector(useSourceName)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        id v = [self performSelector:@selector(useSourceName)];
+#pragma clang diagnostic pop
+        if ([v isKindOfClass:[NSString class]]) name = (NSString *)v;
+    }
+    name = LBLegadoStripDisplaySuffix(name);
+    if (LBLegadoShouldBlockSourceName(self, name)) {
+        LBSwitchVC_StartLegadoSwitch(self, name);
+        return;
+    }
+    if (LBOrig_SwitchVC_onOk) {
+        LBOrig_SwitchVC_onOk(self, _cmd);
+    }
+}
+
+static void LBInstallBookSourceSwitchHooks(void) {
+    Class switchCls = NSClassFromString(@"BookSourceSwitchVC2");
+    if (!switchCls) {
+        NSLog(@"[LegadoBridge] BookSourceSwitchVC2 missing, skip B4 switch hooks");
+        return;
+    }
+
+    SEL didSel = @selector(tableView:didSelectRowAtIndexPath:);
+    Class didOwner = LBClassOwningInstanceMethod(switchCls, didSel);
+    // 必须是 SwitchVC 自有实现；勿覆盖 ConfigSourceListBase 管理页 hook
+    if (didOwner == switchCls && !LBOrig_SwitchVC_didSelect) {
+        Method m = class_getInstanceMethod(didOwner, didSel);
+        if (m) {
+            LBOrig_SwitchVC_didSelect =
+                (void (*)(id, SEL, id, NSIndexPath *))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LBSwitchVC_tableView_didSelect_IMP);
+            NSLog(@"[LegadoBridge] hooked BookSourceSwitchVC2 didSelect for B4 switch");
+        }
+    } else if (didOwner && didOwner != switchCls && !LBOrig_SwitchVC_didSelect) {
+        // 继承父类（常为已挂管理页拦截的 ConfigSourceListBase）：在 SwitchVC 上加覆盖实现
+        Method parentM = class_getInstanceMethod(didOwner, didSel);
+        if (parentM) {
+            LBOrig_SwitchVC_didSelect =
+                (void (*)(id, SEL, id, NSIndexPath *))method_getImplementation(parentM);
+            BOOL added = class_addMethod(switchCls, didSel, (IMP)LBSwitchVC_tableView_didSelect_IMP,
+                                         method_getTypeEncoding(parentM));
+            if (added) {
+                NSLog(@"[LegadoBridge] added BookSourceSwitchVC2 didSelect override (parent=%@)",
+                      NSStringFromClass(didOwner));
+            } else {
+                Method own = class_getInstanceMethod(switchCls, didSel);
+                if (own) {
+                    method_setImplementation(own, (IMP)LBSwitchVC_tableView_didSelect_IMP);
+                    NSLog(@"[LegadoBridge] replaced BookSourceSwitchVC2 didSelect");
+                }
+            }
+        }
+    }
+
+    SEL okSel = @selector(onOkBtnEvent);
+    Method okM = class_getInstanceMethod(switchCls, okSel);
+    if (okM && !LBOrig_SwitchVC_onOk) {
+        LBOrig_SwitchVC_onOk = (void (*)(id, SEL))method_getImplementation(okM);
+        method_setImplementation(okM, (IMP)LBSwitchVC_onOkBtnEvent_IMP);
+        NSLog(@"[LegadoBridge] hooked BookSourceSwitchVC2 onOkBtnEvent");
+    }
+
+    static dispatch_once_t onceObs;
+    dispatch_once(&onceObs, ^{
+        [[NSNotificationCenter defaultCenter]
+            addObserverForName:@"LegadoBridgeSourceSwitched"
+                        object:nil
+                         queue:[NSOperationQueue mainQueue]
+                    usingBlock:^(NSNotification *note) {
+            LBSwitchVC_ApplySwitchedInfo(note.userInfo);
+        }];
+        NSLog(@"[LegadoBridge] observing LegadoBridgeSourceSwitched");
+    });
+}
+
 static void LBInstallNativeSourceListLegadoButton(void);
 
 void LBInstallSourceListHooks(void) {
@@ -698,6 +1061,7 @@ void LBInstallSourceListHooks(void) {
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 
     LBInstallNativeSourceListLegadoButton();
+    LBInstallBookSourceSwitchHooks();
     LBInstallInvertAvailabilityGuard();
     LBInstallSourceListUpdateObserver();
     LBCapabilityMarkEnabled(LBHookGroupSourceList, [NSString stringWithFormat:@"tap=%@", [hooked componentsJoinedByString:@","]]);

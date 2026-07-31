@@ -486,6 +486,15 @@ import LegadoBridgeHooks
                 writeSearchMarker(
                     "switch ok \(oldBookUrl) -> \(newBookUrl) src=\(source.bookSourceUrl) match=\(match?.index ?? -1)"
                 )
+                Self.writeB4SwitchEvidence(
+                    book: book.name,
+                    oldUrl: oldBookUrl,
+                    newUrl: newBookUrl,
+                    sourceUrl: source.bookSourceUrl,
+                    match: match,
+                    chapterCount: chapters.count,
+                    error: nil
+                )
             } catch {
                 postNotification(
                     "LegadoBridgeSourceSwitched",
@@ -496,8 +505,195 @@ import LegadoBridgeHooks
                         XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
                     ]
                 )
+                Self.writeB4SwitchEvidence(
+                    book: "",
+                    oldUrl: oldBookUrl,
+                    newUrl: newBookUrl,
+                    sourceUrl: newSourceUrl,
+                    match: nil,
+                    chapterCount: 0,
+                    error: error.localizedDescription
+                )
             }
         }
+    }
+
+    /// B4：阅读换源 — 按书名在新源搜索，再绑定并对齐章节
+    @objc(switchReadingSourceWithBookName:author:oldBookUrl:newSourceUrl:chapterTitle:chapterIndex:)
+    public func switchReadingSource(
+        bookName: String,
+        author: String?,
+        oldBookUrl: String,
+        newSourceUrl: String,
+        chapterTitle: String?,
+        chapterIndex: Int
+    ) {
+        let key = bookName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            postNotification(
+                "LegadoBridgeSourceSwitched",
+                userInfo: ["error": "书名为空", "oldBookUrl": oldBookUrl, "sourceUrl": newSourceUrl]
+            )
+            Self.writeB4SwitchEvidence(
+                book: "", oldUrl: oldBookUrl, newUrl: "", sourceUrl: newSourceUrl,
+                match: nil, chapterCount: 0, error: "书名为空"
+            )
+            return
+        }
+        Task {
+            do {
+                guard let source = SourceRegistry.shared.exactSource(forUrl: newSourceUrl),
+                      SourceRegistry.shared.isEnabled(url: source.bookSourceUrl) else {
+                    throw LegadoBridgeError.sourceNotFound
+                }
+                let results = try await BridgeWebBook.searchBook(source: source, key: key)
+                let authorNeedle = (author ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let picked: SearchBookResult? = {
+                    if !authorNeedle.isEmpty {
+                        if let hit = results.first(where: {
+                            $0.author.localizedCaseInsensitiveContains(authorNeedle)
+                                || authorNeedle.localizedCaseInsensitiveContains($0.author)
+                        }) {
+                            return hit
+                        }
+                    }
+                    if let hit = results.first(where: {
+                        $0.name.localizedCaseInsensitiveContains(key)
+                            || key.localizedCaseInsensitiveContains($0.name)
+                    }) {
+                        return hit
+                    }
+                    return results.first
+                }()
+                guard let best = picked, !best.bookUrl.isEmpty else {
+                    throw LegadoBridgeError.engineError("新源未搜到《\(key)》")
+                }
+                writeSearchMarker(
+                    "switch search hit name=\(best.name) url=\(best.bookUrl) src=\(source.bookSourceUrl) total=\(results.count)"
+                )
+                var book = BridgeBook(
+                    name: best.name.isEmpty ? key : best.name,
+                    author: best.author.isEmpty ? (author ?? "") : best.author,
+                    bookUrl: best.bookUrl,
+                    coverUrl: best.coverUrl ?? "",
+                    sourceUrl: source.bookSourceUrl,
+                    sourceName: source.bookSourceName
+                )
+                _ = try await BridgeWebBook.getBookInfo(source: source, book: &book)
+                let chapters = try await BridgeWebBook.getChapterList(source: source, book: book)
+                let match = ChapterMatcher.match(
+                    currentTitle: chapterTitle,
+                    currentIndex: chapterIndex >= 0 ? chapterIndex : nil,
+                    chapters: chapters
+                )
+                if oldBookUrl != best.bookUrl,
+                   let stale = BookBindingStore.shared.binding(forBookUrl: oldBookUrl) {
+                    _ = BookBindingStore.shared.bind(
+                        bookUrl: stale.bookUrl,
+                        sourceUrl: stale.sourceUrl,
+                        sourceName: stale.sourceName,
+                        name: stale.name,
+                        author: stale.author,
+                        coverUrl: stale.coverUrl,
+                        bridgeToken: stale.bridgeToken,
+                        sourceAvailable: false
+                    )
+                }
+                let binding = BookBindingStore.shared.bind(
+                    bookUrl: book.bookUrl,
+                    sourceUrl: source.bookSourceUrl,
+                    sourceName: source.bookSourceName,
+                    name: book.name,
+                    author: book.author,
+                    coverUrl: book.coverUrl
+                )
+                bookCache[book.bookUrl] = book
+                var info: [String: Any] = [
+                    "oldBookUrl": oldBookUrl,
+                    "newBookUrl": book.bookUrl,
+                    "sourceUrl": source.bookSourceUrl,
+                    "sourceName": source.bookSourceName,
+                    "bridgeToken": binding.bridgeToken,
+                    "chapterCount": chapters.count,
+                    XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
+                ]
+                if let match {
+                    info["matchedIndex"] = match.index
+                    info["matchedTitle"] = match.title
+                    info["matchedUrl"] = match.url
+                    info["matchScore"] = match.score
+                    info["matchStrategy"] = match.strategy
+                }
+                if let first = chapters.first {
+                    info["firstTitle"] = first.title
+                    info["firstUrl"] = first.url
+                }
+                postNotification("LegadoBridgeSourceSwitched", userInfo: info)
+                writeSearchMarker(
+                    "switch ok \(oldBookUrl) -> \(book.bookUrl) src=\(source.bookSourceUrl) match=\(match?.index ?? -1) strategy=\(match?.strategy ?? "-")"
+                )
+                Self.writeB4SwitchEvidence(
+                    book: key,
+                    oldUrl: oldBookUrl,
+                    newUrl: book.bookUrl,
+                    sourceUrl: source.bookSourceUrl,
+                    match: match,
+                    chapterCount: chapters.count,
+                    error: nil
+                )
+            } catch {
+                postNotification(
+                    "LegadoBridgeSourceSwitched",
+                    userInfo: [
+                        "error": error.localizedDescription,
+                        "oldBookUrl": oldBookUrl,
+                        "sourceUrl": newSourceUrl,
+                        "bookName": key
+                    ]
+                )
+                writeSearchMarker("switch reading err \(error.localizedDescription)")
+                Self.writeB4SwitchEvidence(
+                    book: key,
+                    oldUrl: oldBookUrl,
+                    newUrl: "",
+                    sourceUrl: newSourceUrl,
+                    match: nil,
+                    chapterCount: 0,
+                    error: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    private static func writeB4SwitchEvidence(
+        book: String,
+        oldUrl: String,
+        newUrl: String,
+        sourceUrl: String,
+        match: ChapterMatchResult?,
+        chapterCount: Int,
+        error: String?
+    ) {
+        let ts = ISO8601DateFormatter().string(from: Date())
+        let body: String
+        if let error, !error.isEmpty {
+            body = "ts=\(ts)\nerror=\(error)\nbook=\(book)\nold=\(oldUrl)\nsrc=\(sourceUrl)\n"
+        } else {
+            body = """
+            ts=\(ts)
+            book=\(book)
+            old=\(oldUrl)
+            new=\(newUrl)
+            src=\(sourceUrl)
+            matchIndex=\(match?.index ?? -1)
+            matchTitle=\(match?.title ?? "")
+            matchStrategy=\(match?.strategy ?? "")
+            chapterCount=\(chapterCount)
+            """
+        }
+        let path = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Documents/legado_b4_switch.txt")
+        try? body.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
     // MARK: - 发现
