@@ -1016,8 +1016,105 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
     @try { [host setValue:donorBW.allKeys forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
 
     BOOL setOk = LBForceSetDicModel(host, model);
+
+    // T2：Legado 灌头后常残留单「发现」tab + feedOverlay，仅 resetContent 会白屏。
+    // 顶栏标题与 donor 大类对不上时，拆壳再 createCons + reset。
+    NSArray *wantTitles = donorBW.allKeys ?: @[];
+    if (wantTitles.count == 0) wantTitles = @[@"男生", @"女频", @"出版"];
+    id curTV = nil;
+    @try { curTV = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+    NSArray *haveTitles = nil;
+    if (curTV) {
+        for (NSString *k in @[@"titleNames", @"titles", @"arrTitle", @"titleArr",
+                              @"btnTitles", @"titleArray"]) {
+            @try {
+                id v = [curTV valueForKey:k];
+                if ([v isKindOfClass:[NSArray class]] && [(NSArray *)v count] > 0) {
+                    haveTitles = v;
+                    break;
+                }
+            } @catch (__unused NSException *e) {}
+        }
+    }
+    BOOL titlesMatch = NO;
+    if (haveTitles.count > 0 && wantTitles.count > 0) {
+        NSSet *wantSet = [NSSet setWithArray:wantTitles];
+        for (id h in haveTitles) {
+            if ([h isKindOfClass:[NSString class]] && [wantSet containsObject:(NSString *)h]) {
+                titlesMatch = YES;
+                break;
+            }
+        }
+        if (haveTitles.count == 1) {
+            NSString *only = [haveTitles.firstObject isKindOfClass:[NSString class]]
+                ? (NSString *)haveTitles.firstObject : @"";
+            if ([only isEqualToString:@"发现"] || [only isEqualToString:@"推荐"] ||
+                [only isEqualToString:@"推薦"]) {
+                titlesMatch = NO;
+            }
+        }
+    }
+    // 仍挂着 Bridge feedOverlay 表 → 必须拆
+    BOOL hasFeedOverlay = NO;
+    static const NSInteger kLBFO = 0x4C42464F;
+    if (host.isViewLoaded && host.view) {
+        for (UIView *sub in host.view.subviews) {
+            if ([sub isKindOfClass:[UITableView class]] && sub.tag == kLBFO) {
+                hasFeedOverlay = YES;
+                break;
+            }
+        }
+    }
+
     BOOL didReset = NO;
-    if ([host respondsToSelector:@selector(resetContent)]) {
+    BOOL rebuiltChrome = NO;
+    if ((!titlesMatch || hasFeedOverlay) &&
+        [host respondsToSelector:@selector(createCons:titles:sourceName:)]) {
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"xbsRestore chromeMismatch have=%lu want=%lu overlay=%d → rebuild",
+                              (unsigned long)haveTitles.count, (unsigned long)wantTitles.count,
+                              hasFeedOverlay ? 1 : 0]);
+        @try {
+            if (host.isViewLoaded && host.view) {
+                NSArray *subs = [host.view.subviews copy];
+                for (UIView *sub in subs) {
+                    if ([sub isKindOfClass:[UITableView class]] && sub.tag == kLBFO) {
+                        [sub removeFromSuperview];
+                    }
+                }
+            }
+            for (UIViewController *child in [host.childViewControllers copy]) {
+                [child willMoveToParentViewController:nil];
+                [child.view removeFromSuperview];
+                [child removeFromParentViewController];
+            }
+            id sc = nil;
+            @try { sc = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+            @try {
+                if ([curTV isKindOfClass:[UIView class]]) [(UIView *)curTV removeFromSuperview];
+                if ([sc isKindOfClass:[UIView class]]) [(UIView *)sc removeFromSuperview];
+                [host setValue:nil forKey:@"pageTitleView"];
+                [host setValue:nil forKey:@"pageContentScrollView"];
+            } @catch (__unused NSException *e) {}
+            sNativeChromeBuilt = NO;
+            NSMutableArray *cons = [NSMutableArray array];
+            ((void (*)(id, SEL, id, id, id))objc_msgSend)(
+                host, @selector(createCons:titles:sourceName:), cons, wantTitles, title);
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"xbsRestore createCons titles=%lu cons=%lu",
+                                  (unsigned long)wantTitles.count, (unsigned long)cons.count]);
+            if ([host respondsToSelector:@selector(resetContent)]) {
+                ((void (*)(id, SEL))objc_msgSend)(host, @selector(resetContent));
+                didReset = YES;
+            }
+            rebuiltChrome = YES;
+            sNativeChromeBuilt = YES;
+        } @catch (NSException *ex) {
+            LBAppendNativeMarker([NSString stringWithFormat:@"xbsRestore rebuild EX %@",
+                                  ex.reason ?: @""]);
+        }
+    }
+    if (!didReset && [host respondsToSelector:@selector(resetContent)]) {
         @try {
             ((void (*)(id, SEL))objc_msgSend)(host, @selector(resetContent));
             didReset = YES;
@@ -1029,8 +1126,8 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
     // T2：donor/自用重建后都排队一次原生软刷（LBReload 在 XBS 下不再全 skip）
     sXBSPendingNativeRefresh = YES;
     LBAppendNativeMarker([NSString stringWithFormat:
-                          @"xbsRestore setDic=%d reset=%d bw=%lu name=%@ pendingRefresh=1",
-                          setOk ? 1 : 0, didReset ? 1 : 0,
+                          @"xbsRestore setDic=%d reset=%d rebuild=%d bw=%lu name=%@ pendingRefresh=1",
+                          setOk ? 1 : 0, didReset ? 1 : 0, rebuiltChrome ? 1 : 0,
                           (unsigned long)donorBW.count, title]);
     // 子页挂载晚一拍：再补两次软刷，避免 tvOrCv=0 白屏
     __weak UIViewController *weakHost = host;
@@ -1044,7 +1141,7 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
             LBReloadDiscoverNativeList(h);
         });
     }
-    return setOk || didReset;
+    return setOk || didReset || rebuiltChrome;
 }
 
 /// donor bookWorld 的 key 数决定 createCons 出多少子页。Legado 分类多于 donor 时，
