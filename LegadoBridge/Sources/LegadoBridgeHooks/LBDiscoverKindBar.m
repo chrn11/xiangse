@@ -3101,7 +3101,8 @@ static void LBScheduleDiscoverSwitchPoll(UIViewController *host, NSString *befor
     tick = ^(NSInteger attempt) {
         if (gen != sSwitchPollGeneration) return;
         UIViewController *h = weakHost ?: LBPrimaryDiscoverHost();
-        if (!h || !LBIsDiscoverTabActive()) return;
+        if (!h) return;
+        if (!LBIsDiscoverTabActive() && !LBSelfLooksDiscoverWorldHost(h)) return;
         NSString *name = LBReadHostSourceName(h);
         NSString *cf = nil;
         @try {
@@ -3358,7 +3359,16 @@ static void LBDiscover_setDicModel(id self, SEL _cmd, id model) {
         @try { [self setValue:model forKey:@"dicModel"]; } @catch (__unused NSException *e) {}
     }
     if (sFeedingDiscoverHeader || sHandlingDiscoverSwitch) return;
-    if (!(LBIsDiscoverTabActive() || LBSelfLooksDiscoverWorldHost(self))) return;
+    BOOL hostLooks = LBSelfLooksDiscoverWorldHost(self);
+    BOOL hasNativeBW = NO;
+    if ([model isKindOfClass:[NSDictionary class]]) {
+        id bw = ((NSDictionary *)model)[@"bookWorld"];
+        if ([bw isKindOfClass:[NSDictionary class]] && [(NSDictionary *)bw count] >= 3) {
+            hasNativeBW = YES;
+        }
+    }
+    // T2：发现宿主 / 带 bookWorld 的原生切源都要接住（勿仅依赖 DiscoverTabActive）
+    if (!(LBIsDiscoverTabActive() || hostLooks || hasNativeBW)) return;
     NSString *name = LBNameFromDicModel(model);
     if (name.length == 0) return;
     NSString *norm = LBNormalizeSourceDisplayName(name) ?: name;
