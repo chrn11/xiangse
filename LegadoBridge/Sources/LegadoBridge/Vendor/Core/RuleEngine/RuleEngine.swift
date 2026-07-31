@@ -792,6 +792,29 @@ class RuleEngine {
         if let jsError, !jsError.isEmpty {
             DebugLogger.shared.log("[getJsElements] \(jsError)")
         }
+        // R9 诊断：数组桥接是否吃到 length
+        do {
+            let path = (NSHomeDirectory() as NSString)
+                .appendingPathComponent("Documents/legado_js_elements_probe.txt")
+            let isArr = value?.isArray ?? false
+            let len: Int = {
+                guard let value,
+                      let lv = value.objectForKeyedSubscript("length" as NSString),
+                      lv.isNumber,
+                      let n = lv.toNumber() else { return -1 }
+                return n.intValue
+            }()
+            let via = Self.jsArrayLikeItems(value ?? JSValue(nullIn: exec.jsContext)!)?.count ?? -1
+            let line = "ts=\(ISO8601DateFormatter().string(from: Date())) isArray=\(isArr) length=\(len) viaItems=\(via) err=\(jsError ?? "") codePrefix=\(jsCode.prefix(80).replacingOccurrences(of: "\n", with: " "))\n"
+            if let data = line.data(using: .utf8) {
+                if FileManager.default.fileExists(atPath: path),
+                   let fh = FileHandle(forWritingAtPath: path) {
+                    fh.seekToEndOfFile(); fh.write(data); try? fh.close()
+                } else {
+                    try? data.write(to: URL(fileURLWithPath: path))
+                }
+            }
+        }
         if let sourceUrl = source?.bookSourceUrl {
             SourceSessionStore.merge(exec.variables, for: sourceUrl)
         }
@@ -800,10 +823,13 @@ class RuleEngine {
             return exec.lastElementContexts
         }
 
-        // JS 若返回 HTML 片段列表 / 选择器字符串，再解析一次
+        // JS 若返回 HTML 片段列表 / 选择器字符串 / JSON 对象数组，再解析一次
         if let value, !value.isUndefined, !value.isNull {
             if let arr = Self.jsArrayLikeItems(value) {
                 let mapped: [ElementContext] = arr.compactMap { item -> ElementContext? in
+                    if let dict = Self.jsItemAsStringKeyedDict(item) {
+                        return ElementContext(element: dict, baseUrl: baseUrl)
+                    }
                     if let s = item as? String, !s.isEmpty {
                         // outerHtml 字符串再解析成 Element，供后续 class.xxx.0@ 规则使用
                         if s.contains("<"), let frag = try? SwiftSoup.parseBodyFragment(s).body() {
@@ -811,11 +837,19 @@ class RuleEngine {
                         }
                         return ElementContext(element: s, baseUrl: baseUrl)
                     }
-                    if let jv = item as? JSValue, let s = jv.toString(), !s.isEmpty, s != "undefined", s != "null" {
-                        if s.contains("<"), let frag = try? SwiftSoup.parseBodyFragment(s).body() {
-                            return ElementContext(element: frag, baseUrl: baseUrl)
+                    if let jv = item as? JSValue {
+                        if jv.isObject, !jv.isUndefined, !jv.isNull, let obj = jv.toObject() {
+                            if let dict = Self.jsItemAsStringKeyedDict(obj) {
+                                return ElementContext(element: dict, baseUrl: baseUrl)
+                            }
+                            return ElementContext(element: obj, baseUrl: baseUrl)
                         }
-                        return ElementContext(element: s, baseUrl: baseUrl)
+                        if let s = jv.toString(), !s.isEmpty, s != "undefined", s != "null", s != "[object Object]" {
+                            if s.contains("<"), let frag = try? SwiftSoup.parseBodyFragment(s).body() {
+                                return ElementContext(element: frag, baseUrl: baseUrl)
+                            }
+                            return ElementContext(element: s, baseUrl: baseUrl)
+                        }
                     }
                     return ElementContext(element: item as Any, baseUrl: baseUrl)
                 }
@@ -868,6 +902,24 @@ class RuleEngine {
             }
         }
         return items.isEmpty ? nil : items
+    }
+
+    /// JS/ObjC 桥接对象 → `[String: Any]`，供 name/author 等 JSON 字段规则
+    private static func jsItemAsStringKeyedDict(_ item: Any) -> [String: Any]? {
+        if let dict = item as? [String: Any] {
+            return dict
+        }
+        if let nd = item as? NSDictionary {
+            var out: [String: Any] = [:]
+            out.reserveCapacity(nd.count)
+            nd.enumerateKeysAndObjects { key, obj, _ in
+                if let ks = key as? String {
+                    out[ks] = obj
+                }
+            }
+            return out.isEmpty ? nil : out
+        }
+        return nil
     }
 
     /// 从起点类 bookList JS 抽出 `path='class.xxx'` 或 `getElement('…')`
