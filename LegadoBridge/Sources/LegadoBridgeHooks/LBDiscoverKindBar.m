@@ -905,21 +905,41 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
         }
     }
 
+    // T1/T2：本源 bookWorld 过薄（如番茄20250516 仅男生/女频/出版 3 key）时，
+    // 禁止直接采用；改借富 donor（如番茄20250628）重建标签墙。
     NSDictionary *donorBW = nil;
     NSString *donorName = nil;
+    NSUInteger ownKeys = 0;
     if ([picked isKindOfClass:[NSDictionary class]]) {
         id bw = picked[@"bookWorld"];
-        if ([bw isKindOfClass:[NSDictionary class]] && [(NSDictionary *)bw count] >= 3) {
-            donorBW = bw;
+        if ([bw isKindOfClass:[NSDictionary class]]) {
+            ownKeys = [(NSDictionary *)bw count];
+            if (ownKeys >= 6) {
+                donorBW = (NSDictionary *)bw;
+            } else {
+                LBAppendNativeMarker([NSString stringWithFormat:
+                                      @"xbsRestore thinOwnBW keys=%lu name=%@ → try donor",
+                                      (unsigned long)ownKeys, want]);
+            }
         }
     }
     if (!donorBW) {
         donorBW = LBFindDonorBookWorld(mgr, &donorName);
         if (!pickedName && donorName.length) pickedName = donorName;
+        if (donorBW) {
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"xbsRestore borrowedBW from=%@ keys=%lu want=%@",
+                                  donorName ?: @"?", (unsigned long)donorBW.count, want]);
+        }
     }
     if (!donorBW || donorBW.count < 3) {
         LBAppendNativeMarker([NSString stringWithFormat:@"xbsRestore fail noBW name=%@", want]);
         return NO;
+    }
+    if (donorBW.count < 6) {
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"xbsRestore stillThin keys=%lu want=%@ (need explore)",
+                              (unsigned long)donorBW.count, want]);
     }
 
     NSMutableDictionary *model = [picked isKindOfClass:[NSDictionary class]]
