@@ -241,7 +241,16 @@ class AnalyzeUrl {
             }
 
             let evalResult = evalJS(jsCode, result: result, errorOut: &lastJsError)
-            if let evalResult {
+            // J2：JS 抛错时禁止把异常文案拼进 URL
+            if let err = lastJsError, !err.isEmpty {
+                writeAnalyzeJsProbe(
+                    phase: "js_error",
+                    raw: result,
+                    recovered: "",
+                    jsError: err
+                )
+                // 保留 result 前缀；后续 recover / 后缀逻辑处理；勿采用 evalResult
+            } else if let evalResult {
                 let described = String(describing: evalResult)
                 // JS 返回 undefined/null/@js 原文时保留原串，避免拼出 https://host/undefined
                 // 也拒绝仍带 @js: 前缀的回落值（eval 失败时曾把整段规则当结果）
@@ -249,7 +258,8 @@ class AnalyzeUrl {
                    described != "undefined",
                    described != "null",
                    !described.hasPrefix("@js:"),
-                   !described.hasPrefix("<js>") {
+                   !described.hasPrefix("<js>"),
+                   !Self.looksLikeJSErrorText(described) {
                     result = described
                 }
             }
@@ -574,6 +584,7 @@ class AnalyzeUrl {
     func evalJS(_ jsStr: String, result: Any? = nil, errorOut: inout String?) -> Any? {
         let trimmed = jsStr.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return result }
+        errorOut = nil
 
         let jsContext = JSContext()!
 
@@ -652,9 +663,18 @@ class AnalyzeUrl {
            !caught.isEmpty {
             errorOut = caught
             DebugLogger.shared.log("[AnalyzeUrl.evalJS] \(caught)")
+            if let sourceUrl = source?.bookSourceUrl {
+                SourceSessionStore.merge(execContext.variables, for: sourceUrl)
+            }
+            // J2 fail-open：有 JS 错误则不返回异常字符串（曾被拼进 URL）
+            return nil
         } else if let jsError, !jsError.isEmpty {
             errorOut = jsError
             DebugLogger.shared.log("[AnalyzeUrl.evalJS] \(jsError)")
+            if let sourceUrl = source?.bookSourceUrl {
+                SourceSessionStore.merge(execContext.variables, for: sourceUrl)
+            }
+            return nil
         }
 
         // 优先读脚本写入的 result / url（起点 searchUrl: result=url）
@@ -664,7 +684,8 @@ class AnalyzeUrl {
                let str = bound.toString(),
                Self.isUsableJSString(str),
                !str.hasPrefix("@js:"),
-               !str.hasPrefix("<js>") {
+               !str.hasPrefix("<js>"),
+               !Self.looksLikeJSErrorText(str) {
                 if let sourceUrl = source?.bookSourceUrl {
                     SourceSessionStore.merge(execContext.variables, for: sourceUrl)
                 }
@@ -677,7 +698,10 @@ class AnalyzeUrl {
                 return value.toNumber()?.stringValue
             }
             let str = value.toString() ?? ""
-            if Self.isUsableJSString(str), !str.hasPrefix("@js:"), !str.hasPrefix("<js>") {
+            if Self.isUsableJSString(str),
+               !str.hasPrefix("@js:"),
+               !str.hasPrefix("<js>"),
+               !Self.looksLikeJSErrorText(str) {
                 if let sourceUrl = source?.bookSourceUrl {
                     SourceSessionStore.merge(execContext.variables, for: sourceUrl)
                 }
@@ -692,6 +716,14 @@ class AnalyzeUrl {
             return nil
         }
         return result
+    }
+
+    /// J2：识别误拼进 URL 的 JS 异常文案
+    private static func looksLikeJSErrorText(_ str: String) -> Bool {
+        let t = str.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty { return false }
+        let markers = ["TypeError", "ReferenceError", "SyntaxError", "RangeError", "Error:", "Can't find variable"]
+        return markers.contains { t.contains($0) }
     }
 
     private static func isUsableJSString(_ str: String) -> Bool {

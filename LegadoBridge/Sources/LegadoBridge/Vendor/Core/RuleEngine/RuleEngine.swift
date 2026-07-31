@@ -799,10 +799,16 @@ class RuleEngine {
 
         // JS 若返回 HTML 片段列表 / 选择器字符串，再解析一次
         if let value, !value.isUndefined, !value.isNull {
-            if value.isArray, let arr = value.toArray() {
+            if let arr = Self.jsArrayLikeItems(value) {
                 let mapped: [ElementContext] = arr.compactMap { item -> ElementContext? in
                     if let s = item as? String, !s.isEmpty {
                         // outerHtml 字符串再解析成 Element，供后续 class.xxx.0@ 规则使用
+                        if s.contains("<"), let frag = try? SwiftSoup.parseBodyFragment(s).body() {
+                            return ElementContext(element: frag, baseUrl: baseUrl)
+                        }
+                        return ElementContext(element: s, baseUrl: baseUrl)
+                    }
+                    if let jv = item as? JSValue, let s = jv.toString(), !s.isEmpty, s != "undefined", s != "null" {
                         if s.contains("<"), let frag = try? SwiftSoup.parseBodyFragment(s).body() {
                             return ElementContext(element: frag, baseUrl: baseUrl)
                         }
@@ -831,6 +837,34 @@ class RuleEngine {
         }
 
         return exec.lastElementContexts
+    }
+
+    /// J1/R9：JSC 桥接下 `isArray`/`toArray` 偶发失败；按 length 索引兜底
+    private static func jsArrayLikeItems(_ value: JSValue) -> [Any]? {
+        if value.isArray, let arr = value.toArray(), !arr.isEmpty {
+            return arr
+        }
+        guard value.isObject,
+              let lenVal = value.objectForKeyedSubscript("length" as NSString),
+              lenVal.isNumber,
+              let lenNum = lenVal.toNumber() else {
+            return nil
+        }
+        let len = lenNum.intValue
+        guard len > 0, len < 100_000 else { return nil }
+        var items: [Any] = []
+        items.reserveCapacity(len)
+        for i in 0..<len {
+            guard let item = value.objectAtIndexedSubscript(Int32(i)), !item.isUndefined, !item.isNull else { continue }
+            if let obj = item.toObject() {
+                items.append(obj)
+            } else if let s = item.toString() {
+                items.append(s)
+            } else {
+                items.append(item)
+            }
+        }
+        return items.isEmpty ? nil : items
     }
 
     /// 从起点类 bookList JS 抽出 `path='class.xxx'` 或 `getElement('…')`

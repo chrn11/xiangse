@@ -22,6 +22,7 @@ class JSBridge: JsEncodeUtils {
 
     /// 注入所有桥接对象到 JSContext
     func inject(into jsContext: JSContext) {
+        Self.injectES6ConstructorCompat(into: jsContext)
         injectJavaObject(into: jsContext)
         injectSourceObject(into: jsContext)
         injectCookieObject(into: jsContext)
@@ -30,6 +31,35 @@ class JSBridge: JsEncodeUtils {
         denyForbiddenNativeAPIs(into: jsContext)
         // 书源 jsLib：共享函数须在业务脚本之前落入同一上下文（对标 Android jsLib，只执行一次语义由调用方复用 context）
         Self.evaluateJsLib(of: context?.source, into: jsContext, headers: parseSourceHeaders())
+    }
+
+    /// J1：JSC 要求 `new Map()`，Android V8 容忍 `Map()`。包装后两种写法皆可。
+    static func injectES6ConstructorCompat(into jsContext: JSContext) {
+        _ = jsContext.evaluateScript("""
+        (function (g) {
+          function wrapCtor(Native, name) {
+            if (typeof Native !== 'function') return;
+            if (Native.__legadoWrapped) return;
+            function Wrapped() {
+              var args = Array.prototype.slice.call(arguments);
+              if (typeof Reflect !== 'undefined' && Reflect.construct) {
+                return Reflect.construct(Native, args, Wrapped);
+              }
+              args.unshift(null);
+              return new (Function.prototype.bind.apply(Native, args))();
+            }
+            Wrapped.prototype = Native.prototype;
+            try { Object.setPrototypeOf(Wrapped, Native); } catch (e) {}
+            try { Object.defineProperty(Wrapped, 'name', { value: name }); } catch (e2) {}
+            Wrapped.__legadoWrapped = true;
+            g[name] = Wrapped;
+          }
+          wrapCtor(g.Map, 'Map');
+          wrapCtor(g.Set, 'Set');
+          wrapCtor(g.WeakMap, 'WeakMap');
+          wrapCtor(g.WeakSet, 'WeakSet');
+        })(this);
+        """)
     }
 
     /// 将书源 `jsLib` 注入当前 JSContext。纯 http(s) URL 则先拉取再执行。
@@ -657,14 +687,30 @@ class CacheStore {
 
 // MARK: - JSBridgeHTTPClient
 
-class JSBridgeHTTPClient {
+class JSBridgeHTTPClient: NSObject, URLSessionDelegate {
+    private static let shared = JSBridgeHTTPClient()
+
     private static let session: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
         config.timeoutIntervalForResource = 15
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: config)
+        // J4：书源外网常遇非标准证书；允许继续（仅本会话，供 jsLib/ajax/导入）
+        return URLSession(configuration: config, delegate: shared, delegateQueue: nil)
     }()
+
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           let trust = challenge.protectionSpace.serverTrust {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+            return
+        }
+        completionHandler(.performDefaultHandling, nil)
+    }
 
     static func syncGet(url: String, headers: [String: String]?) -> String? {
         guard let request = makeRequest(url: url, headers: headers, method: "GET", body: nil) else { return nil }

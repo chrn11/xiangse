@@ -279,6 +279,30 @@ void LBLegadoImportData(NSData *data) {
     }
 }
 
+/// J4：书源导入允许非标准 TLS（yckceo 等）
+@interface LBLegadoInsecureSessionDelegate : NSObject <NSURLSessionDelegate>
+@end
+@implementation LBLegadoInsecureSessionDelegate
+- (void)URLSession:(NSURLSession *)session
+didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
+ completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential * _Nullable))completionHandler {
+    if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust]
+        && challenge.protectionSpace.serverTrust) {
+        NSURLCredential *cred = [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust];
+        completionHandler(NSURLSessionAuthChallengeUseCredential, cred);
+        return;
+    }
+    completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
+}
+@end
+
+static LBLegadoInsecureSessionDelegate *LBLegadoSharedInsecureDelegate(void) {
+    static LBLegadoInsecureSessionDelegate *d;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ d = [LBLegadoInsecureSessionDelegate new]; });
+    return d;
+}
+
 /// 异步下载并导入 Legado 书源 JSON（超时 15 秒，主线程回调提示）
 void LBLegadoFetchAndImport(NSURL *url) {
     if (!url) { LBLegadoShowResult(@"URL 为空"); return; }
@@ -288,7 +312,9 @@ void LBLegadoFetchAndImport(NSURL *url) {
     NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
     config.timeoutIntervalForRequest = 15.0;
     config.timeoutIntervalForResource = 15.0;
-    NSURLSession *session = [NSURLSession sessionWithConfiguration:config];
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:config
+                                                          delegate:LBLegadoSharedInsecureDelegate()
+                                                     delegateQueue:nil];
     [[session dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (error) {
