@@ -218,19 +218,40 @@ static id LBLegadoManagerCore(void) {
     void (^go)(void) = ^{
         LBSwitchDiscoverToSourceName(target);
     };
+
+    // 管理页常被 push 到现有导航（还可能叠多层）；选源后必须清掉管理/编辑页再切发现。
+    UINavigationController *nav = self.navigationController;
+    if (nav) {
+        NSArray *stack = [nav.viewControllers copy];
+        NSMutableArray *kept = [NSMutableArray array];
+        for (UIViewController *vc in stack) {
+            NSString *cn = NSStringFromClass([vc class]);
+            if ([cn isEqualToString:@"LBLegadoSourceManagerVC"] ||
+                [cn containsString:@"LBLegadoSourceEditor"]) {
+                break;
+            }
+            [kept addObject:vc];
+        }
+        if (kept.count > 0 && kept.count < stack.count) {
+            [nav setViewControllers:kept animated:YES];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), go);
+            return;
+        }
+        if (nav.presentingViewController &&
+            (kept.count == 0 || (stack.count == 1 && stack.firstObject == self))) {
+            [nav.presentingViewController dismissViewControllerAnimated:YES completion:go];
+            return;
+        }
+        if (nav.viewControllers.firstObject != self) {
+            [nav popViewControllerAnimated:YES];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), go);
+            return;
+        }
+    }
     if (self.presentingViewController) {
         [self.presentingViewController dismissViewControllerAnimated:YES completion:go];
-        return;
-    }
-    UINavigationController *nav = self.navigationController;
-    if (nav && nav.viewControllers.firstObject != self) {
-        [nav popViewControllerAnimated:YES];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), go);
-        return;
-    }
-    if (nav.presentingViewController) {
-        [nav.presentingViewController dismissViewControllerAnimated:YES completion:go];
         return;
     }
     go();

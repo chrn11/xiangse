@@ -222,6 +222,16 @@ void LBLegadoPresentManagerVC(NSString *focusSourceUrl) {
     }
     UINavigationController *nav = LBLegadoVisibleNavigationController();
     if (nav) {
+        UIViewController *top = nav.topViewController;
+        if ([top isKindOfClass:managerVCClass]) {
+            if (focusSourceUrl.length > 0 && [top respondsToSelector:@selector(setFocusSourceUrl:)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                [top performSelector:@selector(setFocusSourceUrl:) withObject:focusSourceUrl];
+#pragma clang diagnostic pop
+            }
+            return;
+        }
         [nav pushViewController:managerVC animated:YES];
     } else {
         UINavigationController *wrapNav = [[UINavigationController alloc] initWithRootViewController:managerVC];
