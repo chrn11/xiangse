@@ -644,7 +644,9 @@ class AnalyzeUrl {
             guard let page else { return "undefined" }
             return "\(page)"
         }()
-        // 顶层 try/catch；显式 var baseUrl=…
+        // 顶层 try/catch + eval：保留多语句脚本「最后表达式」完成值。
+        // 直接把脚本塞进 try{} 时 JSC 常把完成值丢掉（起点 getApiUrl(...) 实测回 undefined）。
+        let evalSourceLiteral = Self.jsSingleQuoted(trimmed)
         let wrapped = """
         var baseUrl = '\(escapedBase)';
         var key = \(keyLiteral);
@@ -652,8 +654,13 @@ class AnalyzeUrl {
         var result = '';
         var url = '';
         var __analyzeUrlEvalErrMsg = '';
+        var __analyzeUrlEvalOut = undefined;
         try {
-          \(trimmed)
+          __analyzeUrlEvalOut = eval('\(evalSourceLiteral)');
+          if (__analyzeUrlEvalOut !== undefined && __analyzeUrlEvalOut !== null
+              && (typeof result === 'undefined' || result === null || result === '')) {
+            result = __analyzeUrlEvalOut;
+          }
         } catch (__analyzeUrlEvalErr) {
           __analyzeUrlEvalErrMsg = String(__analyzeUrlEvalErr);
         }
@@ -678,7 +685,7 @@ class AnalyzeUrl {
         }
 
         // 优先读脚本写入的 result / url（起点 searchUrl: result=url）
-        for name in ["result", "url"] {
+        for name in ["result", "url", "__analyzeUrlEvalOut"] {
             if let bound = jsContext.objectForKeyedSubscript(name),
                !bound.isUndefined, !bound.isNull,
                let str = bound.toString(),
