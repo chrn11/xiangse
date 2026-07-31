@@ -970,7 +970,44 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
     model[@"bookWorld"] = donorBW;
     model[@"arrHeaderBtnTitle"] = donorBW.allKeys ?: @[];
     NSString *title = pickedName.length ? pickedName : want;
-    model[@"cf_title"] = title;
+    // 标题跟「当前要切的源」一致；bookWorld 可以是借来的
+    if (want.length > 0) {
+        model[@"cf_title"] = want;
+        title = want;
+    } else {
+        model[@"cf_title"] = title;
+    }
+
+    // T1：若借了 donor BW，必须写回 manager 里该源条目。
+    // 否则 resetContent 再按 useSourceName 读 dicModelList 会拿回薄壳 → 白屏。
+    if (mgr && want.length > 0 && donorBW.count >= 3) {
+        @try {
+            id rawList = [mgr valueForKey:@"dicModelList"];
+            if ([rawList isKindOfClass:[NSDictionary class]]) {
+                NSMutableDictionary *list = [(NSDictionary *)rawList mutableCopy];
+                NSMutableDictionary *entry =
+                    [list[want] isKindOfClass:[NSDictionary class]]
+                        ? [list[want] mutableCopy]
+                        : [NSMutableDictionary dictionary];
+                entry[@"bookWorld"] = donorBW;
+                entry[@"arrHeaderBtnTitle"] = donorBW.allKeys ?: @[];
+                if (![entry[@"cf_title"] isKindOfClass:[NSString class]] ||
+                    [(NSString *)entry[@"cf_title"] length] == 0) {
+                    entry[@"cf_title"] = want;
+                }
+                list[want] = entry;
+                [mgr setValue:list forKey:@"dicModelList"];
+                if ([mgr respondsToSelector:@selector(save)]) {
+                    @try { ((void (*)(id, SEL))objc_msgSend)(mgr, @selector(save)); }
+                    @catch (__unused NSException *e) {}
+                }
+                LBAppendNativeMarker([NSString stringWithFormat:
+                                      @"xbsRestore persistBW name=%@ keys=%lu from=%@",
+                                      want, (unsigned long)donorBW.count,
+                                      donorName.length ? donorName : @"self"]);
+            }
+        } @catch (__unused NSException *e) {}
+    }
 
     @try { host.navigationItem.title = title; } @catch (__unused NSException *e) {}
     @try { host.title = title; } @catch (__unused NSException *e) {}
@@ -995,6 +1032,18 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
                           @"xbsRestore setDic=%d reset=%d bw=%lu name=%@ pendingRefresh=1",
                           setOk ? 1 : 0, didReset ? 1 : 0,
                           (unsigned long)donorBW.count, title]);
+    // 子页挂载晚一拍：再补两次软刷，避免 tvOrCv=0 白屏
+    __weak UIViewController *weakHost = host;
+    for (NSNumber *delayNum in @[ @0.45, @1.0 ]) {
+        NSTimeInterval delay = delayNum.doubleValue;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            UIViewController *h = weakHost;
+            if (!h || !LBIsDiscoverNativeXBSMode()) return;
+            sXBSPendingNativeRefresh = YES;
+            LBReloadDiscoverNativeList(h);
+        });
+    }
     return setOk || didReset;
 }
 
