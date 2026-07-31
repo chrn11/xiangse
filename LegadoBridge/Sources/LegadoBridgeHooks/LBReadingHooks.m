@@ -585,20 +585,80 @@ void LBInstallReadingHooks(void) {
 }
 
 #pragma mark - E-02/E-03 目录倒序与搜索辅助
+// CatalogCon 真机字段是 arrSource（setArrSource:），不是 arrCatalog（后者在阅读器侧）
 
-static void LBCatalogReverseArrayOnVC(id catalogVC) {
-    if (!catalogVC) return;
+static NSString *LBCatalogItemTitle(id item) {
+    if ([item isKindOfClass:[NSString class]]) return (NSString *)item;
+    if (![item isKindOfClass:[NSDictionary class]]) return nil;
+    NSDictionary *d = (NSDictionary *)item;
+    NSString *t = d[@"cpTitle"] ?: d[@"title"] ?: d[@"chapterName"] ?: d[@"name"];
+    id val = d[@"value"];
+    if ([val isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *inner = (NSDictionary *)val;
+        NSString *it = inner[@"cpTitle"] ?: inner[@"title"] ?: inner[@"chapterName"] ?: inner[@"name"];
+        if ([it isKindOfClass:[NSString class]] && it.length > 0) {
+            if (![t isKindOfClass:[NSString class]] || t.length == 0 || [t containsString:@"(null)"]) {
+                t = it;
+            }
+        }
+    }
+    return [t isKindOfClass:[NSString class]] ? t : nil;
+}
+
+static NSArray *LBCatalogReadChapters(id catalogVC) {
+    if (!catalogVC) return nil;
+    @try {
+        if ([catalogVC respondsToSelector:@selector(arrSource)]) {
+            id arr = ((id (*)(id, SEL))objc_msgSend)(catalogVC, @selector(arrSource));
+            if ([arr isKindOfClass:[NSArray class]] && [(NSArray *)arr count] > 0) {
+                return (NSArray *)arr;
+            }
+        }
+    } @catch (__unused NSException *e) {}
     @try {
         id arr = [catalogVC valueForKey:@"arrCatalog"];
-        if (![arr isKindOfClass:[NSArray class]] || [(NSArray *)arr count] < 2) return;
-        NSArray *rev = [[(NSArray *)arr reverseObjectEnumerator] allObjects];
-        [catalogVC setValue:rev forKey:@"arrCatalog"];
+        if ([arr isKindOfClass:[NSArray class]]) return (NSArray *)arr;
+    } @catch (__unused NSException *e) {}
+    return nil;
+}
+
+static void LBCatalogWriteChapters(id catalogVC, NSArray *chapters) {
+    if (!catalogVC || !chapters) return;
+    @try {
+        if ([catalogVC respondsToSelector:@selector(setArrSource:)]) {
+            ((void (*)(id, SEL, id))objc_msgSend)(catalogVC, @selector(setArrSource:), chapters);
+        } else {
+            [catalogVC setValue:chapters forKey:@"arrCatalog"];
+        }
+    } @catch (__unused NSException *e) {
+        @try { [catalogVC setValue:chapters forKey:@"arrCatalog"]; } @catch (__unused NSException *e2) {}
+    }
+    @try {
+        if ([catalogVC respondsToSelector:@selector(reloadData)]) {
+            ((void (*)(id, SEL))objc_msgSend)(catalogVC, @selector(reloadData));
+            return;
+        }
+    } @catch (__unused NSException *e) {}
+    @try {
         UITableView *tv = nil;
         if ([catalogVC respondsToSelector:@selector(tableView)]) {
             tv = ((UITableView *(*)(id, SEL))objc_msgSend)(catalogVC, @selector(tableView));
         }
         [tv reloadData];
-        NSString *msg = [NSString stringWithFormat:@"E02 reverse n=%lu", (unsigned long)rev.count];
+    } @catch (__unused NSException *e) {}
+}
+
+static void LBCatalogReverseArrayOnVC(id catalogVC) {
+    if (!catalogVC) return;
+    @try {
+        NSArray *arr = LBCatalogReadChapters(catalogVC);
+        if (![arr isKindOfClass:[NSArray class]] || arr.count < 2) return;
+        NSArray *rev = [[arr reverseObjectEnumerator] allObjects];
+        LBCatalogWriteChapters(catalogVC, rev);
+        NSString *msg = [NSString stringWithFormat:@"E02 reverse n=%lu first=%@ last=%@",
+                         (unsigned long)rev.count,
+                         LBCatalogItemTitle(rev.firstObject) ?: @"",
+                         LBCatalogItemTitle(rev.lastObject) ?: @""];
         [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_e02_reverse.txt"]
               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     } @catch (__unused NSException *e) {}
@@ -611,33 +671,23 @@ static void LBCatalogFilterByKeyword(id catalogVC, NSString *keyword) {
         static char kOrigKey;
         NSArray *orig = objc_getAssociatedObject(catalogVC, &kOrigKey);
         if (!orig) {
-            id arr = [catalogVC valueForKey:@"arrCatalog"];
+            NSArray *arr = LBCatalogReadChapters(catalogVC);
             if (![arr isKindOfClass:[NSArray class]]) return;
-            orig = [(NSArray *)arr copy];
+            orig = [arr copy];
             objc_setAssociatedObject(catalogVC, &kOrigKey, orig, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
         NSArray *use = orig;
         if (key.length > 0) {
             NSMutableArray *filtered = [NSMutableArray array];
             for (id item in orig) {
-                NSString *title = nil;
-                if ([item isKindOfClass:[NSDictionary class]]) {
-                    title = item[@"cpTitle"] ?: item[@"title"] ?: item[@"chapterName"] ?: item[@"name"];
-                } else if ([item isKindOfClass:[NSString class]]) {
-                    title = (NSString *)item;
-                }
+                NSString *title = LBCatalogItemTitle(item);
                 if ([title isKindOfClass:[NSString class]] && [title containsString:key]) {
                     [filtered addObject:item];
                 }
             }
             use = filtered;
         }
-        [catalogVC setValue:use forKey:@"arrCatalog"];
-        UITableView *tv = nil;
-        if ([catalogVC respondsToSelector:@selector(tableView)]) {
-            tv = ((UITableView *(*)(id, SEL))objc_msgSend)(catalogVC, @selector(tableView));
-        }
-        [tv reloadData];
+        LBCatalogWriteChapters(catalogVC, use);
         NSString *msg = [NSString stringWithFormat:@"E03 filter key=%@ n=%lu", key, (unsigned long)use.count];
         [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_e03_filter.txt"]
               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
@@ -724,6 +774,22 @@ static void LBInstallCatalogOrderAndSearchAssist(void) {
             }
         });
         method_setImplementation(m, hook);
-        NSLog(@"[LegadoBridge] E-02/E-03 CatalogCon order/search assist installed");
+
+        // 原生目录用 UISearchController；在原实现后再按关键字过滤 arrSource
+        Method mSearch = class_getInstanceMethod(cls, @selector(updateSearchResultsForSearchController:));
+        if (mSearch) {
+            IMP prevSearch = method_getImplementation(mSearch);
+            IMP hookSearch = imp_implementationWithBlock(^void(id selfObj, id searchController) {
+                ((void (*)(id, SEL, id))prevSearch)(selfObj, @selector(updateSearchResultsForSearchController:), searchController);
+                NSString *text = nil;
+                @try {
+                    id bar = ((id (*)(id, SEL))objc_msgSend)(searchController, @selector(searchBar));
+                    text = ((id (*)(id, SEL))objc_msgSend)(bar, @selector(text));
+                } @catch (__unused NSException *e) {}
+                LBCatalogFilterByKeyword(selfObj, text ?: @"");
+            });
+            method_setImplementation(mSearch, hookSearch);
+        }
+        NSLog(@"[LegadoBridge] E-02/E-03 CatalogCon order/search assist installed (arrSource)");
     });
 }
