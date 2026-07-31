@@ -142,6 +142,56 @@ static id LBConfig_getGroupData_IMP(id self, SEL _cmd) {
     return orig;
 }
 
+/// T3：切换站点右侧索引条含大量空串/"|" 垫片，原生把它们映射到 section0（TOP）。
+/// TOP 段常为 0 行时，点垫片会「回顶」，看起来像索引失灵。显式 Top 仍回顶；垫片改落到最近有行段。
+static NSInteger (*LBOrig_Config_sectionForIndexTitle)(id, SEL, UITableView *, NSString *, NSInteger) = NULL;
+
+static NSInteger LBConfig_sectionForIndexTitle_IMP(id self, SEL _cmd, UITableView *tableView,
+                                                   NSString *title, NSInteger index) {
+    NSInteger sec = 0;
+    if (LBOrig_Config_sectionForIndexTitle) {
+        sec = LBOrig_Config_sectionForIndexTitle(self, _cmd, tableView, title, index);
+    }
+    if (![tableView isKindOfClass:[UITableView class]]) return sec;
+    @try {
+        NSInteger nSec = [tableView numberOfSections];
+        if (sec < 0 || sec >= nSec) return sec;
+        // 只纠正「误落到空 TOP」；图/音/视空段仍按原生滚到该段头
+        if (sec != 0) return sec;
+        if ([tableView numberOfRowsInSection:0] > 0) return sec;
+        NSString *t = [title isKindOfClass:[NSString class]] ? title : @"";
+        BOOL explicitTop = (t.length > 0) &&
+            ([t caseInsensitiveCompare:@"Top"] == NSOrderedSame || [t isEqualToString:@"TOP"]);
+        if (explicitTop) return sec;
+        for (NSInteger s = 1; s < nSec; s++) {
+            if ([tableView numberOfRowsInSection:s] > 0) return s;
+        }
+    } @catch (__unused NSException *e) {}
+    return sec;
+}
+
+static void (*LBOrig_SwitchVC_viewWillAppear)(id, SEL, BOOL) = NULL;
+
+static void LBSwitchVC_viewWillAppear_IMP(id self, SEL _cmd, BOOL animated) {
+    if (LBOrig_SwitchVC_viewWillAppear) LBOrig_SwitchVC_viewWillAppear(self, _cmd, animated);
+    // 防御：发现页 pinPageSV 曾误伤过内部表；切换面板打开时强制可滚
+    @try {
+        UITableView *tv = nil;
+        if ([self isKindOfClass:[UITableViewController class]]) {
+            tv = [(UITableViewController *)self tableView];
+        }
+        if (!tv) {
+            @try { tv = [self valueForKey:@"tableView"]; } @catch (__unused NSException *e) { tv = nil; }
+        }
+        if ([tv isKindOfClass:[UITableView class]]) {
+            tv.scrollEnabled = YES;
+            tv.userInteractionEnabled = YES;
+            UIPanGestureRecognizer *pan = tv.panGestureRecognizer;
+            if (pan) pan.enabled = YES;
+        }
+    } @catch (__unused NSException *e) {}
+}
+
 static NSArray * (*LBOrig_Config_getUseSourceNames)(id, SEL) = NULL;
 
 typedef NSArray *(*LBGetUseSourceNamesFn)(id, SEL);
@@ -548,6 +598,56 @@ void LBInstallSourceListHooks(void) {
             LBOrig_Config_getGroupData = (id (*)(id, SEL))method_getImplementation(groupMethod);
             method_setImplementation(groupMethod, (IMP)LBConfig_getGroupData_IMP);
             NSLog(@"[LegadoBridge] hooked ConfigSourceListBase getGroupData");
+        }
+    }
+
+    // T3：索引条 section 映射（挂到实际实现类）
+    {
+        SEL idxSel = @selector(tableView:sectionForSectionIndexTitle:atIndex:);
+        NSArray<NSString *> *idxClasses = @[
+            @"BookSourceSwitchVC2",
+            @"ConfigSourceListBase",
+            @"LCTableViewControllerBase_Group"
+        ];
+        for (NSString *cn in idxClasses) {
+            Class requested = NSClassFromString(cn);
+            if (!requested) continue;
+            Class owner = LBClassOwningInstanceMethod(requested, idxSel);
+            if (!owner || LBOrig_Config_sectionForIndexTitle) continue;
+            Method m = class_getInstanceMethod(owner, idxSel);
+            if (!m) continue;
+            LBOrig_Config_sectionForIndexTitle =
+                (NSInteger (*)(id, SEL, UITableView *, NSString *, NSInteger))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LBConfig_sectionForIndexTitle_IMP);
+            NSLog(@"[LegadoBridge] hooked %@ sectionForSectionIndexTitle (via %@)",
+                  NSStringFromClass(owner), cn);
+            break;
+        }
+    }
+
+    // T3：切换站点面板打开时确保 table 可滚
+    {
+        Class switchCls = NSClassFromString(@"BookSourceSwitchVC2");
+        SEL appearSel = @selector(viewWillAppear:);
+        if (switchCls) {
+            Method appearMethod = class_getInstanceMethod(switchCls, appearSel);
+            if (appearMethod && !LBOrig_SwitchVC_viewWillAppear) {
+                LBOrig_SwitchVC_viewWillAppear =
+                    (void (*)(id, SEL, BOOL))method_getImplementation(appearMethod);
+                method_setImplementation(appearMethod, (IMP)LBSwitchVC_viewWillAppear_IMP);
+                NSLog(@"[LegadoBridge] hooked BookSourceSwitchVC2 viewWillAppear:");
+            } else if (!appearMethod) {
+                // 子类未实现则加到自身，先调父类
+                Class superCls = class_getSuperclass(switchCls);
+                Method superM = superCls ? class_getInstanceMethod(superCls, appearSel) : NULL;
+                if (superM) {
+                    LBOrig_SwitchVC_viewWillAppear =
+                        (void (*)(id, SEL, BOOL))method_getImplementation(superM);
+                    class_addMethod(switchCls, appearSel, (IMP)LBSwitchVC_viewWillAppear_IMP,
+                                    method_getTypeEncoding(superM));
+                    NSLog(@"[LegadoBridge] added BookSourceSwitchVC2 viewWillAppear:");
+                }
+            }
         }
     }
 
