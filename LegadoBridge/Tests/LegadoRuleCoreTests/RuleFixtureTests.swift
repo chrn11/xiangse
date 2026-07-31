@@ -386,6 +386,40 @@ final class RuleFixtureTests: XCTestCase {
         )
     }
 
+    /// J3：书源 jsLib 中的函数须在 @js 规则里可调用
+    func testJSLibFunctionsVisibleInJSRule() throws {
+        let source = JsLibFixtureSource(
+            jsLib: "function libHello(){ return 'fromJsLib'; }"
+        )
+        let result = try RuleWebBook.evaluateString(
+            rule: "@js:libHello();",
+            body: html,
+            source: source
+        )
+        XCTAssertTrue(
+            result.contains("fromJsLib"),
+            "jsLib 注入后 libHello 应可用，实际: \(result)"
+        )
+    }
+
+    /// J3：AnalyzeUrl @js 路径同样能看见 jsLib
+    func testJSLibVisibleInAnalyzeUrl() {
+        let source = JsLibFixtureSource(
+            jsLib: "function libPath(){ return '/from-lib'; }"
+        )
+        let analyzed = AnalyzeUrl.analyze(
+            ruleUrl: "@js:result=baseUrl+libPath();",
+            key: nil,
+            page: 1,
+            baseUrl: "https://example.com",
+            source: source
+        )
+        XCTAssertTrue(
+            analyzed.url.contains("/from-lib"),
+            "AnalyzeUrl 应拼上 jsLib 返回路径，实际: \(analyzed.url)"
+        )
+    }
+
     /// 起点 searchUrl：@js 内含 {{key}} 与 option JSON，不得解析成 /undefined
     func testQidianStyleSearchUrlNotUndefined() {
         let rule = #"@js:url=baseUrl+"/so/{{key}}.html,{'method':'GET','headers':{'User-Agent':'Mozilla/5.0','Referer':'https://www.qidian.com/'}}";java.put('url',url);result=url;"#
@@ -666,4 +700,33 @@ final class RuleFixtureTests: XCTestCase {
         let out = try RuleWebBook.evaluateString(rule: rule, body: body)
         XCTAssertTrue(out.contains("你好"), "引号正文应存活，实际: \(out)")
     }
+}
+
+/// 仅用于 jsLib 夹具的最小书源桩
+private final class JsLibFixtureSource: BridgeSourceProtocol {
+    let bookSourceUrl = "https://fixture.local/jslib"
+    let bookSourceName = "jsLib夹具"
+    var header: String? { nil }
+    var enabledCookieJar: Bool { false }
+    var loginCheckJs: String? { nil }
+    var loginUrl: String? { nil }
+    var loginUi: String? { nil }
+    var bookUrlPattern: String? { nil }
+    var searchUrl: String? { nil }
+    var exploreUrl: String? { nil }
+    var concurrentRate: String? { nil }
+    var jsLib: String?
+    var variable: String? { nil }
+    var coverDecodeJs: String? { nil }
+
+    init(jsLib: String?) {
+        self.jsLib = jsLib
+    }
+
+    func getSearchRule() -> BridgeSearchRule? { nil }
+    func getExploreRule() -> BridgeExploreRule? { nil }
+    func getBookInfoRule() -> BridgeBookInfoRule? { nil }
+    func getTocRule() -> TocRule? { nil }
+    func getContentRule() -> BridgeContentRule? { nil }
+    func getReviewRule() -> BridgeReviewRule? { nil }
 }

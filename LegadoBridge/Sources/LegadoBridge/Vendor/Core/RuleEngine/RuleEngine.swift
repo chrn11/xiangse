@@ -239,6 +239,8 @@ private final class SourceRuleContextAdapter: RuleExecutionContext {
     func evalJS(_ jsCode: String, result: Any?) -> String? {
         executionContext.jsContext.setValue(result, forKey: "result")
         executionContext.jsContext.setValue(executionContext.baseURL?.absoluteString, forKey: "baseUrl")
+        // 若 lazy 初始化时 source 尚未挂上，此处补注 jsLib
+        JSBridge.evaluateJsLib(of: executionContext.source, into: executionContext.jsContext)
         return executionContext.jsContext.evaluateScript(jsCode)?.toString()
     }
 
@@ -778,6 +780,8 @@ class RuleEngine {
 
         exec.jsContext.setValue(body, forKey: "result")
         exec.jsContext.setValue(baseUrl, forKey: "baseUrl")
+        // reinject 后再次确保 jsLib（source 可能在 lazy 之后才绑定）
+        JSBridge.evaluateJsLib(of: source, into: exec.jsContext)
 
         var jsError: String?
         exec.jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
@@ -1207,6 +1211,7 @@ class RuleEngine {
           };
         })();
         """)
+        JSBridge.evaluateJsLib(of: context.source ?? boundSource, into: context.jsContext)
         var jsError: String?
         context.jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
         let out = context.jsContext.evaluateScript(jsCode)?.toString() ?? ""
@@ -2454,6 +2459,7 @@ class JavaScriptParser: RuleExecutor {
         let baseLiteral = jsonLiteral(context.baseURL?.absoluteString ?? "")
         _ = context.jsContext
         context.jsContext.evaluateScript("var result = \(resultLiteral); var baseUrl = \(baseLiteral);")
+        JSBridge.evaluateJsLib(of: context.source, into: context.jsContext)
         var jsError: String?
         context.jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
         let jsValue = context.jsContext.evaluateScript(jsCode)

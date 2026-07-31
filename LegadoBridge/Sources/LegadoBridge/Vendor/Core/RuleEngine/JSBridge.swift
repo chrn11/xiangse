@@ -28,6 +28,54 @@ class JSBridge: JsEncodeUtils {
         injectNetworkObject(into: jsContext)
         injectCacheObject(into: jsContext)
         denyForbiddenNativeAPIs(into: jsContext)
+        // 书源 jsLib：共享函数须在业务脚本之前落入同一上下文（对标 Android jsLib，只执行一次语义由调用方复用 context）
+        Self.evaluateJsLib(of: context?.source, into: jsContext, headers: parseSourceHeaders())
+    }
+
+    /// 将书源 `jsLib` 注入当前 JSContext。纯 http(s) URL 则先拉取再执行。
+    static func evaluateJsLib(
+        of source: (any BridgeSourceProtocol)?,
+        into jsContext: JSContext,
+        headers: [String: String]? = nil
+    ) {
+        guard let raw = source?.jsLib?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return
+        }
+        let script: String
+        if Self.isRemoteScriptURL(raw) {
+            script = JSBridgeHTTPClient.syncGet(url: raw, headers: headers)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if script.isEmpty {
+                DebugLogger.shared.log("[jsLib] 远程拉取失败 url=\(raw.prefix(120))")
+                return
+            }
+        } else {
+            script = raw
+        }
+        var jsError: String?
+        let previous = jsContext.exceptionHandler
+        jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
+        _ = jsContext.evaluateScript(script)
+        jsContext.exceptionHandler = previous
+        if let jsError, !jsError.isEmpty {
+            DebugLogger.shared.log("[jsLib] \(jsError)")
+        }
+    }
+
+    /// 单行 http(s) URL → 视为远程脚本地址（非内联 JS）
+    private static func isRemoteScriptURL(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.contains(where: { $0.isNewline }) else { return false }
+        guard trimmed.lowercased().hasPrefix("http://") || trimmed.lowercased().hasPrefix("https://") else {
+            return false
+        }
+        // 含空格或典型 JS 关键字则当作内联脚本，避免误拉
+        if trimmed.contains(" ") { return false }
+        let lower = trimmed.lowercased()
+        if lower.contains("function") || lower.contains("var ") || lower.contains("let ")
+            || lower.contains("const ") || lower.contains("=>") {
+            return false
+        }
+        return URL(string: trimmed) != nil
     }
 
     // MARK: - java 对象注入
@@ -42,6 +90,23 @@ class JSBridge: JsEncodeUtils {
             return self.ajaxViaAnalyzeUrl(url) 
         }
         javaObject?.setObject(ajaxBlock, forKeyedSubscript: "ajax" as NSString)
+
+        // 对标 Android java.importScript：拉取远程 JS 并 eval 进当前上下文（jsLib / 备注共用库常用）
+        let importScriptBlock: @convention(block) (String) -> String = { [weak self, weak jsContext] url in
+            guard let jsContext, !url.isEmpty else { return "" }
+            let body = JSBridgeHTTPClient.syncGet(url: url, headers: self?.parseSourceHeaders()) ?? ""
+            guard !body.isEmpty else { return "" }
+            var jsError: String?
+            let previous = jsContext.exceptionHandler
+            jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
+            _ = jsContext.evaluateScript(body)
+            jsContext.exceptionHandler = previous
+            if let jsError, !jsError.isEmpty {
+                DebugLogger.shared.log("[importScript] \(jsError)")
+            }
+            return body
+        }
+        javaObject?.setObject(importScriptBlock, forKeyedSubscript: "importScript" as NSString)
 
         let getStringBlock: @convention(block) (String) -> String = { url in ajaxBlock(url) }
         javaObject?.setObject(getStringBlock, forKeyedSubscript: "getString" as NSString)
