@@ -1,4 +1,7 @@
 # 本地/Agent 私有（不入库）
+.artifacts/
+.agent/
+.agent_artifacts/
 .test_tools/
 .cursor/
 .audit/

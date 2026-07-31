@@ -21,8 +21,11 @@ static void (*sOrig_onSwitchBtn)(id, SEL) = NULL;
 static void (*sOrig_onSwitchBtnArg)(id, SEL, id) = NULL;
 static void (*sOrig_onHeaderBtn)(id, SEL, id) = NULL;
 static void (*sOrig_openConfigByName)(id, SEL, NSString *) = NULL;
+static void (*sOrig_setDicModel)(id, SEL, id) = NULL;
 static NSString *(*sOrig_getUseSourceName)(id, SEL) = NULL;
 static NSString *sDiscoverUseSourceName = nil;
+static NSString *sLastHandledSwitchName = nil;
+static NSInteger sSwitchPollGeneration = 0;
 static BOOL sFeedingDiscoverHeader = NO;
 static BOOL sApplyingKinds = NO; // ForceTitles/ApplyKinds 期间禁 explore，防连环 clear
 static BOOL sDiscoverNativeXBSMode = YES; // fail-open：默认纯原生，避免进发现先毁壳
@@ -74,8 +77,9 @@ static NSArray *LBDonorTitlesFromHost(UIViewController *host, NSDictionary *prep
 static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles);
 static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *kinds, NSString *srcName);
 static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sourceName);
-static NSString *LBFindLegadoExploreUrlByName(NSString *name);
 static NSString *LBReadHostSourceName(UIViewController *host);
+static NSString *LBNameFromDicModel(id model);
+static NSString *LBFindLegadoExploreUrlByName(NSString *name);
 static BOOL LBInvokeOpenConfigByName(id host, NSString *cfgName);
 static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceName);
 static void LBRevealDiscoverTitleAndList(UIViewController *host);
@@ -2938,45 +2942,69 @@ static void LBDiscover_onHeaderBtn(id self, SEL _cmd, id sender) {
     }
 }
 
+/// 从 dicModel 取展示源名（原生切换常先改模型再改 title）
+static NSString *LBNameFromDicModel(id model) {
+    if (![model isKindOfClass:[NSDictionary class]]) return nil;
+    NSDictionary *dic = (NSDictionary *)model;
+    for (NSString *k in @[@"cf_title", @"title", @"sourceName", @"bookSourceName"]) {
+        id v = dic[k];
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
+            return LBNormalizeSourceDisplayName((NSString *)v) ?: (NSString *)v;
+        }
+    }
+    return nil;
+}
+
+/// 点「切换」后持续轮询：用户常在列表里停留 >2.4s，单次延时会 miss 掉确认
 static void LBScheduleDiscoverSwitchPoll(UIViewController *host, NSString *beforeName) {
     NSString *beforeCopy = [beforeName copy] ?: @"";
+    NSString *beforeNorm = LBNormalizeSourceDisplayName(beforeCopy) ?: beforeCopy;
+    NSInteger gen = ++sSwitchPollGeneration;
     __weak UIViewController *weakHost = host;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.4 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
+    // 0.5s × 40 ≈ 20s，覆盖长列表翻找
+    __block void (^tick)(NSInteger) = nil;
+    tick = ^(NSInteger attempt) {
+        if (gen != sSwitchPollGeneration) return;
         UIViewController *h = weakHost ?: LBPrimaryDiscoverHost();
         if (!h || !LBIsDiscoverTabActive()) return;
-        NSString *name = nil;
+        NSString *name = LBReadHostSourceName(h);
+        NSString *cf = nil;
         @try {
-            id v = [h valueForKey:@"useSourceName"];
-            if ([v isKindOfClass:[NSString class]]) name = v;
+            id dic = [h valueForKey:@"dicModel"];
+            cf = LBNameFromDicModel(dic);
         } @catch (__unused NSException *e) {}
-        if (name.length == 0) @try { name = h.navigationItem.title; } @catch (__unused NSException *e) {}
-        if (name.length == 0) @try { name = h.title; } @catch (__unused NSException *e) {}
-        if (name.length == 0) return;
-        if ([name isEqualToString:@"切换站点"] || [name isEqualToString:@"书源"]) return;
-        if ([name isEqualToString:beforeCopy]) {
-            // 顶栏名未变时，再看 dicModel.cf_title（原生切换常只改模型）
-            NSString *cf = nil;
-            @try {
-                id dic = [h valueForKey:@"dicModel"];
-                if ([dic isKindOfClass:[NSDictionary class]]) {
-                    id v = dic[@"cf_title"] ?: dic[@"title"] ?: dic[@"sourceName"];
-                    if ([v isKindOfClass:[NSString class]]) cf = v;
-                }
-            } @catch (__unused NSException *e) {}
-            cf = LBNormalizeSourceDisplayName(cf);
-            if (cf.length > 0 && ![cf isEqualToString:LBNormalizeSourceDisplayName(beforeCopy)]) {
-                LBAppendNativeMarker([NSString stringWithFormat:
-                                      @"switchPoll via cf_title before=%@ cf=%@", beforeCopy, cf]);
-                LBHandleDiscoverSourceSwitched(h, cf);
-                return;
-            }
-            LBAppendNativeMarker([NSString stringWithFormat:@"switchPoll unchanged=%@", name]);
+        NSString *cand = nil;
+        NSString *nameNorm = LBNormalizeSourceDisplayName(name);
+        if (nameNorm.length > 0 &&
+            ![nameNorm isEqualToString:@"切换站点"] &&
+            ![nameNorm isEqualToString:@"书源"] &&
+            ![nameNorm isEqualToString:@"发现"] &&
+            ![nameNorm isEqualToString:beforeNorm]) {
+            cand = nameNorm;
+        } else if (cf.length > 0 && ![cf isEqualToString:beforeNorm]) {
+            cand = cf;
+        }
+        if (cand.length > 0) {
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"switchPoll hit attempt=%ld before=%@ after=%@",
+                                  (long)attempt, beforeCopy, cand]);
+            LBHandleDiscoverSourceSwitched(h, cand);
             return;
         }
-        LBAppendNativeMarker([NSString stringWithFormat:@"switchPoll before=%@ after=%@",
-                              beforeCopy, name]);
-        LBHandleDiscoverSourceSwitched(h, name);
+        if (attempt >= 40) {
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"switchPoll timeout before=%@ name=%@ cf=%@",
+                                  beforeCopy, name ?: @"-", cf ?: @"-"]);
+            return;
+        }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            tick(attempt + 1);
+        });
+    };
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        tick(1);
     });
 }
 
@@ -3057,6 +3085,7 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
     sLastFeedSig = nil;
     NSString *cleanName = LBNormalizeSourceDisplayName(sourceName) ?: sourceName;
     sDiscoverUseSourceName = [cleanName copy];
+    sLastHandledSwitchName = [cleanName copy];
 
     @try { host.navigationItem.title = cleanName; } @catch (__unused NSException *e) {}
     @try { host.title = cleanName; } @catch (__unused NSException *e) {}
@@ -3092,6 +3121,7 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
     }
 
     LBSetDiscoverNativeXBSMode(NO);
+    sNativeChromeBuilt = NO; // 允许 Feed 重建被原生掏空的 chrome
     id core = LBKindCore();
     if (core && legadoUrl.length > 0) {
         @try { [core setValue:legadoUrl forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
@@ -3112,11 +3142,15 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
             }
         } @catch (__unused NSException *e) {}
     }
-    LBApplyLegadoSourceKindsToChrome(host, kinds, cleanName);
+    // 完整灌头（donor BW + resetContent）；禁止只 ForceTitles（原生切 DOM 壳后常无 pageTitle/scroll）
+    LBFeedNativeDiscoverHeader(host, kinds, cleanName);
     UITableView *surface = LBEnsureDiscoverListSurface(host);
     NSString *kindUrl = nil;
     if (kinds.count > 0 && [kinds[0][@"url"] isKindOfClass:[NSString class]]) {
         kindUrl = kinds[0][@"url"];
+    } else if (legadoUrl.length > 0) {
+        // 单 exploreUrl 无分类表时，直接用源 explore
+        kindUrl = nil;
     }
     LBAppendNativeMarker([NSString stringWithFormat:
                           @"nativeSwitch Legado kinds=%lu kind0=%@ surface=%d",
@@ -3165,6 +3199,42 @@ static void LBDiscover_openConfigByName(id self, SEL _cmd, NSString *name) {
     UIViewController *host = [self isKindOfClass:[UIViewController class]]
         ? (UIViewController *)self : LBPrimaryDiscoverHost();
     NSString *nameCopy = [name copy];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LBHandleDiscoverSourceSwitched(host, nameCopy);
+    });
+}
+
+/// 原生切换确认常走 setDicModel 而未必再点切换钮；openConfig 又常 noSel → 必须在此接住
+static void LBDiscover_setDicModel(id self, SEL _cmd, id model) {
+    if (sOrig_setDicModel) {
+        sOrig_setDicModel(self, _cmd, model);
+    } else {
+        @try { [self setValue:model forKey:@"dicModel"]; } @catch (__unused NSException *e) {}
+    }
+    if (sFeedingDiscoverHeader || sHandlingDiscoverSwitch) return;
+    if (!(LBIsDiscoverTabActive() || LBSelfLooksDiscoverWorldHost(self))) return;
+    NSString *name = LBNameFromDicModel(model);
+    if (name.length == 0) return;
+    NSString *norm = LBNormalizeSourceDisplayName(name) ?: name;
+    if ([norm isEqualToString:@"切换站点"] || [norm isEqualToString:@"书源"] ||
+        [norm isEqualToString:@"发现"]) {
+        return;
+    }
+    UIViewController *host = [self isKindOfClass:[UIViewController class]]
+        ? (UIViewController *)self : LBPrimaryDiscoverHost();
+    id tv = nil;
+    id scroll = nil;
+    @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+    @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+    BOOL chromeMissing = (tv == nil || scroll == nil);
+    if (!chromeMissing && sLastHandledSwitchName &&
+        [sLastHandledSwitchName isEqualToString:norm]) {
+        return;
+    }
+    LBAppendNativeMarker([NSString stringWithFormat:
+                          @"setDicModel switch name=%@ chromeMissing=%d",
+                          norm, chromeMissing ? 1 : 0]);
+    NSString *nameCopy = [norm copy];
     dispatch_async(dispatch_get_main_queue(), ^{
         LBHandleDiscoverSourceSwitched(host, nameCopy);
     });
@@ -3228,6 +3298,16 @@ static void LBHookDiscoverNativeUIOnClass(Class cls) {
         if (m && !sOrig_openConfigByName) {
             sOrig_openConfigByName = (void (*)(id, SEL, NSString *))method_getImplementation(m);
             method_setImplementation(m, (IMP)LBDiscover_openConfigByName);
+        }
+    }
+    SEL selDic = @selector(setDicModel:);
+    Class ownerDic = LBClassOwningInstanceMethod(cls, selDic);
+    if (ownerDic) {
+        Method m = class_getInstanceMethod(ownerDic, selDic);
+        if (m && !sOrig_setDicModel) {
+            sOrig_setDicModel = (void (*)(id, SEL, id))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LBDiscover_setDicModel);
+            NSLog(@"[LegadoBridge] hooked %@ setDicModel:", NSStringFromClass(ownerDic));
         }
     }
     SEL selName = @selector(getUseSourceName);
@@ -3333,6 +3413,27 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
                               @"syncMode XBS=0 host=%@ name=%@",
                               host ? NSStringFromClass([host class]) : @"-",
                               LBReadHostSourceName(host) ?: @"-"]);
+        // 已是 Legado 名但 chrome 被掏空（切源 Handle miss）→ 让后续 Refresh 重新 Feed
+        if (host) {
+            id tv = nil;
+            id scroll = nil;
+            @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+            @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+            if (!tv || !scroll) {
+                sNativeChromeBuilt = NO;
+                sLastFeedSig = nil;
+                sLastHandledSwitchName = nil;
+                NSString *nm = LBReadHostSourceName(host);
+                NSString *url = LBFindLegadoExploreUrlByName(nm);
+                id core2 = LBKindCore();
+                if (core2 && url.length > 0) {
+                    @try { [core2 setValue:url forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
+                }
+                LBAppendNativeMarker([NSString stringWithFormat:
+                                      @"syncMode Legado chromeMissing allowFeed name=%@ url=%@",
+                                      nm ?: @"-", url ?: @"-"]);
+            }
+        }
     }
     return xbs;
 }
