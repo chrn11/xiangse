@@ -1657,22 +1657,12 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
                         [vcNames componentsJoinedByString:@","], discoverActive ? 1 : 0, exploreMode ? 1 : 0];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    if (discoverActive) {
-        LBRefreshDiscoverKindBar();
-    }
-    // 原生搜索结束常回写空 FilteredDS；延迟再灌两次，并再次置顶发现壳
+    // 发现态：标题壳已建好时不再每次 inject 都 RefreshKindBar（会 ForceTitles → 闪屏）
+    // 延迟再灌仅保留搜索页 Reapply，发现页靠 ReloadDiscoverNativeList 软刷表
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (LBIsDiscoverTabActive() || exploreMode) {
-            LBEnsureNativeDiscoverHostPresented();
-            LBRefreshDiscoverKindBar();
-        }
         LBReapplyLastSearchBooks();
     });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (LBIsDiscoverTabActive() || exploreMode) {
-            LBEnsureNativeDiscoverHostPresented();
-            LBRefreshDiscoverKindBar();
-        }
         LBReapplyLastSearchBooks();
     });
     } @catch (NSException *e) {

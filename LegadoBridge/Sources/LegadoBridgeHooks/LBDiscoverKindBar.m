@@ -9,6 +9,9 @@ static NSInteger sSelectedKindIndex = 0;
 static NSArray *sCachedKinds = nil;
 static NSString *sLastFeedSig = nil;
 static CFAbsoluteTime sLastFeedAt = 0;
+static CFAbsoluteTime sLastRevealAt = 0;
+static NSString *sLastRevealSig = nil;
+static NSInteger sLastRevealArrN = -1;
 static BOOL sNativeChromeBuilt = NO;
 static BOOL sNativeChromeBuildScheduled = NO;
 static BOOL sRestoreListMode = NO;
@@ -83,6 +86,7 @@ static NSString *LBFindLegadoExploreUrlByName(NSString *name);
 static BOOL LBInvokeOpenConfigByName(id host, NSString *cfgName);
 static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceName);
 static void LBRevealDiscoverTitleAndList(UIViewController *host);
+static void LBRevealDiscoverTitleAndListEx(UIViewController *host, BOOL force);
 static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot);
 
 static id LBKindCore(void) {
@@ -1664,13 +1668,48 @@ static void LBEnableTitleScroll(id tv) {
 }
 
 /// resetContent 后强制用 Legado 分类覆盖 SGPageTitleView（donor bookWorld 会盖掉 arrHeaderBtnTitle）
+static void LBRevealDiscoverTitleAndListEx(UIViewController *host, BOOL force);
 static void LBRevealDiscoverTitleAndList(UIViewController *host) {
+    LBRevealDiscoverTitleAndListEx(host, NO);
+}
+
+static void LBRevealDiscoverTitleAndListEx(UIViewController *host, BOOL force) {
     if (!host || !host.isViewLoaded || !host.view) return;
     static const NSInteger kLBFO = 0x4C42464F; // 'LBFO' feed overlay
 
     id tv = nil;
     @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
     UIView *title = [tv isKindOfClass:[UIView class]] ? (UIView *)tv : nil;
+
+    UIViewController *list = nil;
+    @try { list = LBActiveDiscoverListVC(host); } @catch (__unused NSException *e) {}
+    NSUInteger arrN = 0;
+    @try {
+        id a = [list valueForKey:@"arrBaseData"];
+        if ([a isKindOfClass:[NSArray class]]) arrN = [(NSArray *)a count];
+    } @catch (__unused NSException *e) {}
+
+    CGFloat titleBottom = title ? CGRectGetMaxY(title.frame) : 0;
+    if (titleBottom < 2) titleBottom = LBDiscoverTitleTopInHost(host) + 44;
+    if (titleBottom < 36) titleBottom = 44;
+
+    NSString *sig = [NSString stringWithFormat:@"%.0f|%@", titleBottom,
+                     title ? NSStringFromCGRect(title.frame) : @"-"];
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (!force && sLastRevealSig && [sLastRevealSig isEqualToString:sig] &&
+        sLastRevealArrN == (NSInteger)arrN && (now - sLastRevealAt) < 0.5) {
+        for (UIView *sub in host.view.subviews) {
+            if ([sub isKindOfClass:[UITableView class]] && sub.tag == kLBFO) {
+                @try { [(UITableView *)sub reloadData]; } @catch (__unused NSException *e) {}
+                break;
+            }
+        }
+        return;
+    }
+    sLastRevealSig = [sig copy];
+    sLastRevealAt = now;
+    sLastRevealArrN = (NSInteger)arrN;
+
     if (title) {
         if (!title.superview) [host.view addSubview:title];
         title.hidden = NO;
@@ -1680,9 +1719,6 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
 
     LBPinDiscoverContentToFirstPage(host);
 
-    UIViewController *list = nil;
-    @try { list = LBActiveDiscoverListVC(host); } @catch (__unused NSException *e) {}
-    // 兜底：从宿主子树找回 BookList（含已挂在 host.view 上的）
     if (!list && host.isViewLoaded) {
         NSMutableArray *q = [NSMutableArray arrayWithObject:host.view];
         NSInteger budget = 80;
@@ -1699,21 +1735,16 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
             if (list) break;
             for (UIView *sub in cur.subviews) [q addObject:sub];
         }
+        @try {
+            id a = [list valueForKey:@"arrBaseData"];
+            if ([a isKindOfClass:[NSArray class]]) arrN = [(NSArray *)a count];
+        } @catch (__unused NSException *e) {}
+        sLastRevealArrN = (NSInteger)arrN;
     }
 
-    // host.view 常在导航栏下方：title.maxY≈38；切勿再抬到 129（会在分类条下留出一整块空白）
-    CGFloat titleBottom = title ? CGRectGetMaxY(title.frame) : 0;
-    if (titleBottom < 2) {
-        titleBottom = LBDiscoverTitleTopInHost(host) + 44;
-    }
-    if (titleBottom < 36) titleBottom = 44;
     LBAppendNativeMarker([NSString stringWithFormat:
-                          @"reveal titleBottom=%.0f titleFrame=%.0f,%.0f,%.0fx%.0f",
-                          titleBottom,
-                          title ? title.frame.origin.x : -1,
-                          title ? title.frame.origin.y : -1,
-                          title ? title.frame.size.width : 0,
-                          title ? title.frame.size.height : 0]);
+                          @"reveal force=%d titleBottom=%.0f arr=%lu",
+                          force ? 1 : 0, titleBottom, (unsigned long)arrN]);
 
     id scroll = nil;
     @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
@@ -1723,26 +1754,16 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
         sv.alpha = 1;
         CGRect hb = host.view.bounds;
         if (hb.size.width > 2 && hb.size.height > titleBottom + 40) {
-            sv.frame = CGRectMake(0, titleBottom, hb.size.width, hb.size.height - titleBottom);
+            CGRect want = CGRectMake(0, titleBottom, hb.size.width, hb.size.height - titleBottom);
+            if (!CGRectEqualToRect(sv.frame, want)) sv.frame = want;
         }
-        [host.view bringSubviewToFront:sv];
     }
 
     if (list && list.isViewLoaded && list.view) {
         list.view.hidden = NO;
         list.view.alpha = 1;
-        if (list.view.superview) {
-            [list.view.superview bringSubviewToFront:list.view];
-        }
     }
 
-    NSUInteger arrN = 0;
-    @try {
-        id a = [list valueForKey:@"arrBaseData"];
-        if ([a isKindOfClass:[NSArray class]]) arrN = [(NSArray *)a count];
-    } @catch (__unused NSException *e) {}
-
-    // 有书：在宿主上叠一层可见表（不拆 SG 父子，避免 VC 被释放）
     if (list && arrN > 0) {
         LBEnsurePlazaListTableHooks([list class]);
         UITableView *overlay = nil;
@@ -1764,20 +1785,14 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
             overlay.rowHeight = 108;
             overlay.estimatedRowHeight = 108;
             overlay.allowsSelection = YES;
-            overlay.allowsSelectionDuringEditing = NO;
             [host.view addSubview:overlay];
             LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"reveal feedOverlay new arr=%lu frame=%.0fx%.0f@%.0f,%.0f",
-                                  (unsigned long)arrN, of.size.width, of.size.height,
-                                  of.origin.x, of.origin.y]);
-        } else {
+                                  @"reveal feedOverlay new arr=%lu", (unsigned long)arrN]);
+        } else if (!CGRectEqualToRect(overlay.frame, of)) {
             overlay.frame = of;
-            overlay.hidden = NO;
-            overlay.alpha = 1;
-            overlay.backgroundColor = [UIColor whiteColor];
-            overlay.separatorColor = [UIColor colorWithWhite:0.90 alpha:1];
         }
-        // 显式恢复滚动：历史上 pin 曾误伤表，且 contentInset 残留会造成「上面空白+拖不动」
+        overlay.hidden = NO;
+        overlay.alpha = 1;
         overlay.scrollEnabled = YES;
         overlay.userInteractionEnabled = YES;
         overlay.bounces = YES;
@@ -1785,30 +1800,17 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
             overlay.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
         }
         overlay.contentInset = UIEdgeInsetsZero;
-        overlay.scrollIndicatorInsets = UIEdgeInsetsZero;
         overlay.tableHeaderView = nil;
         overlay.dataSource = (id<UITableViewDataSource>)list;
         overlay.delegate = (id<UITableViewDelegate>)list;
-        @try {
-            [overlay reloadData];
-            [overlay layoutIfNeeded];
-        } @catch (__unused NSException *e) {}
-        // 原生 pageContent 翻页层会抢垂直拖动手势；叠表期间关掉其交互
+        @try { [overlay reloadData]; } @catch (__unused NSException *e) {}
         if ([scroll isKindOfClass:[UIView class]]) {
-            UIView *sv = (UIView *)scroll;
-            sv.userInteractionEnabled = NO;
-            [host.view sendSubviewToBack:sv];
+            ((UIView *)scroll).userInteractionEnabled = NO;
+            [host.view sendSubviewToBack:(UIView *)scroll];
         }
         [host.view bringSubviewToFront:overlay];
-        NSInteger vis = 0;
-        @try { vis = (NSInteger)overlay.visibleCells.count; } @catch (__unused NSException *e) {}
-        LBAppendNativeMarker([NSString stringWithFormat:
-                              @"reveal feedOverlay vis=%ld rows~%lu csh=%.0f scroll=%d",
-                              (long)vis, (unsigned long)arrN, overlay.contentSize.height,
-                              overlay.scrollEnabled ? 1 : 0]);
     }
 
-    // 分类条在内容/叠表之上；透明 hit 再盖在分类条上吃点击
     if (title) [host.view bringSubviewToFront:title];
     LBBringDiscoverKindHitFront(host);
 }
@@ -1986,35 +1988,11 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
 
     LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles n=%lu applied=%d",
                           (unsigned long)titles.count, applied ? 1 : 0]);
-    LBRevealDiscoverTitleAndList(host);
+    // 只布局一次；禁止 0.2/0.7 连环 Reveal（灌书通知会再刷，叠在一起必闪）
+    LBRevealDiscoverTitleAndListEx(host, YES);
     sApplyingKinds = prev;
-    // ApplyKinds 结束后再 unlink + 挂按钮（期间 skip 过）
     LBAttachDiscoverKindButtonActions(host, tv);
     LBUnlinkDiscoverTitleContent(host);
-    __weak UIViewController *weakHost = host;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        UIViewController *h = weakHost;
-        if (!h) return;
-        LBRevealDiscoverTitleAndList(h);
-        id ptv = nil;
-        @try { ptv = [h valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-        if (ptv) {
-            LBPaintTitleLabels(ptv, sSelectedKindIndex);
-            LBAttachDiscoverKindButtonActions(h, ptv);
-        }
-    });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        UIViewController *h = weakHost;
-        if (!h || !LBIsDiscoverTabActive()) return;
-        LBRevealDiscoverTitleAndList(h);
-        LBEnsureDiscoverListSurface(h);
-        LBReloadDiscoverNativeList(h);
-        id ptv = nil;
-        @try { ptv = [h valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-        if (ptv) LBAttachDiscoverKindButtonActions(h, ptv);
-    });
 }
 
 /// 分类条跟当前 Legado 源 exploreUrl 解析结果走（换源即换分类），donor 只当壳
@@ -2056,7 +2034,28 @@ static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *ki
         @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
         @try { host.title = srcName; } @catch (__unused NSException *e) {}
     }
-    LBForceLegadoTitlesOnChrome(host, titles);
+    // 标题未变：跳过 ForceTitles（每次 Force 都会改层级 → 闪屏）
+    NSArray *oldTitles = nil;
+    if ([sCachedKinds isKindOfClass:[NSArray class]]) {
+        NSMutableArray *ot = [NSMutableArray array];
+        for (id item in sCachedKinds) {
+            if (![item isKindOfClass:[NSDictionary class]]) continue;
+            NSString *t = item[@"title"];
+            [ot addObject:([t isKindOfClass:[NSString class]] && t.length > 0) ? t : @"分类"];
+        }
+        oldTitles = ot;
+    }
+    BOOL sameTitles = (oldTitles.count == titles.count);
+    if (sameTitles) {
+        for (NSUInteger i = 0; i < titles.count; i++) {
+            if (![oldTitles[i] isEqualToString:titles[i]]) { sameTitles = NO; break; }
+        }
+    }
+    if (!sameTitles) {
+        LBForceLegadoTitlesOnChrome(host, titles);
+    } else {
+        LBAppendNativeMarker(@"applySrcKinds skip same titles");
+    }
     sCachedKinds = [kinds copy];
     if (sSelectedKindIndex >= (NSInteger)titles.count) sSelectedKindIndex = 0;
     LBAppendNativeMarker([NSString stringWithFormat:@"applySrcKinds n=%lu src=%@ sample=%@",
@@ -2845,14 +2844,32 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
         LBAppendNativeMarker(@"reload skip: native XBS mode");
         return;
     }
-    LBRevealDiscoverTitleAndList(host);
+    static const NSInteger kLBFO = 0x4C42464F;
+    UITableView *overlay = nil;
+    if (host.isViewLoaded) {
+        for (UIView *sub in host.view.subviews) {
+            if ([sub isKindOfClass:[UITableView class]] && sub.tag == kLBFO) {
+                overlay = (UITableView *)sub;
+                break;
+            }
+        }
+    }
+    // 叠表已在：只 reload，禁止再走全量 Reveal（注入回调高频 → 闪屏）
+    if (overlay) {
+        UIViewController *listVC = LBActiveDiscoverListVC(host) ?: host;
+        overlay.dataSource = (id<UITableViewDataSource>)listVC;
+        overlay.delegate = (id<UITableViewDelegate>)listVC;
+        overlay.scrollEnabled = YES;
+        @try { [overlay reloadData]; } @catch (__unused NSException *e) {}
+        return;
+    }
+    LBRevealDiscoverTitleAndListEx(host, YES);
     UITableView *tv = LBEnsureDiscoverListSurface(host);
     if (!tv) {
         LBAppendNativeMarker(@"reload skip: no list surface");
         return;
     }
     @try {
-        // 已有表：不改 frame / 不 bringToFront；LBLT 可保留我们设的 DS
         BOOL isLBLT = (tv.tag == 0x4C424C54);
         if (isLBLT && (!tv.dataSource || tv.dataSource == (id)[NSNull null])) {
             UIViewController *listVC = LBActiveDiscoverListVC(host) ?: host;
@@ -2861,19 +2878,6 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
             tv.delegate = (id<UITableViewDelegate>)listVC;
         }
         [tv reloadData];
-        NSInteger rows = 0;
-        @try { rows = [tv numberOfRowsInSection:0]; } @catch (__unused NSException *e) {}
-        static NSInteger sReloadLog = 0;
-        if (sReloadLog < 8) {
-            LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"reload soft tv=%.0fx%.0f@%.0f,%.0f rows=%ld ds=%@ tag=%ld",
-                                  tv.frame.size.width, tv.frame.size.height,
-                                  tv.frame.origin.x, tv.frame.origin.y,
-                                  (long)rows,
-                                  tv.dataSource ? NSStringFromClass([tv.dataSource class]) : @"nil",
-                                  (long)tv.tag]);
-            sReloadLog++;
-        }
     } @catch (NSException *ex) {
         LBAppendNativeMarker([NSString stringWithFormat:@"reload soft EX %@", ex.reason ?: @""]);
     }
@@ -3130,6 +3134,8 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
     LBSetDiscoverTabActive(YES);
     sSelectedKindIndex = 0;
     sLastFeedSig = nil;
+    sLastRevealSig = nil;
+    sLastRevealArrN = -1;
     NSString *cleanName = LBNormalizeSourceDisplayName(sourceName) ?: sourceName;
     sDiscoverUseSourceName = [cleanName copy];
     sLastHandledSwitchName = [cleanName copy];
@@ -3492,6 +3498,10 @@ void LBRefreshDiscoverKindBar(void) {
         return;
     }
     if (!LBIsDiscoverTabActive()) return;
+    static CFAbsoluteTime sLastRefreshAt = 0;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if ((now - sLastRefreshAt) < 0.35) return;
+    sLastRefreshAt = now;
     LBInstallDiscoverNativeUIHooks();
 
     UIViewController *host = LBPrimaryDiscoverHost();
