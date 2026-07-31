@@ -25,7 +25,7 @@ static NSString *(*sOrig_getUseSourceName)(id, SEL) = NULL;
 static NSString *sDiscoverUseSourceName = nil;
 static BOOL sFeedingDiscoverHeader = NO;
 static BOOL sApplyingKinds = NO; // ForceTitles/ApplyKinds 期间禁 explore，防连环 clear
-static BOOL sDiscoverNativeXBSMode = NO; // 用户切到纯 XBS：禁止再灌 Legado explore/分类
+static BOOL sDiscoverNativeXBSMode = YES; // fail-open：默认纯原生，避免进发现先毁壳
 static BOOL sHandlingDiscoverSwitch = NO; // 防止 openConfig ↔ Handle 重入
 
 BOOL LBIsDiscoverNativeXBSMode(void) {
@@ -77,6 +77,7 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
 static NSString *LBFindLegadoExploreUrlByName(NSString *name);
 static NSString *LBReadHostSourceName(UIViewController *host);
 static BOOL LBInvokeOpenConfigByName(id host, NSString *cfgName);
+static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceName);
 static void LBRevealDiscoverTitleAndList(UIViewController *host);
 static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot);
 
@@ -812,6 +813,124 @@ static BOOL LBForceSetDicModel(UIViewController *host, NSDictionary *model) {
     } @catch (__unused NSException *ex) {
         return NO;
     }
+}
+
+/// openConfig 在 BookWorldHomeCon 上常无 IMP（noSel）：用 manager 模型 + resetContent 重建标签墙
+static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceName) {
+    if (!host || sourceName.length == 0) return NO;
+    NSString *want = LBNormalizeSourceDisplayName(sourceName) ?: sourceName;
+
+    BOOL opened = LBInvokeOpenConfigByName(host, sourceName);
+    if (!opened && ![sourceName isEqualToString:want]) {
+        opened = LBInvokeOpenConfigByName(host, want);
+    }
+    if (opened) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"xbsRestore openCfg ok name=%@", want]);
+        return YES;
+    }
+
+    Class mgrCls = NSClassFromString(@"BookSourceModelManager");
+    id mgr = nil;
+    if (mgrCls && [mgrCls respondsToSelector:@selector(sharedInstance)]) {
+        mgr = ((id (*)(id, SEL))objc_msgSend)(mgrCls, @selector(sharedInstance));
+    }
+
+    __block NSDictionary *picked = nil;
+    __block NSString *pickedName = nil;
+    id list = nil;
+    @try { list = [mgr valueForKey:@"dicModelList"]; } @catch (__unused NSException *e) {}
+    if ([list isKindOfClass:[NSDictionary class]]) {
+        for (id key in [(NSDictionary *)list allKeys]) {
+            if (![key isKindOfClass:[NSString class]]) continue;
+            NSString *k = (NSString *)key;
+            NSString *nk = LBNormalizeSourceDisplayName(k) ?: k;
+            if ([k isEqualToString:sourceName] || [k isEqualToString:want] || [nk isEqualToString:want]) {
+                id obj = ((NSDictionary *)list)[k];
+                if ([obj isKindOfClass:[NSDictionary class]]) {
+                    picked = obj;
+                    pickedName = k;
+                    break;
+                }
+            }
+        }
+        if (!picked) {
+            [(NSDictionary *)list enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+                if (![obj isKindOfClass:[NSDictionary class]]) return;
+                NSDictionary *m = (NSDictionary *)obj;
+                id v = m[@"cf_title"] ?: m[@"title"] ?: m[@"sourceName"];
+                NSString *cf = [v isKindOfClass:[NSString class]] ? LBNormalizeSourceDisplayName(v) : nil;
+                if (cf.length && [cf isEqualToString:want]) {
+                    picked = m;
+                    pickedName = [key isKindOfClass:[NSString class]] ? key : want;
+                    *stop = YES;
+                }
+            }];
+        }
+        if (!picked) {
+            [(NSDictionary *)list enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+                if (![obj isKindOfClass:[NSDictionary class]]) return;
+                NSString *k = [key isKindOfClass:[NSString class]] ? (NSString *)key : @"";
+                NSString *nk = LBNormalizeSourceDisplayName(k) ?: k;
+                NSUInteger minLen = MIN(nk.length, want.length);
+                if (minLen < 4) return;
+                if (![nk containsString:want] && ![want containsString:nk]) return;
+                id bw = ((NSDictionary *)obj)[@"bookWorld"];
+                if ([bw isKindOfClass:[NSDictionary class]] && [(NSDictionary *)bw count] >= 3) {
+                    picked = obj;
+                    pickedName = k;
+                    *stop = YES;
+                }
+            }];
+        }
+    }
+
+    NSDictionary *donorBW = nil;
+    NSString *donorName = nil;
+    if ([picked isKindOfClass:[NSDictionary class]]) {
+        id bw = picked[@"bookWorld"];
+        if ([bw isKindOfClass:[NSDictionary class]] && [(NSDictionary *)bw count] >= 3) {
+            donorBW = bw;
+        }
+    }
+    if (!donorBW) {
+        donorBW = LBFindDonorBookWorld(mgr, &donorName);
+        if (!pickedName && donorName.length) pickedName = donorName;
+    }
+    if (!donorBW || donorBW.count < 3) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"xbsRestore fail noBW name=%@", want]);
+        return NO;
+    }
+
+    NSMutableDictionary *model = [picked isKindOfClass:[NSDictionary class]]
+        ? [picked mutableCopy]
+        : [NSMutableDictionary dictionary];
+    model[@"bookWorld"] = donorBW;
+    model[@"arrHeaderBtnTitle"] = donorBW.allKeys ?: @[];
+    NSString *title = pickedName.length ? pickedName : want;
+    model[@"cf_title"] = title;
+
+    @try { host.navigationItem.title = title; } @catch (__unused NSException *e) {}
+    @try { host.title = title; } @catch (__unused NSException *e) {}
+    @try { [host setValue:title forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
+    @try { [host setValue:title forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
+    @try { [host setValue:donorBW.allKeys forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+
+    BOOL setOk = LBForceSetDicModel(host, model);
+    BOOL didReset = NO;
+    if ([host respondsToSelector:@selector(resetContent)]) {
+        @try {
+            ((void (*)(id, SEL))objc_msgSend)(host, @selector(resetContent));
+            didReset = YES;
+        } @catch (NSException *ex) {
+            LBAppendNativeMarker([NSString stringWithFormat:@"xbsRestore reset EX %@",
+                                  ex.reason ?: @""]);
+        }
+    }
+    LBAppendNativeMarker([NSString stringWithFormat:
+                          @"xbsRestore setDic=%d reset=%d bw=%lu name=%@",
+                          setOk ? 1 : 0, didReset ? 1 : 0,
+                          (unsigned long)donorBW.count, title]);
+    return setOk || didReset;
 }
 
 /// donor bookWorld 的 key 数决定 createCons 出多少子页。Legado 分类多于 donor 时，
@@ -2963,9 +3082,9 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
         if (core) {
             @try { [core setValue:nil forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
         }
-        // 再跑原生 openConfig（Hook 因 sHandlingDiscoverSwitch 不会重入 Handle）
+        // 再跑原生重建（openConfig 常 noSel → setDicModel+resetContent）
         BOOL opened = NO;
-        @try { opened = LBInvokeOpenConfigByName(host, cleanName); } @catch (__unused NSException *e) {}
+        @try { opened = LBRestoreNativeXBSChrome(host, cleanName); } @catch (__unused NSException *e) {}
         LBAppendNativeMarker([NSString stringWithFormat:
                               @"nativeSwitch XBS mode=1 name=%@ openCfg=%d",
                               cleanName, opened ? 1 : 0]);
@@ -3197,7 +3316,7 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
                 BOOL prevHandling = sHandlingDiscoverSwitch;
                 sHandlingDiscoverSwitch = YES;
                 @try {
-                    opened = LBInvokeOpenConfigByName(host, name);
+                    opened = LBRestoreNativeXBSChrome(host, name);
                 } @catch (__unused NSException *e) {
                     opened = NO;
                 } @finally {
