@@ -855,7 +855,7 @@ class RuleEngine {
         var items: [Any] = []
         items.reserveCapacity(len)
         for i in 0..<len {
-            guard let item = value.objectAtIndexedSubscript(Int32(i)), !item.isUndefined, !item.isNull else { continue }
+            guard let item = value.objectAtIndexedSubscript(i), !item.isUndefined, !item.isNull else { continue }
             if let obj = item.toObject() {
                 items.append(obj)
             } else if let s = item.toString() {
