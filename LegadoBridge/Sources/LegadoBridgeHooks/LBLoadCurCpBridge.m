@@ -2804,6 +2804,78 @@ static void LBDismissChapterLoadingHUD(id readerOrNil) {
     }
 }
 
+/// S4：找书型源正文失败 — 不崩，提示可返回/换源
+static void LBPromptAfterContentFail(id readerOrNil) {
+    static NSTimeInterval sLastPrompt = 0;
+    NSTimeInterval now = CFAbsoluteTimeGetCurrent();
+    if (now - sLastPrompt < 2.5) return;
+    sLastPrompt = now;
+
+    @try {
+        NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_s4_content_fail.txt"];
+        NSString *line = [NSString stringWithFormat:@"S4 content_fail prompt_switch alive=1 ts=%.0f", now];
+        [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    } @catch (__unused NSException *e) {}
+
+    UIViewController *host = nil;
+    if ([readerOrNil isKindOfClass:[UIViewController class]]) {
+        host = (UIViewController *)readerOrNil;
+    }
+    if (!host) {
+        UIWindow *w = LBLegadoKeyWindow();
+        host = w.rootViewController;
+        while (host.presentedViewController) host = host.presentedViewController;
+    }
+    if (!host || [host isKindOfClass:[UIAlertController class]]) return;
+
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"正文加载失败"
+                                            message:@"当前源可能仅支持找书。可返回，或换源后继续阅读。"
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"知道了"
+                                              style:UIAlertActionStyleCancel
+                                            handler:nil]];
+    __weak UIViewController *weakHost = host;
+    __weak id weakReader = readerOrNil;
+    [alert addAction:[UIAlertAction actionWithTitle:@"换源"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        UIViewController *h = weakHost;
+        id r = weakReader;
+        Class cls = NSClassFromString(@"BookSourceSwitchVC2");
+        if (cls && h) {
+            id vc = [[cls alloc] init];
+            @try {
+                id book = nil;
+                if (r) {
+                    @try { book = [r valueForKey:@"dicBook"]; } @catch (__unused NSException *e) {}
+                    if (!book) {
+                        @try { book = [r valueForKey:@"dicFatBook"]; } @catch (__unused NSException *e) {}
+                    }
+                }
+                if (book) {
+                    if ([vc respondsToSelector:@selector(setDicBook:)]) {
+                        ((void (*)(id, SEL, id))objc_msgSend)(vc, @selector(setDicBook:), book);
+                    } else {
+                        @try { [vc setValue:book forKey:@"dicBook"]; } @catch (__unused NSException *e) {}
+                    }
+                }
+            } @catch (__unused NSException *e) {}
+            UINavigationController *nav = h.navigationController;
+            if (nav) {
+                [nav pushViewController:(UIViewController *)vc animated:YES];
+            } else {
+                UINavigationController *wrap =
+                    [[UINavigationController alloc] initWithRootViewController:(UIViewController *)vc];
+                [h presentViewController:wrap animated:YES completion:nil];
+            }
+            return;
+        }
+        LBLegadoShowResult(@"请点阅读页底栏「换源」");
+    }]];
+    [host presentViewController:alert animated:YES completion:nil];
+}
+
 /// 假设 P：loadCurCp 静态 callee 含 curPageVC；过早 invoke 会跳过 queryCpFile
 static id LBContainerCurPageVC(id container) {
     if (!container) return nil;
@@ -4367,10 +4439,11 @@ void LBLoadCurCpBridgeOnContentPosted(NSDictionary *payload, id readerVC) {
     if (!hasBody && hasRealError) {
         LBSetState(LBLoadCurCpStateFailed,
                    [NSString stringWithFormat:@"content_err %@", payload[@"error"]]);
-        // 正文失败时原生「章节加载中」常不消：扫视图树摘掉残留提示
+        // 正文失败时原生「章节加载中」常不消：扫视图树摘掉残留提示；S4 提示可返回/换源
         id reader = readerVC ?: sWeakReader ?: LBFindTextReaderVCInHierarchy();
         dispatch_async(dispatch_get_main_queue(), ^{
             LBDismissChapterLoadingHUD(reader);
+            LBPromptAfterContentFail(reader);
         });
         return;
     }
