@@ -3377,6 +3377,28 @@ static NSString *LBFindLegadoExploreUrlByName(NSString *name) {
     NSArray *rows = LBParseJSONArray(
         ([core respondsToSelector:@selector(exploreCapableSourcesJSON)]
          ? [core valueForKey:@"exploreCapableSourcesJSON"] : @"[]"));
+    // 仅凭显示名不能判定 Legado：XBS 与导入源同名时，必须确认命中的
+    // Registry 条目本身仍是 legadoBridge 标记。否则会把原生 bookWorld
+    // 切成 Legado surface，后续发现和阅读都会走错链路。
+    BOOL hasLegadoIdentity = LBLegadoIsSourceName(want);
+    if (!hasLegadoIdentity) {
+        for (id row in rows) {
+            if (![row isKindOfClass:[NSDictionary class]]) continue;
+            NSString *rawName = row[@"name"];
+            NSString *normalized = LBNormalizeSourceDisplayName(rawName);
+            if (normalized.length > 0 && [normalized isEqualToString:want] &&
+                [rawName isKindOfClass:[NSString class]] &&
+                LBLegadoIsSourceName(rawName)) {
+                hasLegadoIdentity = YES;
+                break;
+            }
+        }
+    }
+    if (!hasLegadoIdentity) {
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"resolveLegado skip native name=%@", want]);
+        return nil;
+    }
     // 1) 精确匹配
     for (id row in rows) {
         if (![row isKindOfClass:[NSDictionary class]]) continue;
@@ -3433,6 +3455,7 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
         sNativeChromeBuilt = NO; // 丢掉 Legado 建的壳，让原生 openConfig 重建 bookWorld
         // 只清 Legado pending/灌行，禁止掏空整表结构
         @try { LBClearDiscoverExplorePendingOnly(); } @catch (__unused NSException *e) {}
+        @try { LBClearNativeReadingBridgeState(); } @catch (__unused NSException *e) {}
         id core = LBKindCore();
         if (core) {
             @try { [core setValue:nil forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
@@ -3729,6 +3752,7 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
             @try { [core setValue:nil forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
         }
         @try { LBClearDiscoverExplorePendingOnly(); } @catch (__unused NSException *e) {}
+        @try { LBClearNativeReadingBridgeState(); } @catch (__unused NSException *e) {}
 
         NSString *name = nil;
         if (sDiscoverUseSourceName.length > 0) {
@@ -3865,6 +3889,27 @@ void LBSwitchDiscoverToSourceName(NSString *sourceName) {
         return;
     }
     LBHandleDiscoverSourceSwitched(host, sourceName);
+}
+
+void LBNotifyDiscoverNativeSourceSwitched(NSString *sourceName) {
+    if (sourceName.length == 0) return;
+    if (![NSThread isMainThread]) {
+        NSString *copy = [sourceName copy];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBNotifyDiscoverNativeSourceSwitched(copy);
+        });
+        return;
+    }
+    UIViewController *host = LBPrimaryDiscoverHost();
+    if (!host) {
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"nativeSwitch notify missHost name=%@", sourceName]);
+        return;
+    }
+    NSString *clean = LBNormalizeSourceDisplayName(sourceName) ?: sourceName;
+    LBAppendNativeMarker([NSString stringWithFormat:
+                          @"nativeSwitch notify name=%@", clean]);
+    LBHandleDiscoverSourceSwitched(host, clean);
 }
 
 /// 刷新原生分类标签（原 LBRefreshDiscoverKindBar，已去掉 overlay）

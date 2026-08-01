@@ -1768,6 +1768,25 @@ NSArray *LBCopyPendingCatalogChapters(void) {
     return [sPendingCatalogChapters copy];
 }
 
+void LBClearNativeReadingBridgeState(void) {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBClearNativeReadingBridgeState();
+        });
+        return;
+    }
+    sPendingCatalogChapters = nil;
+    sPendingCatalogBookUrl = nil;
+    sPendingCatalogSourceName = nil;
+    sPendingCatalogSourceUrl = nil;
+    sCatalogUserOrderLocked = NO;
+    if (sPendingSearchBooks) [sPendingSearchBooks removeAllObjects];
+    if (sLastAppliedSearchBooks) [sLastAppliedSearchBooks removeAllObjects];
+    [@"native XBS clear bridge reading/search state"
+        writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_native_marker.txt"]
+         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+}
+
 /// 从 bookUrl 取 scheme://host[:port]，替代写死的 mock 端口兜底
 static NSString *LBOriginSourceUrlFromBookUrl(NSString *bookUrl) {
     if (bookUrl.length == 0) return nil;
@@ -10632,6 +10651,7 @@ static NSDictionary *LBBridgeBookRowMatching(NSString *bookUrl, NSString *name) 
 static BOOL LBBookLooksLegadoForKillSwitch(id bookOrRecord, NSString **outBookUrl, NSString **outChUrl, NSString **outTitle) {
     NSDictionary *dic = LBReadingDicFromObject(bookOrRecord);
     if (![dic isKindOfClass:[NSDictionary class]]) dic = nil;
+    if (LBReadingDicLooksExplicitNativeXBS(dic)) return NO;
     NSString *bookUrl = LBReadingBookUrlFromDic(dic);
     NSString *bookName = nil;
     if (dic) {
@@ -10730,8 +10750,12 @@ static void __attribute__((unused)) LBKillSwitchPresentBridge(NSString *phase, N
 
 static void LBOpenReader_KillIMP(id self, SEL _cmd, id book, id sourceName, id record) {
     NSString *bu = nil, *ch = nil, *title = nil;
-    BOOL isLegado = LBBookLooksLegadoForKillSwitch(book, &bu, &ch, &title) ||
-                    LBBookLooksLegadoForKillSwitch(record, &bu, &ch, &title);
+    BOOL explicitNative =
+        LBReadingDicLooksExplicitNativeXBS(LBReadingDicFromObject(book)) ||
+        LBReadingDicLooksExplicitNativeXBS(LBReadingDicFromObject(record));
+    BOOL isLegado = !explicitNative &&
+                    (LBBookLooksLegadoForKillSwitch(book, &bu, &ch, &title) ||
+                     LBBookLooksLegadoForKillSwitch(record, &bu, &ch, &title));
     if (isLegado) {
         NSString *src = [sourceName isKindOfClass:[NSString class]] ? (NSString *)sourceName : nil;
         NSMutableDictionary *m = nil;

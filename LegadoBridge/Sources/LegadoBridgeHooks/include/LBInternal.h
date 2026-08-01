@@ -33,6 +33,8 @@ BOOL LBLegadoPresentNativeImportFrom(UIViewController * _Nullable fromVC);
 void LBSyncPendingCatalogChapters(NSArray * _Nullable chapters);
 /// 当前 pending 目录快照（可能为空）；供倒序/过滤与 cell 同源读取
 NSArray * _Nullable LBCopyPendingCatalogChapters(void);
+/// 切回原生 XBS 发现时清掉上一条 Legado 阅读/搜索会话状态
+void LBClearNativeReadingBridgeState(void);
 void LBSetCatalogUserOrderLocked(BOOL locked);
 BOOL LBCatalogUserOrderLocked(void);
 void LBLegadoShowImportAlert(void);
@@ -104,6 +106,7 @@ void LBPinDiscoverContentToFirstPage(UIViewController *host);
 void LBInstallDiscoverNativeUIHooks(void);
 /// T4：按源名切换发现页当前源（Legado explore / 原生 XBS），并尽量落到发现宿主
 void LBSwitchDiscoverToSourceName(NSString * _Nullable sourceName);
+void LBNotifyDiscoverNativeSourceSwitched(NSString * _Nullable sourceName);
 /// Legado 阅读护栏：消毒 dicBook/站点后走原生 openReader；点章失败再 Bridge
 void LBInstallLegadoReaderKillSwitch(void);
 
@@ -124,6 +127,7 @@ void LBBrowserAwaitSignalUserDone(NSString * _Nullable reason);
 void LBReadingRememberBook(NSDictionary * _Nullable dicBook);
 NSString * _Nullable LBReadingSourceUrlForBookUrl(NSString * _Nullable bookUrl);
 BOOL LBReadingDicLooksLegado(NSDictionary * _Nullable dic);
+BOOL LBReadingDicLooksExplicitNativeXBS(NSDictionary * _Nullable dic);
 NSString * _Nullable LBReadingBookUrlFromDic(NSDictionary * _Nullable dic);
 NSString * _Nullable LBReadingSourceUrlFromDic(NSDictionary * _Nullable dic);
 NSDictionary * _Nullable LBReadingDicFromObject(id _Nullable object);

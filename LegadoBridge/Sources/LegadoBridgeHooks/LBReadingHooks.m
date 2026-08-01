@@ -87,6 +87,7 @@ static NSString *LBReadingChapterUrlFromObject(id object) {
 
 static BOOL LBReadingObjectIsLegado(id object, NSString **outBookUrl, NSString **outSourceUrl) {
     NSDictionary *dic = LBReadingDicFromObject(object);
+    if (LBReadingDicLooksExplicitNativeXBS(dic)) return NO;
     if (LBReadingDicLooksLegado(dic)) {
         NSString *bookUrl = LBReadingBookUrlFromDic(dic);
         NSString *sourceUrl = LBReadingSourceUrlFromDic(dic) ?: LBReadingSourceUrlForBookUrl(bookUrl);
@@ -122,7 +123,7 @@ static void LBSetDicBook_IMP(id self, SEL _cmd, id dicBook) {
         dic = LBReadingDicFromObject(dicBook) ?: LBReadingDicFromObject(self);
     }
     // 重启后原生可能只留 bookUrl：用持久绑定补 sourceUrl 再记忆
-    if (!LBReadingDicLooksLegado(dic)) {
+    if (!LBReadingDicLooksLegado(dic) && !LBReadingDicLooksExplicitNativeXBS(dic)) {
         NSString *bookUrl = LBReadingBookUrlFromDic(dic);
         NSString *persisted = LBReadingSourceUrlForBookUrl(bookUrl);
         if (persisted.length > 0) {

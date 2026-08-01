@@ -15,6 +15,7 @@ static NSArray * (*LBOrig_BSM_getSortedSourceNamesByPriority)(id, SEL, id) = NUL
 static NSDictionary * (*LBOrig_BSM_dicModelList)(id, SEL) = NULL;
 static NSString * (*LBOrig_BSM_sourceTypeBySourceName)(id, SEL, NSString *) = NULL;
 static NSString * (*LBOrig_BSM_sourceTypeTitleBySourceName)(id, SEL, NSString *) = NULL;
+static char kLBSelectedDiscoverSourceNameKey;
 
 static NSArray *LBBSM_getSortedSourceNames_IMP(id self, SEL _cmd) {
     NSArray *orig = LBOrig_BSM_getSortedSourceNames ? LBOrig_BSM_getSortedSourceNames(self, _cmd) : @[];
@@ -72,7 +73,20 @@ static NSDictionary *LBBSM_dicModelList_IMP(id self, SEL _cmd) {
     if (!merged) merged = [NSMutableDictionary dictionary];
     for (NSString *name in legadoNames) {
         NSDictionary *model = LBLegadoNativeModel(name);
-        if (model) merged[name] = model;
+        if (!model) continue;
+        NSString *key = name;
+        NSDictionary *existing = [merged[name] isKindOfClass:[NSDictionary class]]
+            ? merged[name] : nil;
+        id marker = existing[@"legadoBridge"];
+        if (existing && ![marker isEqual:@"1"] && ![marker isEqual:@1]) {
+            key = [name stringByAppendingString:@"·Legado"];
+            NSMutableDictionary *disambiguated = [model mutableCopy];
+            disambiguated[@"sourceName"] = key;
+            disambiguated[@"bookSourceName"] = key;
+            disambiguated[@"title"] = key;
+            model = disambiguated;
+        }
+        merged[key] = model;
     }
     sCachedOrig = orig;
     sCachedLegadoNames = [legadoNames copy];
@@ -174,6 +188,8 @@ static void (*LBOrig_SwitchVC_viewWillAppear)(id, SEL, BOOL) = NULL;
 
 static void LBSwitchVC_viewWillAppear_IMP(id self, SEL _cmd, BOOL animated) {
     if (LBOrig_SwitchVC_viewWillAppear) LBOrig_SwitchVC_viewWillAppear(self, _cmd, animated);
+    objc_setAssociatedObject(self, &kLBSelectedDiscoverSourceNameKey, nil,
+                             OBJC_ASSOCIATION_COPY_NONATOMIC);
     // 防御：发现页 pinPageSV 曾误伤过内部表；切换面板打开时强制可滚
     @try {
         UITableView *tv = nil;
@@ -229,7 +245,10 @@ static NSArray *LBConfig_getUseSourceNames_IMP(id self, SEL _cmd) {
     if (legadoNames.count == 0) return orig ?: @[];
     NSMutableOrderedSet *merged = [NSMutableOrderedSet orderedSetWithArray:orig ?: @[]];
     for (NSString *name in legadoNames) {
-        [merged addObject:name];
+        NSString *displayName = [orig containsObject:name]
+            ? [name stringByAppendingString:@"·Legado"]
+            : name;
+        [merged addObject:displayName];
     }
     return merged.array;
 }
@@ -820,6 +839,10 @@ static void LBSwitchVC_ApplySwitchedInfo(NSDictionary *info) {
 
 static void LBSwitchVC_tableView_didSelect_IMP(id self, SEL _cmd, id tableView, NSIndexPath *indexPath) {
     NSString *name = LBLegadoSourceNameAtIndexPath(self, indexPath);
+    if (name.length > 0) {
+        objc_setAssociatedObject(self, &kLBSelectedDiscoverSourceNameKey, name,
+                                 OBJC_ASSOCIATION_COPY_NONATOMIC);
+    }
     if (LBLegadoShouldBlockSourceName(self, name)) {
         // Legado：只选中，不进管理页；点确定再真正换源
         if ([self respondsToSelector:@selector(setUseSourceName:)]) {
@@ -851,7 +874,12 @@ static void LBSwitchVC_onOkBtnEvent_IMP(id self, SEL _cmd) {
 #pragma clang diagnostic pop
         if ([v isKindOfClass:[NSString class]]) name = (NSString *)v;
     }
-    name = LBLegadoStripDisplaySuffix(name);
+    NSString *selectedName = objc_getAssociatedObject(self, &kLBSelectedDiscoverSourceNameKey);
+    if ([selectedName isKindOfClass:[NSString class]] && selectedName.length > 0) {
+        name = selectedName;
+    } else {
+        name = LBLegadoStripDisplaySuffix(name);
+    }
     // 发现页「切换站点」与阅读「换源」共用 BookSourceSwitchVC2：无书时按发现切源处理，
     // 否则 LBSwitchVC_StartLegadoSwitch 会因缺书名报「无法换源：缺少书名」
     id book = nil;
@@ -863,7 +891,7 @@ static void LBSwitchVC_onOkBtnEvent_IMP(id self, SEL _cmd) {
         // 无书 = 发现页「切换站点」（阅读「换源」必有书）。Legado 源走发现切源；
         // 原生源必须交给原生 onOk（useSourceName 在原生 didSelect 下不更新，直接读会拿旧名 → 切不动）
         BOOL isLegado = LBLegadoShouldBlockSourceName(self, name);
-        if (!isLegado) {
+        if (!isLegado && [name hasSuffix:@"·Legado"]) {
             isLegado = (LBSwitchVC_ResolveSourceUrl(name).length > 0);
         }
         NSString *discoverDiag = [NSString stringWithFormat:@"onOk discover-switch name=%@ legado=%d\n", name ?: @"", isLegado ? 1 : 0];
@@ -878,11 +906,20 @@ static void LBSwitchVC_onOkBtnEvent_IMP(id self, SEL _cmd) {
         } else if (LBOrig_SwitchVC_onOk) {
             // 原生源：原生 onOk 自己切源（它内部知道选中的是谁）
             LBOrig_SwitchVC_onOk(self, _cmd);
+            NSString *selected = objc_getAssociatedObject(self, &kLBSelectedDiscoverSourceNameKey);
+            if ([selected isKindOfClass:[NSString class]] && selected.length > 0) {
+                NSString *selectedCopy = [selected copy];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    // 原生 onOk 已完成实际切源；直接通知发现页恢复原生 bookWorld，
+                    // 不再等待宿主标题轮询。
+                    LBNotifyDiscoverNativeSourceSwitched(selectedCopy);
+                });
+            }
         }
         return;
     }
     BOOL isLegado = LBLegadoShouldBlockSourceName(self, name);
-    if (!isLegado && name.length > 0) {
+    if (!isLegado && [name hasSuffix:@"·Legado"]) {
         isLegado = (LBSwitchVC_ResolveSourceUrl(name).length > 0);
     }
     @try {

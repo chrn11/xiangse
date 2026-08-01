@@ -62,7 +62,13 @@ NSArray *LBMergeLegadoNames(NSArray *orig) {
     if (legadoNames.count == 0) return orig ?: @[];
     NSMutableOrderedSet *merged = [NSMutableOrderedSet orderedSetWithArray:orig ?: @[]];
     for (NSString *name in legadoNames) {
-        if (name.length > 0) [merged addObject:name];
+        if (name.length == 0) continue;
+        // 原生 XBS 与 Legado 同名时保留原生键，Bridge 源使用消歧后缀；
+        // 否则 getter 合并会把原生 BookWorld 模型覆盖成 Legado 壳。
+        NSString *displayName = [orig containsObject:name]
+            ? [name stringByAppendingString:@"·Legado"]
+            : name;
+        [merged addObject:displayName];
     }
     return merged.array;
 }
@@ -466,6 +472,7 @@ BOOL LBReadingDicLooksLegado(NSDictionary *dic) {
     id marker = dic[@"legadoBridge"];
     if ([marker isEqual:@"1"] || [marker isEqual:@1] || [marker isEqual:@YES]) return YES;
     if ([dic[@"fromLegadoBridge"] boolValue]) return YES;
+    if (LBReadingDicLooksExplicitNativeXBS(dic)) return NO;
     NSString *sourceUrl = LBReadingSourceUrlFromDic(dic);
     if (sourceUrl.length == 0) return NO;
     id core = LBLegadoCoreIfReady();
@@ -488,6 +495,27 @@ BOOL LBReadingDicLooksLegado(NSDictionary *dic) {
         }
     }
     return NO;
+}
+
+BOOL LBReadingDicLooksExplicitNativeXBS(NSDictionary *dic) {
+    if (![dic isKindOfClass:[NSDictionary class]]) return NO;
+    id marker = dic[@"legadoBridge"];
+    if ([marker isEqual:@"1"] || [marker isEqual:@1] || [marker isEqual:@YES]) return NO;
+    if ([dic[@"fromLegadoBridge"] boolValue]) return NO;
+
+    NSString *name = nil;
+    for (NSString *key in @[@"sourceName", @"bookSourceName", @"querySourceName"]) {
+        id value = dic[key];
+        if ([value isKindOfClass:[NSString class]] &&
+            [(NSString *)value stringByTrimmingCharactersInSet:
+                [NSCharacterSet whitespaceAndNewlineCharacterSet]].length > 0) {
+            name = [(NSString *)value stringByTrimmingCharactersInSet:
+                [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            break;
+        }
+    }
+    if (name.length == 0) return NO;
+    return !LBLegadoIsSourceName(name);
 }
 
 NSString *LBReadingBookUrlFromDic(NSDictionary *dic) {
