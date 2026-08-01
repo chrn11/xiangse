@@ -260,6 +260,18 @@ static BOOL LBLoginUiLooksLikeSeparator(NSDictionary *row) {
     }
 
     [self prefills];
+
+    // 打开时就显示当前登录态证据（不依赖按钮文案）
+    id coreStatus = LBLegadoCoreIfReady();
+    if (coreStatus && [coreStatus respondsToSelector:@selector(loginStatusSummaryForSourceUrl:)]) {
+        NSString *sum = ((NSString * (*)(id, SEL, NSString *))objc_msgSend)(
+            coreStatus, @selector(loginStatusSummaryForSourceUrl:), self.sourceUrl);
+        if (sum.length > 0) {
+            BOOL real = [sum containsString:@"已登录痕迹"];
+            self.statusLabel.textColor = real ? [UIColor systemGreenColor] : [UIColor secondaryLabelColor];
+            self.statusLabel.text = [NSString stringWithFormat:@"当前：%@", sum];
+        }
+    }
 }
 
 - (UIView *)cardContainer {
@@ -432,9 +444,21 @@ static BOOL LBLoginUiLooksLikeSeparator(NSDictionary *row) {
             __strong typeof(weakSelf) self = weakSelf;
             if (!self) return;
             sender.enabled = YES;
-            BOOL ok = [msg isEqualToString:@"ok"] || [msg hasPrefix:@"ok"] || [msg containsString:@"已打开"];
-            self.statusLabel.textColor = ok ? [UIColor systemGreenColor] : [UIColor systemOrangeColor];
-            self.statusLabel.text = [NSString stringWithFormat:@"%@：%@", ok ? @"完成" : @"结果", msg ?: @""];
+            // 再读登录态摘要：loginHeader 才算真登录痕迹，不能只看 ok
+            NSString *summary = @"";
+            id core2 = LBLegadoCoreIfReady();
+            if (core2 && [core2 respondsToSelector:@selector(loginStatusSummaryForSourceUrl:)]) {
+                summary = ((NSString * (*)(id, SEL, NSString *))objc_msgSend)(
+                    core2, @selector(loginStatusSummaryForSourceUrl:), src) ?: @"";
+            }
+            BOOL real = [summary containsString:@"已登录痕迹"];
+            if (real) {
+                self.statusLabel.textColor = [UIColor systemGreenColor];
+                self.statusLabel.text = [NSString stringWithFormat:@"真登录证据：%@\n动作：%@", summary, msg ?: @""];
+            } else {
+                self.statusLabel.textColor = [UIColor systemOrangeColor];
+                self.statusLabel.text = [NSString stringWithFormat:@"%@\n%@", msg ?: @"", summary];
+            }
         });
     });
 }

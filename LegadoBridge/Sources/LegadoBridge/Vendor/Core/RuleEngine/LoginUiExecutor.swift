@@ -131,7 +131,7 @@ public enum LoginUiExecutor {
         jsContext.setObject(formMap as NSDictionary, forKeyedSubscript: "result" as NSString)
 
         var objcErr: NSString?
-        _ = ObjCExceptionCatch.evaluateScript(script, in: jsContext, error: &objcErr)
+        let evalResult = ObjCExceptionCatch.evaluateScript(script, in: jsContext, error: &objcErr)
         if let objcErr {
             return String(objcErr)
         }
@@ -141,6 +141,20 @@ public enum LoginUiExecutor {
         if let sourceUrl = Optional(sourceUrl), !sourceUrl.isEmpty {
             SourceSessionStore.merge(exec.variables, for: sourceUrl)
         }
+
+        // 登录类动作：不能只靠「无异常」当成功；书山等以 loginHeader 为准
+        let actLower = act.lowercased()
+        let looksLikeLogin = actLower.contains("login(") || actLower == "login()"
+        if looksLikeLogin {
+            let header = LoginCredentialStore.getHeader(sourceUrl: sourceUrl)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if header.isEmpty {
+                let jsRet = evalResult?.toString() ?? ""
+                return "登录未生效：未见 loginHeader（JS 无抛错 ≠ 登录成功）\(jsRet.isEmpty ? "" : " ret=\(jsRet.prefix(80))")"
+            }
+            return "ok headerLen=\(header.count)"
+        }
+
         return "ok"
     }
 

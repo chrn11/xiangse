@@ -1467,6 +1467,41 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         return LoginCredentialStore.getInfo(sourceUrl: sourceUrl)
     }
 
+    /// 已保存的 loginHeader JSON（书山等登录成功后写 apiKey/Cookie）
+    @objc(loginHeaderJSONForSourceUrl:)
+    public func loginHeaderJSON(forSourceUrl sourceUrl: String?) -> String {
+        guard let sourceUrl, !sourceUrl.isEmpty else { return "" }
+        return LoginCredentialStore.getHeader(sourceUrl: sourceUrl)
+    }
+
+    /// 登录态摘要：有无 info/header/cookie，供 UI 显示证据而非只靠 ok 文案
+    @objc(loginStatusSummaryForSourceUrl:)
+    public func loginStatusSummary(forSourceUrl sourceUrl: String?) -> String {
+        guard let sourceUrl, !sourceUrl.isEmpty else { return "无 sourceUrl" }
+        let info = LoginCredentialStore.getInfo(sourceUrl: sourceUrl)
+        let header = LoginCredentialStore.getHeader(sourceUrl: sourceUrl)
+        let cookie = cookieJar(forUrl: sourceUrl) ?? ""
+        var infoKeys: [String] = []
+        if let data = info.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            infoKeys = obj.keys.sorted()
+        }
+        let hasHeader = !header.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasCookie = !cookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // 书山等：真登录写 loginHeader(api_key)；仅 cookie 可能是假页残留，不算数
+        let verdict: String
+        if hasHeader {
+            verdict = "已登录痕迹"
+        } else if !info.isEmpty && hasCookie {
+            verdict = "仅有表单+cookie，无 loginHeader（未真正账号登录）"
+        } else if !info.isEmpty {
+            verdict = "仅有账号表单，未见 loginHeader"
+        } else {
+            verdict = "未登录"
+        }
+        return "\(verdict) | infoKeys=\(infoKeys.joined(separator: ",")) infoLen=\(info.count) headerLen=\(header.count) cookieLen=\(cookie.count)"
+    }
+
     /// 执行 loginUi 按钮 action（formJSON 为字段 map）；返回状态文案
     @objc(runLoginUiActionForSourceUrl:action:formJSON:)
     public func runLoginUiAction(

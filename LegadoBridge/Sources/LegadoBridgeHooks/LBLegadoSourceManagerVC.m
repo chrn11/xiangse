@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <objc/message.h>
 #import "LegadoBridge.h"
+#import "LBInternal.h"
 
 /// Legado 书源管理页：列表、启停、删除、结构化+JSON 编辑、订阅刷新、分组筛选；「发现」真切发现源
 @interface LBLegadoSourceManagerVC : UITableViewController
@@ -491,7 +492,44 @@ static id LBLegadoManagerCore(void) {
     return indexPath.section == 1;
 }
 
+- (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView
+    trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.section != 1) return nil;
+    if (indexPath.row >= (NSInteger)self.sources.count) return nil;
+    NSDictionary *dict = self.sources[(NSUInteger)indexPath.row];
+    NSString *url = [self sourceUrlFromDict:dict];
+    if (url.length == 0) return nil;
+
+    UIContextualAction *login = [UIContextualAction
+        contextualActionWithStyle:UIContextualActionStyleNormal
+                            title:@"登录"
+                          handler:^(__unused UIContextualAction *action,
+                                    __unused UIView *sourceView,
+                                    void (^completionHandler)(BOOL)) {
+                              LBPresentLoginUiFormForSource(url);
+                              if (completionHandler) completionHandler(YES);
+                          }];
+    login.backgroundColor = [UIColor systemBlueColor];
+
+    UIContextualAction *del = [UIContextualAction
+        contextualActionWithStyle:UIContextualActionStyleDestructive
+                            title:@"删除"
+                          handler:^(__unused UIContextualAction *action,
+                                    __unused UIView *sourceView,
+                                    void (^completionHandler)(BOOL)) {
+                              [self removeSourceWithUrl:url];
+                              [self reloadSources];
+                              if (completionHandler) completionHandler(YES);
+                          }];
+
+    UISwipeActionsConfiguration *cfg =
+        [UISwipeActionsConfiguration configurationWithActions:@[ del, login ]];
+    cfg.performsFirstActionWithFullSwipe = NO;
+    return cfg;
+}
+
 - (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath {
+    // iOS 11+ 走 trailingSwipe；保留旧路径兜底
     if (indexPath.section != 1) return;
     if (editingStyle != UITableViewCellEditingStyleDelete) return;
     if (indexPath.row >= (NSInteger)self.sources.count) return;
