@@ -1001,7 +1001,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
             }
 
             // fail-open：串行。超时用独立 pthread+sleep（GCD asyncAfter 在 JS 堵死时真机不触发）。
-            let perSourceTimeoutSeconds: TimeInterval = 12
+            let perSourceTimeoutSeconds: TimeInterval = 20
             var totalCount = 0
             for source in targets {
                 let srcUrl = source.bookSourceUrl

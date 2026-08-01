@@ -1,0 +1,13 @@
+{
+  "bookSourceUrl": "https://hang-timeout-probe.local",
+  "bookSourceName": "挂死超时探针源",
+  "bookSourceType": 0,
+  "enabled": true,
+  "searchUrl": "@js:\nwhile(true){}\n",
+  "ruleSearch": {
+    "bookList": "[]",
+    "name": "title",
+    "author": "author",
+    "bookUrl": "url"
+  }
+}
