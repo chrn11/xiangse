@@ -995,85 +995,102 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 return
             }
 
-            // fail-open：串行单飞。单源用信号量硬超时（不依赖 Task.sleep / continuation 竞态）。
-            // 真机复现：JS 阻塞协作线程池时，async 超时永不触发，legado_search_last 只留 enter。
-            let perSourceTimeoutSeconds: TimeInterval = 20
+            // fail-open：串行。超时用 asyncAfter（禁用 sem.wait：真机 Lofter 上 wait 可不返回）。
+            let perSourceTimeoutSeconds: TimeInterval = 12
             var totalCount = 0
-            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    defer { done.resume() }
-                    for source in targets {
-                        let srcUrl = source.bookSourceUrl
-                        self.writeSearchMarker("start src=\(srcUrl)")
-                        let box = SearchOutcomeBox()
-                        let sem = DispatchSemaphore(value: 0)
-                        Task.detached(priority: .userInitiated) {
-                            defer { sem.signal() }
-                            do {
-                                let results = try await BridgeWebBook.searchBook(source: source, key: keyword)
-                                box.set(.success(results))
-                            } catch {
-                                box.set(.failure(error))
+            for source in targets {
+                let srcUrl = source.bookSourceUrl
+                self.writeSearchMarker("start src=\(srcUrl)")
+                let outcome: Result<[SearchBookResult], Error> = await withCheckedContinuation { cont in
+                    let flag = OnceFlag()
+                    Task.detached(priority: .userInitiated) {
+                        do {
+                            let results = try await BridgeWebBook.searchBook(source: source, key: keyword)
+                            if flag.claim() {
+                                cont.resume(returning: .success(results))
                             }
-                        }
-                        if sem.wait(timeout: .now() + perSourceTimeoutSeconds) == .timedOut {
-                            self.writeSearchMarker("partial err src=\(srcUrl) 单源搜索超时")
-                            continue
-                        }
-                        guard let outcome = box.get() else {
-                            self.writeSearchMarker("partial err src=\(srcUrl) empty outcome")
-                            continue
-                        }
-                        switch outcome {
-                        case .success(let results):
-                            var bindings: [String: BookBinding] = [:]
-                            for r in results {
-                                let book = BridgeBook(
-                                    name: r.name,
-                                    author: r.author,
-                                    bookUrl: r.bookUrl,
-                                    coverUrl: r.coverUrl ?? "",
-                                    intro: r.intro ?? "",
-                                    sourceUrl: r.sourceUrl,
-                                    sourceName: r.sourceName
-                                )
-                                self.bookCache[r.bookUrl] = book
-                                let binding = BookBindingStore.shared.bind(
-                                    bookUrl: r.bookUrl,
-                                    sourceUrl: r.sourceUrl,
-                                    sourceName: r.sourceName,
-                                    name: r.name,
-                                    author: r.author,
-                                    coverUrl: r.coverUrl ?? ""
-                                )
-                                bindings[r.bookUrl] = binding
+                        } catch {
+                            if flag.claim() {
+                                cont.resume(returning: .failure(error))
                             }
-                            totalCount += results.count
-                            let sourceName = results.first?.sourceName
-                                ?? SourceRegistry.shared.exactSource(forUrl: srcUrl)?.bookSourceName
-                                ?? ""
-                            for r in results {
-                                let book = XiangseAdapter.searchBookDict(r, binding: bindings[r.bookUrl])
-                                guard Self.isSafeSearchBookDict(book) else {
-                                    self.writeSearchMarker("skip unsafe book src=\(srcUrl)")
-                                    continue
-                                }
-                                let payload = XiangseAdapter.searchResultNotifyPayload(
-                                    book: book,
-                                    keyword: keyword,
-                                    sourceUrl: srcUrl,
-                                    sourceName: r.sourceName.isEmpty ? sourceName : r.sourceName
-                                )
-                                self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
-                                LBApplySearchResultsToUI([book], keyword)
-                            }
-                        case .failure(let error):
-                            self.writeSearchMarker("partial err src=\(srcUrl) \(error.localizedDescription)")
                         }
                     }
-                    self.writeSearchMarker("ok total=\(totalCount) sources=\(targets.count) key=\(keyword)")
+                    DispatchQueue.global(qos: .userInitiated).asyncAfter(
+                        deadline: .now() + perSourceTimeoutSeconds
+                    ) {
+                        if flag.claim() {
+                            // 先落盘再 resume，避免 resume 后协程卡死看不到超时行
+                            let path = (NSHomeDirectory() as NSString)
+                                .appendingPathComponent("Documents/legado_search_last.txt")
+                            let stamp = ISO8601DateFormatter().string(from: Date())
+                            let line = "\(stamp) partial err src=\(srcUrl) 单源搜索超时\n"
+                            if let data = line.data(using: .utf8) {
+                                if FileManager.default.fileExists(atPath: path),
+                                   let handle = FileHandle(forWritingAtPath: path) {
+                                    handle.seekToEndOfFile()
+                                    handle.write(data)
+                                    try? handle.close()
+                                } else {
+                                    try? line.write(toFile: path, atomically: true, encoding: .utf8)
+                                }
+                            }
+                            cont.resume(returning: .failure(LegadoBridgeError.timeout))
+                        }
+                    }
+                }
+                switch outcome {
+                case .success(let results):
+                    var bindings: [String: BookBinding] = [:]
+                    for r in results {
+                        let book = BridgeBook(
+                            name: r.name,
+                            author: r.author,
+                            bookUrl: r.bookUrl,
+                            coverUrl: r.coverUrl ?? "",
+                            intro: r.intro ?? "",
+                            sourceUrl: r.sourceUrl,
+                            sourceName: r.sourceName
+                        )
+                        self.bookCache[r.bookUrl] = book
+                        let binding = BookBindingStore.shared.bind(
+                            bookUrl: r.bookUrl,
+                            sourceUrl: r.sourceUrl,
+                            sourceName: r.sourceName,
+                            name: r.name,
+                            author: r.author,
+                            coverUrl: r.coverUrl ?? ""
+                        )
+                        bindings[r.bookUrl] = binding
+                    }
+                    totalCount += results.count
+                    let sourceName = results.first?.sourceName
+                        ?? SourceRegistry.shared.exactSource(forUrl: srcUrl)?.bookSourceName
+                        ?? ""
+                    for r in results {
+                        let book = XiangseAdapter.searchBookDict(r, binding: bindings[r.bookUrl])
+                        guard Self.isSafeSearchBookDict(book) else {
+                            self.writeSearchMarker("skip unsafe book src=\(srcUrl)")
+                            continue
+                        }
+                        let payload = XiangseAdapter.searchResultNotifyPayload(
+                            book: book,
+                            keyword: keyword,
+                            sourceUrl: srcUrl,
+                            sourceName: r.sourceName.isEmpty ? sourceName : r.sourceName
+                        )
+                        self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
+                        LBApplySearchResultsToUI([book], keyword)
+                    }
+                case .failure(let error):
+                    // 超时行已在 asyncAfter 里写过
+                    if case LegadoBridgeError.timeout = error {
+                        // already logged
+                    } else {
+                        self.writeSearchMarker("partial err src=\(srcUrl) \(error.localizedDescription)")
+                    }
                 }
             }
+            self.writeSearchMarker("ok total=\(totalCount) sources=\(targets.count) key=\(keyword)")
         }
     }
 
