@@ -811,10 +811,10 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     @objc(handleExploreRequestWithSourceUrl:exploreUrl:page:)
     public func handleExploreRequest(sourceUrl: String?, exploreUrl: String?, page: Int) {
         // 同源防抖：切源回调 + 深链 + 原生回调会并发触发多次 explore，
-        // 短时间（1.2s）内同源只执行最后一次，避免 generation 互相作废导致灌书竞态
+        // 短时间（3s）内同源只执行最后一次，避免 generation 互相作废导致灌书竞态
         let debounceKey = sourceUrl ?? exploreUrl ?? ""
         let now = Date().timeIntervalSince1970
-        if sLastExploreKey == debounceKey, now - sLastExploreAt < 1.2 {
+        if sLastExploreKey == debounceKey, now - sLastExploreAt < 3.0 {
             sExploreGeneration &+= 1
             return
         }

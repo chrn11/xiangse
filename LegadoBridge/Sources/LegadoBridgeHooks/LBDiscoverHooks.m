@@ -357,9 +357,14 @@ static void LBTriggerLegadoExploreForDiscoverTab(void) {
     LBDiscoverAppendMarker([NSString stringWithFormat:
                             @"discoverTab explore schedule hostOk=%d src=%@ kind=%@",
                             hostOk ? 1 : 0, src ?: @"", kindUrl ?: @"(default)"]);
-    // 原生壳建好后拉第一类书；分类/标签切换由 pageTitle / onHeaderBtn 再 fire
+    // 原生壳建好后拉第一类书；分类/标签切换由 pageTitle / onHeaderBtn 再 fire。
+    // 去重：setSquare/onSegmentChanged 高频调用会反复排 0.8s 后的 explore → 闪烁。
+    static BOOL sDiscoverExploreScheduled = NO;
+    if (sDiscoverExploreScheduled) return;
+    sDiscoverExploreScheduled = YES;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
+        sDiscoverExploreScheduled = NO;
         if (!LBIsDiscoverTabActive()) return;
         if (LBDiscoverSyncModeForCurrentSource()) return;
         LBRefreshDiscoverKindBar();
