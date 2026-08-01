@@ -52,4 +52,26 @@
     }
 }
 
++ (nullable NSString *)jsonStringLiteral:(NSString *)value
+                                   error:(NSString * _Nullable * _Nullable)outError {
+    NSString *input = value ?: @"";
+    @try {
+        NSError *serErr = nil;
+        NSData *data = [NSJSONSerialization dataWithJSONObject:input options:0 error:&serErr];
+        if (!data) {
+            if (outError) {
+                *outError = serErr.localizedDescription ?: @"json serialize failed";
+            }
+            return nil;
+        }
+        return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    } @catch (NSException *ex) {
+        if (outError) {
+            NSString *reason = ex.reason ?: @"";
+            *outError = [NSString stringWithFormat:@"%@: %@", ex.name, reason];
+        }
+        return nil;
+    }
+}
+
 @end

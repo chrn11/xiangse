@@ -16,6 +16,10 @@ NS_ASSUME_NONNULL_BEGIN
                            inContext:(JSContext *)context
                                error:(NSString * _Nullable * _Nullable)outError;
 
+/// JSON 字符串字面量（供嵌 eval）；NSJSONSerialization 也可能抛 NSException
++ (nullable NSString *)jsonStringLiteral:(NSString *)value
+                                   error:(NSString * _Nullable * _Nullable)outError;
+
 @end
 
 NS_ASSUME_NONNULL_END

@@ -346,7 +346,9 @@ class AnalyzeUrl {
             let analyzer = RuleAnalyzer(data: ruleUrl)
             let url = analyzer.innerRule(startStr: "{{", endStr: "}}") { [weak self] jsCode in
                 guard let self = self else { return "" }
-                let jsEval = self.evalJS(jsCode) ?? ""
+                // replaceKeyPageJs：lite 模式不 inject jsLib，避免真机 NSException abort
+                var ignored: String?
+                let jsEval = self.evalJS(jsCode, result: nil, errorOut: &ignored, lite: true) ?? ""
                 if let doubleVal = jsEval as? Double, doubleVal == floor(doubleVal) {
                     return String(format: "%.0f", doubleVal)
                 }
@@ -578,11 +580,16 @@ class AnalyzeUrl {
     /// 执行 JS（对应 Android evalJS）
     func evalJS(_ jsStr: String, result: Any? = nil) -> Any? {
         var ignored: String?
-        return evalJS(jsStr, result: result, errorOut: &ignored)
+        return evalJS(jsStr, result: result, errorOut: &ignored, lite: false)
     }
 
     /// 执行 JS；errorOut 带回 JSC 异常文案（供 analyzeJs 探针）
+    /// - Parameter lite: true 时不 inject JSBridge/jsLib（供 {{}} 替换，避免真机 abort）
     func evalJS(_ jsStr: String, result: Any? = nil, errorOut: inout String?) -> Any? {
+        return evalJS(jsStr, result: result, errorOut: &errorOut, lite: false)
+    }
+
+    func evalJS(_ jsStr: String, result: Any? = nil, errorOut: inout String?, lite: Bool) -> Any? {
         let trimmed = jsStr.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return result }
         errorOut = nil
@@ -615,18 +622,32 @@ class AnalyzeUrl {
             guard let page else { return "undefined" }
             return "\(page)"
         }()
-        // 顶层 try/catch + eval：保留多语句脚本「最后表达式」完成值。
-        // 直接把脚本塞进 try{} 时 JSC 常把完成值丢掉（起点 getApiUrl(...) 实测回 undefined）。
         // 源码用 JSON 字符串字面量嵌入，避免脚本内单引号截断 eval('...')。
-        let evalSourceJSON: String = {
-            let data = try? JSONSerialization.data(withJSONObject: trimmed, options: [])
-            return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
-        }()
+        // 必须在 ObjC 内做 JSONSerialization：部分脚本会触发 NSData bytesNoCopy 异常并 abort。
+        var jsonErr: NSString?
+        guard let evalSourceJSON = ObjCExceptionCatch.jsonStringLiteral(
+            trimmed, error: &jsonErr
+        ) as String? else {
+            let msg = (jsonErr as String?) ?? "json literal failed"
+            errorOut = msg
+            DebugLogger.shared.log("[AnalyzeUrl.evalJS] json \(msg)")
+            return nil
+        }
+        let resultSeed: String
+        if let result {
+            resultSeed = String(describing: result)
+        } else {
+            resultSeed = ""
+        }
+        var seedErr: NSString?
+        let resultSeedJSON = (ObjCExceptionCatch.jsonStringLiteral(
+            resultSeed, error: &seedErr
+        ) as String?) ?? "\"\""
         let wrapped = """
         var baseUrl = '\(escapedBase)';
         var key = \(keyLiteral);
         var page = \(pageLiteral);
-        var result = '';
+        var result = \(resultSeedJSON);
         var url = '';
         var __analyzeUrlEvalErrMsg = '';
         var __analyzeUrlEvalOut = undefined;
@@ -647,31 +668,33 @@ class AnalyzeUrl {
             var jsError: String?
         }
         let errBox = JSErrBox()
-        // inject（含 jsLib）也走 ObjC 安全 evaluate
-        bridge.inject(into: jsContext)
-        let javaType = ObjCExceptionCatch.evaluateScript(
-            "typeof java", in: jsContext, error: nil
-        )?.toString() ?? "nil"
-        if javaType != "object" {
-            let path = (NSHomeDirectory() as NSString)
-                .appendingPathComponent("Documents/legado_js_bridge_probe.txt")
-            let line = "ts=\(ISO8601DateFormatter().string(from: Date())) typeof_java=\(javaType) baseUrl=\(baseUrl)\n"
-            if let data = line.data(using: .utf8) {
-                if let fh = FileHandle(forWritingAtPath: path) {
-                    fh.seekToEndOfFile()
-                    fh.write(data)
-                    try? fh.close()
-                } else {
-                    try? data.write(to: URL(fileURLWithPath: path))
+        if !lite {
+            // 全量路径：inject（含 jsLib）；内部 evaluate 已走 ObjC 安全封装
+            bridge.inject(into: jsContext)
+            let javaType = ObjCExceptionCatch.evaluateScript(
+                "typeof java", in: jsContext, error: nil
+            )?.toString() ?? "nil"
+            if javaType != "object" {
+                let path = (NSHomeDirectory() as NSString)
+                    .appendingPathComponent("Documents/legado_js_bridge_probe.txt")
+                let line = "ts=\(ISO8601DateFormatter().string(from: Date())) typeof_java=\(javaType) baseUrl=\(baseUrl)\n"
+                if let data = line.data(using: .utf8) {
+                    if let fh = FileHandle(forWritingAtPath: path) {
+                        fh.seekToEndOfFile()
+                        fh.write(data)
+                        try? fh.close()
+                    } else {
+                        try? data.write(to: URL(fileURLWithPath: path))
+                    }
                 }
             }
+            if let page = page { jsContext.setObject(page, forKeyedSubscript: "page" as NSString) }
+            if let key = key { jsContext.setObject(key, forKeyedSubscript: "key" as NSString) }
+            if let speakText = speakText { jsContext.setObject(speakText, forKeyedSubscript: "speakText" as NSString) }
+            if let speakSpeed = speakSpeed { jsContext.setObject(speakSpeed, forKeyedSubscript: "speakSpeed" as NSString) }
+            jsContext.setObject("", forKeyedSubscript: "result" as NSString)
+            jsContext.setObject("", forKeyedSubscript: "url" as NSString)
         }
-        if let page = page { jsContext.setObject(page, forKeyedSubscript: "page" as NSString) }
-        if let key = key { jsContext.setObject(key, forKeyedSubscript: "key" as NSString) }
-        if let speakText = speakText { jsContext.setObject(speakText, forKeyedSubscript: "speakText" as NSString) }
-        if let speakSpeed = speakSpeed { jsContext.setObject(speakSpeed, forKeyedSubscript: "speakSpeed" as NSString) }
-        jsContext.setObject("", forKeyedSubscript: "result" as NSString)
-        jsContext.setObject("", forKeyedSubscript: "url" as NSString)
         jsContext.exceptionHandler = { _, exception in
             errBox.jsError = exception?.toString()
         }
