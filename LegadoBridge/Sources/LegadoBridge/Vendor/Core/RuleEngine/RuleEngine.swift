@@ -848,7 +848,21 @@ class RuleEngine {
         if let jsError, !jsError.isEmpty {
             DebugLogger.shared.log("[getJsElements] \(jsError)")
         }
-        // R9 诊断：数组桥接是否吃到 length
+        // R9 诊断：数组桥接是否吃到 length；写出返回前缀与后缀条数
+        var afterJsForProbe = ""
+        var suffixCount = -1
+        if let value, !value.isUndefined, !value.isNull {
+            if value.isString {
+                afterJsForProbe = value.toString()
+            } else if let obj = value.toObject(),
+                      JSONSerialization.isValidJSONObject(obj),
+                      let data = try? JSONSerialization.data(withJSONObject: obj),
+                      let s = String(data: data, encoding: .utf8) {
+                afterJsForProbe = s
+            } else {
+                afterJsForProbe = value.toString()
+            }
+        }
         do {
             let path = (NSHomeDirectory() as NSString)
                 .appendingPathComponent("Documents/legado_js_elements_probe.txt")
@@ -864,7 +878,8 @@ class RuleEngine {
             if let value {
                 via = Self.jsArrayLikeItems(value)?.count ?? -1
             }
-            let line = "ts=\(ISO8601DateFormatter().string(from: Date())) isArray=\(isArr) length=\(len) viaItems=\(via) err=\(jsError ?? "")\n"
+            let head = afterJsForProbe.prefix(180).replacingOccurrences(of: "\n", with: " ")
+            let line = "ts=\(ISO8601DateFormatter().string(from: Date())) isArray=\(isArr) length=\(len) viaItems=\(via) outHead=\(head) err=\(jsError ?? "")\n"
             if let data = line.data(using: .utf8) {
                 if FileManager.default.fileExists(atPath: path),
                    let fh = FileHandle(forWritingAtPath: path) {
@@ -873,28 +888,38 @@ class RuleEngine {
                     try? data.write(to: URL(fileURLWithPath: path))
                 }
             }
+            let outPath = (NSHomeDirectory() as NSString)
+                .appendingPathComponent("Documents/legado_js_elements_out.json")
+            try? afterJsForProbe.data(using: .utf8)?.write(to: URL(fileURLWithPath: outPath), options: .atomic)
         }
         if let sourceUrl = source?.bookSourceUrl {
             SourceSessionStore.merge(exec.variables, for: sourceUrl)
         }
 
         // 后缀：对 JS 返回文本再取列表（晋江 `$.[*]`）
-        if !suffixRule.isEmpty, let value, !value.isUndefined, !value.isNull {
-            let afterJs: String
-            if value.isString {
-                afterJs = value.toString()
-            } else if let obj = value.toObject(),
-                      JSONSerialization.isValidJSONObject(obj),
-                      let data = try? JSONSerialization.data(withJSONObject: obj),
-                      let s = String(data: data, encoding: .utf8) {
-                afterJs = s
-            } else {
-                afterJs = value.toString()
+        if !suffixRule.isEmpty, !afterJsForProbe.isEmpty,
+           afterJsForProbe != "undefined", afterJsForProbe != "null" {
+            let suffixEls = try getElements(ruleStr: suffixRule, body: afterJsForProbe, baseUrl: baseUrl, source: source)
+            suffixCount = suffixEls.count
+            do {
+                let path = (NSHomeDirectory() as NSString)
+                    .appendingPathComponent("Documents/legado_js_elements_probe.txt")
+                var firstName = ""
+                if let first = suffixEls.first,
+                   let dict = Self.jsItemAsStringKeyedDict(first.element) {
+                    firstName = "\(dict["title"] ?? dict["name"] ?? "")"
+                }
+                let line = "ts=\(ISO8601DateFormatter().string(from: Date())) suffixCount=\(suffixCount) firstTitle=\(firstName.prefix(40))\n"
+                if let data = line.data(using: .utf8) {
+                    if FileManager.default.fileExists(atPath: path),
+                       let fh = FileHandle(forWritingAtPath: path) {
+                        fh.seekToEndOfFile(); fh.write(data); try? fh.close()
+                    } else {
+                        try? data.write(to: URL(fileURLWithPath: path))
+                    }
+                }
             }
-            if !afterJs.isEmpty, afterJs != "undefined", afterJs != "null" {
-                let suffixEls = try getElements(ruleStr: suffixRule, body: afterJs, baseUrl: baseUrl, source: source)
-                if !suffixEls.isEmpty { return suffixEls }
-            }
+            if !suffixEls.isEmpty { return suffixEls }
         }
 
         if !exec.lastElementContexts.isEmpty {
