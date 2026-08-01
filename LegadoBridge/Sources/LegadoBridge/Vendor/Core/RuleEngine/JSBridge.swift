@@ -522,13 +522,16 @@ class JSBridge: JsEncodeUtils {
     private func injectSourceObject(into jsContext: JSContext) {
         let sourceObject = JSValue(newObjectIn: jsContext)
 
-        sourceObject?.setObject({ [weak self] in self?.context?.source?.bookSourceUrl ?? "" }, forKeyedSubscript: "bookSourceUrl" as NSString)
-        sourceObject?.setObject({ [weak self] in self?.context?.source?.bookSourceName ?? "" }, forKeyedSubscript: "bookSourceName" as NSString)
-        sourceObject?.setObject({ [weak self] in self?.context?.source?.loginUrl ?? "" }, forKeyedSubscript: "loginUrl" as NSString)
-        sourceObject?.setObject({ [weak self] in self?.context?.source?.header ?? "" }, forKeyedSubscript: "header" as NSString)
-        sourceObject?.setObject({ [weak self] in self?.context?.source?.variable ?? "" }, forKeyedSubscript: "variable" as NSString)
-        sourceObject?.setObject({ [weak self] in self?.context?.source?.enabledCookieJar ?? false }, forKeyedSubscript: "enabledCookieJar" as NSString)
-        sourceObject?.setObject({ [weak self] in self?.context?.source?.concurrentRate ?? "" }, forKeyedSubscript: "concurrentRate" as NSString)
+        // 字符串字段必须挂成真正的 String：block 在 JSC 里是 function，
+        // `String(source.loginUrl)` / `eval(source.loginUrl)` 会得到函数源码而非书源字段。
+        let src = context?.source
+        sourceObject?.setObject((src?.bookSourceUrl ?? "") as NSString, forKeyedSubscript: "bookSourceUrl" as NSString)
+        sourceObject?.setObject((src?.bookSourceName ?? "") as NSString, forKeyedSubscript: "bookSourceName" as NSString)
+        sourceObject?.setObject((src?.loginUrl ?? "") as NSString, forKeyedSubscript: "loginUrl" as NSString)
+        sourceObject?.setObject((src?.header ?? "") as NSString, forKeyedSubscript: "header" as NSString)
+        sourceObject?.setObject((src?.variable ?? "") as NSString, forKeyedSubscript: "variable" as NSString)
+        sourceObject?.setObject(NSNumber(value: src?.enabledCookieJar == true), forKeyedSubscript: "enabledCookieJar" as NSString)
+        sourceObject?.setObject((src?.concurrentRate ?? "") as NSString, forKeyedSubscript: "concurrentRate" as NSString)
         // Android BaseSource.getKey() == bookSourceUrl
         let getKeyBlock: @convention(block) () -> String = { [weak self] in
             self?.context?.source?.bookSourceUrl ?? ""

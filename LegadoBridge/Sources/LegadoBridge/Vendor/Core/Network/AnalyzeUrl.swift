@@ -141,23 +141,15 @@ class AnalyzeUrl {
             self.baseUrl = String(self.baseUrl[self.baseUrl.startIndex..<range.lowerBound])
         }
 
-        // 初始化 headerMap
+        // 初始化 headerMap（纯 JSON 先解析；@js header 须等 self 齐后再 eval，见 resolveSourceHeader）
         if let headerMapF = headerMapF {
             self.headerMap = headerMapF
             if let proxy = headerMapF["proxy"] {
                 self.proxy = proxy
                 self.headerMap.removeValue(forKey: "proxy")
             }
-        } else if let source = source, let header = source.header {
-            // 尝试解码书源 header
-            if let data = header.data(using: .utf8),
-               let headers = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
-                self.headerMap = headers
-                if let proxy = headers["proxy"] {
-                    self.proxy = proxy
-                    self.headerMap.removeValue(forKey: "proxy")
-                }
-            }
+        } else {
+            self.headerMap = [:]
         }
 
         self.concurrentRateLimiter = ConcurrentRateLimiter(source: source)
@@ -173,7 +165,51 @@ class AnalyzeUrl {
             domainSeed = baseUrl
         }
         self.domain = Self.getSubDomain(from: domainSeed)
+
+        if headerMapF == nil, let source = source, let header = source.header {
+            resolveSourceHeader(header)
+        }
+
         initUrl()
+    }
+
+    /// 书源 header：JSON 对象，或 `@js:` / `<js>` 求出 JSON 字符串（晋江等）
+    private func resolveSourceHeader(_ header: String) {
+        let trimmed = header.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        var jsonText = trimmed
+        let isJs = trimmed.hasPrefix("@js:") || trimmed.hasPrefix("<js>")
+            || trimmed.lowercased().hasPrefix("@js:")
+        if isJs {
+            let code: String
+            if trimmed.hasPrefix("@js:") {
+                code = String(trimmed.dropFirst(4))
+            } else if trimmed.hasPrefix("<js>"), trimmed.hasSuffix("</js>") {
+                code = String(trimmed.dropFirst(4).dropLast(5))
+            } else if let r = trimmed.range(of: "@js:", options: [.caseInsensitive, .anchored]) {
+                code = String(trimmed[r.upperBound...])
+            } else {
+                code = trimmed
+            }
+            var err: String?
+            if let out = evalJS(code, result: nil, errorOut: &err, lite: false) {
+                jsonText = String(describing: out)
+            } else {
+                DebugLogger.shared.log("[AnalyzeUrl.header] js failed \(err ?? "")")
+                return
+            }
+        }
+
+        guard let data = jsonText.data(using: .utf8),
+              let headers = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return
+        }
+        headerMap = headers
+        if let proxyVal = headers["proxy"] {
+            proxy = proxyVal
+            headerMap.removeValue(forKey: "proxy")
+        }
     }
 
     /// 便捷初始化
