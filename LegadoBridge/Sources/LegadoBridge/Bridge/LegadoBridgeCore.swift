@@ -1439,6 +1439,49 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         return raw.isEmpty ? nil : raw
     }
 
+    /// 规范化后的 loginUi 行数组 JSON：[{name,type,action},...]
+    @objc(loginUiRowsJSONForSourceUrl:)
+    public func loginUiRowsJSON(forSourceUrl sourceUrl: String?) -> String {
+        guard let sourceUrl, !sourceUrl.isEmpty,
+              let src = SourceRegistry.shared.source(forUrl: sourceUrl) else {
+            return "[]"
+        }
+        return LoginUiExecutor.rowsJSON(for: src)
+    }
+
+    /// 已保存的登录表单 JSON
+    @objc(loginInfoJSONForSourceUrl:)
+    public func loginInfoJSON(forSourceUrl sourceUrl: String?) -> String {
+        guard let sourceUrl, !sourceUrl.isEmpty else { return "" }
+        return LoginCredentialStore.getInfo(sourceUrl: sourceUrl)
+    }
+
+    /// 执行 loginUi 按钮 action（formJSON 为字段 map）；返回状态文案
+    @objc(runLoginUiActionForSourceUrl:action:formJSON:)
+    public func runLoginUiAction(
+        forSourceUrl sourceUrl: String?,
+        action: String?,
+        formJSON: String?
+    ) -> String {
+        guard let sourceUrl, !sourceUrl.isEmpty,
+              let src = SourceRegistry.shared.source(forUrl: sourceUrl) else {
+            return "无书源"
+        }
+        let act = (action ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !act.isEmpty else { return "空 action" }
+        let msg = LoginUiExecutor.run(source: src, action: act, formJSON: formJSON, putInfoBeforeEval: true)
+        let line = "ts=\(ISO8601DateFormatter().string(from: Date())) src=\(sourceUrl) action=\(act.prefix(80)) result=\(msg.prefix(200))\n"
+        let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_login_ui_action.txt")
+        if let data = line.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: path), let fh = FileHandle(forWritingAtPath: path) {
+                fh.seekToEndOfFile(); fh.write(data); try? fh.close()
+            } else {
+                try? data.write(to: URL(fileURLWithPath: path))
+            }
+        }
+        return msg
+    }
+
     private func postNotification(_ name: String, userInfo: [String: Any]) {
         DispatchQueue.main.async {
             NotificationCenter.default.post(

@@ -102,6 +102,8 @@ void LBInstallLegadoReaderKillSwitch(void);
 /// 可见 WebView：优先 LCStandarConfig openWebViewWithUrlStr:（内部 show WebViewController_WK），否则 WK 回退
 void LBPresentVisibleWebView(NSString *urlStr, NSString * _Nullable sourceUrl, NSString * _Nullable modeTag);
 void LBPresentLoginWebViewForSource(NSString * _Nullable sourceUrl);
+/// 真 loginUi 原生表单（字段 + 按钮执行 loginUrl JS）
+void LBPresentLoginUiFormForSource(NSString * _Nullable sourceUrl);
 /// 打开可见网页并阻塞等待用户点「完成验证」；返回页面 HTML（可空）。timeoutSec<=0 默认 180。
 NSString * _Nullable LBStartBrowserAwait(NSString *urlStr,
                                          NSString * _Nullable sourceUrl,

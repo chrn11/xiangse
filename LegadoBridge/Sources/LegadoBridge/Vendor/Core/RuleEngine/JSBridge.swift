@@ -650,6 +650,75 @@ class JSBridge: JsEncodeUtils {
         }
         sourceObject?.setObject(sourceSetVarBlock, forKeyedSubscript: "setVariable" as NSString)
 
+        // ====== 登录凭据（对齐 Android BaseSource） ======
+        let getLoginInfoBlock: @convention(block) () -> String = { [weak self] in
+            LoginCredentialStore.getInfo(sourceUrl: self?.context?.source?.bookSourceUrl ?? "")
+        }
+        sourceObject?.setObject(getLoginInfoBlock, forKeyedSubscript: "getLoginInfo" as NSString)
+
+        let getLoginInfoMapBlock: @convention(block) () -> NSDictionary = { [weak self] in
+            let map = LoginCredentialStore.infoMap(sourceUrl: self?.context?.source?.bookSourceUrl ?? "")
+            return map as NSDictionary
+        }
+        sourceObject?.setObject(getLoginInfoMapBlock, forKeyedSubscript: "getLoginInfoMap" as NSString)
+
+        let putLoginInfoBlock: @convention(block) (String) -> Void = { [weak self] json in
+            guard let url = self?.context?.source?.bookSourceUrl, !url.isEmpty else { return }
+            LoginCredentialStore.putInfo(json, sourceUrl: url)
+        }
+        sourceObject?.setObject(putLoginInfoBlock, forKeyedSubscript: "putLoginInfo" as NSString)
+
+        let removeLoginInfoBlock: @convention(block) () -> Void = { [weak self] in
+            LoginCredentialStore.removeInfo(sourceUrl: self?.context?.source?.bookSourceUrl ?? "")
+        }
+        sourceObject?.setObject(removeLoginInfoBlock, forKeyedSubscript: "removeLoginInfo" as NSString)
+
+        let getLoginHeaderBlock: @convention(block) () -> String = { [weak self] in
+            LoginCredentialStore.getHeader(sourceUrl: self?.context?.source?.bookSourceUrl ?? "")
+        }
+        sourceObject?.setObject(getLoginHeaderBlock, forKeyedSubscript: "getLoginHeader" as NSString)
+
+        let getLoginHeaderMapBlock: @convention(block) () -> NSDictionary = { [weak self] in
+            let raw = LoginCredentialStore.getHeader(sourceUrl: self?.context?.source?.bookSourceUrl ?? "")
+            guard let data = raw.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return NSDictionary()
+            }
+            var out: [String: String] = [:]
+            for (k, v) in obj { out[k] = "\(v)" }
+            return out as NSDictionary
+        }
+        sourceObject?.setObject(getLoginHeaderMapBlock, forKeyedSubscript: "getLoginHeaderMap" as NSString)
+
+        let putLoginHeaderBlock: @convention(block) (String) -> Void = { [weak self] json in
+            guard let url = self?.context?.source?.bookSourceUrl, !url.isEmpty else { return }
+            LoginCredentialStore.putHeader(json, sourceUrl: url)
+            // Cookie 字段写入 CookieManager（书山等）
+            if let data = json.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let cookie = obj["Cookie"] as? String ?? obj["cookie"] as? String,
+               !cookie.isEmpty {
+                CookieManager.shared.saveCookie(url: url, cookieString: cookie)
+            }
+        }
+        sourceObject?.setObject(putLoginHeaderBlock, forKeyedSubscript: "putLoginHeader" as NSString)
+
+        let removeLoginHeaderBlock: @convention(block) () -> Void = { [weak self] in
+            LoginCredentialStore.removeHeader(sourceUrl: self?.context?.source?.bookSourceUrl ?? "")
+        }
+        sourceObject?.setObject(removeLoginHeaderBlock, forKeyedSubscript: "removeLoginHeader" as NSString)
+
+        let sourceLoginBlock: @convention(block) () -> String = { [weak self] in
+            guard let source = self?.context?.source else { return "无书源" }
+            return LoginUiExecutor.run(
+                source: source,
+                action: "login()",
+                formJSON: LoginCredentialStore.getInfo(sourceUrl: source.bookSourceUrl),
+                putInfoBeforeEval: false
+            )
+        }
+        sourceObject?.setObject(sourceLoginBlock, forKeyedSubscript: "login" as NSString)
+
         Self.bindGlobal(sourceObject, name: "source", into: jsContext)
         injectBookObject(into: jsContext)
     }
