@@ -1289,7 +1289,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     sourceName: source.bookSourceName
                 )
                 let chapter = BridgeChapter(title: "", url: chapterUrl, index: 0)
-                var content = try await BridgeWebBook.getContent(source: source, book: book, chapter: chapter)
+                // 与搜索同级硬超时：避免「章节加载中」挂死（验收 J-03 / user-journey J2）
+                let contentTimeoutSeconds: TimeInterval = 20
+                var content = try await Self.withTimeout(seconds: contentTimeoutSeconds) {
+                    try await BridgeWebBook.getContent(source: source, book: book, chapter: chapter)
+                }
                 // 书源 ruleContent.replaceRegex：再落一次，防 getContent 映射遗漏；写对照标记供 8.6 验收
                 if let rr = source.getContentRule()?.replaceRegex?
                     .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1328,6 +1332,9 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 LBNoteResetContentPosted(payload)
             } catch {
                 var errText = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let bridgeErr = error as? LegadoBridgeError, case .timeout = bridgeErr {
+                    errText = "正文加载超时，请换源或稍后重试"
+                }
                 if errText.isEmpty {
                     errText = String(describing: error)
                 }

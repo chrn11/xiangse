@@ -631,7 +631,7 @@ enum LegadoBridgeError: Error, LocalizedError {
         case .notLegadoFormat: return "不是 Legado 书源 JSON 格式"
         case .sourceNotFound: return "未找到 Legado 书源"
         case .engineError(let msg): return msg
-        case .timeout: return "单源搜索超时"
+        case .timeout: return "请求超时，请换源或稍后重试"
         }
     }
 }

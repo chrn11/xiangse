@@ -1111,6 +1111,7 @@ void LBInstallSourceListHooks(void) {
 
 /// 站点管理页「Legado」按钮的 target（替代启动强弹窗入口）
 @interface LBLegadoBarButtonTarget : NSObject
+@property (nonatomic, weak) UIViewController *sourceListVC;
 + (instancetype)shared;
 - (void)onLegadoTapped;
 - (void)onNativeImportTapped;
@@ -1130,7 +1131,8 @@ void LBInstallSourceListHooks(void) {
     // U3：原版「导入」→ ConfigSourceModelSyncCon；失败再 UIAlert（含 Legado URL/粘贴）
     [@"tap onNativeImportTapped" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_tap.txt"]
                                   atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    if (!LBLegadoPresentNativeImport()) {
+    UIViewController *from = self.sourceListVC;
+    if (!LBLegadoPresentNativeImportFrom(from)) {
         LBShowLegadoImportAlert();
     }
 }
@@ -1181,17 +1183,16 @@ static void LBInstallNativeSourceListLegadoButton(void) {
             ((void (*)(id, SEL, BOOL))prev)(selfObj, @selector(viewDidAppear:), animated);
             if (![selfObj isKindOfClass:[UIViewController class]]) return;
             UIViewController *vc = (UIViewController *)selfObj;
+            [LBLegadoBarButtonTarget shared].sourceListVC = vc;
             UINavigationItem *item = vc.navigationItem;
             BOOL hasLegadoBtn = NO;
             for (UIBarButtonItem *bi in item.rightBarButtonItems ?: @[]) {
                 if ([bi.accessibilityIdentifier isEqualToString:@"legado.manage.entry"]) {
                     hasLegadoBtn = YES;
                 }
-                // U3：把原版「导入」接到 SyncCon / Legado 导入链（标题或 customView UIButton）
-                if ([bi.accessibilityIdentifier isEqualToString:@"legado.import.entry"]) {
-                    continue;
-                }
-                BOOL isImport = [bi.title isEqualToString:@"导入"];
+                // U3：每次 appear 都校验/重绑「导入」，避免 id 残留但 action 丢失
+                BOOL isImport = [bi.title isEqualToString:@"导入"] ||
+                    [bi.accessibilityIdentifier isEqualToString:@"legado.import.entry"];
                 if (!isImport && [bi.customView isKindOfClass:[UIButton class]]) {
                     UIButton *btn = (UIButton *)bi.customView;
                     NSString *t = btn.currentTitle ?: @"";

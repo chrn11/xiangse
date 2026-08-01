@@ -294,10 +294,15 @@ void LBLegadoPresentSourceEditor(NSString *sourceUrl) {
 }
 
 BOOL LBLegadoPresentNativeImport(void) {
+    return LBLegadoPresentNativeImportFrom(nil);
+}
+
+BOOL LBLegadoPresentNativeImportFrom(UIViewController *fromVC) {
     if (![NSThread isMainThread]) {
         __block BOOL ok = NO;
+        UIViewController *vcCopy = fromVC;
         dispatch_sync(dispatch_get_main_queue(), ^{
-            ok = LBLegadoPresentNativeImport();
+            ok = LBLegadoPresentNativeImportFrom(vcCopy);
         });
         return ok;
     }
@@ -328,19 +333,25 @@ BOOL LBLegadoPresentNativeImport(void) {
                            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         return NO;
     }
-    UINavigationController *nav = LBLegadoVisibleNavigationController();
+    // 优先用站点列表自己的 nav，避免全局「可见」nav 指到错栈却 return YES
+    UINavigationController *nav = fromVC.navigationController;
+    if (!nav) {
+        nav = LBLegadoVisibleNavigationController();
+    }
     if (nav) {
-        // 避免重复叠同一页
         for (UIViewController *top in nav.viewControllers) {
             if ([top isKindOfClass:syncCls]) {
-                [@"OK already_on_stack" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_import.txt"]
-                                         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                [nav popToViewController:top animated:YES];
+                [@"OK popTo existing ConfigSourceModelSyncCon" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_import.txt"]
+                                                                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 return YES;
             }
         }
         [nav pushViewController:vc animated:YES];
-        [@"OK push ConfigSourceModelSyncCon" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_import.txt"]
-                                               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        NSString *mark = [NSString stringWithFormat:@"OK push ConfigSourceModelSyncCon via=%@",
+                          fromVC ? NSStringFromClass([fromVC class]) : @"visibleNav"];
+        [mark writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_u3_import.txt"]
+               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         return YES;
     }
     UIWindow *window = LBLegadoKeyWindow();

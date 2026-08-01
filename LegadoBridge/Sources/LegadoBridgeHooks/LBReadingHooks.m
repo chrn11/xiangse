@@ -643,13 +643,14 @@ static void LBCatalogWriteChapters(id catalogVC, NSArray *chapters) {
             }
         } @catch (__unused NSException *e) {}
     }
-    if (!wrote) {
-        @try { [catalogVC setValue:chapters forKey:@"arrCatalog"]; } @catch (__unused NSException *e) {}
+    // 同步其它展示字段 + pending，避免 cell/numberOfRows 仍画引擎原始顺序
+    for (NSString *key in @[@"arrCatalog", @"arrBaseData", @"arrCpInfo"]) {
+        @try { [catalogVC setValue:chapters forKey:key]; } @catch (__unused NSException *e) {}
     }
+    LBSyncPendingCatalogChapters(chapters);
     @try {
         if ([catalogVC respondsToSelector:@selector(reloadData)]) {
             ((void (*)(id, SEL))objc_msgSend)(catalogVC, @selector(reloadData));
-            return;
         }
     } @catch (__unused NSException *e) {}
     @try {
@@ -658,6 +659,22 @@ static void LBCatalogWriteChapters(id catalogVC, NSArray *chapters) {
             tv = ((UITableView *(*)(id, SEL))objc_msgSend)(catalogVC, @selector(tableView));
         }
         [tv reloadData];
+    } @catch (__unused NSException *e) {}
+    // 扫可见 table 再 reload 一次（dataSource 可能不是 VC）
+    @try {
+        UIView *root = [catalogVC isKindOfClass:[UIViewController class]]
+            ? ((UIViewController *)catalogVC).view : nil;
+        if (root) {
+            NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
+            while (stack.count > 0) {
+                UIView *v = stack.lastObject;
+                [stack removeLastObject];
+                if ([v isKindOfClass:[UITableView class]]) {
+                    [(UITableView *)v reloadData];
+                }
+                for (UIView *sub in v.subviews) [stack addObject:sub];
+            }
+        }
     } @catch (__unused NSException *e) {}
 }
 
@@ -709,14 +726,33 @@ static void LBCatalogFilterByKeyword(id catalogVC, NSString *keyword) {
 
 @interface LBCatalogSearchAssist : NSObject <UISearchBarDelegate>
 @property (nonatomic, weak) id catalogVC;
+@property (nonatomic, weak) id originalDelegate;
 @end
 @implementation LBCatalogSearchAssist
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
     LBCatalogFilterByKeyword(self.catalogVC, searchText ?: @"");
+    id del = self.originalDelegate;
+    if (del && del != self && [del respondsToSelector:@selector(searchBar:textDidChange:)]) {
+        [del searchBar:searchBar textDidChange:searchText];
+    }
 }
 - (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
     [searchBar resignFirstResponder];
     LBCatalogFilterByKeyword(self.catalogVC, searchBar.text ?: @"");
+    id del = self.originalDelegate;
+    if (del && del != self && [del respondsToSelector:@selector(searchBarSearchButtonClicked:)]) {
+        [del searchBarSearchButtonClicked:searchBar];
+    }
+}
+- (BOOL)respondsToSelector:(SEL)aSelector {
+    if ([super respondsToSelector:aSelector]) return YES;
+    id del = self.originalDelegate;
+    return del && del != self && [del respondsToSelector:aSelector];
+}
+- (id)forwardingTargetForSelector:(SEL)aSelector {
+    id del = self.originalDelegate;
+    if (del && del != self && [del respondsToSelector:aSelector]) return del;
+    return [super forwardingTargetForSelector:aSelector];
 }
 @end
 
@@ -749,10 +785,9 @@ static void LBWireCatalogAssistOnVC(UIViewController *vc) {
                 b.enabled = YES;
                 b.userInteractionEnabled = YES;
                 SEL sel = @selector(lb_catalogReverseTapped);
-                NSArray *acts = [b actionsForTarget:vc forControlEvent:UIControlEventTouchUpInside];
-                if (![acts containsObject:NSStringFromSelector(sel)]) {
-                    [b addTarget:vc action:sel forControlEvents:UIControlEventTouchUpInside];
-                }
+                // 换掉原生无效 action，避免只追加导致点到空实现
+                [b removeTarget:nil action:NULL forControlEvents:UIControlEventTouchUpInside];
+                [b addTarget:vc action:sel forControlEvents:UIControlEventTouchUpInside];
             }
         }
         if ([v isKindOfClass:[UISearchBar class]]) {
@@ -764,8 +799,9 @@ static void LBWireCatalogAssistOnVC(UIViewController *vc) {
                 assist.catalogVC = vc;
                 objc_setAssociatedObject(vc, &kAssistKey, assist, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             }
-            // 无原版 delegate 时接管；有 UISearchController 则靠 updateSearchResults hook
-            if (sb.delegate == nil) {
+            // 链式转发：有原生/SearchController delegate 时仍过滤
+            if (sb.delegate != assist) {
+                assist.originalDelegate = sb.delegate;
                 sb.delegate = assist;
             }
             sb.hidden = NO;
@@ -774,6 +810,16 @@ static void LBWireCatalogAssistOnVC(UIViewController *vc) {
         for (UIView *sub in v.subviews) weakWalk(sub);
     };
     walk(vc.view);
+
+    // 导航栏 UIBarButtonItem「倒序」：直接改 target/action
+    for (UIBarButtonItem *bi in vc.navigationItem.rightBarButtonItems ?: @[]) {
+        NSString *t = bi.title ?: @"";
+        if ([t containsString:@"倒序"] || [t containsString:@"正序"]) {
+            foundReverseBtn = YES;
+            bi.target = vc;
+            bi.action = @selector(lb_catalogReverseTapped);
+        }
+    }
 
     // 真机 CatalogCon 常只有「到底部」，无「倒序」——补导航栏按钮
     if (!foundReverseBtn) {

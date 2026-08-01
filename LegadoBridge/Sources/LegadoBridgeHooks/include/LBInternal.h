@@ -27,6 +27,12 @@ void LBPresentLegadoReplaceRulesManager(void);
 void LBLegadoPresentSourceEditor(NSString * _Nullable sourceUrl);
 /// U3：优先推原版 ConfigSourceModelSyncCon；失败返回 NO（调用方再回退 UIAlert）
 BOOL LBLegadoPresentNativeImport(void);
+/// 从指定 VC 的 navigationController push 导入页（避免全局可见 nav 指错栈）
+BOOL LBLegadoPresentNativeImportFrom(UIViewController * _Nullable fromVC);
+/// E-02/E-03：用户倒序/过滤后同步 pending，避免 UI 仍画引擎原始顺序
+void LBSyncPendingCatalogChapters(NSArray * _Nullable chapters);
+void LBSetCatalogUserOrderLocked(BOOL locked);
+BOOL LBCatalogUserOrderLocked(void);
 void LBLegadoShowImportAlert(void);
 void LBLegadoImportData(NSData *data);
 void LBLegadoFetchAndImport(NSURL *url);

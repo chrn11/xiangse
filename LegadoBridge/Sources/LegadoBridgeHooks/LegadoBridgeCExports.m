@@ -1676,6 +1676,22 @@ static NSArray *sPendingCatalogChapters = nil;
 static NSString *sPendingCatalogBookUrl = nil;
 static NSString *sPendingCatalogSourceName = nil;
 static NSString *sPendingCatalogSourceUrl = nil;
+/// 用户已倒序/过滤：禁止引擎 reapply 用原始顺序盖回
+static BOOL sCatalogUserOrderLocked = NO;
+
+void LBSetCatalogUserOrderLocked(BOOL locked) {
+    sCatalogUserOrderLocked = locked;
+}
+
+BOOL LBCatalogUserOrderLocked(void) {
+    return sCatalogUserOrderLocked;
+}
+
+void LBSyncPendingCatalogChapters(NSArray *chapters) {
+    if (![chapters isKindOfClass:[NSArray class]]) return;
+    sPendingCatalogChapters = [chapters copy];
+    sCatalogUserOrderLocked = YES;
+}
 
 /// 从 bookUrl 取 scheme://host[:port]，替代写死的 mock 端口兜底
 static NSString *LBOriginSourceUrlFromBookUrl(NSString *bookUrl) {
@@ -2259,17 +2275,21 @@ static void LBScheduleCatalogReapply(NSArray *chapters, NSString *bookUrl) {
         (void)bookUrl;
         return;
     }
+    if (sCatalogUserOrderLocked) {
+        LBAppendOpenReaderTrace(@"catalogReapply noop (user order locked)");
+        return;
+    }
     NSArray *chCopy = [chapters copy];
     NSString *buCopy = [bookUrl copy];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (LBNativeOpenGateBlocked(NULL) || sLegadoReaderMode == 1) {
+        if (LBNativeOpenGateBlocked(NULL) || sLegadoReaderMode == 1 || sCatalogUserOrderLocked) {
             LBAppendOpenReaderTrace(@"hypothesis_R2 catalogReapply0.35 noop");
             return;
         }
         LBApplyPendingCatalogToVCs(chCopy, buCopy, @"reapply0.35");
     });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (LBNativeOpenGateBlocked(NULL) || sLegadoReaderMode == 1) {
+        if (LBNativeOpenGateBlocked(NULL) || sLegadoReaderMode == 1 || sCatalogUserOrderLocked) {
             LBAppendOpenReaderTrace(@"hypothesis_R2 catalogReapply1.0 noop");
             return;
         }
@@ -2286,8 +2306,8 @@ static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv,
         }
         return 0;
     }
-    // 目录上下文：章节数组优先（含 pending），避免原生脏行盖过
-    for (NSString *key in @[@"arrCatalog", @"arrCpInfo", @"arrBaseData"]) {
+    // 目录：CatalogCon 真机展示字段是 arrSource；E-02/E-03 写 arrSource 后须优先读它
+    for (NSString *key in @[@"arrSource", @"arrCatalog", @"arrCpInfo", @"arrBaseData"]) {
         @try {
             id cur = [self valueForKey:key];
             if (!LBArrayLooksLikeChapters(cur)) continue;
@@ -2299,7 +2319,7 @@ static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv,
     }
     if (tv && tv.dataSource && tv.dataSource != self) {
         id dsObj = (id)tv.dataSource;
-        for (NSString *key in @[@"arrCatalog", @"arrCpInfo", @"arrBaseData"]) {
+        for (NSString *key in @[@"arrSource", @"arrCatalog", @"arrCpInfo", @"arrBaseData"]) {
             @try {
                 id cur = [dsObj valueForKey:key];
                 if (!LBArrayLooksLikeChapters(cur)) continue;
@@ -3544,8 +3564,13 @@ static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView
         }
         return nil;
     }
+    NSArray *src = nil;
     NSArray *cat = nil;
     NSArray *base = nil;
+    @try {
+        id s = [self valueForKey:@"arrSource"];
+        if ([s isKindOfClass:[NSArray class]]) src = s;
+    } @catch (__unused NSException *e) {}
     @try {
         id c = [self valueForKey:@"arrCatalog"];
         if ([c isKindOfClass:[NSArray class]]) cat = c;
@@ -3554,12 +3579,12 @@ static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView
         id b = [self valueForKey:@"arrBaseData"];
         if ([b isKindOfClass:[NSArray class]]) base = b;
     } @catch (__unused NSException *e) {}
-    // pending 优先：原生 arrCatalog 常为空，列表靠 arrBaseData / pending（仅章节）
-    NSArray *use = sPendingCatalogChapters.count > 0 ? sPendingCatalogChapters : nil;
-    if (!use) {
-        if (LBArrayLooksLikeChapters(cat)) use = cat;
-        else if (LBArrayLooksLikeChapters(base)) use = base;
-    }
+    // E-02/E-03：用户倒序/过滤后 arrSource（及已 sync 的 pending）优先于引擎原始 pending
+    NSArray *use = nil;
+    if (LBArrayLooksLikeChapters(src)) use = src;
+    else if (sPendingCatalogChapters.count > 0) use = sPendingCatalogChapters;
+    else if (LBArrayLooksLikeChapters(cat)) use = cat;
+    else if (LBArrayLooksLikeChapters(base)) use = base;
     BOOL legadoFallback = (use.count > 0);
     if (!legadoFallback) {
         IMP fwd = LBForwardTableCellIMP();
@@ -10456,7 +10481,13 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                 }
                 return;
             }
-            NSArray *use = sPendingCatalogChapters;
+            // 目录：优先用户已改序的 arrSource / pending
+            NSArray *use = nil;
+            @try {
+                id src = [selfObj valueForKey:@"arrSource"];
+                if (LBArrayLooksLikeChapters(src)) use = src;
+            } @catch (__unused NSException *e) {}
+            if (!use) use = sPendingCatalogChapters;
             if (use.count == 0) {
                 @try {
                     id b = [selfObj valueForKey:@"arrBaseData"];
@@ -10998,13 +11029,23 @@ void LBApplyCatalogToUI(NSArray *chapters, NSString *bookUrl) {
     }
     @try {
         LBInstallCatalogUIAppearFlush();
-        sPendingCatalogChapters = [chapters copy];
+        // 换书时解除用户倒序锁；同书刷新仍允许引擎新目录覆盖（reapply 短延迟由 lock 挡住）
+        if (bookUrl.length > 0 &&
+            sPendingCatalogBookUrl.length > 0 &&
+            ![bookUrl isEqualToString:sPendingCatalogBookUrl]) {
+            sCatalogUserOrderLocked = NO;
+        }
+        if (!sCatalogUserOrderLocked) {
+            sPendingCatalogChapters = [chapters copy];
+        }
         sPendingCatalogBookUrl = [bookUrl copy];
         LBSaveCatalogCache(bookUrl, chapters);
-        NSUInteger applied = LBApplyPendingCatalogToVCs(chapters, bookUrl, @"ok");
+        NSArray *applyCh = sCatalogUserOrderLocked && sPendingCatalogChapters.count > 0
+            ? sPendingCatalogChapters : chapters;
+        NSUInteger applied = LBApplyPendingCatalogToVCs(applyCh, bookUrl, @"ok");
         if (applied == 0) {
             LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject pending n=%lu book=%@ (no writable CatalogVC)",
-                                  (unsigned long)chapters.count, bookUrl ?: @""]);
+                                  (unsigned long)applyCh.count, bookUrl ?: @""]);
         }
         // 保留 pending：CatalogCon 常在详情引擎返回之后才 push
         LBScheduleCatalogReapply(chapters, bookUrl);
