@@ -1309,11 +1309,24 @@ import LegadoBridgeHooks
               !raw.isEmpty else {
             return nil
         }
+        // JS 登录脚本不是可导航 URL；交由 loginUi / 源站回退
+        let lower = raw.lowercased()
+        if lower.hasPrefix("@js") || lower.hasPrefix("<js")
+            || (lower.hasPrefix("//") && lower.contains("function ")) {
+            return nil
+        }
         if raw.hasPrefix("http://") || raw.hasPrefix("https://") {
+            // 少数源把 `@js:` 误写成绝对路径后缀
+            if raw.contains("/@js") || raw.hasSuffix("@js:") {
+                return nil
+            }
             return raw
         }
         if let base = URL(string: src.bookSourceUrl),
            let abs = URL(string: raw, relativeTo: base)?.absoluteString {
+            if abs.contains("/@js") || abs.hasSuffix("@js:") {
+                return nil
+            }
             return abs
         }
         return raw
