@@ -182,7 +182,22 @@ class JSBridge: JsEncodeUtils {
 
         let ajaxBlock: @convention(block) (String) -> String = { [weak self] url in
             guard let self = self, !url.isEmpty else { return "" }
-            return self.ajaxViaAnalyzeUrl(url) 
+            let body = self.ajaxViaAnalyzeUrl(url)
+            // 登录探针：落盘 URL 前缀 + 响应前缀，便于区分 POST 失败 / 业务 code
+            if url.contains("/login") || url.contains("method") {
+                let path = (NSHomeDirectory() as NSString)
+                    .appendingPathComponent("Documents/legado_login_ajax_probe.txt")
+                let line = "ts=\(ISO8601DateFormatter().string(from: Date())) url=\(url.prefix(180)) bodyLen=\(body.count) bodyPrefix=\(body.prefix(240))\n"
+                if let data = line.data(using: .utf8) {
+                    if FileManager.default.fileExists(atPath: path),
+                       let fh = FileHandle(forWritingAtPath: path) {
+                        fh.seekToEndOfFile(); fh.write(data); try? fh.close()
+                    } else {
+                        try? data.write(to: URL(fileURLWithPath: path))
+                    }
+                }
+            }
+            return body
         }
         javaObject?.setObject(ajaxBlock, forKeyedSubscript: "ajax" as NSString)
 
@@ -552,7 +567,21 @@ class JSBridge: JsEncodeUtils {
         let logBlock: @convention(block) (String) -> String = { message in print("[JsExt] \(message)"); return message }
         javaObject?.setObject(logBlock, forKeyedSubscript: "log" as NSString)
 
-        let toastBlock: @convention(block) (String) -> Void = { msg in print("[Toast] \(msg)") }
+        let toastBlock: @convention(block) (String) -> Void = { msg in
+            print("[Toast] \(msg)")
+            let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_js_toast.txt")
+            let line = "ts=\(ISO8601DateFormatter().string(from: Date())) \(msg)\n"
+            if let data = line.data(using: .utf8) {
+                if FileManager.default.fileExists(atPath: path),
+                   let fh = FileHandle(forWritingAtPath: path) {
+                    fh.seekToEndOfFile()
+                    fh.write(data)
+                    try? fh.close()
+                } else {
+                    try? data.write(to: URL(fileURLWithPath: path))
+                }
+            }
+        }
         javaObject?.setObject(toastBlock, forKeyedSubscript: "toast" as NSString)
         javaObject?.setObject(toastBlock, forKeyedSubscript: "longToast" as NSString)
 
@@ -658,7 +687,12 @@ class JSBridge: JsEncodeUtils {
 
         let getLoginInfoMapBlock: @convention(block) () -> NSDictionary = { [weak self] in
             let map = LoginCredentialStore.infoMap(sourceUrl: self?.context?.source?.bookSourceUrl ?? "")
-            return map as NSDictionary
+            // JSC 对 Swift Dictionary 桥接偶发丢键；显式 NSMutableDictionary 更稳
+            let out = NSMutableDictionary()
+            for (k, v) in map {
+                out[k] = v
+            }
+            return out
         }
         sourceObject?.setObject(getLoginInfoMapBlock, forKeyedSubscript: "getLoginInfoMap" as NSString)
 

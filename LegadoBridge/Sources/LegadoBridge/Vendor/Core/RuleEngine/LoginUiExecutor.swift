@@ -150,7 +150,18 @@ public enum LoginUiExecutor {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if header.isEmpty {
                 let jsRet = evalResult?.toString() ?? ""
-                return "登录未生效：未见 loginHeader（JS 无抛错 ≠ 登录成功）\(jsRet.isEmpty ? "" : " ret=\(jsRet.prefix(80))")"
+                let toastPath = (NSHomeDirectory() as NSString)
+                    .appendingPathComponent("Documents/legado_js_toast.txt")
+                let toastTail = (try? String(contentsOfFile: toastPath, encoding: .utf8))?
+                    .split(separator: "\n").suffix(3).joined(separator: " | ") ?? ""
+                let ajaxPath = (NSHomeDirectory() as NSString)
+                    .appendingPathComponent("Documents/legado_login_ajax_probe.txt")
+                let ajaxTail = (try? String(contentsOfFile: ajaxPath, encoding: .utf8))?
+                    .split(separator: "\n").suffix(2).joined(separator: " | ") ?? ""
+                return "登录未生效：未见 loginHeader（JS 无抛错 ≠ 登录成功）"
+                    + (jsRet.isEmpty ? "" : " ret=\(jsRet.prefix(80))")
+                    + (toastTail.isEmpty ? "" : " toast=\(toastTail.prefix(200))")
+                    + (ajaxTail.isEmpty ? "" : " ajax=\(ajaxTail.prefix(240))")
             }
             return "ok headerLen=\(header.count)"
         }
