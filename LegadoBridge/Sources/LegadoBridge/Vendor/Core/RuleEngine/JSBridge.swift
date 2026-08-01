@@ -32,6 +32,17 @@ class JSBridge: JsEncodeUtils {
         denyForbiddenNativeAPIs(into: jsContext)
         // 书源 jsLib：共享函数须在业务脚本之前落入同一上下文（对标 Android jsLib，只执行一次语义由调用方复用 context）
         Self.evaluateJsLib(of: context?.source, into: jsContext, headers: parseSourceHeaders())
+        Self.injectLegadoMapLookup(into: jsContext)
+    }
+
+    /// `{{}}` lite：ES6 + java/source/cookie，不跑 jsLib（避免每段模板重复拉远程脚本）。
+    func injectLite(into jsContext: JSContext) {
+        Self.injectES6ConstructorCompat(into: jsContext)
+        injectJavaObject(into: jsContext)
+        injectSourceObject(into: jsContext)
+        injectCookieObject(into: jsContext)
+        denyForbiddenNativeAPIs(into: jsContext)
+        Self.injectLegadoMapLookup(into: jsContext)
     }
 
     /// J1：JSC 要求 `new Map()`，Android V8 容忍 `Map()`。包装后两种写法皆可。
@@ -59,6 +70,54 @@ class JSBridge: JsEncodeUtils {
           wrapCtor(g.Set, 'Set');
           wrapCtor(g.WeakMap, 'WeakMap');
           wrapCtor(g.WeakSet, 'WeakSet');
+        })(this);
+        """, in: jsContext, error: nil)
+    }
+
+    /// 书源惯例：`Map("token")` / `Map("search")` 取登录/会话变量字符串，不是 ES6 Map。
+    /// 单字符串参数 → java.get / source 变量；否则走已包装的 ES6 Map。
+    static func injectLegadoMapLookup(into jsContext: JSContext) {
+        _ = ObjCExceptionCatch.evaluateScript("""
+        (function (g) {
+          var ES6Map = g.Map;
+          if (typeof ES6Map !== 'function') return;
+          if (ES6Map.__legadoLookup) return;
+          function LegadoMap(key) {
+            if (arguments.length === 1 && (typeof key === 'string' || typeof key === 'number')) {
+              var k = String(key);
+              try {
+                if (typeof java !== 'undefined' && java && typeof java.get === 'function') {
+                  var v = java.get(k);
+                  if (v !== undefined && v !== null && String(v) !== '') return String(v);
+                }
+              } catch (e1) {}
+              try {
+                if (typeof source !== 'undefined' && source) {
+                  if (typeof source.get === 'function') {
+                    var s = source.get(k);
+                    if (s !== undefined && s !== null && String(s) !== '') return String(s);
+                  }
+                  if (typeof source.getVariable === 'function') {
+                    var sv = source.getVariable(k);
+                    if (sv !== undefined && sv !== null && String(sv) !== '') return String(sv);
+                  }
+                }
+              } catch (e2) {}
+              return '';
+            }
+            var args = Array.prototype.slice.call(arguments);
+            if (typeof Reflect !== 'undefined' && Reflect.construct) {
+              return Reflect.construct(ES6Map, args, LegadoMap);
+            }
+            args.unshift(null);
+            return new (Function.prototype.bind.apply(ES6Map, args))();
+          }
+          LegadoMap.prototype = ES6Map.prototype;
+          try { Object.setPrototypeOf(LegadoMap, ES6Map); } catch (e3) {}
+          try { Object.defineProperty(LegadoMap, 'name', { value: 'Map' }); } catch (e4) {}
+          LegadoMap.__legadoWrapped = true;
+          LegadoMap.__legadoLookup = true;
+          g.Map = LegadoMap;
         })(this);
         """, in: jsContext, error: nil)
     }
@@ -476,6 +535,42 @@ class JSBridge: JsEncodeUtils {
         }
         sourceObject?.setObject(getKeyBlock, forKeyedSubscript: "getKey" as NSString)
         sourceObject?.setObject(getKeyBlock, forKeyedSubscript: "getTag" as NSString)
+
+        // Android BaseSource.get(key)：登录信息 / 会话变量
+        let sourceGetBlock: @convention(block) (String) -> String = { [weak self] key in
+            if let local = self?.context?.variables[key], !local.isEmpty { return local }
+            let fromSession = SourceSessionStore.get(key, sourceUrl: self?.context?.source?.bookSourceUrl)
+            if !fromSession.isEmpty { return fromSession }
+            if let variable = self?.context?.source?.variable,
+               let data = variable.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let val = json[key] {
+                if let s = val as? String { return s }
+                return String(describing: val)
+            }
+            return ""
+        }
+        sourceObject?.setObject(sourceGetBlock, forKeyedSubscript: "get" as NSString)
+
+        let sourceGetVarBlock: @convention(block) () -> String = { [weak self] in
+            self?.context?.source?.variable ?? ""
+        }
+        // 部分源写 source.getVariable() 无参拿整段；部分写 source.getVariable(key)
+        sourceObject?.setObject(sourceGetVarBlock, forKeyedSubscript: "getVariable" as NSString)
+        let sourceGetVarKeyBlock: @convention(block) (String) -> String = { [weak self] key in
+            sourceGetBlock(key)
+        }
+        // JSC 同名重载不稳：再挂 getVar(key)
+        sourceObject?.setObject(sourceGetVarKeyBlock, forKeyedSubscript: "getVar" as NSString)
+
+        let sourceSetVarBlock: @convention(block) (String) -> Void = { [weak self] value in
+            // 源级 variable 字符串整写：仅会话侧缓存，避免改磁盘书源
+            if let url = self?.context?.source?.bookSourceUrl {
+                SourceSessionStore.put("__variable__", value: value, sourceUrl: url)
+            }
+            self?.context?.variables["__variable__"] = value
+        }
+        sourceObject?.setObject(sourceSetVarBlock, forKeyedSubscript: "setVariable" as NSString)
 
         Self.bindGlobal(sourceObject, name: "source", into: jsContext)
         injectBookObject(into: jsContext)

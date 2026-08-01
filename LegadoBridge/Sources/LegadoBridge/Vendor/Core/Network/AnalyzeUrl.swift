@@ -346,7 +346,7 @@ class AnalyzeUrl {
             let analyzer = RuleAnalyzer(data: ruleUrl)
             let url = analyzer.innerRule(startStr: "{{", endStr: "}}") { [weak self] jsCode in
                 guard let self = self else { return "" }
-                // replaceKeyPageJs：lite 模式不 inject jsLib，避免真机 NSException abort
+                // replaceKeyPageJs：lite=injectLite（Map/java，无 jsLib）
                 var ignored: String?
                 let jsEval = self.evalJS(jsCode, result: nil, errorOut: &ignored, lite: true) ?? ""
                 if let doubleVal = jsEval as? Double, doubleVal == floor(doubleVal) {
@@ -608,6 +608,11 @@ class AnalyzeUrl {
                 execContext.variables[k] = v
             }
         }
+        if let infoMap {
+            for (k, v) in infoMap {
+                execContext.variables[k] = v
+            }
+        }
         bridge.context = execContext
 
         // 设置特定变量：baseUrl/key/page 用字面量写入脚本，避免 JSC setValue 全局在真机不可见
@@ -668,7 +673,10 @@ class AnalyzeUrl {
             var jsError: String?
         }
         let errBox = JSErrBox()
-        if !lite {
+        if lite {
+            // {{}}：需要 Map("x")/java.put，但不跑 jsLib
+            bridge.injectLite(into: jsContext)
+        } else {
             // 全量路径：inject（含 jsLib）；内部 evaluate 已走 ObjC 安全封装
             bridge.inject(into: jsContext)
             let javaType = ObjCExceptionCatch.evaluateScript(
@@ -688,13 +696,13 @@ class AnalyzeUrl {
                     }
                 }
             }
-            if let page = page { jsContext.setObject(page, forKeyedSubscript: "page" as NSString) }
-            if let key = key { jsContext.setObject(key, forKeyedSubscript: "key" as NSString) }
-            if let speakText = speakText { jsContext.setObject(speakText, forKeyedSubscript: "speakText" as NSString) }
-            if let speakSpeed = speakSpeed { jsContext.setObject(speakSpeed, forKeyedSubscript: "speakSpeed" as NSString) }
-            jsContext.setObject("", forKeyedSubscript: "result" as NSString)
-            jsContext.setObject("", forKeyedSubscript: "url" as NSString)
         }
+        if let page = page { jsContext.setObject(page, forKeyedSubscript: "page" as NSString) }
+        if let key = key { jsContext.setObject(key, forKeyedSubscript: "key" as NSString) }
+        if let speakText = speakText { jsContext.setObject(speakText, forKeyedSubscript: "speakText" as NSString) }
+        if let speakSpeed = speakSpeed { jsContext.setObject(speakSpeed, forKeyedSubscript: "speakSpeed" as NSString) }
+        jsContext.setObject("", forKeyedSubscript: "result" as NSString)
+        jsContext.setObject("", forKeyedSubscript: "url" as NSString)
         jsContext.exceptionHandler = { _, exception in
             errBox.jsError = exception?.toString()
         }
