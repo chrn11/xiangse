@@ -1878,6 +1878,17 @@ static void LBRevealDiscoverTitleAndList(UIViewController *host) {
 static void LBRevealDiscoverTitleAndListEx(UIViewController *host, BOOL force) {
     if (!host || !host.isViewLoaded || !host.view) return;
     static const NSInteger kLBFO = 0x4C42464F; // 'LBFO' feed overlay
+    // XBS（原生源）态：禁止创建/保留 feed overlay，否则盖住原生书列表（残留 Legado 数据触发 arrN>0 → 空 overlay 挡书）
+    if (LBIsDiscoverNativeXBSMode()) {
+        for (UIView *sub in host.view.subviews) {
+            if ([sub isKindOfClass:[UITableView class]] && sub.tag == kLBFO) {
+                [sub removeFromSuperview];
+                LBAppendNativeMarker(@"reveal XBS remove feedOverlay");
+                break;
+            }
+        }
+        return;
+    }
 
     id tv = nil;
     @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
