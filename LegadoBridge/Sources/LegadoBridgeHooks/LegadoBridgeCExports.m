@@ -9152,38 +9152,33 @@ static void LBG6AttachLegadoWave0Actions(id reader) {
         return b;
     };
     UIButton *reviewBtn = makeBtn(@"书评", 0x4C425732);
-    UIButton *ttsBtn = makeBtn(@"听书", 0x4C425733);
     reviewBtn.accessibilityLabel = @"书评";
-    ttsBtn.accessibilityLabel = @"听书";
     reviewBtn.accessibilityIdentifier = @"legado_wave0_review";
-    ttsBtn.accessibilityIdentifier = @"legado_wave0_tts";
-    [strip addSubview:ttsBtn];
     [strip addSubview:reviewBtn];
+    // B7：隐藏听书/HttpTTS 入口（保留 LBOpenTTS C API，不在阅读壳露按钮）
     CGFloat btnW = 52, btnH = stripH;
     CGFloat sw = stripFrame.size.width;
     reviewBtn.frame = CGRectMake(sw - 16 - btnW, 0, btnW, btnH);
-    ttsBtn.frame = CGRectMake(CGRectGetMinX(reviewBtn.frame) - 12 - btnW, 0, btnW, btnH);
     reviewBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleHeight;
-    ttsBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleHeight;
 
     NSString *bookCopy = [bookUrl copy];
     NSString *srcCopy = sourceUrl.length > 0 ? [sourceUrl copy] : nil;
     NSString *chCopy = chapterUrl.length > 0 ? [chapterUrl copy] : @"";
     NSString *titleCopy = title.length > 0 ? [title copy] : @"章节";
-    for (UIButton *b in @[reviewBtn, ttsBtn]) {
-        objc_setAssociatedObject(b, &kLBG6Wave0BookUrlKey, bookCopy, OBJC_ASSOCIATION_COPY_NONATOMIC);
-        objc_setAssociatedObject(b, &kLBG6Wave0SourceUrlKey, srcCopy, OBJC_ASSOCIATION_COPY_NONATOMIC);
-        objc_setAssociatedObject(b, &kLBG6Wave0ChapterUrlKey, chCopy, OBJC_ASSOCIATION_COPY_NONATOMIC);
-        objc_setAssociatedObject(b, &kLBG6Wave0TitleKey, titleCopy, OBJC_ASSOCIATION_COPY_NONATOMIC);
-    }
+    objc_setAssociatedObject(reviewBtn, &kLBG6Wave0BookUrlKey, bookCopy, OBJC_ASSOCIATION_COPY_NONATOMIC);
+    objc_setAssociatedObject(reviewBtn, &kLBG6Wave0SourceUrlKey, srcCopy, OBJC_ASSOCIATION_COPY_NONATOMIC);
+    objc_setAssociatedObject(reviewBtn, &kLBG6Wave0ChapterUrlKey, chCopy, OBJC_ASSOCIATION_COPY_NONATOMIC);
+    objc_setAssociatedObject(reviewBtn, &kLBG6Wave0TitleKey, titleCopy, OBJC_ASSOCIATION_COPY_NONATOMIC);
     [reviewBtn addTarget:sWave0Proxy action:@selector(onReview:) forControlEvents:UIControlEventTouchUpInside];
-    [ttsBtn addTarget:sWave0Proxy action:@selector(onTTS:) forControlEvents:UIControlEventTouchUpInside];
 
     strip.hidden = bottom.hidden || bottom.alpha < 0.05;
     [host bringSubviewToFront:strip];
     if (!bottom.hidden) [host bringSubviewToFront:bottom];
 
-    LBAppendOpenReaderTrace(@"G6 wave0 strip attached opaque above bottom");
+    [@"wave0 strip review-only ttsHidden=1\n"
+        writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_b7_tts_hidden.txt"]
+        atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    LBAppendOpenReaderTrace(@"G6 wave0 strip attached opaque above bottom (tts hidden)");
 }
 
 static void LBG6ChangeToolBarHook(id self, SEL _cmd) {
