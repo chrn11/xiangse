@@ -623,7 +623,15 @@ class JSBridge: JsEncodeUtils {
         sourceObject?.setObject(sourceGetBlock, forKeyedSubscript: "get" as NSString)
 
         let sourceGetVarBlock: @convention(block) () -> String = { [weak self] in
-            self?.context?.source?.variable ?? ""
+            // 与 setVariable 对称：先会话/本地，再落盘书源 variable
+            if let local = self?.context?.variables["__variable__"], !local.isEmpty {
+                return local
+            }
+            if let url = self?.context?.source?.bookSourceUrl {
+                let fromSession = SourceSessionStore.get("__variable__", sourceUrl: url)
+                if !fromSession.isEmpty { return fromSession }
+            }
+            return self?.context?.source?.variable ?? ""
         }
         // 部分源写 source.getVariable() 无参拿整段；部分写 source.getVariable(key)
         sourceObject?.setObject(sourceGetVarBlock, forKeyedSubscript: "getVariable" as NSString)

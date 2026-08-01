@@ -382,9 +382,9 @@ class AnalyzeUrl {
             let analyzer = RuleAnalyzer(data: ruleUrl)
             let url = analyzer.innerRule(startStr: "{{", endStr: "}}") { [weak self] jsCode in
                 guard let self = self else { return "" }
-                // replaceKeyPageJs：lite=injectLite（Map/java，无 jsLib）
+                // {{}} 须带 jsLib（爱丽丝 GetUL 等在 jsLib）；lite 仅省掉部分对象不够用
                 var ignored: String?
-                let jsEval = self.evalJS(jsCode, result: nil, errorOut: &ignored, lite: true) ?? ""
+                let jsEval = self.evalJS(jsCode, result: nil, errorOut: &ignored, lite: false) ?? ""
                 if let doubleVal = jsEval as? Double, doubleVal == floor(doubleVal) {
                     return String(format: "%.0f", doubleVal)
                 }
