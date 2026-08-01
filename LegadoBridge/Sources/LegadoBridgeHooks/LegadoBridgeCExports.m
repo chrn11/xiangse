@@ -1516,6 +1516,18 @@ void LBClearDiscoverExploreBooks(void) {
                 if (![targets containsObject:child]) [targets addObject:child];
             }
             for (UIViewController *t in targets) {
+                // 探针：清空原生书列表前记录其数据量（定位「原生源书列表被清」vs「没加载」）
+                NSInteger beforeN = -1;
+                @try {
+                    id a = [t valueForKey:@"arrBaseData"];
+                    if ([a isKindOfClass:[NSArray class]]) beforeN = (NSInteger)[(NSArray *)a count];
+                } @catch (__unused NSException *e) {}
+                NSString *probe = [NSString stringWithFormat:
+                                   @"clearProbe class=%@ arrBefore=%ld xbs=%d",
+                                   NSStringFromClass([t class]), (long)beforeN,
+                                   LBIsDiscoverNativeXBSMode() ? 1 : 0];
+                [probe writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_clear_probe.txt"]
+                       atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 @try { [t setValue:[NSMutableArray array] forKey:@"arrBaseData"]; } @catch (__unused NSException *e) {}
                 @try { [t setValue:[NSMutableArray array] forKey:@"itemList"]; } @catch (__unused NSException *e) {}
                 @try { [t setValue:[NSMutableArray array] forKey:@"arrSearchItems"]; } @catch (__unused NSException *e) {}

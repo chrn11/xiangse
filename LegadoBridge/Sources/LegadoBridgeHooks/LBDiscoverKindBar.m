@@ -3088,6 +3088,19 @@ static void LBSoftReloadNativeDiscoverTables(UIViewController *root) {
 void LBReloadDiscoverNativeList(UIViewController *host) {
     if (!host) return;
     if (LBIsDiscoverNativeXBSMode()) {
+        // 探针：XBS 软刷前看当前列表持有者与数据量（定位原生书列表是否加载/被清）
+        @try {
+            UIViewController *list = LBActiveDiscoverListVC(host) ?: host;
+            NSInteger n = -1;
+            id a = [list valueForKey:@"arrBaseData"];
+            if ([a isKindOfClass:[NSArray class]]) n = (NSInteger)[(NSArray *)a count];
+            NSString *probe = [NSString stringWithFormat:
+                               @"reloadXBS class=%@ arrN=%ld hostName=%@",
+                               NSStringFromClass([list class]), (long)n,
+                               LBReadHostSourceName(host) ?: @"-"];
+            [probe writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_clear_probe.txt"]
+                   atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        } @catch (__unused NSException *e) {}
         // T2：禁止再「全 skip」；donor/切源后补原生表软刷，仍不走 Legado overlay
         BOOL pending = sXBSPendingNativeRefresh;
         sXBSPendingNativeRefresh = NO;
