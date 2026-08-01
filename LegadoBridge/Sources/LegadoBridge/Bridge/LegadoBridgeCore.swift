@@ -18,6 +18,19 @@ private final class OnceFlag: @unchecked Sendable {
     }
 }
 
+/// 单源搜索结果盒（信号量超时路径）
+private final class SearchOutcomeBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Result<[SearchBookResult], Error>?
+    func set(_ v: Result<[SearchBookResult], Error>) {
+        lock.lock(); value = v; lock.unlock()
+    }
+    func get() -> Result<[SearchBookResult], Error>? {
+        lock.lock(); defer { lock.unlock() }
+        return value
+    }
+}
+
 /// LegadoBridge 对外门面 — Swift 与 ObjC Hook 层统一入口
 @objc public final class LegadoBridgeCore: NSObject {
     @objc public static let shared = LegadoBridgeCore()
@@ -982,91 +995,89 @@ private final class OnceFlag: @unchecked Sendable {
                 return
             }
 
-            // fail-open：串行单飞，避免多源并发通知/UI 灌入打崩原生 UITableView
-            // 单源硬超时：JS/外网挂死不得拖死整次混合搜索（§12 回归：legado=12 时 enter 后无 ok）
-            let maxConcurrent = 1
+            // fail-open：串行单飞。单源用信号量硬超时（不依赖 Task.sleep / continuation 竞态）。
+            // 真机复现：JS 阻塞协作线程池时，async 超时永不触发，legado_search_last 只留 enter。
             let perSourceTimeoutSeconds: TimeInterval = 20
-            var nextIndex = 0
             var totalCount = 0
-            await withTaskGroup(of: (String, Result<[SearchBookResult], Error>).self) { group in
-                var inFlight = 0
-                while nextIndex < targets.count || inFlight > 0 {
-                    while inFlight < maxConcurrent && nextIndex < targets.count {
-                        let source = targets[nextIndex]
-                        nextIndex += 1
-                        inFlight += 1
-                        group.addTask {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer { done.resume() }
+                    for source in targets {
+                        let srcUrl = source.bookSourceUrl
+                        self.writeSearchMarker("start src=\(srcUrl)")
+                        let box = SearchOutcomeBox()
+                        let sem = DispatchSemaphore(value: 0)
+                        Task.detached(priority: .userInitiated) {
+                            defer { sem.signal() }
                             do {
-                                let results = try await Self.withTimeout(seconds: perSourceTimeoutSeconds) {
-                                    try await BridgeWebBook.searchBook(source: source, key: keyword)
-                                }
-                                return (source.bookSourceUrl, .success(results))
+                                let results = try await BridgeWebBook.searchBook(source: source, key: keyword)
+                                box.set(.success(results))
                             } catch {
-                                return (source.bookSourceUrl, .failure(error))
+                                box.set(.failure(error))
                             }
                         }
-                    }
-                    guard let finished = await group.next() else { break }
-                    inFlight -= 1
-                    let (srcUrl, result) = finished
-                    switch result {
-                    case .success(let results):
-                        var bindings: [String: BookBinding] = [:]
-                        for r in results {
-                            let book = BridgeBook(
-                                name: r.name,
-                                author: r.author,
-                                bookUrl: r.bookUrl,
-                                coverUrl: r.coverUrl ?? "",
-                                intro: r.intro ?? "",
-                                sourceUrl: r.sourceUrl,
-                                sourceName: r.sourceName
-                            )
-                            self.bookCache[r.bookUrl] = book
-                            let binding = BookBindingStore.shared.bind(
-                                bookUrl: r.bookUrl,
-                                sourceUrl: r.sourceUrl,
-                                sourceName: r.sourceName,
-                                name: r.name,
-                                author: r.author,
-                                coverUrl: r.coverUrl ?? ""
-                            )
-                            bindings[r.bookUrl] = binding
+                        if sem.wait(timeout: .now() + perSourceTimeoutSeconds) == .timedOut {
+                            self.writeSearchMarker("partial err src=\(srcUrl) 单源搜索超时")
+                            continue
                         }
-                        totalCount += results.count
-                        // 逐本增量通知：原生 onSearchBookSourceResponse 消费 queryBook（字典）
-                        let sourceName = results.first?.sourceName
-                            ?? SourceRegistry.shared.exactSource(forUrl: srcUrl)?.bookSourceName
-                            ?? ""
-                        for r in results {
-                            let book = XiangseAdapter.searchBookDict(r, binding: bindings[r.bookUrl])
-                            guard Self.isSafeSearchBookDict(book) else {
-                                self.writeSearchMarker("skip unsafe book src=\(srcUrl)")
-                                continue
+                        guard let outcome = box.get() else {
+                            self.writeSearchMarker("partial err src=\(srcUrl) empty outcome")
+                            continue
+                        }
+                        switch outcome {
+                        case .success(let results):
+                            var bindings: [String: BookBinding] = [:]
+                            for r in results {
+                                let book = BridgeBook(
+                                    name: r.name,
+                                    author: r.author,
+                                    bookUrl: r.bookUrl,
+                                    coverUrl: r.coverUrl ?? "",
+                                    intro: r.intro ?? "",
+                                    sourceUrl: r.sourceUrl,
+                                    sourceName: r.sourceName
+                                )
+                                self.bookCache[r.bookUrl] = book
+                                let binding = BookBindingStore.shared.bind(
+                                    bookUrl: r.bookUrl,
+                                    sourceUrl: r.sourceUrl,
+                                    sourceName: r.sourceName,
+                                    name: r.name,
+                                    author: r.author,
+                                    coverUrl: r.coverUrl ?? ""
+                                )
+                                bindings[r.bookUrl] = binding
                             }
-                            let payload = XiangseAdapter.searchResultNotifyPayload(
-                                book: book,
-                                keyword: keyword,
-                                sourceUrl: srcUrl,
-                                sourceName: r.sourceName.isEmpty ? sourceName : r.sourceName
-                            )
-                            self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
-                            // 直接灌入 arrBaseData：通知 handler 不在搜索页，仅靠通知 UI 永远空
-                            LBApplySearchResultsToUI([book], keyword)
+                            totalCount += results.count
+                            let sourceName = results.first?.sourceName
+                                ?? SourceRegistry.shared.exactSource(forUrl: srcUrl)?.bookSourceName
+                                ?? ""
+                            for r in results {
+                                let book = XiangseAdapter.searchBookDict(r, binding: bindings[r.bookUrl])
+                                guard Self.isSafeSearchBookDict(book) else {
+                                    self.writeSearchMarker("skip unsafe book src=\(srcUrl)")
+                                    continue
+                                }
+                                let payload = XiangseAdapter.searchResultNotifyPayload(
+                                    book: book,
+                                    keyword: keyword,
+                                    sourceUrl: srcUrl,
+                                    sourceName: r.sourceName.isEmpty ? sourceName : r.sourceName
+                                )
+                                self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
+                                LBApplySearchResultsToUI([book], keyword)
+                            }
+                        case .failure(let error):
+                            self.writeSearchMarker("partial err src=\(srcUrl) \(error.localizedDescription)")
                         }
-                        // 空结果：不 post 含 searchBook=[] 的批量载荷（原生 objectForKey 易崩）
-                    case .failure(let error):
-                        // 单源失败不阻断其他源
-                        self.writeSearchMarker("partial err src=\(srcUrl) \(error.localizedDescription)")
                     }
+                    self.writeSearchMarker("ok total=\(totalCount) sources=\(targets.count) key=\(keyword)")
                 }
             }
-            writeSearchMarker("ok total=\(totalCount) sources=\(targets.count) key=\(keyword)")
         }
     }
 
-    /// 给单源搜索/拉取加硬超时。
-    /// 用 GCD 定时器而不是 `Task.sleep`：JS/同步阻塞会占满协作线程池，导致 sleep 任务永不调度。
+    /// 给单源搜索/拉取加硬超时（保留给其它调用方；搜索主路径已改信号量）。
     private static func withTimeout<T: Sendable>(
         seconds: TimeInterval,
         operation: @escaping @Sendable () async throws -> T
