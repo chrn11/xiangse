@@ -1175,9 +1175,7 @@ class AnalyzeUrl {
             do {
                 let (data, response) = try await URLSession.shared.data(for: request)
                 let encoding = Self.detectEncoding(data: data, response: response, charset: self.charset)
-                let bodyStr = String(data: data, encoding: encoding)
-                    ?? String(data: data, encoding: .utf8)
-                    ?? ""
+                let bodyStr = Self.decodeBody(data: data, preferred: encoding)
 
                 let httpResponse = response as? HTTPURLResponse
                 return StrResponse(response: httpResponse, body: bodyStr)
@@ -1355,8 +1353,7 @@ class AnalyzeUrl {
             req.httpShouldHandleCookies = false
             let (data, resp) = try await URLSession.shared.data(for: req)
             let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
-            body = String(data: data, encoding: .utf8)
-                ?? String(data: data, encoding: .isoLatin1)
+            body = Self.decodeBody(data: data, preferred: .utf8)
                 ?? ""
             if let http = resp as? HTTPURLResponse, let u = http.url {
                 finalUrl = u.absoluteString
@@ -1454,22 +1451,57 @@ class AnalyzeUrl {
 
     /// 检测编码
     private static func detectEncoding(data: Data, response: URLResponse?, charset: String?) -> String.Encoding {
+        let gbk = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
         if let charset = charset {
             return charsetNameToEncoding(charset) ?? .utf8
         }
         if let httpResponse = response as? HTTPURLResponse,
            let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type")?.lowercased() {
-            if contentType.contains("gbk") || contentType.contains("gb2312") {
-                return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
+            if contentType.contains("gbk") || contentType.contains("gb2312") || contentType.contains("gb18030") {
+                return gbk
+            }
+            if contentType.contains("charset=utf-8") || contentType.contains("charset=\"utf-8\"") {
+                return .utf8
             }
         }
-        if data.count > 0 {
-            let prefix = String(data: data.prefix(1024), encoding: .ascii) ?? ""
-            if prefix.lowercased().contains("charset=gbk") || prefix.lowercased().contains("charset=gb2312") {
-                return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
-            }
+        // 用原始字节扫 meta charset（勿先按 ASCII 解码，GBK 页前 1KB 常含非 ASCII）
+        if let metaCharset = scanMetaCharset(in: data.prefix(4096)) {
+            return charsetNameToEncoding(metaCharset) ?? .utf8
+        }
+        // UTF-8 严格失败则回落 GBK（晋江 onebook 等 Content-Type 无 charset）
+        if String(data: data, encoding: .utf8) == nil,
+           String(data: data, encoding: gbk) != nil {
+            return gbk
         }
         return .utf8
+    }
+
+    /// 优先 preferred，再 UTF-8 / GBK，避免落到 latin1 乱码
+    private static func decodeBody(data: Data, preferred: String.Encoding) -> String {
+        let gbk = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
+        if let s = String(data: data, encoding: preferred), !s.isEmpty { return s }
+        if preferred != .utf8, let s = String(data: data, encoding: .utf8), !s.isEmpty { return s }
+        if preferred != gbk, let s = String(data: data, encoding: gbk), !s.isEmpty { return s }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private static func scanMetaCharset(in data: Data) -> String? {
+        guard !data.isEmpty else { return nil }
+        let patterns = [
+            #"charset\s*=\s*["']?\s*([a-zA-Z0-9_\-]+)"#,
+        ]
+        // 用 ISO-8859-1 无损把字节映成字符再正则（仅找 ASCII 的 charset 名）
+        guard let latin = String(data: data, encoding: .isoLatin1) else { return nil }
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            let range = NSRange(latin.startIndex..., in: latin)
+            if let match = regex.firstMatch(in: latin, range: range),
+               match.numberOfRanges >= 2,
+               let r = Range(match.range(at: 1), in: latin) {
+                return String(latin[r])
+            }
+        }
+        return nil
     }
 
     /// 字符集名称转编码
