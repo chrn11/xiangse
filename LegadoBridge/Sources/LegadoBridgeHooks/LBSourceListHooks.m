@@ -852,6 +852,24 @@ static void LBSwitchVC_onOkBtnEvent_IMP(id self, SEL _cmd) {
         if ([v isKindOfClass:[NSString class]]) name = (NSString *)v;
     }
     name = LBLegadoStripDisplaySuffix(name);
+    // 发现页「切换站点」与阅读「换源」共用 BookSourceSwitchVC2：无书时按发现切源处理，
+    // 否则 LBSwitchVC_StartLegadoSwitch 会因缺书名报「无法换源：缺少书名」
+    id book = nil;
+    @try { book = [self valueForKey:@"dicBook"]; } @catch (__unused NSException *e) {}
+    if (!book) {
+        @try { book = [self valueForKey:@"dicFatBook"]; } @catch (__unused NSException *e) {}
+    }
+    if (!book && name.length > 0) {
+        NSString *discoverDiag = [NSString stringWithFormat:@"onOk discover-switch name=%@\n", name ?: @""];
+        @try {
+            [discoverDiag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_b4_onok.txt"]
+                           atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        } @catch (__unused NSException *e) {}
+        // 发现切源：关掉切换面板并让发现页跟随所选源
+        @try { [self dismissViewControllerAnimated:NO completion:nil]; } @catch (__unused NSException *e) {}
+        LBSwitchDiscoverToSourceName(name);
+        return;
+    }
     BOOL isLegado = LBLegadoShouldBlockSourceName(self, name);
     if (!isLegado && name.length > 0) {
         isLegado = (LBSwitchVC_ResolveSourceUrl(name).length > 0);
