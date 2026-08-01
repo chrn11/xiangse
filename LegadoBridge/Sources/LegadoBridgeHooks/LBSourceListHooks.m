@@ -617,6 +617,9 @@ static void LBSwitchVC_StartLegadoSwitch(id switchVC, NSString *sourceName) {
     if (!switchVC || sourceName.length == 0) return;
     NSString *srcUrl = LBSwitchVC_ResolveSourceUrl(sourceName);
     if (srcUrl.length == 0) {
+        NSString *miss = [NSString stringWithFormat:@"fail noUrl name=%@\n", sourceName];
+        [miss writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_b4_switch_start.txt"]
+               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         LBLegadoShowResult(@"未找到该 Legado 源");
         return;
     }
@@ -636,14 +639,24 @@ static void LBSwitchVC_StartLegadoSwitch(id switchVC, NSString *sourceName) {
     }
     NSInteger chapterIndex = LBSwitchVC_BookIndex(book);
     if (bookName.length == 0) {
+        NSString *miss = [NSString stringWithFormat:@"fail noBookName src=%@\n", srcUrl];
+        [miss writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_b4_switch_start.txt"]
+               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         LBLegadoShowResult(@"无法换源：缺少书名");
         return;
     }
     if (oldUrl.length == 0) oldUrl = @"";
 
     id core = LBLegadoCoreIfReady();
+    if (!core) {
+        Class cls = NSClassFromString(@"LegadoBridge.LegadoBridgeCore");
+        if (cls) core = ((id (*)(id, SEL))objc_msgSend)(cls, @selector(shared));
+    }
     SEL sel = @selector(switchReadingSourceWithBookName:author:oldBookUrl:newSourceUrl:chapterTitle:chapterIndex:);
     if (!core || ![core respondsToSelector:sel]) {
+        NSString *miss = [NSString stringWithFormat:@"fail noAPI core=%d\n", core ? 1 : 0];
+        [miss writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_b4_switch_start.txt"]
+               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         LBLegadoShowResult(@"换源接口不可用");
         return;
     }
