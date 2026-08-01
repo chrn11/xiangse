@@ -817,6 +817,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                SourceRegistry.shared.isEnabled(url: one.bookSourceUrl) {
                 targets = [one]
                 selectedExploreSourceUrl = one.bookSourceUrl
+                // 指定源 explore：先把发现宿主切到该源（清 XBS 态），
+                // 否则 LBIsDiscoverNativeXBSMode 会丢弃 explore 结果（发现页不出书）
+                await MainActor.run {
+                    LBSwitchDiscoverToSourceName(one.bookSourceName ?? one.bookSourceUrl)
+                }
             } else if let sel = selectedExploreSourceUrl, !sel.isEmpty,
                       let one = SourceRegistry.shared.source(forUrl: sel),
                       SourceRegistry.shared.isEnabled(url: one.bookSourceUrl),
