@@ -1428,6 +1428,17 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         return raw
     }
 
+    /// 书源显示名（登录表单标题用）
+    @objc(sourceNameForSourceUrl:)
+    public func sourceName(forSourceUrl sourceUrl: String?) -> String {
+        guard let sourceUrl, !sourceUrl.isEmpty,
+              let src = SourceRegistry.shared.source(forUrl: sourceUrl) else {
+            return ""
+        }
+        let name = src.bookSourceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? sourceUrl : name
+    }
+
     /// 书源 loginUi JSON（可能为空）；供 hooks 探针与表单回退
     @objc(loginUiForSourceUrl:)
     public func loginUi(forSourceUrl sourceUrl: String?) -> String? {
