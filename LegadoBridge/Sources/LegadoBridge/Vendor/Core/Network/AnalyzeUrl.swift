@@ -641,41 +641,44 @@ class AnalyzeUrl {
         }
         """
 
-        // 真机：inject/jsLib/evaluateScript 可能抛 NSException（NSData bytesNoCopy），穿过 Swift 会 abort
+        // 真机：evaluateScript 内 NSData bytesNoCopy 会抛 NSException；
+        // 该异常穿过 Swift 帧会直接 abort，必须在 ObjC 内调用 evaluateScript。
         final class JSErrBox: NSObject {
             var jsError: String?
         }
         let errBox = JSErrBox()
-        var objcError: NSString?
-        let evalResult = ObjCExceptionCatch.runReturning({ () -> Any? in
-            bridge.inject(into: jsContext)
-            // 真机门禁：确认 java 全局可见
-            let javaType = jsContext.evaluateScript("typeof java")?.toString() ?? "nil"
-            if javaType != "object" {
-                let path = (NSHomeDirectory() as NSString)
-                    .appendingPathComponent("Documents/legado_js_bridge_probe.txt")
-                let line = "ts=\(ISO8601DateFormatter().string(from: Date())) typeof_java=\(javaType) baseUrl=\(self.baseUrl)\n"
-                if let data = line.data(using: .utf8) {
-                    if let fh = FileHandle(forWritingAtPath: path) {
-                        fh.seekToEndOfFile()
-                        fh.write(data)
-                        try? fh.close()
-                    } else {
-                        try? data.write(to: URL(fileURLWithPath: path))
-                    }
+        // inject（含 jsLib）也走 ObjC 安全 evaluate
+        bridge.inject(into: jsContext)
+        let javaType = ObjCExceptionCatch.evaluateScript(
+            "typeof java", in: jsContext, error: nil
+        )?.toString() ?? "nil"
+        if javaType != "object" {
+            let path = (NSHomeDirectory() as NSString)
+                .appendingPathComponent("Documents/legado_js_bridge_probe.txt")
+            let line = "ts=\(ISO8601DateFormatter().string(from: Date())) typeof_java=\(javaType) baseUrl=\(baseUrl)\n"
+            if let data = line.data(using: .utf8) {
+                if let fh = FileHandle(forWritingAtPath: path) {
+                    fh.seekToEndOfFile()
+                    fh.write(data)
+                    try? fh.close()
+                } else {
+                    try? data.write(to: URL(fileURLWithPath: path))
                 }
             }
-            if let page = self.page { jsContext.setObject(page, forKeyedSubscript: "page" as NSString) }
-            if let key = self.key { jsContext.setObject(key, forKeyedSubscript: "key" as NSString) }
-            if let speakText = self.speakText { jsContext.setObject(speakText, forKeyedSubscript: "speakText" as NSString) }
-            if let speakSpeed = self.speakSpeed { jsContext.setObject(speakSpeed, forKeyedSubscript: "speakSpeed" as NSString) }
-            jsContext.setObject("", forKeyedSubscript: "result" as NSString)
-            jsContext.setObject("", forKeyedSubscript: "url" as NSString)
-            jsContext.exceptionHandler = { _, exception in
-                errBox.jsError = exception?.toString()
-            }
-            return jsContext.evaluateScript(wrapped)
-        }, error: &objcError) as? JSValue
+        }
+        if let page = page { jsContext.setObject(page, forKeyedSubscript: "page" as NSString) }
+        if let key = key { jsContext.setObject(key, forKeyedSubscript: "key" as NSString) }
+        if let speakText = speakText { jsContext.setObject(speakText, forKeyedSubscript: "speakText" as NSString) }
+        if let speakSpeed = speakSpeed { jsContext.setObject(speakSpeed, forKeyedSubscript: "speakSpeed" as NSString) }
+        jsContext.setObject("", forKeyedSubscript: "result" as NSString)
+        jsContext.setObject("", forKeyedSubscript: "url" as NSString)
+        jsContext.exceptionHandler = { _, exception in
+            errBox.jsError = exception?.toString()
+        }
+        var objcError: NSString?
+        let evalResult = ObjCExceptionCatch.evaluateScript(
+            wrapped, in: jsContext, error: &objcError
+        )
         if let objcError {
             let msg = objcError as String
             errorOut = msg

@@ -36,7 +36,7 @@ class JSBridge: JsEncodeUtils {
 
     /// J1：JSC 要求 `new Map()`，Android V8 容忍 `Map()`。包装后两种写法皆可。
     static func injectES6ConstructorCompat(into jsContext: JSContext) {
-        _ = jsContext.evaluateScript("""
+        _ = ObjCExceptionCatch.evaluateScript("""
         (function (g) {
           function wrapCtor(Native, name) {
             if (typeof Native !== 'function') return;
@@ -60,7 +60,7 @@ class JSBridge: JsEncodeUtils {
           wrapCtor(g.WeakMap, 'WeakMap');
           wrapCtor(g.WeakSet, 'WeakSet');
         })(this);
-        """)
+        """, in: jsContext, error: nil)
     }
 
     /// 将书源 `jsLib` 注入当前 JSContext。纯 http(s) URL 则先拉取再执行。
@@ -86,9 +86,7 @@ class JSBridge: JsEncodeUtils {
         let previous = jsContext.exceptionHandler
         jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
         var objcError: NSString?
-        _ = ObjCExceptionCatch.run({
-            _ = jsContext.evaluateScript(script)
-        }, error: &objcError)
+        _ = ObjCExceptionCatch.evaluateScript(script, in: jsContext, error: &objcError)
         jsContext.exceptionHandler = previous
         if let objcError {
             DebugLogger.shared.log("[jsLib] objc \(objcError)")
@@ -136,7 +134,7 @@ class JSBridge: JsEncodeUtils {
             var jsError: String?
             let previous = jsContext.exceptionHandler
             jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
-            _ = jsContext.evaluateScript(body)
+            _ = ObjCExceptionCatch.evaluateScript(body, in: jsContext, error: nil)
             jsContext.exceptionHandler = previous
             if let jsError, !jsError.isEmpty {
                 DebugLogger.shared.log("[importScript] \(jsError)")
@@ -590,14 +588,14 @@ class JSBridge: JsEncodeUtils {
         }
         jsContext.setObject(deny, forKeyedSubscript: "__denyNative" as NSString)
         jsContext.globalObject?.setObject(deny, forKeyedSubscript: "__denyNative" as NSString)
-        _ = jsContext.evaluateScript("""
+        _ = ObjCExceptionCatch.evaluateScript("""
         (function(){
           var blocked = ['SecItem','keychain','xiangsePrivateFile','LAContext'];
           blocked.forEach(function(n){
             try { this[n] = function(){ return __denyNative(n); }; } catch(e) {}
           });
         })();
-        """)
+        """, in: jsContext, error: nil)
     }
 
     // MARK: - cache 对象注入

@@ -41,7 +41,8 @@ let package = Package(
             path: "Sources/LegadoObjCSupport",
             publicHeadersPath: "include",
             linkerSettings: [
-                .linkedFramework("Foundation")
+                .linkedFramework("Foundation"),
+                .linkedFramework("JavaScriptCore")
             ]
         ),
         // 独立规则引擎：规则 / 网络 / Cookie / 变量 / JS API

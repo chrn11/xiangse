@@ -35,4 +35,21 @@
     }
 }
 
++ (nullable JSValue *)evaluateScript:(NSString *)script
+                           inContext:(JSContext *)context
+                               error:(NSString * _Nullable * _Nullable)outError {
+    if (!context || script.length == 0) {
+        return nil;
+    }
+    @try {
+        return [context evaluateScript:script];
+    } @catch (NSException *ex) {
+        if (outError) {
+            NSString *reason = ex.reason ?: @"";
+            *outError = [NSString stringWithFormat:@"%@: %@", ex.name, reason];
+        }
+        return nil;
+    }
+}
+
 @end
