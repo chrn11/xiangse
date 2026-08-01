@@ -42,6 +42,9 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     private let searchMarkerLock = NSLock()
     /// 并发 explore 世代号：后发请求作废先发的 clear/inject
     private var sExploreGeneration: UInt64 = 0
+    /// explore 防抖：同源短时间只执行最后一次（切源回调+深链+原生回调并发触发）
+    private var sLastExploreKey: String = ""
+    private var sLastExploreAt: TimeInterval = 0
 
     private override init() {
         super.init()
@@ -807,6 +810,16 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     /// 触发发现请求；结果走搜索响应通知（带 fromExplore）
     @objc(handleExploreRequestWithSourceUrl:exploreUrl:page:)
     public func handleExploreRequest(sourceUrl: String?, exploreUrl: String?, page: Int) {
+        // 同源防抖：切源回调 + 深链 + 原生回调会并发触发多次 explore，
+        // 短时间（1.2s）内同源只执行最后一次，避免 generation 互相作废导致灌书竞态
+        let debounceKey = sourceUrl ?? exploreUrl ?? ""
+        let now = Date().timeIntervalSince1970
+        if sLastExploreKey == debounceKey, now - sLastExploreAt < 1.2 {
+            sExploreGeneration &+= 1
+            return
+        }
+        sLastExploreKey = debounceKey
+        sLastExploreAt = now
         // 并发 explore 用世代号丢弃过期结果，避免后发 clear 清掉先发 inject
         sExploreGeneration &+= 1
         let generation = sExploreGeneration
@@ -907,6 +920,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                         }
                         await MainActor.run {
                             guard generation == sExploreGeneration else { return }
+                            // 指定源 explore：宿主切源异步完成前可能仍是 XBS 态，
+                            // 强制清掉，否则 LBApplySearchResultsToUI 会丢 explore 结果（发现页不出书）
+                            if let sourceUrl, !sourceUrl.isEmpty {
+                                LBSetDiscoverNativeXBSMode(false)
+                            }
                             LBApplySearchResultsToUI(books, "explore")
                         }
                     }
