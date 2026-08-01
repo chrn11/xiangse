@@ -2224,6 +2224,11 @@ private enum JSONPathEvaluator {
                     continue
                 }
 
+                // 允许 `$.[*]` / `$.[0]`：点后直接跟括号（晋江 bookList 后缀）
+                if trimmed[index] == "[" {
+                    continue
+                }
+
                 let keyStart = index
                 while index < trimmed.endIndex {
                     let currentChar = trimmed[index]
