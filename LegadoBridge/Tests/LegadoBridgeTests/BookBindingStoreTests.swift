@@ -5,7 +5,7 @@ import LegadoRuleCore
 
 /// BookBindingStore 确定性门禁：绑定 / 持久化 / 删源策略 / 不串源。
 /// 需在 macOS/CI 的 iOS 目标上执行：`swift test --package-path LegadoBridge`
-/// Windows 无 iOS SDK 时由 `.test_tools/validate_baseline_and_tests.py` 校验本文件存在性与语义镜像。
+/// Windows 无 iOS SDK 时由 `.artifacts/test_tools/validate_baseline_and_tests.py` 校验本文件存在性与语义镜像。
 final class BookBindingStoreTests: XCTestCase {
     private let store = BookBindingStore.shared
 

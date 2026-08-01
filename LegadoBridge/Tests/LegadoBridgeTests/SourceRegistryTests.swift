@@ -4,7 +4,7 @@ import XCTest
 
 /// SourceRegistry 确定性门禁：导入 / 重复源 / 禁用 / 持久化恢复。
 /// 需在 macOS/CI 的 iOS 目标上执行：`swift test --package-path LegadoBridge`
-/// Windows 无 iOS SDK 时由 `.test_tools/validate_baseline_and_tests.py` 校验本文件与 Package 结构。
+/// Windows 无 iOS SDK 时由 `.artifacts/test_tools/validate_baseline_and_tests.py` 校验本文件与 Package 结构。
 final class SourceRegistryTests: XCTestCase {
     private let registry = SourceRegistry.shared
 

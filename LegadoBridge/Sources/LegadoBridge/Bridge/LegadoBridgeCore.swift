@@ -970,7 +970,9 @@ import LegadoBridgeHooks
             }
 
             // fail-open：串行单飞，避免多源并发通知/UI 灌入打崩原生 UITableView
+            // 单源硬超时：JS/外网挂死不得拖死整次混合搜索（§12 回归：legado=12 时 enter 后无 ok）
             let maxConcurrent = 1
+            let perSourceTimeoutSeconds: TimeInterval = 20
             var nextIndex = 0
             var totalCount = 0
             await withTaskGroup(of: (String, Result<[SearchBookResult], Error>).self) { group in
@@ -982,7 +984,9 @@ import LegadoBridgeHooks
                         inFlight += 1
                         group.addTask {
                             do {
-                                let results = try await BridgeWebBook.searchBook(source: source, key: keyword)
+                                let results = try await Self.withTimeout(seconds: perSourceTimeoutSeconds) {
+                                    try await BridgeWebBook.searchBook(source: source, key: keyword)
+                                }
                                 return (source.bookSourceUrl, .success(results))
                             } catch {
                                 return (source.bookSourceUrl, .failure(error))
@@ -1045,6 +1049,28 @@ import LegadoBridgeHooks
                 }
             }
             writeSearchMarker("ok total=\(totalCount) sources=\(targets.count) key=\(keyword)")
+        }
+    }
+
+    /// 给单源搜索/拉取加硬超时；超时抛 `LegadoBridgeError.timeout` 并取消子任务。
+    private static func withTimeout<T: Sendable>(
+        seconds: TimeInterval,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                let ns = UInt64(max(seconds, 0.1) * 1_000_000_000)
+                try await Task.sleep(nanoseconds: ns)
+                throw LegadoBridgeError.timeout
+            }
+            guard let first = try await group.next() else {
+                throw LegadoBridgeError.timeout
+            }
+            group.cancelAll()
+            return first
         }
     }
 

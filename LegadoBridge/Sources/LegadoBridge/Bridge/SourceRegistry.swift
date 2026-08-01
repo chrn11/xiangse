@@ -624,12 +624,14 @@ enum LegadoBridgeError: Error, LocalizedError {
     case notLegadoFormat
     case sourceNotFound
     case engineError(String)
+    case timeout
 
     var errorDescription: String? {
         switch self {
         case .notLegadoFormat: return "不是 Legado 书源 JSON 格式"
         case .sourceNotFound: return "未找到 Legado 书源"
         case .engineError(let msg): return msg
+        case .timeout: return "单源搜索超时"
         }
     }
 }

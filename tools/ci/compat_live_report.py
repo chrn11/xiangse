@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """限速在线兼容报告（非 CI 硬门禁）。
 
-读取 curated 清单（默认 .test_tools/curated_100_sources.json），对每个源限速探测
+读取 curated 清单（默认 .artifacts/json/curated_100_sources.json），对每个源限速探测
 sourceJsonUrl / bookSourceUrl 可达性，并按类别输出成功率报告。
 
 排除项（login/captcha/webview/comic/audio/video）不计入分母。
@@ -24,8 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-ROOT = _HERE.parent if _HERE.name == ".test_tools" else _HERE.parents[1]
-DEFAULT_LIST = ROOT / ".test_tools" / "curated_100_sources.json"
+ROOT = _HERE.parents[1]
+DEFAULT_LIST = ROOT / ".artifacts" / "json" / "curated_100_sources.json"
 FALLBACK_LIST = ROOT / "fixtures" / "compatibility" / "curated_100.skeleton.json"
 
 
@@ -111,7 +111,7 @@ def probe_one(entry: dict, timeout: float, delay: float) -> ProbeResult:
 def main() -> int:
     parser = argparse.ArgumentParser(description="限速在线兼容报告（非硬门禁）")
     parser.add_argument("--list", type=Path, default=None, help="curated JSON 路径")
-    parser.add_argument("--out", type=Path, default=ROOT / ".test_tools" / "compat_report.json")
+    parser.add_argument("--out", type=Path, default=ROOT / ".artifacts" / "json" / "compat_report.json")
     parser.add_argument("--concurrency", type=int, default=2)
     parser.add_argument("--delay", type=float, default=1.5, help="每个源完成后额外等待秒数")
     parser.add_argument("--timeout", type=float, default=15.0)

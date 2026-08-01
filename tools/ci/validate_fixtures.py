@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """固定夹具 CI 硬门禁：校验 fixtures/ 下 Legado JSON 结构，失败即非零退出。
 
-不发起网络请求；真实社区源在线测试见 .test_tools/compat_live_report.py。
+不发起网络请求；真实社区源在线测试见 tools/ci/compat_live_report.py（产物默认 .artifacts/json/）。
 """
 from __future__ import annotations
 
