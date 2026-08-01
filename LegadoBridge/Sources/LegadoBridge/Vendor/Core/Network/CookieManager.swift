@@ -138,15 +138,6 @@ final class CookieManager {
             DebugLogger.shared.log("删除 Cookie 失败: \(error)")
         }
     }
-
-    /// JSBridge / 书源习惯命名
-    func removeCookie(for url: String) {
-        deleteCookie(for: url)
-    }
-
-    func removeAll() {
-        clearAllCookies()
-    }
     
     /// 清空所有 Cookie
     func clearAllCookies() {

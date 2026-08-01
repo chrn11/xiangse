@@ -5,7 +5,7 @@
 
 import Foundation
 
-enum LoginCredentialStore {
+public enum LoginCredentialStore {
     private static let lock = NSLock()
 
     private static func fileURL(prefix: String, sourceUrl: String) -> URL {
@@ -19,13 +19,13 @@ enum LoginCredentialStore {
         return docs.appendingPathComponent("legado_\(prefix)_\(digest).json")
     }
 
-    static func putInfo(_ json: String, sourceUrl: String) {
+    public static func putInfo(_ json: String, sourceUrl: String) {
         guard !sourceUrl.isEmpty else { return }
         lock.lock(); defer { lock.unlock() }
         try? json.data(using: .utf8)?.write(to: fileURL(prefix: "userinfo", sourceUrl: sourceUrl), options: .atomic)
     }
 
-    static func getInfo(sourceUrl: String) -> String {
+    public static func getInfo(sourceUrl: String) -> String {
         guard !sourceUrl.isEmpty else { return "" }
         lock.lock(); defer { lock.unlock() }
         guard let data = try? Data(contentsOf: fileURL(prefix: "userinfo", sourceUrl: sourceUrl)),
@@ -33,19 +33,19 @@ enum LoginCredentialStore {
         return s
     }
 
-    static func removeInfo(sourceUrl: String) {
+    public static func removeInfo(sourceUrl: String) {
         guard !sourceUrl.isEmpty else { return }
         lock.lock(); defer { lock.unlock() }
         try? FileManager.default.removeItem(at: fileURL(prefix: "userinfo", sourceUrl: sourceUrl))
     }
 
-    static func putHeader(_ json: String, sourceUrl: String) {
+    public static func putHeader(_ json: String, sourceUrl: String) {
         guard !sourceUrl.isEmpty else { return }
         lock.lock(); defer { lock.unlock() }
         try? json.data(using: .utf8)?.write(to: fileURL(prefix: "loginheader", sourceUrl: sourceUrl), options: .atomic)
     }
 
-    static func getHeader(sourceUrl: String) -> String {
+    public static func getHeader(sourceUrl: String) -> String {
         guard !sourceUrl.isEmpty else { return "" }
         lock.lock(); defer { lock.unlock() }
         guard let data = try? Data(contentsOf: fileURL(prefix: "loginheader", sourceUrl: sourceUrl)),
@@ -53,13 +53,13 @@ enum LoginCredentialStore {
         return s
     }
 
-    static func removeHeader(sourceUrl: String) {
+    public static func removeHeader(sourceUrl: String) {
         guard !sourceUrl.isEmpty else { return }
         lock.lock(); defer { lock.unlock() }
         try? FileManager.default.removeItem(at: fileURL(prefix: "loginheader", sourceUrl: sourceUrl))
     }
 
-    static func infoMap(sourceUrl: String) -> [String: String] {
+    public static func infoMap(sourceUrl: String) -> [String: String] {
         let raw = getInfo(sourceUrl: sourceUrl)
         guard let data = raw.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {

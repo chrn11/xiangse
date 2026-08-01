@@ -7,16 +7,16 @@ import Foundation
 import JavaScriptCore
 import LegadoObjCSupport
 
-enum LoginUiExecutor {
+public enum LoginUiExecutor {
 
-    struct Row: Equatable {
-        let name: String
-        let type: String
-        let action: String
+    public struct Row: Equatable {
+        public let name: String
+        public let type: String
+        public let action: String
     }
 
     /// 解析 loginUi JSON 数组（容错 JS 对象字面量的简单情况）
-    static func parseRows(_ raw: String?) -> [Row] {
+    public static func parseRows(_ raw: String?) -> [Row] {
         guard var text = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
             return []
         }
@@ -51,7 +51,7 @@ enum LoginUiExecutor {
         return []
     }
 
-    static func rowsJSON(for source: (any BridgeSourceProtocol)?) -> String {
+    public static func rowsJSON(for source: (any BridgeSourceProtocol)?) -> String {
         let rows = parseRows(source?.loginUi)
         let arr: [[String: String]] = rows.map {
             ["name": $0.name, "type": $0.type, "action": $0.action]
@@ -65,7 +65,7 @@ enum LoginUiExecutor {
     }
 
     /// 从 loginUrl 抽出可 eval 的 JS（非 http 导航 URL）
-    static func loginJs(from source: (any BridgeSourceProtocol)?) -> String {
+    public static func loginJs(from source: (any BridgeSourceProtocol)?) -> String {
         guard let raw = source?.loginUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
             return ""
         }
@@ -88,7 +88,7 @@ enum LoginUiExecutor {
 
     /// 执行按钮 action 或整段 `login()`；formJSON 为字段 map
     @discardableResult
-    static func run(
+    public static func run(
         source: (any BridgeSourceProtocol)?,
         action: String,
         formJSON: String?,
