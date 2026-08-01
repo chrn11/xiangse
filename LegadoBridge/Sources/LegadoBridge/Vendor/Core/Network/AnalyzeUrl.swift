@@ -524,6 +524,18 @@ class AnalyzeUrl {
         }
     }
 
+    /// 在外部写回 method/body 后重算表单编码（getResponseBody 二次构造用）
+    func recomputeEncodedFormIfNeeded() {
+        encodedForm = nil
+        guard method == .POST, let body = body, !body.isEmpty else { return }
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isJson = trimmed.hasPrefix("{")
+        let isXml = trimmed.hasPrefix("<")
+        if !isJson && !isXml && headerMap["Content-Type"] == nil {
+            encodedForm = encodeParams(body, charset: charset, isQuery: false)
+        }
+    }
+
     // MARK: - 参数编码
 
     /// 编码 form/query 参数（对应 Android encodeParams）
@@ -1284,6 +1296,9 @@ class AnalyzeUrl {
         analyzer.method = analyzedUrl.method
         analyzer.body = analyzedUrl.body
         analyzer.charset = analyzedUrl.charset
+        // analyze() 已解析 method/body，但二次 init 不会重算 encodedForm；
+        // 若不补，POST 表单会误走 application/json，服务端读不到字段（书山 1001）。
+        analyzer.recomputeEncodedFormIfNeeded()
         // forceWebView（ruleContent.webJs / sourceRegex）必须落到 self.useWebView，
         // 否则 executeStrRequest 的 `self.useWebView && useWebView` 永远进不了 BackstageWebView。
         let needWebView = forceWebView || analyzedUrl.webView
