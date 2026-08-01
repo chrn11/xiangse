@@ -898,6 +898,20 @@ class JSBridge: JsEncodeUtils {
             baseUrl: base,
             source: source
         )
+        // 探针：确认 POST/body/encodedForm 是否解析成功
+        do {
+            let path = (NSHomeDirectory() as NSString)
+                .appendingPathComponent("Documents/legado_login_ajax_probe.txt")
+            let line = "ts=\(ISO8601DateFormatter().string(from: Date())) analyze method=\(analyzer.method) bodyLen=\(analyzer.body?.count ?? -1) formLen=\(analyzer.encodedForm?.count ?? -1) url=\(analyzer.url.prefix(100)) ctHeader=\(analyzer.headerMap["Content-Type"] ?? "-")\n"
+            if let data = line.data(using: .utf8) {
+                if FileManager.default.fileExists(atPath: path),
+                   let fh = FileHandle(forWritingAtPath: path) {
+                    fh.seekToEndOfFile(); fh.write(data); try? fh.close()
+                } else {
+                    try? data.write(to: URL(fileURLWithPath: path))
+                }
+            }
+        }
         let semaphore = DispatchSemaphore(value: 0)
         let box = AjaxBodyBox()
         Task {
