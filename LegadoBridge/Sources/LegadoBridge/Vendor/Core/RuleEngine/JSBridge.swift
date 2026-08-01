@@ -29,6 +29,7 @@ class JSBridge: JsEncodeUtils {
         injectCookieObject(into: jsContext)
         injectNetworkObject(into: jsContext)
         injectCacheObject(into: jsContext)
+        injectOrgJsoup(into: jsContext)
         denyForbiddenNativeAPIs(into: jsContext)
         // 书源 jsLib：共享函数须在业务脚本之前落入同一上下文（对标 Android jsLib，只执行一次语义由调用方复用 context）
         Self.evaluateJsLib(of: context?.source, into: jsContext, headers: parseSourceHeaders())
@@ -185,6 +186,49 @@ class JSBridge: JsEncodeUtils {
         }
         javaObject?.setObject(ajaxBlock, forKeyedSubscript: "ajax" as NSString)
 
+        // 对标 Android java.ajaxAll：并行拉 URL 列表，返回带 body()/url() 的响应对象数组
+        let ajaxAllBlock: @convention(block) (JSValue?) -> JSValue = { [weak self, weak jsContext] urlsVal in
+            guard let jsContext else {
+                return JSValue(newArrayIn: JSContext())!
+            }
+            let out = JSValue(newArrayIn: jsContext)!
+            guard let self, let urlsVal, !urlsVal.isUndefined, !urlsVal.isNull else {
+                out.setValue(0, forKey: "length")
+                return out
+            }
+            var urls: [String] = []
+            if urlsVal.isArray, let arr = urlsVal.toArray() {
+                urls = arr.compactMap { item -> String? in
+                    if let s = item as? String, !s.isEmpty { return s }
+                    return nil
+                }
+            } else if let lenVal = urlsVal.objectForKeyedSubscript("length" as NSString),
+                      lenVal.isNumber,
+                      let len = lenVal.toNumber()?.intValue,
+                      len > 0 {
+                for i in 0..<min(len, 50) {
+                    if let item = urlsVal.objectAtIndexedSubscript(UInt32(i)),
+                       let s = item.toString(), !s.isEmpty, s != "undefined", s != "null" {
+                        urls.append(s)
+                    }
+                }
+            }
+            let pairs = self.ajaxAllViaAnalyzeUrl(urls)
+            for (idx, pair) in pairs.enumerated() {
+                let obj = JSValue(newObjectIn: jsContext)!
+                let bodyStr = pair.body
+                let urlStr = pair.url
+                let bodyFn: @convention(block) () -> String = { bodyStr }
+                let urlFn: @convention(block) () -> String = { urlStr }
+                obj.setObject(bodyFn, forKeyedSubscript: "body" as NSString)
+                obj.setObject(urlFn, forKeyedSubscript: "url" as NSString)
+                out.setObject(obj, atIndexedSubscript: idx)
+            }
+            out.setValue(pairs.count, forKey: "length")
+            return out
+        }
+        javaObject?.setObject(ajaxAllBlock, forKeyedSubscript: "ajaxAll" as NSString)
+
         // 对标 Android java.importScript：拉取远程 JS 并 eval 进当前上下文（jsLib / 备注共用库常用）
         let importScriptBlock: @convention(block) (String) -> String = { [weak self, weak jsContext] url in
             guard let jsContext, !url.isEmpty else { return "" }
@@ -270,6 +314,8 @@ class JSBridge: JsEncodeUtils {
             }
             let empty = JSValue(newArrayIn: jsContext)!
             empty.setValue(0, forKey: "length")
+            let emptyText: @convention(block) () -> String = { "" }
+            empty.setObject(emptyText, forKeyedSubscript: "text" as NSString)
             guard let self = self else { return empty }
             let html = self.context?.analyzeContent
                 ?? self.context?.lastResult.string
@@ -284,18 +330,39 @@ class JSBridge: JsEncodeUtils {
                 elements = []
             }
             self.context?.lastElementContexts = elements
-            // 返回带 length 的类数组，供 `c.length` 判断（显式写 length，避免 JSC 桥接漏计）
+            // 返回带 length / text() 的类数组（Android Elements.text()）
             let arr = JSValue(newArrayIn: jsContext)!
+            var joinedText = ""
             for (idx, el) in elements.enumerated() {
                 if let soup = el.element as? Element {
-                    arr.setObject((try? soup.outerHtml()) ?? "", atIndexedSubscript: idx)
+                    let outer = (try? soup.outerHtml()) ?? ""
+                    arr.setObject(outer, atIndexedSubscript: idx)
+                    let t = (try? soup.text()) ?? ""
+                    if !t.isEmpty {
+                        joinedText += (joinedText.isEmpty ? "" : " ") + t
+                    }
                 } else if let s = el.element as? String {
                     arr.setObject(s, atIndexedSubscript: idx)
+                    if s.contains("<"), let frag = try? SwiftSoup.parseBodyFragment(s).body() {
+                        let t = (try? frag.text()) ?? ""
+                        if !t.isEmpty {
+                            joinedText += (joinedText.isEmpty ? "" : " ") + t
+                        }
+                    } else if !s.isEmpty {
+                        joinedText += (joinedText.isEmpty ? "" : " ") + s
+                    }
                 } else {
-                    arr.setObject(String(describing: el.element), atIndexedSubscript: idx)
+                    let desc = String(describing: el.element)
+                    arr.setObject(desc, atIndexedSubscript: idx)
+                    if !desc.isEmpty {
+                        joinedText += (joinedText.isEmpty ? "" : " ") + desc
+                    }
                 }
             }
             arr.setValue(elements.count, forKey: "length")
+            let textCapture = joinedText
+            let textFn: @convention(block) () -> String = { textCapture }
+            arr.setObject(textFn, forKeyedSubscript: "text" as NSString)
             return arr
         }
         javaObject?.setObject(getElementBlock, forKeyedSubscript: "getElement" as NSString)
@@ -738,8 +805,87 @@ class JSBridge: JsEncodeUtils {
         return box.value
     }
 
+    /// 对标 Android `java.ajaxAll`：并行请求，返回 (最终 URL, body)
+    private func ajaxAllViaAnalyzeUrl(_ urls: [String]) -> [(url: String, body: String)] {
+        guard !urls.isEmpty else { return [] }
+        let source = context?.source
+        let base = context?.baseURL?.absoluteString ?? source?.bookSourceUrl ?? ""
+        let lock = NSLock()
+        var results: [(Int, String, String)] = []
+        let group = DispatchGroup()
+        for (idx, url) in urls.enumerated() {
+            group.enter()
+            Task {
+                defer { group.leave() }
+                let analyzed = AnalyzeUrl.analyze(ruleUrl: url, baseUrl: base, source: source)
+                do {
+                    let (respBody, finalUrl) = try await AnalyzeUrl.getResponseBody(
+                        analyzedUrl: analyzed,
+                        source: source
+                    )
+                    lock.lock()
+                    results.append((idx, finalUrl.isEmpty ? url : finalUrl, respBody))
+                    lock.unlock()
+                } catch {
+                    DebugLogger.shared.log("[JS.ajaxAll] \(error)")
+                    lock.lock()
+                    results.append((idx, url, ""))
+                    lock.unlock()
+                }
+            }
+        }
+        // 每 URL 约 30s，最多约 10 本；给足并行预算
+        _ = group.wait(timeout: .now() + 90)
+        return results.sorted { $0.0 < $1.0 }.map { (url: $0.1, body: $0.2) }
+    }
+
     private final class AjaxBodyBox: @unchecked Sendable {
         var value = ""
+    }
+
+    /// `org.jsoup.Jsoup.parse(html).select(css).text()` / `.attr(name)`（SwiftSoup 代理）
+    private func injectOrgJsoup(into jsContext: JSContext) {
+        let jsoup = JSValue(newObjectIn: jsContext)!
+        let parseBlock: @convention(block) (String) -> JSValue = { [weak jsContext] html in
+            guard let jsContext else {
+                return JSValue(nullIn: JSContext())!
+            }
+            let docObj = JSValue(newObjectIn: jsContext)!
+            let parsed = try? SwiftSoup.parse(html)
+            let selectBlock: @convention(block) (String) -> JSValue = { [weak jsContext] css in
+                guard let jsContext else {
+                    return JSValue(nullIn: JSContext())!
+                }
+                let elsObj = JSValue(newObjectIn: jsContext)!
+                let selected = try? parsed?.select(css)
+                let textFn: @convention(block) () -> String = {
+                    (try? selected?.text()) ?? ""
+                }
+                let attrFn: @convention(block) (String) -> String = { name in
+                    (try? selected?.attr(name)) ?? ""
+                }
+                let htmlFn: @convention(block) () -> String = {
+                    (try? selected?.html()) ?? ""
+                }
+                let outerFn: @convention(block) () -> String = {
+                    (try? selected?.outerHtml()) ?? ""
+                }
+                elsObj.setObject(textFn, forKeyedSubscript: "text" as NSString)
+                elsObj.setObject(attrFn, forKeyedSubscript: "attr" as NSString)
+                elsObj.setObject(htmlFn, forKeyedSubscript: "html" as NSString)
+                elsObj.setObject(outerFn, forKeyedSubscript: "outerHtml" as NSString)
+                elsObj.setValue(selected?.array().count ?? 0, forKey: "length")
+                return elsObj
+            }
+            docObj.setObject(selectBlock, forKeyedSubscript: "select" as NSString)
+            return docObj
+        }
+        jsoup.setObject(parseBlock, forKeyedSubscript: "parse" as NSString)
+        let org = JSValue(newObjectIn: jsContext)!
+        let jsoupNs = JSValue(newObjectIn: jsContext)!
+        jsoupNs.setObject(jsoup, forKeyedSubscript: "Jsoup" as NSString)
+        org.setObject(jsoupNs, forKeyedSubscript: "jsoup" as NSString)
+        Self.bindGlobal(org, name: "org", into: jsContext)
     }
 
     private func parseSourceHeaders() -> [String: String]? {

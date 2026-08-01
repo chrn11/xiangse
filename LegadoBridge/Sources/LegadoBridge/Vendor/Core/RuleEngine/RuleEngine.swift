@@ -734,13 +734,44 @@ class RuleEngine {
         return elements
     }
 
+    /// 拆分 `前缀<js>…</js>后缀`（对齐 Android AnalyzeByJSoup 复合列表规则）
+    private static func splitCompoundJsRule(_ ruleStr: String) -> (prefix: String, js: String, suffix: String) {
+        if ruleStr.lowercased().hasPrefix("@js:") {
+            return ("", String(ruleStr.dropFirst(4)), "")
+        }
+        let pattern = #"(?is)([\s\S]*?)<js>([\s\S]*?)</js>([\s\S]*)"#
+        if let regex = try? NSRegularExpression(pattern: pattern),
+           let match = regex.firstMatch(in: ruleStr, range: NSRange(location: 0, length: (ruleStr as NSString).length)),
+           match.numberOfRanges >= 4 {
+            let ns = ruleStr as NSString
+            return (
+                ns.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespacesAndNewlines),
+                ns.substring(with: match.range(at: 2)),
+                ns.substring(with: match.range(at: 3)).trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        if ruleStr.lowercased().hasPrefix("<js>") {
+            return ("", String(ruleStr.dropFirst(4)), "")
+        }
+        return ("", ruleStr, "")
+    }
+
     /// 列表规则为 JS 时：跑桥接（含 getElement / startBrowserAwait），再取元素
+    ///
+    /// 规则格式：`前缀<js>代码</js>后缀`（晋江原版：`$.items[:10]<js>…</js>$.[*]`）
+    /// - 前缀选出 JSON/元素 → 注入 `result`（数组可 `toArray()`）
+    /// - JS 返回值常为 `JSON.stringify` 字符串 → 再跑后缀
     private func getJsElements(
         ruleStr: String,
         body: String,
         baseUrl: String?,
         source: (any BridgeSourceProtocol)?
     ) throws -> [ElementContext] {
+        let parts = Self.splitCompoundJsRule(ruleStr)
+        let prefixRule = parts.prefix
+        let jsCode = parts.js
+        let suffixRule = parts.suffix
+
         let exec = ExecutionContext()
         exec.source = source
         exec.analyzeContent = body
@@ -751,20 +782,6 @@ class RuleEngine {
         exec.lastResult = .string(body)
         if let sourceUrl = source?.bookSourceUrl {
             exec.variables = SourceSessionStore.variables(for: sourceUrl)
-        }
-
-        let jsCode: String
-        if ruleStr.lowercased().hasPrefix("@js:") {
-            jsCode = String(ruleStr.dropFirst(4))
-        } else if let regex = try? NSRegularExpression(pattern: #"<js>([\s\S]*?)</js>"#, options: [.caseInsensitive]),
-                  let match = regex.firstMatch(in: ruleStr, range: NSRange(ruleStr.startIndex..., in: ruleStr)),
-                  let range = Range(match.range(at: 1), in: ruleStr) {
-            jsCode = String(ruleStr[range])
-        } else if ruleStr.lowercased().hasPrefix("<js>") {
-            // 兼容未闭合 </js> 的书源（yckceo / 本地夹具常见）
-            jsCode = String(ruleStr.dropFirst(4))
-        } else {
-            jsCode = ruleStr
         }
 
         // 先写 ruleEngine，再触达 lazy jsContext（内部强持有 JSBridge，避免 weak self 空跑）
@@ -781,7 +798,33 @@ class RuleEngine {
             bridge.inject(into: exec.jsContext)
         }
 
-        exec.jsContext.setValue(body, forKey: "result")
+        // Rhino 数组有 toArray；JSC 需补齐（晋江：result.toArray().concat(...)）
+        _ = exec.jsContext.evaluateScript("""
+        if (typeof Array !== 'undefined' && typeof Array.prototype.toArray !== 'function') {
+          Array.prototype.toArray = function () { return Array.prototype.slice.call(this); };
+        }
+        """)
+
+        // 前缀：JSONPath / 其它列表规则 → result；无前缀则整段 body
+        if !prefixRule.isEmpty {
+            let prefixEls = try getElements(ruleStr: prefixRule, body: body, baseUrl: baseUrl, source: source)
+            let arr = JSValue(newArrayIn: exec.jsContext)!
+            for (idx, el) in prefixEls.enumerated() {
+                if let dict = Self.jsItemAsStringKeyedDict(el.element) {
+                    arr.setObject(dict as NSDictionary, atIndexedSubscript: idx)
+                } else if let s = el.element as? String {
+                    arr.setObject(s, atIndexedSubscript: idx)
+                } else if let soup = el.element as? Element {
+                    arr.setObject((try? soup.outerHtml()) ?? "", atIndexedSubscript: idx)
+                } else {
+                    arr.setObject(String(describing: el.element), atIndexedSubscript: idx)
+                }
+            }
+            arr.setValue(prefixEls.count, forKey: "length")
+            exec.jsContext.setObject(arr, forKeyedSubscript: "result" as NSString)
+        } else {
+            exec.jsContext.setValue(body, forKey: "result")
+        }
         exec.jsContext.setValue(baseUrl, forKey: "baseUrl")
         // reinject 后再次确保 jsLib（source 可能在 lazy 之后才绑定）
         JSBridge.evaluateJsLib(of: source, into: exec.jsContext)
@@ -792,7 +835,7 @@ class RuleEngine {
         do {
             let path = (NSHomeDirectory() as NSString)
                 .appendingPathComponent("Documents/legado_js_elements_probe.txt")
-            let pre = "ts=\(ISO8601DateFormatter().string(from: Date())) enter codePrefix=\(jsCode.prefix(60).replacingOccurrences(of: "\n", with: " "))\n"
+            let pre = "ts=\(ISO8601DateFormatter().string(from: Date())) enter prefix=\(prefixRule.prefix(30)) suffix=\(suffixRule.prefix(20)) codePrefix=\(jsCode.prefix(60).replacingOccurrences(of: "\n", with: " "))\n"
             if let data = pre.data(using: .utf8) {
                 if FileManager.default.fileExists(atPath: path), let fh = FileHandle(forWritingAtPath: path) {
                     fh.seekToEndOfFile(); fh.write(data); try? fh.close()
@@ -835,6 +878,25 @@ class RuleEngine {
             SourceSessionStore.merge(exec.variables, for: sourceUrl)
         }
 
+        // 后缀：对 JS 返回文本再取列表（晋江 `$.[*]`）
+        if !suffixRule.isEmpty, let value, !value.isUndefined, !value.isNull {
+            let afterJs: String
+            if value.isString {
+                afterJs = value.toString()
+            } else if let obj = value.toObject(),
+                      JSONSerialization.isValidJSONObject(obj),
+                      let data = try? JSONSerialization.data(withJSONObject: obj),
+                      let s = String(data: data, encoding: .utf8) {
+                afterJs = s
+            } else {
+                afterJs = value.toString()
+            }
+            if !afterJs.isEmpty, afterJs != "undefined", afterJs != "null" {
+                let suffixEls = try getElements(ruleStr: suffixRule, body: afterJs, baseUrl: baseUrl, source: source)
+                if !suffixEls.isEmpty { return suffixEls }
+            }
+        }
+
         if !exec.lastElementContexts.isEmpty {
             return exec.lastElementContexts
         }
@@ -872,6 +934,12 @@ class RuleEngine {
                 if !mapped.isEmpty { return mapped }
             }
             if let str = value.toString(), !str.isEmpty, str != "undefined", str != "null" {
+                // JSON 数组字符串（无后缀时）
+                let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.hasPrefix("["), trimmed.hasSuffix("]") {
+                    let fromJson = try getJsonElements(ruleStr: "$.[*]", body: str)
+                    if !fromJson.isEmpty { return fromJson }
+                }
                 if str.contains("<"), let doc = try? SwiftSoup.parse(str) {
                     return [ElementContext(element: doc, baseUrl: baseUrl)]
                 }
@@ -972,6 +1040,11 @@ class RuleEngine {
             rule = String(rule.dropFirst())
         }
 
+        // `@@` = 绝对规则（从当前文档根起），去掉前缀再解析
+        if rule.hasPrefix("@@") {
+            rule = String(rule.dropFirst(2))
+        }
+
         // 支持 XPath 和 CSS
         var elements: [ElementContext]
         if rule.hasPrefix("//") {
@@ -982,8 +1055,7 @@ class RuleEngine {
                 return ElementContext(element: html, baseUrl: baseUrl)
             }
         } else if rule.contains("@"),
-                  !rule.lowercased().hasPrefix("@css:"),
-                  !rule.hasPrefix("@@") {
+                  !rule.lowercased().hasPrefix("@css:") {
             // `class.section-box.-1@class.section-list@tag.li` 必须按段选；
             // 整串丢给 LegadoCSSSelect 会把 `@…` 拼进 class 名再 select → SwiftSoup.Exception
             elements = try getHtmlElementsAtChain(rule: rule, root: doc, baseUrl: baseUrl)
