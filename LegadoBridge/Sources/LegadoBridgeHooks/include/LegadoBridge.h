@@ -15,6 +15,8 @@ FOUNDATION_EXPORT void LBTriggerMixedSearch(NSString *keyword, NSString *sourceU
 FOUNDATION_EXPORT void LBApplySearchResultsToUI(NSArray *books, NSString * _Nullable keyword);
 /// 发现页换分类/换源前清空已灌书单（避免旧结果残留）
 FOUNDATION_EXPORT void LBClearDiscoverExploreBooks(void);
+/// explore 超时/失败后摘掉发现页「章节加载中」残留（防 UI 永久挂起）
+FOUNDATION_EXPORT void LBDismissDiscoverLoadingHUD(void);
 /// 只清 Legado explore 的 pending/lastApplied，不动发现宿主原生列表（切 XBS 时用）
 FOUNDATION_EXPORT void LBClearDiscoverExplorePendingOnly(void);
 /// 发现页当前是否处于「用户切到纯 XBS」态（此时禁止再灌 Legado explore）

@@ -853,11 +853,14 @@ private final class SearchOutcomeBox: @unchecked Sendable {
             for source in targets {
                 guard generation == sExploreGeneration else { return }
                 do {
-                    let results = try await BridgeWebBook.exploreBook(
-                        source: source,
-                        url: exploreUrl,
-                        page: max(page, 1)
-                    )
+                    // 与搜索同级的硬超时：explore 源挂起时禁止「章节加载中」卡死（验收发现页）
+                    let results = try await Self.withTimeout(seconds: 20) {
+                        try await BridgeWebBook.exploreBook(
+                            source: source,
+                            url: exploreUrl,
+                            page: max(page, 1)
+                        )
+                    }
                     guard generation == sExploreGeneration else { return }
                     var bindings: [String: BookBinding] = [:]
                     for r in results {
@@ -907,6 +910,21 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     }
                 } catch {
                     writeSearchMarker("explore err src=\(source.bookSourceUrl) \(error.localizedDescription)")
+                    // 失败/超时：摘掉「章节加载中」残留，避免发现页永久挂起
+                    if let bridgeErr = error as? LegadoBridgeError, case .timeout = bridgeErr {
+                        writeSearchMarker("explore timeout src=\(source.bookSourceUrl)")
+                    }
+                    await MainActor.run {
+                        guard generation == sExploreGeneration else { return }
+                        LBDismissDiscoverLoadingHUD()
+                    }
+                }
+            }
+            // 空结果也收尾：摘「章节加载中」，防「没书但一直转圈」
+            if total == 0 {
+                await MainActor.run {
+                    guard generation == sExploreGeneration else { return }
+                    LBDismissDiscoverLoadingHUD()
                 }
             }
             writeSearchMarker("explore ok total=\(total) sources=\(targets.count)")

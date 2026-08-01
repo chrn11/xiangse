@@ -1534,6 +1534,65 @@ void LBClearDiscoverExploreBooks(void) {
     } @catch (__unused NSException *e) {}
 }
 
+/// explore 超时/失败后摘掉发现页「章节加载中」残留（防 UI 永久挂起）
+void LBDismissDiscoverLoadingHUD(void) {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ LBDismissDiscoverLoadingHUD(); });
+        return;
+    }
+    @try {
+        NSMutableArray<UIView *> *roots = [NSMutableArray array];
+        for (UIWindow *w in UIApplication.sharedApplication.windows) {
+            if (w) [roots addObject:w];
+        }
+        NSArray *hosts = LBFindDiscoverHostVCs() ?: @[];
+        for (UIViewController *vc in hosts) {
+            @try {
+                id v = [vc valueForKey:@"view"];
+                if ([v isKindOfClass:[UIView class]]) [roots addObject:v];
+            } @catch (__unused NSException *e) {}
+            UIViewController *list = nil;
+            @try { list = LBActiveDiscoverListVC(vc); } @catch (__unused NSException *e) {}
+            if (list && list != vc) {
+                @try {
+                    id lv = [list valueForKey:@"view"];
+                    if ([lv isKindOfClass:[UIView class]]) [roots addObject:lv];
+                } @catch (__unused NSException *e) {}
+            }
+        }
+        NSMutableArray<UIView *> *stack = [roots mutableCopy];
+        while (stack.count > 0) {
+            UIView *cur = stack.lastObject;
+            [stack removeLastObject];
+            NSString *text = nil;
+            if ([cur isKindOfClass:[UILabel class]]) {
+                text = [(UILabel *)cur text];
+            } else if ([cur respondsToSelector:@selector(text)]) {
+                @try {
+                    id t = [cur valueForKey:@"text"];
+                    if ([t isKindOfClass:[NSString class]]) text = t;
+                } @catch (__unused NSException *e) {}
+            }
+            if ([text isKindOfClass:[NSString class]] && [text containsString:@"章节加载中"]) {
+                UIView *victim = cur;
+                if (cur.superview.subviews.count <= 4) victim = cur.superview ?: cur;
+                if (victim.superview.subviews.count <= 3 && victim.superview != nil &&
+                    ![victim.superview isKindOfClass:[UIWindow class]]) {
+                    victim = victim.superview;
+                }
+                [victim removeFromSuperview];
+                [@"uiInject dismiss discover loading HUD"
+                    writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                return;
+            }
+            for (UIView *sub in cur.subviews) {
+                [stack addObject:sub];
+            }
+        }
+    } @catch (__unused NSException *e) {}
+}
+
 void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
     if (![books isKindOfClass:[NSArray class]] || books.count == 0) return;
     if (![NSThread isMainThread]) {
