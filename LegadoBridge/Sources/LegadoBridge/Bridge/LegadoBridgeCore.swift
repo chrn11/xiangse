@@ -985,7 +985,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 }
             }
             guard !targets.isEmpty else {
-                self.writeSearchMarker("err no enabled sources key=\(keyword)")
+                self.appendSearchMarker("err no enabled sources key=\(keyword)")
                 self.postNotification(
                     XiangseAdapter.notifySearchResponse,
                     userInfo: [
@@ -1003,7 +1003,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
             var totalCount = 0
             for source in targets {
                 let srcUrl = source.bookSourceUrl
-                self.writeSearchMarker("start src=\(srcUrl)")
+                self.appendSearchMarker("start src=\(srcUrl)")
                 let outcome: Result<[SearchBookResult], Error> = await withCheckedContinuation { cont in
                     let flag = OnceFlag()
                     Task.detached(priority: .userInitiated) {
@@ -1018,33 +1018,32 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                             }
                         }
                     }
-                    DispatchQueue.global(qos: .userInitiated).asyncAfter(
-                        deadline: .now() + perSourceTimeoutSeconds
-                    ) {
+                    let timeoutQ = DispatchQueue(label: "legado.search.timeout.\(srcUrl.hashValue)")
+                    timeoutQ.asyncAfter(deadline: .now() + perSourceTimeoutSeconds) {
+                        // 无条件心跳：证明定时器活着（即使 claim 失败也能看见）
+                        self.appendSearchMarker("tick src=\(srcUrl)")
                         if flag.claim() {
-                            // 先落盘再 resume，避免 resume 后协程卡死看不到超时行
-                            let path = (NSHomeDirectory() as NSString)
-                                .appendingPathComponent("Documents/legado_search_last.txt")
-                            let stamp = ISO8601DateFormatter().string(from: Date())
-                            let line = "\(stamp) partial err src=\(srcUrl) 单源搜索超时\n"
-                            if let data = line.data(using: .utf8) {
-                                if FileManager.default.fileExists(atPath: path),
-                                   let handle = FileHandle(forWritingAtPath: path) {
-                                    handle.seekToEndOfFile()
-                                    handle.write(data)
-                                    try? handle.close()
-                                } else {
-                                    try? line.write(toFile: path, atomically: true, encoding: .utf8)
-                                }
-                            }
+                            self.appendSearchMarker("partial err src=\(srcUrl) 单源搜索超时")
                             cont.resume(returning: .failure(LegadoBridgeError.timeout))
+                        } else {
+                            self.appendSearchMarker("tick-miss src=\(srcUrl)")
                         }
                     }
                 }
                 switch outcome {
                 case .success(let results):
-                    var bindings: [String: BookBinding] = [:]
-                    for r in results {
+                    self.appendSearchMarker("got src=\(srcUrl) n=\(results.count)")
+                    totalCount += results.count
+                    // 通知/UI 一律异步，搜索循环绝不在此同步等待主线程
+                    let books: [[String: Any]] = results.compactMap { r in
+                        let binding = BookBindingStore.shared.bind(
+                            bookUrl: r.bookUrl,
+                            sourceUrl: r.sourceUrl,
+                            sourceName: r.sourceName,
+                            name: r.name,
+                            author: r.author,
+                            coverUrl: r.coverUrl ?? ""
+                        )
                         let book = BridgeBook(
                             name: r.name,
                             author: r.author,
@@ -1055,49 +1054,35 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                             sourceName: r.sourceName
                         )
                         self.bookCache[r.bookUrl] = book
-                        let binding = BookBindingStore.shared.bind(
-                            bookUrl: r.bookUrl,
-                            sourceUrl: r.sourceUrl,
-                            sourceName: r.sourceName,
-                            name: r.name,
-                            author: r.author,
-                            coverUrl: r.coverUrl ?? ""
-                        )
-                        bindings[r.bookUrl] = binding
+                        let dict = XiangseAdapter.searchBookDict(r, binding: binding)
+                        guard Self.isSafeSearchBookDict(dict) else { return nil }
+                        return dict
                     }
-                    totalCount += results.count
                     let sourceName = results.first?.sourceName
                         ?? SourceRegistry.shared.exactSource(forUrl: srcUrl)?.bookSourceName
                         ?? ""
-                    for r in results {
-                        let book = XiangseAdapter.searchBookDict(r, binding: bindings[r.bookUrl])
-                        guard Self.isSafeSearchBookDict(book) else {
-                            self.writeSearchMarker("skip unsafe book src=\(srcUrl)")
-                            continue
-                        }
-                        let payload = XiangseAdapter.searchResultNotifyPayload(
-                            book: book,
-                            keyword: keyword,
-                            sourceUrl: srcUrl,
-                            sourceName: r.sourceName.isEmpty ? sourceName : r.sourceName
-                        )
-                        self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
-                        // 禁止在搜索线程同步等主线程 UI：Frida/主线程忙时会死锁，超时 claim 已用掉也写不出后续源。
-                        DispatchQueue.main.async {
-                            LBApplySearchResultsToUI([book], keyword)
+                    DispatchQueue.main.async {
+                        for dict in books {
+                            let payload = XiangseAdapter.searchResultNotifyPayload(
+                                book: dict,
+                                keyword: keyword,
+                                sourceUrl: srcUrl,
+                                sourceName: (dict["sourceName"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? sourceName
+                            )
+                            self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
+                            LBApplySearchResultsToUI([dict], keyword)
                         }
                     }
-                    self.writeSearchMarker("done src=\(srcUrl) n=\(results.count)")
+                    self.appendSearchMarker("done src=\(srcUrl) n=\(results.count)")
                 case .failure(let error):
-                    // 超时行已在 asyncAfter 里写过
                     if case LegadoBridgeError.timeout = error {
-                        // already logged
+                        // already logged in timer
                     } else {
-                        self.writeSearchMarker("partial err src=\(srcUrl) \(error.localizedDescription)")
+                        self.appendSearchMarker("partial err src=\(srcUrl) \(error.localizedDescription)")
                     }
                 }
             }
-            self.writeSearchMarker("ok total=\(totalCount) sources=\(targets.count) key=\(keyword)")
+            self.appendSearchMarker("ok total=\(totalCount) sources=\(targets.count) key=\(keyword)")
         }
     }
 
@@ -1135,6 +1120,10 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         guard !url.isEmpty || !name.isEmpty else { return false }
         if let sb = book["searchBook"], !(sb is [String: Any]) { return false }
         return true
+    }
+
+    private func appendSearchMarker(_ msg: String) {
+        writeSearchMarker(msg)
     }
 
     private func writeSearchMarker(_ msg: String) {
