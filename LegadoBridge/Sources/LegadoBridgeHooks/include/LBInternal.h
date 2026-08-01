@@ -31,6 +31,8 @@ BOOL LBLegadoPresentNativeImport(void);
 BOOL LBLegadoPresentNativeImportFrom(UIViewController * _Nullable fromVC);
 /// E-02/E-03：用户倒序/过滤后同步 pending，避免 UI 仍画引擎原始顺序
 void LBSyncPendingCatalogChapters(NSArray * _Nullable chapters);
+/// 当前 pending 目录快照（可能为空）；供倒序/过滤与 cell 同源读取
+NSArray * _Nullable LBCopyPendingCatalogChapters(void);
 void LBSetCatalogUserOrderLocked(BOOL locked);
 BOOL LBCatalogUserOrderLocked(void);
 void LBLegadoShowImportAlert(void);

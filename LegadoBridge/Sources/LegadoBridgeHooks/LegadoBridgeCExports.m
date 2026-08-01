@@ -1693,6 +1693,10 @@ void LBSyncPendingCatalogChapters(NSArray *chapters) {
     sCatalogUserOrderLocked = YES;
 }
 
+NSArray *LBCopyPendingCatalogChapters(void) {
+    return [sPendingCatalogChapters copy];
+}
+
 /// 从 bookUrl 取 scheme://host[:port]，替代写死的 mock 端口兜底
 static NSString *LBOriginSourceUrlFromBookUrl(NSString *bookUrl) {
     if (bookUrl.length == 0) return nil;

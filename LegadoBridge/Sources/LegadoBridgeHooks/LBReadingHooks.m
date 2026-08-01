@@ -605,20 +605,21 @@ static NSString *LBCatalogItemTitle(id item) {
     return [t isKindOfClass:[NSString class]] ? t : nil;
 }
 
+/// 与 cellForRow / numberOfRows 同源：有标题的数组优先，再 pending
 static NSArray *LBCatalogReadChapters(id catalogVC) {
-    if (!catalogVC) return nil;
-    @try {
-        if ([catalogVC respondsToSelector:@selector(arrSource)]) {
-            id arr = ((id (*)(id, SEL))objc_msgSend)(catalogVC, @selector(arrSource));
-            if ([arr isKindOfClass:[NSArray class]] && [(NSArray *)arr count] > 0) {
+    if (!catalogVC) return LBCopyPendingCatalogChapters();
+    for (NSString *key in @[@"arrSource", @"arrCatalog", @"arrCpInfo", @"arrBaseData"]) {
+        @try {
+            id arr = [catalogVC valueForKey:key];
+            if (![arr isKindOfClass:[NSArray class]] || [(NSArray *)arr count] == 0) continue;
+            NSString *t0 = LBCatalogItemTitle([(NSArray *)arr firstObject]);
+            if ([t0 isKindOfClass:[NSString class]] && t0.length > 0) {
                 return (NSArray *)arr;
             }
-        }
-    } @catch (__unused NSException *e) {}
-    @try {
-        id arr = [catalogVC valueForKey:@"arrCatalog"];
-        if ([arr isKindOfClass:[NSArray class]]) return (NSArray *)arr;
-    } @catch (__unused NSException *e) {}
+        } @catch (__unused NSException *e) {}
+    }
+    NSArray *pending = LBCopyPendingCatalogChapters();
+    if (pending.count > 0) return pending;
     return nil;
 }
 
@@ -678,20 +679,35 @@ static void LBCatalogWriteChapters(id catalogVC, NSArray *chapters) {
     } @catch (__unused NSException *e) {}
 }
 
+static void LBCatalogWriteE02Marker(NSString *msg) {
+    if (msg.length == 0) return;
+    [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_e02_reverse.txt"]
+          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+}
+
 static void LBCatalogReverseArrayOnVC(id catalogVC) {
-    if (!catalogVC) return;
+    [@"E02 tap" writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_e02_tap.txt"]
+                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    if (!catalogVC) {
+        LBCatalogWriteE02Marker(@"E02 reverse fail=noVC");
+        return;
+    }
     @try {
         NSArray *arr = LBCatalogReadChapters(catalogVC);
-        if (![arr isKindOfClass:[NSArray class]] || arr.count < 2) return;
+        if (![arr isKindOfClass:[NSArray class]] || arr.count < 2) {
+            LBCatalogWriteE02Marker([NSString stringWithFormat:@"E02 reverse fail=n=%lu",
+                                     (unsigned long)([arr isKindOfClass:[NSArray class]] ? arr.count : 0)]);
+            return;
+        }
         NSArray *rev = [[arr reverseObjectEnumerator] allObjects];
         LBCatalogWriteChapters(catalogVC, rev);
-        NSString *msg = [NSString stringWithFormat:@"E02 reverse n=%lu first=%@ last=%@",
-                         (unsigned long)rev.count,
-                         LBCatalogItemTitle(rev.firstObject) ?: @"",
-                         LBCatalogItemTitle(rev.lastObject) ?: @""];
-        [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_e02_reverse.txt"]
-              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    } @catch (__unused NSException *e) {}
+        LBCatalogWriteE02Marker([NSString stringWithFormat:@"E02 reverse n=%lu first=%@ last=%@",
+                                 (unsigned long)rev.count,
+                                 LBCatalogItemTitle(rev.firstObject) ?: @"",
+                                 LBCatalogItemTitle(rev.lastObject) ?: @""]);
+    } @catch (NSException *e) {
+        LBCatalogWriteE02Marker([NSString stringWithFormat:@"E02 reverse fail=ex %@", e.reason ?: @""]);
+    }
 }
 
 static void LBCatalogFilterByKeyword(id catalogVC, NSString *keyword) {
@@ -702,7 +718,12 @@ static void LBCatalogFilterByKeyword(id catalogVC, NSString *keyword) {
         NSArray *orig = objc_getAssociatedObject(catalogVC, &kOrigKey);
         if (!orig) {
             NSArray *arr = LBCatalogReadChapters(catalogVC);
-            if (![arr isKindOfClass:[NSArray class]]) return;
+            if (![arr isKindOfClass:[NSArray class]] || arr.count == 0) {
+                [@"E03 filter fail=empty"
+                 writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_e03_filter.txt"]
+                  atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                return;
+            }
             orig = [arr copy];
             objc_setAssociatedObject(catalogVC, &kOrigKey, orig, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
@@ -721,7 +742,11 @@ static void LBCatalogFilterByKeyword(id catalogVC, NSString *keyword) {
         NSString *msg = [NSString stringWithFormat:@"E03 filter key=%@ n=%lu", key, (unsigned long)use.count];
         [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_e03_filter.txt"]
               atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    } @catch (__unused NSException *e) {}
+    } @catch (NSException *e) {
+        NSString *msg = [NSString stringWithFormat:@"E03 filter fail=ex %@", e.reason ?: @""];
+        [msg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_e03_filter.txt"]
+              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    }
 }
 
 @interface LBCatalogSearchAssist : NSObject <UISearchBarDelegate>
@@ -758,88 +783,172 @@ static void LBCatalogFilterByKeyword(id catalogVC, NSString *keyword) {
 
 static void LBEnsureCatalogReverseSelector(UIViewController *vc) {
     if (!vc) return;
-    Class cls = object_getClass(vc);
+    Class cls = [vc class];
+    NSString *cn = NSStringFromClass(cls) ?: @"?";
+    static NSMutableSet *sEnsured;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ sEnsured = [NSMutableSet set]; });
     SEL sel = @selector(lb_catalogReverseTapped);
-    if (![vc respondsToSelector:sel]) {
-        class_addMethod(cls, sel, imp_implementationWithBlock(^void(id selfObj) {
+    if (![sEnsured containsObject:cn]) {
+        IMP imp = imp_implementationWithBlock(^void(id selfObj) {
             LBCatalogReverseArrayOnVC(selfObj);
-        }), "v@:");
+        });
+        if (!class_addMethod(cls, sel, imp, "v@:")) {
+            Method m = class_getInstanceMethod(cls, sel);
+            if (m) method_setImplementation(m, imp);
+        }
+        [sEnsured addObject:cn];
     }
+}
+
+static BOOL LBBarItemLooksReverse(UIBarButtonItem *bi) {
+    if (!bi) return NO;
+    NSString *t = bi.title ?: @"";
+    if ([t containsString:@"倒序"] || [t containsString:@"正序"]) return YES;
+    UIView *cv = bi.customView;
+    if ([cv isKindOfClass:[UIButton class]]) {
+        UIButton *b = (UIButton *)cv;
+        NSString *bt = b.currentTitle ?: [b titleForState:UIControlStateNormal] ?: @"";
+        NSString *acc = b.accessibilityLabel ?: @"";
+        if ([bt containsString:@"倒序"] || [bt containsString:@"正序"] ||
+            [acc containsString:@"倒序"] || [acc containsString:@"正序"]) {
+            return YES;
+        }
+    }
+    NSString *acc = bi.accessibilityLabel ?: @"";
+    return [acc containsString:@"倒序"] || [acc containsString:@"正序"];
+}
+
+static void LBWireSearchBarOnCatalog(UIViewController *vc, UISearchBar *sb) {
+    if (!vc || !sb) return;
+    static char kAssistKey;
+    LBCatalogSearchAssist *assist = objc_getAssociatedObject(vc, &kAssistKey);
+    if (!assist) {
+        assist = [LBCatalogSearchAssist new];
+        assist.catalogVC = vc;
+        objc_setAssociatedObject(vc, &kAssistKey, assist, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    if (sb.delegate != assist) {
+        assist.originalDelegate = sb.delegate;
+        sb.delegate = assist;
+    }
+    sb.hidden = NO;
+    sb.userInteractionEnabled = YES;
 }
 
 static void LBWireCatalogAssistOnVC(UIViewController *vc) {
     if (!vc.isViewLoaded || !vc.view) return;
     LBEnsureCatalogReverseSelector(vc);
-    __block BOOL foundReverseBtn = NO;
+    SEL sel = @selector(lb_catalogReverseTapped);
+    __block NSInteger rewiredBtns = 0;
+    __block NSInteger rewiredBars = 0;
+
+    void (^rewireButton)(UIButton *) = ^(UIButton *b) {
+        NSString *t = b.currentTitle ?: [b titleForState:UIControlStateNormal] ?: @"";
+        NSString *acc = b.accessibilityLabel ?: @"";
+        if (!([t containsString:@"倒序"] || [t containsString:@"正序"] ||
+              [acc containsString:@"倒序"] || [acc containsString:@"正序"])) {
+            return;
+        }
+        b.hidden = NO;
+        b.enabled = YES;
+        b.userInteractionEnabled = YES;
+        [b removeTarget:nil action:NULL forControlEvents:UIControlEventTouchUpInside];
+        [b addTarget:vc action:sel forControlEvents:UIControlEventTouchUpInside];
+        rewiredBtns++;
+    };
+
     void (^walk)(UIView *) = NULL;
     __block __weak void (^weakWalk)(UIView *) = nil;
     weakWalk = walk = ^(UIView *v) {
-        if ([v isKindOfClass:[UIButton class]]) {
-            UIButton *b = (UIButton *)v;
-            NSString *t = b.currentTitle ?: [b titleForState:UIControlStateNormal] ?: @"";
-            NSString *acc = b.accessibilityLabel ?: @"";
-            if ([t containsString:@"倒序"] || [t containsString:@"正序"] ||
-                [acc containsString:@"倒序"] || [acc containsString:@"正序"]) {
-                foundReverseBtn = YES;
-                b.hidden = NO;
-                b.enabled = YES;
-                b.userInteractionEnabled = YES;
-                SEL sel = @selector(lb_catalogReverseTapped);
-                // 换掉原生无效 action，避免只追加导致点到空实现
-                [b removeTarget:nil action:NULL forControlEvents:UIControlEventTouchUpInside];
-                [b addTarget:vc action:sel forControlEvents:UIControlEventTouchUpInside];
-            }
-        }
+        if ([v isKindOfClass:[UIButton class]]) rewireButton((UIButton *)v);
         if ([v isKindOfClass:[UISearchBar class]]) {
-            UISearchBar *sb = (UISearchBar *)v;
-            static char kAssistKey;
-            LBCatalogSearchAssist *assist = objc_getAssociatedObject(vc, &kAssistKey);
-            if (!assist) {
-                assist = [LBCatalogSearchAssist new];
-                assist.catalogVC = vc;
-                objc_setAssociatedObject(vc, &kAssistKey, assist, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            }
-            // 链式转发：有原生/SearchController delegate 时仍过滤
-            if (sb.delegate != assist) {
-                assist.originalDelegate = sb.delegate;
-                sb.delegate = assist;
-            }
-            sb.hidden = NO;
-            sb.userInteractionEnabled = YES;
+            LBWireSearchBarOnCatalog(vc, (UISearchBar *)v);
+            rewiredBars++;
         }
         for (UIView *sub in v.subviews) weakWalk(sub);
     };
     walk(vc.view);
+    // 导航栏不在 vc.view 内，必须单独扫
+    UINavigationBar *navBar = vc.navigationController.navigationBar;
+    if (navBar) walk(navBar);
 
-    // 导航栏 UIBarButtonItem「倒序」：直接改 target/action
-    for (UIBarButtonItem *bi in vc.navigationItem.rightBarButtonItems ?: @[]) {
-        NSString *t = bi.title ?: @"";
-        if ([t containsString:@"倒序"] || [t containsString:@"正序"]) {
-            foundReverseBtn = YES;
-            bi.target = vc;
-            bi.action = @selector(lb_catalogReverseTapped);
+    // UISearchController.searchBar 常挂在 navigationItem 上
+    @try {
+        UISearchController *sc = vc.navigationItem.searchController;
+        if (sc.searchBar) {
+            LBWireSearchBarOnCatalog(vc, sc.searchBar);
+            rewiredBars++;
+        }
+    } @catch (__unused NSException *e) {}
+
+    // 强制替换「倒序」UIBarButtonItem（避免 primaryAction / 空 action 重绑无效）
+    NSMutableArray *oldRights = [NSMutableArray array];
+    if (vc.navigationItem.rightBarButtonItems.count > 0) {
+        [oldRights addObjectsFromArray:vc.navigationItem.rightBarButtonItems];
+    } else if (vc.navigationItem.rightBarButtonItem) {
+        [oldRights addObject:vc.navigationItem.rightBarButtonItem];
+    }
+    NSMutableArray *newRights = [NSMutableArray array];
+    BOOL replacedRev = NO;
+    for (UIBarButtonItem *bi in oldRights) {
+        if (LBBarItemLooksReverse(bi)) {
+            if (bi.customView && [bi.customView isKindOfClass:[UIButton class]]) {
+                rewireButton((UIButton *)bi.customView);
+                [newRights addObject:bi];
+            } else {
+                NSString *title = bi.title.length > 0 ? bi.title : @"倒序";
+                UIBarButtonItem *neu = [[UIBarButtonItem alloc] initWithTitle:title
+                                                                       style:UIBarButtonItemStylePlain
+                                                                      target:vc
+                                                                      action:sel];
+                [newRights addObject:neu];
+            }
+            replacedRev = YES;
+        } else {
+            [newRights addObject:bi];
         }
     }
-
-    // 真机 CatalogCon 常只有「到底部」，无「倒序」——补导航栏按钮
-    if (!foundReverseBtn) {
+    if (!replacedRev) {
         static char kRevItemKey;
-        if (!objc_getAssociatedObject(vc, &kRevItemKey)) {
-            UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithTitle:@"倒序"
-                                                                     style:UIBarButtonItemStylePlain
-                                                                    target:vc
-                                                                    action:@selector(lb_catalogReverseTapped)];
-            NSMutableArray *rights = [NSMutableArray array];
-            if (vc.navigationItem.rightBarButtonItems.count > 0) {
-                [rights addObjectsFromArray:vc.navigationItem.rightBarButtonItems];
-            } else if (vc.navigationItem.rightBarButtonItem) {
-                [rights addObject:vc.navigationItem.rightBarButtonItem];
-            }
-            // rightBarButtonItems[0] 最靠右；把倒序放后面 → 显示在「到底部」左侧
-            [rights addObject:item];
-            vc.navigationItem.rightBarButtonItems = rights;
-            objc_setAssociatedObject(vc, &kRevItemKey, item, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        UIBarButtonItem *ours = objc_getAssociatedObject(vc, &kRevItemKey);
+        if (![ours isKindOfClass:[UIBarButtonItem class]] || ![newRights containsObject:ours]) {
+            ours = [[UIBarButtonItem alloc] initWithTitle:@"倒序"
+                                                    style:UIBarButtonItemStylePlain
+                                                   target:vc
+                                                   action:sel];
+            objc_setAssociatedObject(vc, &kRevItemKey, ours, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        } else {
+            ours.target = vc;
+            ours.action = sel;
         }
+        // [0] 最靠右；追加 → 显示在「到底部」左侧
+        [newRights addObject:ours];
+        replacedRev = YES;
+    }
+    vc.navigationItem.rightBarButtonItems = newRights;
+
+    NSString *wire = [NSString stringWithFormat:
+                      @"E02 wire vc=%@ btns=%ld bars=%ld replaced=%d rights=%lu",
+                      NSStringFromClass([vc class]),
+                      (long)rewiredBtns, (long)rewiredBars, replacedRev ? 1 : 0,
+                      (unsigned long)newRights.count];
+    [wire writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_e02_wire.txt"]
+           atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+}
+
+static void LBScheduleCatalogAssistRewire(UIViewController *vc) {
+    if (!vc) return;
+    LBWireCatalogAssistOnVC(vc);
+    __weak UIViewController *weakVC = vc;
+    for (NSNumber *delayNum in @[@0.15, @0.5, @1.2]) {
+        NSTimeInterval delay = delayNum.doubleValue;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            UIViewController *strong = weakVC;
+            if (!strong || !strong.isViewLoaded || !strong.view.window) return;
+            LBWireCatalogAssistOnVC(strong);
+        });
     }
 }
 
@@ -856,12 +965,12 @@ static void LBInstallCatalogOrderAndSearchAssist(void) {
         IMP hook = imp_implementationWithBlock(^void(id selfObj, BOOL animated) {
             ((void (*)(id, SEL, BOOL))prev)(selfObj, @selector(viewDidAppear:), animated);
             if ([selfObj isKindOfClass:[UIViewController class]]) {
-                LBWireCatalogAssistOnVC((UIViewController *)selfObj);
+                LBScheduleCatalogAssistRewire((UIViewController *)selfObj);
             }
         });
         method_setImplementation(m, hook);
 
-        // 原生目录用 UISearchController；在原实现后再按关键字过滤 arrSource
+        // 原生目录用 UISearchController；在原实现后再按关键字过滤
         Method mSearch = class_getInstanceMethod(cls, @selector(updateSearchResultsForSearchController:));
         if (mSearch) {
             IMP prevSearch = method_getImplementation(mSearch);
@@ -876,6 +985,6 @@ static void LBInstallCatalogOrderAndSearchAssist(void) {
             });
             method_setImplementation(mSearch, hookSearch);
         }
-        NSLog(@"[LegadoBridge] E-02/E-03 CatalogCon order/search assist installed (arrSource)");
+        NSLog(@"[LegadoBridge] E-02/E-03 CatalogCon order/search assist installed (pending/base aware)");
     });
 }
