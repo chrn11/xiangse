@@ -969,7 +969,10 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     public func handleSearchRequest(keyword: String, sourceUrl: String?) {
         // 入口即写标记，便于验收区分「UI 未进 Hook」与「引擎失败」
         writeSearchMarker("enter key=\(keyword) url=\(sourceUrl ?? "all")")
-        Task {
+        // 必须 detached：从主线程 LBTriggerMixedSearch 进来时 Task{} 会继承主线程上下文，
+        // 后续若再同步碰主线程 UI 易与 Frida/系统主线程互锁。
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
             let targets: [MemoryBridgeBookSource]
             if let sourceUrl, !sourceUrl.isEmpty,
                let one = SourceRegistry.shared.source(forUrl: sourceUrl),
@@ -982,8 +985,8 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 }
             }
             guard !targets.isEmpty else {
-                writeSearchMarker("err no enabled sources key=\(keyword)")
-                postNotification(
+                self.writeSearchMarker("err no enabled sources key=\(keyword)")
+                self.postNotification(
                     XiangseAdapter.notifySearchResponse,
                     userInfo: [
                         "error": LegadoBridgeError.sourceNotFound.localizedDescription,
@@ -995,7 +998,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 return
             }
 
-            // fail-open：串行。超时用 asyncAfter（禁用 sem.wait：真机 Lofter 上 wait 可不返回）。
+            // fail-open：串行。超时用 asyncAfter（禁用 sem.wait：真机 Lofter 上 wait 不返回）。
             let perSourceTimeoutSeconds: TimeInterval = 12
             var totalCount = 0
             for source in targets {
@@ -1079,8 +1082,12 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                             sourceName: r.sourceName.isEmpty ? sourceName : r.sourceName
                         )
                         self.postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
-                        LBApplySearchResultsToUI([book], keyword)
+                        // 禁止在搜索线程同步等主线程 UI：Frida/主线程忙时会死锁，超时 claim 已用掉也写不出后续源。
+                        DispatchQueue.main.async {
+                            LBApplySearchResultsToUI([book], keyword)
+                        }
                     }
+                    self.writeSearchMarker("done src=\(srcUrl) n=\(results.count)")
                 case .failure(let error):
                     // 超时行已在 asyncAfter 里写过
                     if case LegadoBridgeError.timeout = error {
