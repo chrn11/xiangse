@@ -980,6 +980,9 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
 
     // T1：若借了 donor BW，必须写回 manager 里该源条目。
     // 否则 resetContent 再按 useSourceName 读 dicModelList 会拿回薄壳 → 白屏。
+    // 注意：仅 Legado 源可持久化覆盖；原生 XBS 源若被 donor 覆盖并 save，
+    // 会把原 bookWorld（含书数据）冲成薄壳 → 发现页永久无书。
+    BOOL isLegadoSource = LBLegadoIsSourceName(want);
     if (mgr && want.length > 0 && donorBW.count >= 3) {
         @try {
             id rawList = [mgr valueForKey:@"dicModelList"];
@@ -997,14 +1000,17 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
                 }
                 list[want] = entry;
                 [mgr setValue:list forKey:@"dicModelList"];
-                if ([mgr respondsToSelector:@selector(save)]) {
+                // 原生源只在内存里用 donor 渲染，不落盘（防冲掉原书数据）
+                if (isLegadoSource && [mgr respondsToSelector:@selector(save)]) {
                     @try { ((void (*)(id, SEL))objc_msgSend)(mgr, @selector(save)); }
                     @catch (__unused NSException *e) {}
                 }
                 LBAppendNativeMarker([NSString stringWithFormat:
-                                      @"xbsRestore persistBW name=%@ keys=%lu from=%@",
+                                      @"xbsRestore persistBW name=%@ keys=%lu from=%@ legado=%d%@",
                                       want, (unsigned long)donorBW.count,
-                                      donorName.length ? donorName : @"self"]);
+                                      donorName.length ? donorName : @"self",
+                                      isLegadoSource ? 1 : 0,
+                                      isLegadoSource ? @"" : @" (mem-only, no save)"]);
             }
         } @catch (__unused NSException *e) {}
     }
