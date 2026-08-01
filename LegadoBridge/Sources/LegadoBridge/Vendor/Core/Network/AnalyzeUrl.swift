@@ -936,7 +936,14 @@ class AnalyzeUrl {
                             builder.body = form
                             builder.contentType = "application/x-www-form-urlencoded"
                         } else if let body = self.body, !body.isEmpty {
-                            if let ct = headerMap["Content-Type"] {
+                            let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let looksForm = !trimmed.hasPrefix("{") && !trimmed.hasPrefix("<")
+                                && trimmed.contains("=")
+                            if looksForm, headerMap["Content-Type"] == nil {
+                                // 表单串勿默认 JSON（书山 login 曾因此 1001）
+                                builder.body = body
+                                builder.contentType = "application/x-www-form-urlencoded"
+                            } else if let ct = headerMap["Content-Type"] {
                                 builder.body = body
                                 builder.contentType = ct
                             } else {
@@ -1022,8 +1029,16 @@ class AnalyzeUrl {
                         builder.body = form
                         builder.contentType = "application/x-www-form-urlencoded"
                     } else if let body = self.body, !body.isEmpty {
-                        builder.body = body
-                        builder.contentType = headerMap["Content-Type"] ?? "application/json"
+                        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let looksForm = !trimmed.hasPrefix("{") && !trimmed.hasPrefix("<")
+                            && trimmed.contains("=")
+                        if looksForm, headerMap["Content-Type"] == nil {
+                            builder.body = body
+                            builder.contentType = "application/x-www-form-urlencoded"
+                        } else {
+                            builder.body = body
+                            builder.contentType = headerMap["Content-Type"] ?? "application/json"
+                        }
                     }
                 case .GET, .HEAD:
                     builder.url = self.urlNoQuery

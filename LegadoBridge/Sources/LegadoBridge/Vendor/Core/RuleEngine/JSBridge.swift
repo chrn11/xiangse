@@ -892,8 +892,9 @@ class JSBridge: JsEncodeUtils {
     private func ajaxViaAnalyzeUrl(_ url: String) -> String {
         let source = context?.source
         let base = context?.baseURL?.absoluteString ?? source?.bookSourceUrl ?? ""
-        let analyzed = AnalyzeUrl.analyze(
-            ruleUrl: url,
+        // 直接用同一次 AnalyzeUrl 发请求，避免 analyze→AnalyzedUrl→再 init 丢失 encodedForm
+        let analyzer = AnalyzeUrl(
+            mUrl: url,
             baseUrl: base,
             source: source
         )
@@ -901,11 +902,12 @@ class JSBridge: JsEncodeUtils {
         let box = AjaxBodyBox()
         Task {
             do {
-                let (respBody, _) = try await AnalyzeUrl.getResponseBody(
-                    analyzedUrl: analyzed,
-                    source: source
+                let resp = try await analyzer.getStrResponseAwait(
+                    jsStr: nil,
+                    sourceRegex: nil,
+                    useWebView: false
                 )
-                box.value = respBody
+                box.value = resp.body ?? ""
             } catch {
                 DebugLogger.shared.log("[JS.ajax] \(error)")
                 box.value = ""
