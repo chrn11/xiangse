@@ -5,6 +5,19 @@ import UIKit
 import LegadoRuleCore
 import LegadoBridgeHooks
 
+/// 一次性 claim 标志（超时竞赛用，不可嵌在泛型函数内）
+private final class OnceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if done { return false }
+        done = true
+        return true
+    }
+}
+
 /// LegadoBridge 对外门面 — Swift 与 ObjC Hook 层统一入口
 @objc public final class LegadoBridgeCore: NSObject {
     @objc public static let shared = LegadoBridgeCore()
@@ -1058,17 +1071,7 @@ import LegadoBridgeHooks
         seconds: TimeInterval,
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        final class Flag: @unchecked Sendable {
-            private let lock = NSLock()
-            private var done = false
-            func claim() -> Bool {
-                lock.lock(); defer { lock.unlock() }
-                if done { return false }
-                done = true
-                return true
-            }
-        }
-        let flag = Flag()
+        let flag = OnceFlag()
         return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<T, Error>) in
             Task.detached(priority: .userInitiated) {
                 do {
