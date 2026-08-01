@@ -1052,25 +1052,41 @@ import LegadoBridgeHooks
         }
     }
 
-    /// 给单源搜索/拉取加硬超时；超时抛 `LegadoBridgeError.timeout` 并取消子任务。
+    /// 给单源搜索/拉取加硬超时。
+    /// 用 GCD 定时器而不是 `Task.sleep`：JS/同步阻塞会占满协作线程池，导致 sleep 任务永不调度。
     private static func withTimeout<T: Sendable>(
         seconds: TimeInterval,
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                try await operation()
+        final class Flag: @unchecked Sendable {
+            private let lock = NSLock()
+            private var done = false
+            func claim() -> Bool {
+                lock.lock(); defer { lock.unlock() }
+                if done { return false }
+                done = true
+                return true
             }
-            group.addTask {
-                let ns = UInt64(max(seconds, 0.1) * 1_000_000_000)
-                try await Task.sleep(nanoseconds: ns)
-                throw LegadoBridgeError.timeout
+        }
+        let flag = Flag()
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<T, Error>) in
+            Task.detached(priority: .userInitiated) {
+                do {
+                    let value = try await operation()
+                    if flag.claim() {
+                        cont.resume(returning: value)
+                    }
+                } catch {
+                    if flag.claim() {
+                        cont.resume(throwing: error)
+                    }
+                }
             }
-            guard let first = try await group.next() else {
-                throw LegadoBridgeError.timeout
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + max(seconds, 0.1)) {
+                if flag.claim() {
+                    cont.resume(throwing: LegadoBridgeError.timeout)
+                }
             }
-            group.cancelAll()
-            return first
         }
     }
 
