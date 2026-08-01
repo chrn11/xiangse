@@ -860,14 +860,25 @@ static void LBSwitchVC_onOkBtnEvent_IMP(id self, SEL _cmd) {
         @try { book = [self valueForKey:@"dicFatBook"]; } @catch (__unused NSException *e) {}
     }
     if (!book && name.length > 0) {
-        NSString *discoverDiag = [NSString stringWithFormat:@"onOk discover-switch name=%@\n", name ?: @""];
+        // 无书 = 发现页「切换站点」（阅读「换源」必有书）。Legado 源走发现切源；
+        // 原生源必须交给原生 onOk（useSourceName 在原生 didSelect 下不更新，直接读会拿旧名 → 切不动）
+        BOOL isLegado = LBLegadoShouldBlockSourceName(self, name);
+        if (!isLegado) {
+            isLegado = (LBSwitchVC_ResolveSourceUrl(name).length > 0);
+        }
+        NSString *discoverDiag = [NSString stringWithFormat:@"onOk discover-switch name=%@ legado=%d\n", name ?: @"", isLegado ? 1 : 0];
         @try {
             [discoverDiag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_b4_onok.txt"]
                            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         } @catch (__unused NSException *e) {}
-        // 发现切源：关掉切换面板并让发现页跟随所选源
-        @try { [self dismissViewControllerAnimated:NO completion:nil]; } @catch (__unused NSException *e) {}
-        LBSwitchDiscoverToSourceName(name);
+        if (isLegado) {
+            // Legado 发现切源：关掉切换面板并让发现页跟随所选源
+            @try { [self dismissViewControllerAnimated:NO completion:nil]; } @catch (__unused NSException *e) {}
+            LBSwitchDiscoverToSourceName(name);
+        } else if (LBOrig_SwitchVC_onOk) {
+            // 原生源：原生 onOk 自己切源（它内部知道选中的是谁）
+            LBOrig_SwitchVC_onOk(self, _cmd);
+        }
         return;
     }
     BOOL isLegado = LBLegadoShouldBlockSourceName(self, name);
