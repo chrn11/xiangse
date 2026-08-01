@@ -440,11 +440,12 @@ class AnalyzeUrl {
         }
 
         // 解析 URL Option JSON
+        // paramPattern 匹配的是 `,`（lookahead `{` 不计入 range），
+        // range.upperBound 已指向 `{`；不可再 index(after:)，否则丢掉 `{` 导致 JSON 解析失败、POST 变 GET。
         if urlNoOption.count != ruleUrl.count,
            let match = urlMatcher,
            let range = Range(match.range, in: ruleUrl) {
-            let optionStartIndex = ruleUrl.index(after: range.upperBound)
-            let urlOptionStr = String(ruleUrl[optionStartIndex...])
+            let urlOptionStr = String(ruleUrl[range.upperBound...])
 
             // 尝试严格解析，再尝试宽松解析
             var urlOption: UrlOption?
