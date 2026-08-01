@@ -38,6 +38,8 @@ private final class SearchOutcomeBox: @unchecked Sendable {
 
     private var bookCache: [String: BridgeBook] = [:]
     private let queue = DispatchQueue(label: "com.xiangse.legado-bridge", qos: .userInitiated)
+    /// 搜索 marker 文件写锁（超时线程与搜索线程并发追加）
+    private let searchMarkerLock = NSLock()
     /// 并发 explore 世代号：后发请求作废先发的 clear/inject
     private var sExploreGeneration: UInt64 = 0
 
@@ -998,7 +1000,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 return
             }
 
-            // fail-open：串行。超时用 asyncAfter（禁用 sem.wait：真机 Lofter 上 wait 不返回）。
+            // fail-open：串行。超时用独立 pthread+sleep（GCD asyncAfter 在 JS 堵死时真机不触发）。
             let perSourceTimeoutSeconds: TimeInterval = 12
             var totalCount = 0
             for source in targets {
@@ -1018,9 +1020,9 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                             }
                         }
                     }
-                    let timeoutQ = DispatchQueue(label: "legado.search.timeout.\(srcUrl.hashValue)")
-                    timeoutQ.asyncAfter(deadline: .now() + perSourceTimeoutSeconds) {
-                        // 无条件心跳：证明定时器活着（即使 claim 失败也能看见）
+                    // 独立线程硬超时：不依赖协作线程池 / 主队列 / 被 JS 占满的 GCD 工作队列
+                    Thread.detachNewThread {
+                        Thread.sleep(forTimeInterval: perSourceTimeoutSeconds)
                         self.appendSearchMarker("tick src=\(srcUrl)")
                         if flag.claim() {
                             self.appendSearchMarker("partial err src=\(srcUrl) 单源搜索超时")
@@ -1127,6 +1129,8 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     }
 
     private func writeSearchMarker(_ msg: String) {
+        searchMarkerLock.lock()
+        defer { searchMarkerLock.unlock() }
         let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_search_last.txt")
         let stamp = ISO8601DateFormatter().string(from: Date())
         let line = "\(stamp) \(msg)\n"
