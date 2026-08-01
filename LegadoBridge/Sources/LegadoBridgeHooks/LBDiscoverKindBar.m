@@ -967,8 +967,18 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
     NSMutableDictionary *model = [picked isKindOfClass:[NSDictionary class]]
         ? [picked mutableCopy]
         : [NSMutableDictionary dictionary];
-    model[@"bookWorld"] = donorBW;
-    model[@"arrHeaderBtnTitle"] = donorBW.allKeys ?: @[];
+    // 原生 XBS 源：保留原始 bookWorld（含书数据），禁止用 donor 薄壳覆盖
+    // （探针：番茄20250308 原生 BookListCon arrN=100，覆盖成 3 键分类壳后 UI 只剩分类墙）
+    BOOL isLegadoSource = LBLegadoIsSourceName(want);
+    if (isLegadoSource && donorBW.count >= 3) {
+        model[@"bookWorld"] = donorBW;
+        model[@"arrHeaderBtnTitle"] = donorBW.allKeys ?: @[];
+    } else {
+        id ownBW = model[@"bookWorld"];
+        if ([ownBW isKindOfClass:[NSDictionary class]] && [(NSDictionary *)ownBW count] >= 3) {
+            model[@"arrHeaderBtnTitle"] = [(NSDictionary *)ownBW allKeys] ?: @[];
+        }
+    }
     NSString *title = pickedName.length ? pickedName : want;
     // 标题跟「当前要切的源」一致；bookWorld 可以是借来的
     if (want.length > 0) {
@@ -980,10 +990,9 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
 
     // T1：若借了 donor BW，必须写回 manager 里该源条目。
     // 否则 resetContent 再按 useSourceName 读 dicModelList 会拿回薄壳 → 白屏。
-    // 注意：仅 Legado 源可持久化覆盖；原生 XBS 源若被 donor 覆盖并 save，
-    // 会把原 bookWorld（含书数据）冲成薄壳 → 发现页永久无书。
-    BOOL isLegadoSource = LBLegadoIsSourceName(want);
-    if (mgr && want.length > 0 && donorBW.count >= 3) {
+    // 注意：仅 Legado 源才写回；原生 XBS 源覆盖 bookWorld（即使不 save）也会
+    // 让 UI 只剩分类墙（原生书数据在 picked 原始 bookWorld，探针 arrN=100）。
+    if (isLegadoSource && mgr && want.length > 0 && donorBW.count >= 3) {
         @try {
             id rawList = [mgr valueForKey:@"dicModelList"];
             if ([rawList isKindOfClass:[NSDictionary class]]) {
@@ -1000,17 +1009,14 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
                 }
                 list[want] = entry;
                 [mgr setValue:list forKey:@"dicModelList"];
-                // 原生源只在内存里用 donor 渲染，不落盘（防冲掉原书数据）
-                if (isLegadoSource && [mgr respondsToSelector:@selector(save)]) {
+                if ([mgr respondsToSelector:@selector(save)]) {
                     @try { ((void (*)(id, SEL))objc_msgSend)(mgr, @selector(save)); }
                     @catch (__unused NSException *e) {}
                 }
                 LBAppendNativeMarker([NSString stringWithFormat:
-                                      @"xbsRestore persistBW name=%@ keys=%lu from=%@ legado=%d%@",
+                                      @"xbsRestore persistBW name=%@ keys=%lu from=%@ legado=1",
                                       want, (unsigned long)donorBW.count,
-                                      donorName.length ? donorName : @"self",
-                                      isLegadoSource ? 1 : 0,
-                                      isLegadoSource ? @"" : @" (mem-only, no save)"]);
+                                      donorName.length ? donorName : @"self"]);
             }
         } @catch (__unused NSException *e) {}
     }
