@@ -3,11 +3,11 @@
   "bookSourceName": "挂死超时探针源",
   "bookSourceType": 0,
   "enabled": true,
-  "searchUrl": "@js:\nwhile(true){}\n",
+  "searchUrl": "http://203.0.113.1:59999/search?q={{key}}",
   "ruleSearch": {
-    "bookList": "[]",
+    "bookList": ".item",
     "name": "title",
     "author": "author",
-    "bookUrl": "url"
+    "bookUrl": "href"
   }
 }
