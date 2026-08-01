@@ -76,6 +76,10 @@ static id LBLegadoManagerCore(void) {
         [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh
                                                       target:self
                                                       action:@selector(onSubscribeRefreshTapped)],
+        [[UIBarButtonItem alloc] initWithTitle:@"净化"
+                                         style:UIBarButtonItemStylePlain
+                                        target:self
+                                        action:@selector(onReplaceRulesTapped)],
         [[UIBarButtonItem alloc] initWithTitle:@"分组"
                                          style:UIBarButtonItemStylePlain
                                         target:self
@@ -138,6 +142,10 @@ static id LBLegadoManagerCore(void) {
 
 - (void)onAddTapped {
     LBShowLegadoImportAlert();
+}
+
+- (void)onReplaceRulesTapped {
+    LBPresentLegadoReplaceRulesManager();
 }
 
 - (void)onGroupFilterTapped {

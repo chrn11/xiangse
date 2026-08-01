@@ -94,6 +94,63 @@ final class ReplaceRuleStore {
         persist()
     }
 
+    /// 启停单条规则；未找到返回 false
+    @discardableResult
+    func setEnabled(id: UUID, enabled: Bool) -> Bool {
+        restoreFromDiskIfNeeded()
+        lock.lock()
+        guard let idx = rules.firstIndex(where: { $0.id == id }) else {
+            lock.unlock()
+            return false
+        }
+        rules[idx].enabled = enabled
+        lock.unlock()
+        persist()
+        return true
+    }
+
+    /// 删除单条；未找到返回 false
+    @discardableResult
+    func remove(id: UUID) -> Bool {
+        restoreFromDiskIfNeeded()
+        lock.lock()
+        let before = rules.count
+        rules.removeAll { $0.id == id }
+        let removed = rules.count < before
+        lock.unlock()
+        if removed { persist() }
+        return removed
+    }
+
+    /// 导出当前规则 JSON 数组（UTF-8）
+    func exportJSONString() -> String {
+        let items = allRules()
+        guard let data = try? JSONEncoder().encode(items),
+              let s = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return s
+    }
+
+    /// ObjC 列表用：[{id,name,pattern,replacement,scope,enabled,isRegex,priority,order},…]
+    func allRulesInfo() -> [[String: Any]] {
+        allRules().map { r in
+            var d: [String: Any] = [
+                "id": r.id.uuidString,
+                "name": r.name,
+                "pattern": r.pattern,
+                "replacement": r.replacement,
+                "scope": r.scope,
+                "enabled": r.enabled,
+                "isRegex": r.isRegex,
+                "priority": r.priority,
+                "order": r.order
+            ]
+            if let sid = r.scopeId { d["scopeId"] = sid }
+            return d
+        }
+    }
+
     func installPresetsIfEmpty() {
         restoreFromDiskIfNeeded()
         lock.lock()

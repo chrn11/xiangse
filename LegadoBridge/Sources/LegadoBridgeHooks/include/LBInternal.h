@@ -21,6 +21,8 @@ NSArray *LBMergeLegadoNames(NSArray * _Nullable orig);
 UIWindow * _Nullable LBLegadoKeyWindow(void);
 void LBLegadoShowResult(NSString *msg);
 void LBLegadoPresentManagerVC(NSString * _Nullable focusSourceUrl);
+/// B6：打开净化规则管理页（列表/启停/导入/分组）
+void LBPresentLegadoReplaceRulesManager(void);
 /// U2：仅推编辑页到当前导航栈（返回落回原版站点列表）；不经过书源管理列表页
 void LBLegadoPresentSourceEditor(NSString * _Nullable sourceUrl);
 /// U3：优先推原版 ConfigSourceModelSyncCon；失败返回 NO（调用方再回退 UIAlert）

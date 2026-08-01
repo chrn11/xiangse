@@ -907,6 +907,29 @@ import LegadoBridgeHooks
         ReplaceRuleStore.shared.allRules().count
     }
 
+    /// 净化规则列表（管理页）
+    @objc public func allReplaceRulesInfo() -> [[String: Any]] {
+        ReplaceRuleStore.shared.allRulesInfo()
+    }
+
+    @objc(setReplaceRuleEnabledWithId:enabled:)
+    @discardableResult
+    public func setReplaceRuleEnabled(id: String, enabled: Bool) -> Bool {
+        guard let uuid = UUID(uuidString: id) else { return false }
+        return ReplaceRuleStore.shared.setEnabled(id: uuid, enabled: enabled)
+    }
+
+    @objc(removeReplaceRuleWithId:)
+    @discardableResult
+    public func removeReplaceRule(id: String) -> Bool {
+        guard let uuid = UUID(uuidString: id) else { return false }
+        return ReplaceRuleStore.shared.remove(id: uuid)
+    }
+
+    @objc public func exportReplaceRulesJSON() -> String {
+        ReplaceRuleStore.shared.exportJSONString()
+    }
+
     // MARK: - 搜索
 
     public func search(keyword: String, sourceUrl: String?) async throws -> [SearchBookResult] {
