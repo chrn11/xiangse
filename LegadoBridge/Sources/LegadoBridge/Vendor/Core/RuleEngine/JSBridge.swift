@@ -84,8 +84,14 @@ class JSBridge: JsEncodeUtils {
         var jsError: String?
         let previous = jsContext.exceptionHandler
         jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
-        _ = jsContext.evaluateScript(script)
+        var objcError: NSString?
+        _ = ObjCExceptionCatch.run({
+            _ = jsContext.evaluateScript(script)
+        }, error: &objcError)
         jsContext.exceptionHandler = previous
+        if let objcError {
+            DebugLogger.shared.log("[jsLib] objc \(objcError)")
+        }
         if let jsError, !jsError.isEmpty {
             DebugLogger.shared.log("[jsLib] \(jsError)")
         }

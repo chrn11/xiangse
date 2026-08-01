@@ -66,6 +66,7 @@ let package = Package(
                 "LegadoBridge/Bridge/BridgeBook.swift",
                 "LegadoBridge/Bridge/BridgeStubs.swift"
             ],
+            publicHeadersPath: "LegadoRuleCore/include",
             linkerSettings: [
                 .linkedFramework("Foundation"),
                 .linkedFramework("WebKit"),
