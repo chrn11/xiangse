@@ -11,6 +11,7 @@ import Foundation
 import JavaScriptCore
 import CommonCrypto
 import SwiftSoup
+import LegadoObjCSupport
 
 // MARK: - JSBridge 主类
 

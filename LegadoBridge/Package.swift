@@ -36,10 +36,19 @@ let package = Package(
                 .linkedFramework("UIKit")
             ]
         ),
+        .target(
+            name: "LegadoObjCSupport",
+            path: "Sources/LegadoObjCSupport",
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .linkedFramework("Foundation")
+            ]
+        ),
         // 独立规则引擎：规则 / 网络 / Cookie / 变量 / JS API
         .target(
             name: "LegadoRuleCore",
             dependencies: [
+                "LegadoObjCSupport",
                 "SwiftSoup",
                 "Kanna"
             ],
@@ -49,7 +58,8 @@ let package = Package(
                 "LegadoBridge/Vendor/Core/RuleEngine/RuleDebugger.swift",
                 "LegadoBridge/Vendor/Core/RuleEngine/ReplaceAnalyzer.swift",
                 "LegadoBridge/Vendor/Core/RuleEngine/ReplaceEngine.swift",
-                "LegadoBridge/Vendor/Core/RuleEngine/ReplaceEngineEnhanced.swift"
+                "LegadoBridge/Vendor/Core/RuleEngine/ReplaceEngineEnhanced.swift",
+                "LegadoObjCSupport"
             ],
             sources: [
                 "LegadoRuleCore",
@@ -66,7 +76,6 @@ let package = Package(
                 "LegadoBridge/Bridge/BridgeBook.swift",
                 "LegadoBridge/Bridge/BridgeStubs.swift"
             ],
-            publicHeadersPath: "LegadoRuleCore/include",
             linkerSettings: [
                 .linkedFramework("Foundation"),
                 .linkedFramework("WebKit"),
