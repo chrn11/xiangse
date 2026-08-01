@@ -207,7 +207,7 @@ class JSBridge: JsEncodeUtils {
                       let len = lenVal.toNumber()?.intValue,
                       len > 0 {
                 for i in 0..<min(len, 50) {
-                    if let item = urlsVal.objectAtIndexedSubscript(UInt32(i)),
+                    if let item = urlsVal.objectAtIndexedSubscript(i),
                        let s = item.toString(), !s.isEmpty, s != "undefined", s != "null" {
                         urls.append(s)
                     }
@@ -810,8 +810,7 @@ class JSBridge: JsEncodeUtils {
         guard !urls.isEmpty else { return [] }
         let source = context?.source
         let base = context?.baseURL?.absoluteString ?? source?.bookSourceUrl ?? ""
-        let lock = NSLock()
-        var results: [(Int, String, String)] = []
+        let box = AjaxAllBox()
         let group = DispatchGroup()
         for (idx, url) in urls.enumerated() {
             group.enter()
@@ -823,24 +822,37 @@ class JSBridge: JsEncodeUtils {
                         analyzedUrl: analyzed,
                         source: source
                     )
-                    lock.lock()
-                    results.append((idx, finalUrl.isEmpty ? url : finalUrl, respBody))
-                    lock.unlock()
+                    box.append(idx: idx, url: finalUrl.isEmpty ? url : finalUrl, body: respBody)
                 } catch {
                     DebugLogger.shared.log("[JS.ajaxAll] \(error)")
-                    lock.lock()
-                    results.append((idx, url, ""))
-                    lock.unlock()
+                    box.append(idx: idx, url: url, body: "")
                 }
             }
         }
         // 每 URL 约 30s，最多约 10 本；给足并行预算
         _ = group.wait(timeout: .now() + 90)
-        return results.sorted { $0.0 < $1.0 }.map { (url: $0.1, body: $0.2) }
+        return box.sortedPairs()
     }
 
     private final class AjaxBodyBox: @unchecked Sendable {
         var value = ""
+    }
+
+    private final class AjaxAllBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var items: [(Int, String, String)] = []
+
+        func append(idx: Int, url: String, body: String) {
+            lock.lock()
+            items.append((idx, url, body))
+            lock.unlock()
+        }
+
+        func sortedPairs() -> [(url: String, body: String)] {
+            lock.lock()
+            defer { lock.unlock() }
+            return items.sorted { $0.0 < $1.0 }.map { (url: $0.1, body: $0.2) }
+        }
     }
 
     /// `org.jsoup.Jsoup.parse(html).select(css).text()` / `.attr(name)`（SwiftSoup 代理）
