@@ -3106,6 +3106,42 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
                                LBReadHostSourceName(host) ?: @"-"];
             [probe writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_clear_probe.txt"]
                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            if (n > 0 && list.isViewLoaded && list.view) {
+                UITableView *tv = nil;
+                NSMutableArray *q = [NSMutableArray arrayWithObject:list.view];
+                while (q.count > 0 && !tv) {
+                    UIView *v = q.firstObject;
+                    [q removeObjectAtIndex:0];
+                    if ([v isKindOfClass:[UITableView class]]) {
+                        tv = (UITableView *)v;
+                        break;
+                    }
+                    [q addObjectsFromArray:v.subviews];
+                }
+                if (tv) {
+                    NSInteger rows = 0;
+                    @try {
+                        if ([tv.dataSource respondsToSelector:
+                             @selector(tableView:numberOfRowsInSection:)]) {
+                            rows = [tv.dataSource tableView:tv numberOfRowsInSection:0];
+                        }
+                    } @catch (__unused NSException *e) {}
+                    if (rows == 0) {
+                        LBEnsurePlazaListTableHooks([list class]);
+                        BOOL replaced = (tv.dataSource != list);
+                        if (replaced) {
+                            tv.dataSource = (id<UITableViewDataSource>)list;
+                            tv.delegate = (id<UITableViewDelegate>)list;
+                        }
+                        @try { [tv reloadData]; } @catch (__unused NSException *e) {}
+                        LBAppendNativeMarker([NSString stringWithFormat:
+                                              @"reload XBS fixDS owner=%@ arrN=%ld replaced=%d ds=%@",
+                                              NSStringFromClass([list class]), (long)n,
+                                              replaced ? 1 : 0,
+                                              tv.dataSource ? NSStringFromClass([tv.dataSource class]) : @"-"]);
+                    }
+                }
+            }
         } @catch (__unused NSException *e) {}
         // T2：禁止再「全 skip」；donor/切源后补原生表软刷，仍不走 Legado overlay
         BOOL pending = sXBSPendingNativeRefresh;

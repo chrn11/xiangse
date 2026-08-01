@@ -371,13 +371,17 @@ static NSString *LBSearchBookKey(NSDictionary *book) {
 
 static BOOL LBArrayHasLegadoBooks(id cur);
 static IMP sOrigHeightForRow = NULL;
+static IMP sOrigPlazaDidSelect = NULL;
+static IMP sTruePlainDidSelect = NULL;
 static void LBHookedPlazaDidSelect(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip);
 
 static CGFloat LBHookedHeightForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip) {
     @try {
         id cur = [self valueForKey:@"arrBaseData"];
-        if ([cur isKindOfClass:[NSArray class]] && [cur count] > 0 &&
-            (LBArrayHasLegadoBooks(cur) || (LBIsDiscoverTabActive() && tv.dataSource == self))) {
+        if (!LBIsDiscoverNativeXBSMode() &&
+            [cur isKindOfClass:[NSArray class]] && [cur count] > 0 &&
+            (LBArrayHasLegadoBooks(cur) ||
+             (LBIsDiscoverTabActive() && tv.dataSource == self))) {
             return 108.0;
         }
     } @catch (__unused NSException *e) {}
@@ -417,7 +421,6 @@ static void LBEnsurePlazaTableDataSourceMethods(Class cls) {
     if (!didM) {
         class_addMethod(cls, didSel, (IMP)LBHookedPlazaDidSelect, "v@:@@");
     } else if (method_getImplementation(didM) != (IMP)LBHookedPlazaDidSelect) {
-        static IMP sOrigPlazaDidSelect = NULL;
         LBInstallHookOnClassOnly(cls, didSel, (IMP)LBHookedPlazaDidSelect, &sOrigPlazaDidSelect);
     }
 }
@@ -1009,6 +1012,16 @@ static BOOL LBTryOpenLegadoBookFromPlaza(id listVC, NSDictionary *book, NSString
 static void LBHookedPlazaDidSelect(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip) {
     (void)_cmd;
     if (LBVCIsBookShelfContext(self)) return;
+    if (LBIsDiscoverNativeXBSMode() && LBIsDiscoverTabActive()) {
+        if (sOrigPlazaDidSelect) {
+            ((void (*)(id, SEL, UITableView *, NSIndexPath *))sOrigPlazaDidSelect)(
+                self, _cmd, tv, ip);
+        } else if (sTruePlainDidSelect) {
+            ((void (*)(id, SEL, UITableView *, NSIndexPath *))sTruePlainDidSelect)(
+                self, _cmd, tv, ip);
+        }
+        return;
+    }
     @try {
         id cur = [self valueForKey:@"arrBaseData"];
         if ([cur isKindOfClass:[NSArray class]] && ip &&
@@ -1212,6 +1225,9 @@ static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInte
         id cur = [self valueForKey:@"arrBaseData"];
         if (plazaHost && [cur isKindOfClass:[NSArray class]] && tv.dataSource == self) {
             // 发现态：safeVDL 后原生 DS 已空，有 arrBaseData 就按我们的行数出
+            if (LBIsDiscoverNativeXBSMode() && LBIsDiscoverTabActive()) {
+                return (NSInteger)[(NSArray *)cur count];
+            }
             if (LBIsDiscoverTabActive() || LBArrayHasLegadoBooks(cur)) {
                 return (NSInteger)[(NSArray *)cur count];
             }
@@ -1259,9 +1275,11 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
     if (plazaHost) {
         @try {
             id cur = [self valueForKey:@"arrBaseData"];
-            BOOL useLegadoCell = LBArrayHasLegadoBooks(cur)
-                || (LBIsDiscoverTabActive() && [cur isKindOfClass:[NSArray class]] && [cur count] > 0
-                    && tv.dataSource == self);
+            BOOL useLegadoCell = !LBIsDiscoverNativeXBSMode() &&
+                (LBArrayHasLegadoBooks(cur) ||
+                 (LBIsDiscoverTabActive() &&
+                  [cur isKindOfClass:[NSArray class]] && [cur count] > 0 &&
+                  tv.dataSource == self));
             if (useLegadoCell &&
                 [cur isKindOfClass:[NSArray class]] &&
                 ip.row >= 0 && ip.row < (NSInteger)[(NSArray *)cur count]) {
@@ -1845,7 +1863,6 @@ static IMP sOrigCatalogCellForRow = NULL;
 /// 搜索/目录 Hook 若误 method_setImplementation 到基类，会伤到 BookShelfListVC → 列表模式「空列表」。
 static IMP sTruePlainNumberOfRows = NULL;
 static IMP sTruePlainCellForRow = NULL;
-static IMP sTruePlainDidSelect = NULL;
 static void (*LBOrig_setArrCatalog)(id, SEL, id) = NULL;
 static id (*LBOrig_getArrCatalog)(id, SEL) = NULL;
 static void (*LBOrig_catalogDidSelect)(id, SEL, UITableView *, NSIndexPath *) = NULL;
@@ -10977,6 +10994,19 @@ void LBInstallCatalogUIAppearFlush(void) {
         void (*prev)(id, SEL, UITableView *, NSIndexPath *) =
             (void (*)(id, SEL, UITableView *, NSIndexPath *))method_getImplementation(m);
         IMP hook = imp_implementationWithBlock(^void(id selfObj, UITableView *tv, NSIndexPath *ip) {
+            NSString *selfClassName = NSStringFromClass([selfObj class]);
+            BOOL nativeDiscover =
+                LBIsDiscoverNativeXBSMode() && LBIsDiscoverTabActive() &&
+                ([selfClassName containsString:@"BookList"] ||
+                 [selfClassName containsString:@"BookWorld"] ||
+                 [selfClassName containsString:@"BookStore"] ||
+                 [selfClassName containsString:@"Shudan"]);
+            if (nativeDiscover) {
+                // XBS 原生点书必须回到宿主 didSelect；Bridge 旁路会把原生书
+                // 误送入 LBPushLegadoBookDetailFromSearch，阅读页样式随之改变。
+                prev(selfObj, @selector(tableView:didSelectRowAtIndexPath:), tv, ip);
+                return;
+            }
             [[NSString stringWithFormat:@"searchDidSelect hit class=%@ row=%ld",
               NSStringFromClass([selfObj class]), (long)(ip ? ip.row : -1)]
                 writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_select.txt"]
