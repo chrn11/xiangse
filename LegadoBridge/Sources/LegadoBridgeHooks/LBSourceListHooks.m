@@ -911,8 +911,13 @@ static void LBSwitchVC_HandleOnOk(id self, SEL _cmd, id sender, BOOL hasSender) 
         @try {
             id cfg = [self valueForKey:@"_currentConfig"];
             if (cfg) {
-                name = LBSafeString([cfg valueForKey:@"name"])
-                    ?: LBSafeString([cfg valueForKey:@"sourceName"]);
+                id n1 = [cfg valueForKey:@"name"];
+                id n2 = [cfg valueForKey:@"sourceName"];
+                if ([n1 isKindOfClass:[NSString class]] && [(NSString *)n1 length] > 0) {
+                    name = (NSString *)n1;
+                } else if ([n2 isKindOfClass:[NSString class]] && [(NSString *)n2 length] > 0) {
+                    name = (NSString *)n2;
+                }
             }
         } @catch (__unused NSException *e) {}
     }
@@ -976,7 +981,7 @@ static void LBSwitchVC_HandleOnOk(id self, SEL _cmd, id sender, BOOL hasSender) 
         isLegado = (LBSwitchVC_ResolveSourceUrl(name).length > 0);
     }
     if (!isLegado && name.length > 0 &&
-        ([name hasPrefix:@"[阅读]"] || [[LegadoBridgeCore shared] isLegadoSourceName:name])) {
+        ([name hasPrefix:@"[阅读]"] || LBLegadoIsSourceName(name))) {
         isLegado = YES;
     }
     @try {
