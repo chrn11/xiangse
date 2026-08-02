@@ -2417,8 +2417,8 @@ static NSArray *LBDedupExploreKinds(NSArray *kinds) {
         if (![title isKindOfClass:[NSString class]] || title.length == 0) title = @"分类";
         NSString *url = dict[@"url"];
         if (![url isKindOfClass:[NSString class]]) url = @"";
-        // B-03：按 (title, url) 去重，同名不同 URL 均保留
-        NSString *key = [NSString stringWithFormat:@"%@\u001F%@", title, url];
+        // B-03：按 (title, url) 去重，同名不同 URL 均保留（用 0x1F，勿写 \\u001F 字面量）
+        NSString *key = [NSString stringWithFormat:@"%@%C%@", title, (unichar)0x1F, url];
         if ([seen containsObject:key]) continue;
         [seen addObject:key];
         [out addObject:dict];
@@ -2441,7 +2441,7 @@ static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *ki
         NSString *title = ([t isKindOfClass:[NSString class]] && t.length > 0) ? t : @"分类";
         NSString *u = item[@"url"];
         NSString *url = ([u isKindOfClass:[NSString class]]) ? u : @"";
-        NSString *key = [NSString stringWithFormat:@"%@\u001F%@", title, url];
+        NSString *key = [NSString stringWithFormat:@"%@%C%@", title, (unichar)0x1F, url];
         if ([seen containsObject:key]) continue; // B-03：(title,url) 去重
         [seen addObject:key];
         [titles addObject:title];
