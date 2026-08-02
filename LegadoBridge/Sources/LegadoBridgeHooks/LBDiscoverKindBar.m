@@ -3751,10 +3751,28 @@ static void LBDiscover_openConfigByName(id self, SEL _cmd, NSString *name) {
     if (sFeedingDiscoverHeader || sHandlingDiscoverSwitch) return;
     if (!(LBIsDiscoverTabActive() || sNativeChromeBuilt || LBSelfLooksDiscoverWorldHost(self))) return;
     if (![name isKindOfClass:[NSString class]] || name.length == 0) return;
-    // 纯 XBS：openConfig 交给原生，禁止再 Handle→restore（会打断拉书）
+    // 纯 XBS：同名旁路；换源仍 Handle（与 setDicModel 一致）
     NSString *norm = LBNormalizeSourceDisplayName(name) ?: name;
     if (!LBLegadoIsSourceName(norm)) {
-        LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName XBS passthrough name=%@", norm]);
+        UIViewController *hostX = [self isKindOfClass:[UIViewController class]]
+            ? (UIViewController *)self : LBPrimaryDiscoverHost();
+        NSString *cur = LBReadHostSourceName(hostX);
+        NSString *curN = LBNormalizeSourceDisplayName(cur) ?: cur;
+        BOOL same = (curN.length > 0 &&
+                     ([curN isEqualToString:norm] ||
+                      [curN containsString:norm] || [norm containsString:curN]));
+        if (same) {
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"openConfigByName XBS passthrough same name=%@", norm]);
+            return;
+        }
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"openConfigByName XBS switch %@ → %@",
+                              curN ?: @"-", norm]);
+        NSString *nameCopy = [name copy];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBHandleDiscoverSourceSwitched(hostX, nameCopy);
+        });
         return;
     }
     UIViewController *host = [self isKindOfClass:[UIViewController class]]
@@ -3790,10 +3808,27 @@ static void LBDiscover_setDicModel(id self, SEL _cmd, id model) {
         [norm isEqualToString:@"发现"]) {
         return;
     }
-    // 关键：非 Legado 名一律旁路。进发现/原生 setDic 再 Handle→restore 会杀拉书。
-    // 从切源面板切到 XBS 仍走 LBNotifyDiscoverNativeSourceSwitched → nativeSwitch。
+    // 非 Legado：同名只旁路；换源（XBS→XBS）仍 Handle→restore，否则 bookWorld 空、永不拉书
     if (!LBLegadoIsSourceName(norm)) {
-        LBAppendNativeMarker([NSString stringWithFormat:@"setDicModel XBS passthrough name=%@", norm]);
+        UIViewController *hostX = [self isKindOfClass:[UIViewController class]]
+            ? (UIViewController *)self : LBPrimaryDiscoverHost();
+        NSString *cur = LBReadHostSourceName(hostX);
+        NSString *curN = LBNormalizeSourceDisplayName(cur) ?: cur;
+        BOOL same = (curN.length > 0 &&
+                     ([curN isEqualToString:norm] ||
+                      [curN containsString:norm] || [norm containsString:curN]));
+        if (same) {
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"setDicModel XBS passthrough same name=%@", norm]);
+            return;
+        }
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"setDicModel XBS switch %@ → %@ → Handle",
+                              curN ?: @"-", norm]);
+        NSString *nameCopy = [norm copy];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBHandleDiscoverSourceSwitched(hostX, nameCopy);
+        });
         return;
     }
     UIViewController *host = [self isKindOfClass:[UIViewController class]]
