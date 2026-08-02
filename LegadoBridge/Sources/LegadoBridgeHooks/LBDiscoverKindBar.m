@@ -1462,6 +1462,35 @@ static void LBBookList_safeViewDidLoad(id self, SEL _cmd) {
         return;
     }
 
+    // 纯 XBS：只调原生 VDL，禁止 fallback 清空 arrBaseData（会变成永久空列表）
+    // SyncMode 可能晚于子页 VDL：同时看 ShouldUseNativeXBS / 宿主源名
+    BOOL xbsNow = LBIsDiscoverNativeXBSMode() || LBDiscoverShouldUseNativeXBS();
+    if (!xbsNow) {
+        UIViewController *host0 = LBPrimaryDiscoverHost();
+        NSString *hn = LBReadHostSourceName(host0);
+        NSString *hnN = LBNormalizeSourceDisplayName(hn) ?: hn;
+        if (hnN.length > 0 && !LBLegadoIsSourceName(hnN)) xbsNow = YES;
+    }
+    if (xbsNow) {
+        if (sOrig_bookListViewDidLoad) {
+            @try {
+                sOrig_bookListViewDidLoad(self, _cmd);
+                static NSInteger sNativeVDLXBS = 0;
+                if (sNativeVDLXBS < 3) {
+                    LBAppendNativeMarker([NSString stringWithFormat:
+                                          @"BookListCon nativeViewDidLoad XBS #%ld",
+                                          (long)sNativeVDLXBS]);
+                    sNativeVDLXBS++;
+                }
+            } @catch (NSException *ex) {
+                LBAppendNativeMarker([NSString stringWithFormat:
+                                      @"BookListCon nativeVDL XBS EX %@ (no clear)",
+                                      ex.reason ?: @""]);
+            }
+        }
+        return;
+    }
+
     // 先试原生 VDL（donor bookWorld 完整时能出二级标签网格）
     if (sOrig_bookListViewDidLoad) {
         @try {
@@ -3722,6 +3751,12 @@ static void LBDiscover_openConfigByName(id self, SEL _cmd, NSString *name) {
     if (sFeedingDiscoverHeader || sHandlingDiscoverSwitch) return;
     if (!(LBIsDiscoverTabActive() || sNativeChromeBuilt || LBSelfLooksDiscoverWorldHost(self))) return;
     if (![name isKindOfClass:[NSString class]] || name.length == 0) return;
+    // 纯 XBS：openConfig 交给原生，禁止再 Handle→restore（会打断拉书）
+    NSString *norm = LBNormalizeSourceDisplayName(name) ?: name;
+    if (!LBLegadoIsSourceName(norm)) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"openConfigByName XBS passthrough name=%@", norm]);
+        return;
+    }
     UIViewController *host = [self isKindOfClass:[UIViewController class]]
         ? (UIViewController *)self : LBPrimaryDiscoverHost();
     NSString *nameCopy = [name copy];
@@ -3755,6 +3790,12 @@ static void LBDiscover_setDicModel(id self, SEL _cmd, id model) {
         [norm isEqualToString:@"发现"]) {
         return;
     }
+    // 关键：非 Legado 名一律旁路。进发现/原生 setDic 再 Handle→restore 会杀拉书。
+    // 从切源面板切到 XBS 仍走 LBNotifyDiscoverNativeSourceSwitched → nativeSwitch。
+    if (!LBLegadoIsSourceName(norm)) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"setDicModel XBS passthrough name=%@", norm]);
+        return;
+    }
     UIViewController *host = [self isKindOfClass:[UIViewController class]]
         ? (UIViewController *)self : LBPrimaryDiscoverHost();
     id tv = nil;
@@ -3765,17 +3806,6 @@ static void LBDiscover_setDicModel(id self, SEL _cmd, id model) {
     if (!chromeMissing && sLastHandledSwitchName &&
         [sLastHandledSwitchName isEqualToString:norm]) {
         return;
-    }
-    // 已在对应 XBS 源且 chrome 在：只接受模型，禁止再 Handle→restore（会清空拉书）
-    if (!chromeMissing && LBIsDiscoverNativeXBSMode()) {
-        NSString *cur = LBReadHostSourceName(host);
-        NSString *curN = LBNormalizeSourceDisplayName(cur) ?: cur;
-        if (curN.length && ([curN isEqualToString:norm] ||
-                            [curN containsString:norm] || [norm containsString:curN])) {
-            LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"setDicModel XBS acceptOnly name=%@", norm]);
-            return;
-        }
     }
     LBAppendNativeMarker([NSString stringWithFormat:
                           @"setDicModel switch name=%@ chromeMissing=%d",
@@ -3931,7 +3961,7 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
             @try { [core setValue:nil forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
         }
         @try { LBClearDiscoverExplorePendingOnly(); } @catch (__unused NSException *e) {}
-        @try { LBClearNativeReadingBridgeState(); } @catch (__unused NSException *e) {}
+        // 不在此 ClearNativeReadingBridgeState：进发现轮询会反复清，可能扰动原生会话
 
         NSString *name = nil;
         if (sDiscoverUseSourceName.length > 0) {
@@ -3939,12 +3969,11 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
         } else {
             name = LBReadHostSourceName(host);
         }
-        // syncMode：默认不 restore/reset。
-        // 但 host.bookWorld 已空（bw<3）时点标签必「空列表」→ 只 setDicModel 灌回，不 reset。
-        // chrome 也缺失时才走完整 restore（nativeSwitch 同款）。
+        // 关键：XBS syncMode 零副作用（不 ensure / 不 restore）。
+        // ensureDic 真机 after=0 无效；restore 会 setDic+reset 杀拉书。
+        // 切源重建只留 nativeSwitch（Notify / 切源面板）。
         NSInteger arrN = -1;
         NSUInteger bwN = 0;
-        id tv = nil; id scroll = nil;
         @try {
             UIViewController *list = LBActiveDiscoverListVC(host) ?: host;
             id a = [list valueForKey:@"arrBaseData"];
@@ -3954,46 +3983,11 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
                 id bw = ((NSDictionary *)dm)[@"bookWorld"];
                 if ([bw isKindOfClass:[NSDictionary class]]) bwN = [(NSDictionary *)bw count];
             }
-            @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-            @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
         } @catch (__unused NSException *e) {}
-
-        BOOL didEnsure = NO;
-        BOOL didRestore = NO;
-        if (host && name.length > 0 &&
-            ![name isEqualToString:@"切换站点"] &&
-            ![name isEqualToString:@"书源"] &&
-            ![name isEqualToString:@"发现"] &&
-            bwN < 3) {
-            static NSString *sLastEnsureName = nil;
-            static CFAbsoluteTime sLastEnsureAt = 0;
-            CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-            BOOL sameRecent = (sLastEnsureName &&
-                               [sLastEnsureName isEqualToString:name] &&
-                               (now - sLastEnsureAt) < 3.0);
-            if (!sameRecent) {
-                sLastEnsureName = [name copy];
-                sLastEnsureAt = now;
-                if (tv && scroll) {
-                    didEnsure = LBEnsureXBSDicModelOnly(host, name);
-                } else {
-                    BOOL prevHandling = sHandlingDiscoverSwitch;
-                    sHandlingDiscoverSwitch = YES;
-                    @try {
-                        didRestore = LBRestoreNativeXBSChrome(host, name);
-                    } @catch (__unused NSException *e) {
-                        didRestore = NO;
-                    } @finally {
-                        sHandlingDiscoverSwitch = prevHandling;
-                    }
-                }
-            }
-        }
         LBAppendNativeMarker([NSString stringWithFormat:
-                              @"syncMode XBS=1 skipRestore host=%@ name=%@ arrN=%ld bw=%lu ensure=%d restore=%d",
+                              @"syncMode XBS=1 handsOff host=%@ name=%@ arrN=%ld bw=%lu",
                               host ? NSStringFromClass([host class]) : @"-",
-                              name ?: @"-", (long)arrN, (unsigned long)bwN,
-                              didEnsure ? 1 : 0, didRestore ? 1 : 0]);
+                              name ?: @"-", (long)arrN, (unsigned long)bwN]);
     } else {
         LBAppendNativeMarker([NSString stringWithFormat:
                               @"syncMode XBS=0 host=%@ name=%@",
