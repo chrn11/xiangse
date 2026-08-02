@@ -898,13 +898,31 @@ static BOOL LBEnsureXBSDicModelOnly(UIViewController *host, NSString *sourceName
     }
     NSMutableDictionary *model = [picked mutableCopy];
     if (want.length > 0) model[@"cf_title"] = want;
-    BOOL ok = LBForceSetDicModel(host, model);
+    // 必须挡住 setDicModel hook：否则会异步 LBHandleDiscoverSourceSwitched → restore/reset
+    BOOL prevHandling = sHandlingDiscoverSwitch;
+    sHandlingDiscoverSwitch = YES;
+    BOOL ok = NO;
+    @try {
+        ok = LBForceSetDicModel(host, model);
+    } @finally {
+        sHandlingDiscoverSwitch = prevHandling;
+    }
     @try { [host setValue:(pickedName ?: want) forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
     @try { [host setValue:(pickedName ?: want) forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
+    // 回读确认 bookWorld 是否真挂上
+    NSUInteger afterN = 0;
+    @try {
+        id dm = [host valueForKey:@"dicModel"];
+        if ([dm isKindOfClass:[NSDictionary class]]) {
+            id bw2 = ((NSDictionary *)dm)[@"bookWorld"];
+            if ([bw2 isKindOfClass:[NSDictionary class]]) afterN = [(NSDictionary *)bw2 count];
+        }
+    } @catch (__unused NSException *e) {}
     LBAppendNativeMarker([NSString stringWithFormat:
-                          @"ensureDic setOnly=%d bw=%lu name=%@ noReset",
-                          ok ? 1 : 0, (unsigned long)bwN, pickedName ?: want]);
-    return ok;
+                          @"ensureDic setOnly=%d bw=%lu after=%lu name=%@ noReset",
+                          ok ? 1 : 0, (unsigned long)bwN, (unsigned long)afterN,
+                          pickedName ?: want]);
+    return ok && afterN >= 3;
 }
 
 /// openConfig 在 BookWorldHomeCon 上常无 IMP（noSel）：用 manager 模型 + resetContent 重建标签墙
@@ -3710,6 +3728,17 @@ static void LBDiscover_setDicModel(id self, SEL _cmd, id model) {
     if (!chromeMissing && sLastHandledSwitchName &&
         [sLastHandledSwitchName isEqualToString:norm]) {
         return;
+    }
+    // 已在对应 XBS 源且 chrome 在：只接受模型，禁止再 Handle→restore（会清空拉书）
+    if (!chromeMissing && LBIsDiscoverNativeXBSMode()) {
+        NSString *cur = LBReadHostSourceName(host);
+        NSString *curN = LBNormalizeSourceDisplayName(cur) ?: cur;
+        if (curN.length && ([curN isEqualToString:norm] ||
+                            [curN containsString:norm] || [norm containsString:curN])) {
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"setDicModel XBS acceptOnly name=%@", norm]);
+            return;
+        }
     }
     LBAppendNativeMarker([NSString stringWithFormat:
                           @"setDicModel switch name=%@ chromeMissing=%d",
