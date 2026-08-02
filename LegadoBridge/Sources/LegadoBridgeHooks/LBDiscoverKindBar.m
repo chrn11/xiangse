@@ -845,6 +845,30 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
     if (!host || sourceName.length == 0) return NO;
     NSString *want = LBNormalizeSourceDisplayName(sourceName) ?: sourceName;
 
+    // 宿主已是该源且 chrome 在：禁止再 setDic/resetContent（会取消原生拉书 → 永远「正在刷新」）
+    @try {
+        NSString *curName = LBReadHostSourceName(host);
+        NSString *curNorm = LBNormalizeSourceDisplayName(curName) ?: curName;
+        id tv = nil; id scroll = nil; id dm = nil;
+        @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+        @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
+        @try { dm = [host valueForKey:@"dicModel"]; } @catch (__unused NSException *e) {}
+        NSUInteger bwN = 0;
+        if ([dm isKindOfClass:[NSDictionary class]]) {
+            id bw = ((NSDictionary *)dm)[@"bookWorld"];
+            if ([bw isKindOfClass:[NSDictionary class]]) bwN = [(NSDictionary *)bw count];
+        }
+        BOOL nameMatch = (curNorm.length > 0 && want.length > 0 &&
+                          ([curNorm isEqualToString:want] ||
+                           [curNorm containsString:want] || [want containsString:curNorm]));
+        if (nameMatch && tv && scroll && bwN >= 3 && host.isViewLoaded && host.view.window) {
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"xbsRestore skipAlreadyLive name=%@ bw=%lu",
+                                  want, (unsigned long)bwN]);
+            return YES;
+        }
+    } @catch (__unused NSException *e) {}
+
     BOOL opened = LBInvokeOpenConfigByName(host, sourceName);
     if (!opened && ![sourceName isEqualToString:want]) {
         opened = LBInvokeOpenConfigByName(host, want);
@@ -3781,17 +3805,8 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
                 } @finally {
                     sHandlingDiscoverSwitch = prevHandling;
                 }
-                // T2：syncMode 入口也会 restore，同样延迟软刷
-                if (opened) {
-                    sXBSPendingNativeRefresh = YES;
-                    __weak UIViewController *weakHost = host;
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
-                                   dispatch_get_main_queue(), ^{
-                        UIViewController *h = weakHost;
-                        if (!h) return;
-                        LBReloadDiscoverNativeList(h);
-                    });
-                }
+                // 纯 XBS：restore 已 resetContent，禁止再延迟 LBReload（即便 noop 也会打乱时序）
+                // opened 后交给原生拉书即可
             }
         }
         LBAppendNativeMarker([NSString stringWithFormat:
