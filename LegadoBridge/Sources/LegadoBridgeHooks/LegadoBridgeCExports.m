@@ -1691,6 +1691,39 @@ void LBDismissDiscoverLoadingHUD(void) {
 
 static const NSInteger kLBExploreEmptyHintTag = 0x4C424545; // 'LBEE'
 
+@interface LBExploreEmptyHintActions : NSObject
+- (void)openLogin:(id)sender;
+@end
+
+@implementation LBExploreEmptyHintActions
+- (void)openLogin:(id)sender {
+    (void)sender;
+    NSString *src = nil;
+    id core = LBLegadoCoreIfReady();
+    if (core) {
+        @try {
+            id v = [core valueForKey:@"selectedExploreSourceUrl"];
+            if ([v isKindOfClass:[NSString class]]) src = (NSString *)v;
+        } @catch (__unused NSException *e) {}
+    }
+    if (src.length == 0) {
+        // 兜底书山
+        src = @"https://v1.vossc.com";
+    }
+    LBPresentLoginUiFormForSource(src);
+    [@"explore empty hint openLogin"
+        writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+        atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+}
+@end
+
+static LBExploreEmptyHintActions *LBExploreEmptyHintActionsShared(void) {
+    static LBExploreEmptyHintActions *s;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ s = [[LBExploreEmptyHintActions alloc] init]; });
+    return s;
+}
+
 void LBClearDiscoverExploreEmptyHint(void) {
     if (![NSThread isMainThread]) {
         dispatch_async(dispatch_get_main_queue(), ^{ LBClearDiscoverExploreEmptyHint(); });
@@ -1725,6 +1758,7 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
     NSString *text = message.length > 0
         ? message
         : @"暂无书籍（可能需登录，或该分类无内容）";
+    BOOL needLogin = [text containsString:@"登录"] || [text containsString:@"session"];
     @try {
         UIViewController *host = nil;
         NSArray *hosts = LBFindDiscoverHostVCs() ?: @[];
@@ -1770,8 +1804,8 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
         }
         box.userInteractionEnabled = YES; // 挡住底层标签墙误点
 
-        UILabel *lab = [[UILabel alloc] initWithFrame:CGRectInset(box.bounds, 24, 24)];
-        lab.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        UILabel *lab = [[UILabel alloc] initWithFrame:CGRectZero];
+        lab.translatesAutoresizingMaskIntoConstraints = NO;
         lab.text = text;
         lab.textAlignment = NSTextAlignmentCenter;
         lab.numberOfLines = 0;
@@ -1782,12 +1816,38 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
             lab.textColor = [UIColor darkGrayColor];
         }
         [box addSubview:lab];
+
+        UIButton *loginBtn = nil;
+        if (needLogin) {
+            loginBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+            loginBtn.translatesAutoresizingMaskIntoConstraints = NO;
+            [loginBtn setTitle:@"打开书源登录（番茄登录）" forState:UIControlStateNormal];
+            loginBtn.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+            [loginBtn addTarget:LBExploreEmptyHintActionsShared()
+                         action:@selector(openLogin:)
+               forControlEvents:UIControlEventTouchUpInside];
+            [box addSubview:loginBtn];
+        }
+
+        [NSLayoutConstraint activateConstraints:@[
+            [lab.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:24],
+            [lab.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-24],
+            [lab.centerYAnchor constraintEqualToAnchor:box.centerYAnchor constant:needLogin ? -28 : 0],
+        ]];
+        if (loginBtn) {
+            [NSLayoutConstraint activateConstraints:@[
+                [loginBtn.topAnchor constraintEqualToAnchor:lab.bottomAnchor constant:16],
+                [loginBtn.centerXAnchor constraintEqualToAnchor:box.centerXAnchor],
+            ]];
+        }
+
         [host.view addSubview:box];
         [host.view bringSubviewToFront:box];
         if ([title isKindOfClass:[UIView class]]) {
             [host.view bringSubviewToFront:(UIView *)title];
         }
-        NSString *shown = [NSString stringWithFormat:@"explore empty hint shown msg=%@", text];
+        NSString *shown = [NSString stringWithFormat:@"explore empty hint shown msg=%@ loginBtn=%d",
+                           text, needLogin ? 1 : 0];
         [shown writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     } @catch (__unused NSException *e) {}

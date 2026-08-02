@@ -1028,11 +1028,18 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     }
                     if results.isEmpty {
                         writeSearchMarker("explore empty src=\(source.bookSourceUrl)")
+                        let emptyHint: String
+                        if let exploreUrlCopy, exploreUrlCopy.contains("session="),
+                           exploreUrlCopy.hasSuffix("session=") || exploreUrlCopy.contains("session=&") {
+                            emptyHint = "需要番茄登录后才能发现书籍（session 为空）"
+                        } else {
+                            emptyHint = "暂无书籍（可能需登录，或该分类无内容）"
+                        }
                         await MainActor.run {
                             guard generation == sExploreGeneration else { return }
                             LBSetDiscoverNativeXBSMode(false)
                             LBDismissDiscoverLoadingHUD()
-                            LBShowDiscoverExploreEmptyHint("暂无书籍（可能需登录，或该分类无内容）")
+                            LBShowDiscoverExploreEmptyHint(emptyHint)
                         }
                     }
                 } catch {
@@ -1541,6 +1548,42 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         }
         // 书山等 exploreUrl 把 session 写进 kind URL：Cookie 变了必须重算分类缓存
         invalidateExploreKindsCache(forSourceUrl: nil)
+
+        // 番茄 WebView 回灌：把 sessionid 写入当前发现源「番茄登录Token」，并自动重刷发现
+        if Self.hostLooksFanqie(key) || Self.hostLooksFanqie(url),
+           let sid = Self.extractSessionId(from: merged), !sid.isEmpty {
+            let tokenValue = "sessionid=\(sid)"
+            var targets: [String] = []
+            if let sel = selectedExploreSourceUrl, !sel.isEmpty { targets.append(sel) }
+            // 常见书山根站
+            for u in ["https://v1.vossc.com", "https://v2.vossc.com", "https://v3.vossc.com", "https://v4.vossc.com"] {
+                if SourceRegistry.shared.source(forUrl: u) != nil { targets.append(u) }
+            }
+            for src in Set(targets) {
+                var map = LoginCredentialStore.infoMap(sourceUrl: src)
+                map["番茄登录Token"] = tokenValue
+                if let data = try? JSONSerialization.data(withJSONObject: map),
+                   let json = String(data: data, encoding: .utf8) {
+                    LoginCredentialStore.putInfo(json, sourceUrl: src)
+                }
+            }
+            let pathT = (NSHomeDirectory() as NSString)
+                .appendingPathComponent("Documents/legado_cookie_jar.txt")
+            let note = "tomato sessionid=\(sid.prefix(12))… targets=\(targets.count)\n"
+            if let data = note.data(using: .utf8), let handle = FileHandle(forWritingAtPath: pathT) {
+                handle.seekToEndOfFile()
+                handle.write(data)
+                try? handle.close()
+            }
+            // 登录完成后自动重拉当前发现源
+            let exploreSrc = selectedExploreSourceUrl ?? targets.first
+            if let exploreSrc, !exploreSrc.isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                    self?.handleExploreRequest(sourceUrl: exploreSrc, exploreUrl: nil, page: 1)
+                }
+            }
+        }
+
         let path = (NSHomeDirectory() as NSString)
             .appendingPathComponent("Documents/legado_cookie_jar.txt")
         let line = "save key=\(key) len=\(merged.count) src=\(url)\n"
@@ -1553,6 +1596,25 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 try? line.write(toFile: path, atomically: true, encoding: .utf8)
             }
         }
+    }
+
+    private static func hostLooksFanqie(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        return lower.contains("fanqienovel") || lower.contains("snssdk") || lower.contains("toutiao")
+    }
+
+    private static func extractSessionId(from cookieHeader: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: #"sessionid=([^;\s]+)"#, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(cookieHeader.startIndex..., in: cookieHeader)
+        guard let match = regex.firstMatch(in: cookieHeader, options: [], range: range),
+              match.numberOfRanges >= 2,
+              let r = Range(match.range(at: 1), in: cookieHeader) else {
+            return nil
+        }
+        let sid = String(cookieHeader[r]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return sid.isEmpty ? nil : sid
     }
 
     @objc(cookieJarForUrl:)
