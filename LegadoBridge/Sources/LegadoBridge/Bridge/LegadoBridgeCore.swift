@@ -1020,6 +1020,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     }
                     if results.isEmpty {
                         writeSearchMarker("explore empty src=\(source.bookSourceUrl)")
+                        await MainActor.run {
+                            guard generation == sExploreGeneration else { return }
+                            LBDismissDiscoverLoadingHUD()
+                            LBShowDiscoverExploreEmptyHint("暂无书籍（可能需登录，或该分类无内容）")
+                        }
                     }
                 } catch {
                     writeSearchMarker("explore err src=\(source.bookSourceUrl) \(error.localizedDescription)")
@@ -1027,9 +1032,19 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     if let bridgeErr = error as? LegadoBridgeError, case .timeout = bridgeErr {
                         writeSearchMarker("explore timeout src=\(source.bookSourceUrl)")
                     }
+                    let errMsg = error.localizedDescription
+                    let hint: String
+                    if errMsg.contains("登录") || errMsg.lowercased().contains("login") {
+                        hint = "需要登录后才能发现书籍"
+                    } else if errMsg.contains("JS") || errMsg.contains("URL") {
+                        hint = "发现地址解析失败：\(String(errMsg.prefix(80)))"
+                    } else {
+                        hint = "发现加载失败：\(String(errMsg.prefix(80)))"
+                    }
                     await MainActor.run {
                         guard generation == sExploreGeneration else { return }
                         LBDismissDiscoverLoadingHUD()
+                        LBShowDiscoverExploreEmptyHint(hint)
                     }
                 }
             }
@@ -1038,6 +1053,8 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 await MainActor.run {
                     guard generation == sExploreGeneration else { return }
                     LBDismissDiscoverLoadingHUD()
+                    // 若各源已各自 show empty，此处兜底再盖一次
+                    LBShowDiscoverExploreEmptyHint("暂无书籍（可能需登录，或该分类无内容）")
                 }
             }
             writeSearchMarker("explore ok total=\(total) sources=\(targets.count)")

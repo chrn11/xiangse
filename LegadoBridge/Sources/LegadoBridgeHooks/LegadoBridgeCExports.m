@@ -1571,6 +1571,7 @@ void LBClearDiscoverExploreBooks(void) {
         return;
     }
     @try {
+        LBClearDiscoverExploreEmptyHint();
         // 用户正在看纯 XBS 发现：禁止掏空原生 bookWorld 列表
         if (LBIsDiscoverNativeXBSMode()) {
             LBClearDiscoverExplorePendingOnly();
@@ -1688,6 +1689,83 @@ void LBDismissDiscoverLoadingHUD(void) {
     } @catch (__unused NSException *e) {}
 }
 
+static const NSInteger kLBExploreEmptyHintTag = 0x4C424545; // 'LBEE'
+
+void LBClearDiscoverExploreEmptyHint(void) {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ LBClearDiscoverExploreEmptyHint(); });
+        return;
+    }
+    @try {
+        NSArray *hosts = LBFindDiscoverHostVCs() ?: @[];
+        for (UIViewController *vc in hosts) {
+            if (!vc.isViewLoaded || !vc.view) continue;
+            NSMutableArray<UIView *> *doomed = [NSMutableArray array];
+            for (UIView *sub in vc.view.subviews) {
+                if (sub.tag == kLBExploreEmptyHintTag) [doomed addObject:sub];
+            }
+            for (UIView *v in doomed) [v removeFromSuperview];
+        }
+    } @catch (__unused NSException *e) {}
+}
+
+/// explore 空/失败：盖住底层 XBS 标签墙，避免「只有分类没有书」被误当成可点标签墙
+void LBShowDiscoverExploreEmptyHint(NSString *message) {
+    if (![NSThread isMainThread]) {
+        NSString *copy = [message copy] ?: @"";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBShowDiscoverExploreEmptyHint(copy);
+        });
+        return;
+    }
+    if (LBIsDiscoverNativeXBSMode()) {
+        LBClearDiscoverExploreEmptyHint();
+        return;
+    }
+    NSString *text = message.length > 0
+        ? message
+        : @"暂无书籍（可能需登录，或该分类无内容）";
+    @try {
+        UIViewController *host = nil;
+        NSArray *hosts = LBFindDiscoverHostVCs() ?: @[];
+        if (hosts.count > 0) host = hosts.firstObject;
+        if (!host || !host.isViewLoaded || !host.view) return;
+        LBClearDiscoverExploreEmptyHint();
+
+        CGFloat top = 88;
+        id title = nil;
+        @try { title = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+        if ([title isKindOfClass:[UIView class]]) {
+            CGFloat b = CGRectGetMaxY(((UIView *)title).frame);
+            if (b > 40) top = b;
+        }
+        CGRect hb = host.view.bounds;
+        if (hb.size.width < 2 || hb.size.height < top + 40) return;
+        UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, top, hb.size.width, hb.size.height - top)];
+        box.tag = kLBExploreEmptyHintTag;
+        box.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        box.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
+        box.userInteractionEnabled = YES; // 挡住底层标签墙误点
+
+        UILabel *lab = [[UILabel alloc] initWithFrame:CGRectInset(box.bounds, 24, 24)];
+        lab.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        lab.text = text;
+        lab.textAlignment = NSTextAlignmentCenter;
+        lab.numberOfLines = 0;
+        lab.font = [UIFont systemFontOfSize:15 weight:UIFontWeightRegular];
+        lab.textColor = [UIColor colorWithWhite:0.35 alpha:1];
+        [box addSubview:lab];
+        [host.view addSubview:box];
+        [host.view bringSubviewToFront:box];
+        if ([title isKindOfClass:[UIView class]]) {
+            [host.view bringSubviewToFront:(UIView *)title];
+        }
+        [@"explore empty hint shown"
+            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    } @catch (__unused NSException *e) {}
+}
+
 void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
     if (![books isKindOfClass:[NSArray class]] || books.count == 0) return;
     if (![NSThread isMainThread]) {
@@ -1699,6 +1777,8 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
         return;
     }
     @try {
+    // 有书则清掉空态盖层
+    LBClearDiscoverExploreEmptyHint();
     LBInstallSearchUIAppearFlush();
     if (!sPendingSearchBooks) sPendingSearchBooks = [NSMutableArray array];
     // 合并进 pending（同 key 去重）

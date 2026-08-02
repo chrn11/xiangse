@@ -17,6 +17,9 @@ FOUNDATION_EXPORT void LBApplySearchResultsToUI(NSArray *books, NSString * _Null
 FOUNDATION_EXPORT void LBClearDiscoverExploreBooks(void);
 /// explore 超时/失败后摘掉发现页「章节加载中」残留（防 UI 永久挂起）
 FOUNDATION_EXPORT void LBDismissDiscoverLoadingHUD(void);
+/// explore 空结果/失败：盖住底层 XBS 标签墙，给出可见提示
+FOUNDATION_EXPORT void LBShowDiscoverExploreEmptyHint(NSString * _Nullable message);
+FOUNDATION_EXPORT void LBClearDiscoverExploreEmptyHint(void);
 /// 只清 Legado explore 的 pending/lastApplied，不动发现宿主原生列表（切 XBS 时用）
 FOUNDATION_EXPORT void LBClearDiscoverExplorePendingOnly(void);
 /// 发现页当前是否处于「用户切到纯 XBS」态（此时禁止再灌 Legado explore）

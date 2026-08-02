@@ -598,6 +598,37 @@ final class RuleFixtureTests: XCTestCase {
         )
     }
 
+    /// 顶层 @js:getApiUrl('/x', {…}) 不得被 `, {` 截成残片（起点限免类 kind URL）
+    func testTopLevelJSGetApiUrlNotTruncatedByCommaBrace() {
+        let source = JsLibFixtureSource(
+            jsLib: "function getApiUrl(path, opt){ return 'https://example.com'+path+'?q='+(opt&&opt.a?opt.a:''); }"
+        )
+        let rule = #"@js:getApiUrl('/explore/store', {a:1})"#
+        let analyzed = AnalyzeUrl.analyze(
+            ruleUrl: rule,
+            key: nil,
+            page: 1,
+            baseUrl: "https://example.com",
+            source: source
+        )
+        XCTAssertFalse(
+            analyzed.url.contains("getApiUrl('/explore/store'"),
+            "不得截在逗号前留下残片，实际: \(analyzed.url)"
+        )
+        XCTAssertFalse(
+            analyzed.url.hasPrefix("@js:"),
+            "应求出 URL，不得残留 @js:，实际: \(analyzed.url)"
+        )
+        XCTAssertTrue(
+            analyzed.url.contains("/explore/store"),
+            "应含完整 path，实际: \(analyzed.url)"
+        )
+        XCTAssertTrue(
+            analyzed.url.hasPrefix("http"),
+            "应是可用 HTTP URL，实际: \(analyzed.url)"
+        )
+    }
+
     /// JS 失败时仍能从 baseUrl+"/so/…" 字面量恢复，避免请求落到 localhost
     func testQidianStyleSearchUrlRecoversWhenJsLeftRaw() {
         // 模拟字面量已替换、但整段仍带 @js: 的失败态（与真机探针一致的前缀形态）

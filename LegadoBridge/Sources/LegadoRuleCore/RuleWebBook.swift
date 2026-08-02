@@ -320,15 +320,7 @@ public enum RuleWebBook {
         url: String? = nil,
         page: Int = 1
     ) async throws -> [SearchBookResult] {
-        let rawTarget = (url?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
-            $0.isEmpty ? nil : $0
-        } ?? source.exploreUrl
-        guard let rawTarget, !rawTarget.isEmpty else {
-            throw WebBookError.noRule("发现 URL（exploreUrl）")
-        }
-        guard let exploreTarget = resolveExploreFetchURL(rawTarget), !exploreTarget.isEmpty else {
-            throw WebBookError.noRule("发现 URL（exploreUrl 分类表无可用地址）")
-        }
+        let exploreTarget = try resolveExploreTargetURL(source: source, url: url)
 
         let analyzedUrl = AnalyzeUrl.analyze(
             ruleUrl: exploreTarget,
@@ -336,6 +328,14 @@ public enum RuleWebBook {
             baseUrl: source.bookSourceUrl,
             source: source
         )
+        // @js: 求值失败后仍带前缀 → 禁止当 HTTP URL 发请求（会变 badURL「不支持的URL」）
+        let finalURL = analyzedUrl.url.trimmingCharacters(in: .whitespacesAndNewlines)
+        if finalURL.lowercased().hasPrefix("@js:") || finalURL.lowercased().hasPrefix("<js>") {
+            throw WebBookError.parseFailed("发现地址 JS 未求出可用 URL：\(String(finalURL.prefix(120)))")
+        }
+        if finalURL.isEmpty {
+            throw WebBookError.parseFailed("发现地址解析为空")
+        }
         var (body, redirectUrl) = try await AnalyzeUrl.getResponseBody(
             analyzedUrl: analyzedUrl,
             source: source
@@ -368,6 +368,37 @@ public enum RuleWebBook {
             return [direct]
         }
         return dedupeSearchResults(results)
+    }
+
+    /// 解析发现请求目标：传入的单条 kind URL 直接用；否则从 exploreUrl 展开。
+    /// - Important: 勿对已选定的 kind URL 再走 `parseExploreKinds`（`@js:getApiUrl('/x', {…})` 会被误解析）。
+    private static func resolveExploreTargetURL(
+        source: any BridgeSourceProtocol,
+        url: String?
+    ) throws -> String {
+        if let raw = url?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
+            return raw
+        }
+        guard let exploreUrl = source.exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !exploreUrl.isEmpty else {
+            throw WebBookError.noRule("发现 URL（exploreUrl）")
+        }
+        if isTopLevelExploreJS(exploreUrl) {
+            let kinds = parseExploreKinds(
+                exploreUrl,
+                source: source,
+                evaluateJS: true,
+                jsTimeoutSeconds: 12
+            )
+            guard let first = kinds.first?.url, !first.isEmpty else {
+                throw WebBookError.noRule("发现 URL（exploreUrl JS 未产出分类）")
+            }
+            return first
+        }
+        guard let target = resolveExploreFetchURL(exploreUrl), !target.isEmpty else {
+            throw WebBookError.noRule("发现 URL（exploreUrl 分类表无可用地址）")
+        }
+        return target
     }
 
     // MARK: - 详情

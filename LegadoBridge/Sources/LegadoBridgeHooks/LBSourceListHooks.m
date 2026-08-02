@@ -561,6 +561,36 @@ static void LBInstallDidSelectAndOpenModelOnClass(Class requested) {
 
 static void (*LBOrig_SwitchVC_didSelect)(id, SEL, id, NSIndexPath *) = NULL;
 static void (*LBOrig_SwitchVC_onOk)(id, SEL) = NULL;
+static void (*LBOrig_SwitchVC_onOkArg)(id, SEL, id) = NULL;
+
+/// 切换面板可能是 present 也可能是 push，两种都关
+static void LBSwitchVC_DismissSwitchPanel(id switchVC) {
+    if (!switchVC) return;
+    @try {
+        UIViewController *vc = [switchVC isKindOfClass:[UIViewController class]]
+            ? (UIViewController *)switchVC : nil;
+        if (!vc) return;
+        if (vc.presentingViewController) {
+            [vc dismissViewControllerAnimated:NO completion:nil];
+            return;
+        }
+        UINavigationController *nav = vc.navigationController;
+        if (nav && nav.topViewController == vc) {
+            [nav popViewControllerAnimated:NO];
+            return;
+        }
+        if (nav) {
+            NSMutableArray *stack = [nav.viewControllers mutableCopy];
+            if ([stack containsObject:vc]) {
+                [stack removeObject:vc];
+                [nav setViewControllers:stack animated:NO];
+                return;
+            }
+        }
+        // 兜底：仍尝试 dismiss
+        [vc dismissViewControllerAnimated:NO completion:nil];
+    } @catch (__unused NSException *e) {}
+}
 
 static NSString *LBSwitchVC_BookField(id book, NSArray<NSString *> *keys) {
     if (!book || keys.count == 0) return nil;
@@ -689,6 +719,8 @@ static void LBSwitchVC_StartLegadoSwitch(id switchVC, NSString *sourceName) {
     ((void (*)(id, SEL, NSString *, NSString *, NSString *, NSString *, NSString *, NSInteger))objc_msgSend)(
         core, sel, bookName, author ?: @"", oldUrl, srcUrl, chapterTitle ?: @"", chapterIndex
     );
+    // 阅读换源已发起：先关面板，避免用户以为没点上
+    LBSwitchVC_DismissSwitchPanel(switchVC);
     LBLegadoShowResult(@"正在换源…");
 }
 
@@ -861,7 +893,8 @@ static void LBSwitchVC_tableView_didSelect_IMP(id self, SEL _cmd, id tableView, 
     }
 }
 
-static void LBSwitchVC_onOkBtnEvent_IMP(id self, SEL _cmd) {
+/// 统一处理 onOkBtnEvent / onOkBtnEvent:（发现切源与阅读换源共用）
+static void LBSwitchVC_HandleOnOk(id self, SEL _cmd, id sender, BOOL hasSender) {
     NSString *name = nil;
     @try {
         id v = [self valueForKey:@"useSourceName"];
@@ -873,6 +906,15 @@ static void LBSwitchVC_onOkBtnEvent_IMP(id self, SEL _cmd) {
         id v = [self performSelector:@selector(useSourceName)];
 #pragma clang diagnostic pop
         if ([v isKindOfClass:[NSString class]]) name = (NSString *)v;
+    }
+    if (name.length == 0) {
+        @try {
+            id cfg = [self valueForKey:@"_currentConfig"];
+            if (cfg) {
+                name = LBSafeString([cfg valueForKey:@"name"])
+                    ?: LBSafeString([cfg valueForKey:@"sourceName"]);
+            }
+        } @catch (__unused NSException *e) {}
     }
     NSString *selectedName = objc_getAssociatedObject(self, &kLBSelectedDiscoverSourceNameKey);
     if ([selectedName isKindOfClass:[NSString class]] && selectedName.length > 0) {
@@ -894,18 +936,29 @@ static void LBSwitchVC_onOkBtnEvent_IMP(id self, SEL _cmd) {
         if (!isLegado && [name hasSuffix:@"·Legado"]) {
             isLegado = (LBSwitchVC_ResolveSourceUrl(name).length > 0);
         }
-        NSString *discoverDiag = [NSString stringWithFormat:@"onOk discover-switch name=%@ legado=%d\n", name ?: @"", isLegado ? 1 : 0];
+        NSString *discoverDiag = [NSString stringWithFormat:
+                                  @"onOk discover-switch name=%@ legado=%d hasSender=%d\n",
+                                  name ?: @"", isLegado ? 1 : 0, hasSender ? 1 : 0];
         @try {
             [discoverDiag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_b4_onok.txt"]
                            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         } @catch (__unused NSException *e) {}
         if (isLegado) {
             // Legado 发现切源：关掉切换面板并让发现页跟随所选源
-            @try { [self dismissViewControllerAnimated:NO completion:nil]; } @catch (__unused NSException *e) {}
+            LBSwitchVC_DismissSwitchPanel(self);
             LBSwitchDiscoverToSourceName(name);
+        } else if (hasSender && LBOrig_SwitchVC_onOkArg) {
+            LBOrig_SwitchVC_onOkArg(self, _cmd, sender);
+            NSString *selected = objc_getAssociatedObject(self, &kLBSelectedDiscoverSourceNameKey);
+            if ([selected isKindOfClass:[NSString class]] && selected.length > 0) {
+                NSString *selectedCopy = [selected copy];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    LBNotifyDiscoverNativeSourceSwitched(selectedCopy);
+                });
+            }
         } else if (LBOrig_SwitchVC_onOk) {
             // 原生源：原生 onOk 自己切源（它内部知道选中的是谁）
-            LBOrig_SwitchVC_onOk(self, _cmd);
+            LBOrig_SwitchVC_onOk(self, hasSender ? @selector(onOkBtnEvent) : _cmd);
             NSString *selected = objc_getAssociatedObject(self, &kLBSelectedDiscoverSourceNameKey);
             if ([selected isKindOfClass:[NSString class]] && selected.length > 0) {
                 NSString *selectedCopy = [selected copy];
@@ -922,8 +975,13 @@ static void LBSwitchVC_onOkBtnEvent_IMP(id self, SEL _cmd) {
     if (!isLegado && [name hasSuffix:@"·Legado"]) {
         isLegado = (LBSwitchVC_ResolveSourceUrl(name).length > 0);
     }
+    if (!isLegado && name.length > 0 &&
+        ([name hasPrefix:@"[阅读]"] || [[LegadoBridgeCore shared] isLegadoSourceName:name])) {
+        isLegado = YES;
+    }
     @try {
-        NSString *diag = [NSString stringWithFormat:@"onOk name=%@ legado=%d\n", name ?: @"", isLegado ? 1 : 0];
+        NSString *diag = [NSString stringWithFormat:@"onOk name=%@ legado=%d hasSender=%d\n",
+                          name ?: @"", isLegado ? 1 : 0, hasSender ? 1 : 0];
         [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_b4_onok.txt"]
                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     } @catch (__unused NSException *e) {}
@@ -931,9 +989,19 @@ static void LBSwitchVC_onOkBtnEvent_IMP(id self, SEL _cmd) {
         LBSwitchVC_StartLegadoSwitch(self, name);
         return;
     }
-    if (LBOrig_SwitchVC_onOk) {
-        LBOrig_SwitchVC_onOk(self, _cmd);
+    if (hasSender && LBOrig_SwitchVC_onOkArg) {
+        LBOrig_SwitchVC_onOkArg(self, _cmd, sender);
+    } else if (LBOrig_SwitchVC_onOk) {
+        LBOrig_SwitchVC_onOk(self, hasSender ? @selector(onOkBtnEvent) : _cmd);
     }
+}
+
+static void LBSwitchVC_onOkBtnEvent_IMP(id self, SEL _cmd) {
+    LBSwitchVC_HandleOnOk(self, _cmd, nil, NO);
+}
+
+static void LBSwitchVC_onOkBtnEventArg_IMP(id self, SEL _cmd, id sender) {
+    LBSwitchVC_HandleOnOk(self, _cmd, sender, YES);
 }
 
 static void LBInstallBookSourceSwitchHooks(void) {
@@ -990,6 +1058,18 @@ static void LBInstallBookSourceSwitchHooks(void) {
                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         NSLog(@"[LegadoBridge] hooked BookSourceSwitchVC2 onOkBtnEvent (owner=%@)",
               okOwner ? NSStringFromClass(okOwner) : @"?");
+    }
+
+    // 带参变体：onOkBtnEvent:
+    SEL okSelArg = @selector(onOkBtnEvent:);
+    Method okMArg = class_getInstanceMethod(switchCls, okSelArg);
+    if (okMArg && !LBOrig_SwitchVC_onOkArg) {
+        Class okOwnerArg = LBClassOwningInstanceMethod(switchCls, okSelArg);
+        Method targetArg = okOwnerArg ? class_getInstanceMethod(okOwnerArg, okSelArg) : okMArg;
+        LBOrig_SwitchVC_onOkArg = (void (*)(id, SEL, id))method_getImplementation(targetArg);
+        const char *encArg = method_getTypeEncoding(targetArg);
+        class_replaceMethod(switchCls, okSelArg, (IMP)LBSwitchVC_onOkBtnEventArg_IMP, encArg);
+        NSLog(@"[LegadoBridge] hooked BookSourceSwitchVC2 onOkBtnEvent:");
     }
 
     static dispatch_once_t onceObs;

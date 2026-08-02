@@ -3664,6 +3664,8 @@ static NSString *LBFindLegadoExploreUrlByName(NSString *name) {
 static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sourceName) {
     if (!host || sourceName.length == 0) return;
     if (sHandlingDiscoverSwitch) return;
+    // onOk 已切源成功时停掉 switchPoll，避免 timeout 误报与二次 Handle
+    sSwitchPollGeneration++;
     sHandlingDiscoverSwitch = YES;
     @try {
     LBSetDiscoverTabActive(YES);

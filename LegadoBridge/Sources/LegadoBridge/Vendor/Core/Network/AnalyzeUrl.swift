@@ -421,6 +421,14 @@ class AnalyzeUrl {
 
     /// 解析 URL 参数（对应 Android analyzeUrl）
     private func analyzeUrl() {
+        let trimmedRule = ruleUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 顶层 @js: / <js> 残留：禁止按 `, {` 切（会把 getApiUrl('/x', {a:1}) 截成残片 → SyntaxError/badURL）
+        if trimmedRule.lowercased().hasPrefix("@js:") || trimmedRule.lowercased().hasPrefix("<js>") {
+            url = trimmedRule
+            urlNoQuery = trimmedRule
+            return
+        }
+
         let fullRange = NSRange(ruleUrl.startIndex..., in: ruleUrl)
         let urlMatcher = Self.paramPattern.firstMatch(in: ruleUrl, range: fullRange)
 
