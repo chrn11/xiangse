@@ -1,6 +1,7 @@
 import Foundation
 import JavaScriptCore
 import SwiftSoup
+import LegadoObjCSupport
 
 /// 规则引擎对外书籍操作入口 — 承接搜索/详情/目录/正文（含分页）
 public enum RuleWebBook {
