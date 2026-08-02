@@ -610,14 +610,17 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
             NSString *dsCls = ds ? NSStringFromClass([ds class]) : @"(nil)";
             // 发现态：Legado 书进原生 cell 常黑底无字；有灌书时改挂安全 DS
             BOOL discoverList = LBIsDiscoverTabActive() && plazaHost;
+            BOOL nativeXBS = LBIsDiscoverNativeXBSMode() && discoverList;
             BOOL brokenDS = (ds == nil) || [dsCls containsString:@"FilteredDataSource"];
             NSUInteger preArrN = 0;
             @try {
                 id cur = [feedVC valueForKey:@"arrBaseData"];
                 if ([cur isKindOfClass:[NSArray class]]) preArrN = [cur count];
             } @catch (__unused NSException *e) {}
-            BOOL needOwnDS = brokenDS || (!discoverList && ds != (id)feedVC)
-                || (discoverList && preArrN > 0);
+            // 纯 XBS：禁止强夺 DS / 行高（原生标签墙+拉书链依赖宿主 DS）
+            BOOL needOwnDS = !nativeXBS &&
+                (brokenDS || (!discoverList && ds != (id)feedVC)
+                 || (discoverList && preArrN > 0));
             if (needOwnDS) {
                 LBEnsurePlazaTableDataSourceMethods([feedVC class]);
                 tv.dataSource = (id<UITableViewDataSource>)feedVC;
@@ -631,7 +634,7 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                     [tv.backgroundColor isEqual:[UIColor colorWithWhite:0.08 alpha:1]]) {
                     tv.backgroundColor = [UIColor whiteColor];
                 }
-                if (needOwnDS || discoverList) {
+                if (!nativeXBS && (needOwnDS || discoverList)) {
                     tv.rowHeight = 108;
                     tv.estimatedRowHeight = 108;
                     tv.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
@@ -683,8 +686,8 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 id cur = [feedVC valueForKey:@"arrBaseData"];
                 if ([cur isKindOfClass:[NSArray class]]) arrN = [cur count];
             } @catch (__unused NSException *e) {}
-            // 有书无行：强制自有 DS 重载
-            if (arrN > 0 && rows == 0) {
+            // 有书无行：强制自有 DS 重载（纯 XBS 不碰，交给原生）
+            if (!nativeXBS && arrN > 0 && rows == 0) {
                 LBEnsurePlazaTableDataSourceMethods([feedVC class]);
                 tv.dataSource = (id<UITableViewDataSource>)feedVC;
                 tv.delegate = (id<UITableViewDelegate>)feedVC;

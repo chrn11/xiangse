@@ -1141,24 +1141,20 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
                                   ex.reason ?: @""]);
         }
     }
-    // T2：donor/自用重建后都排队一次原生软刷（LBReload 在 XBS 下不再全 skip）
+    // T2：resetContent 后只做一次轻量表 reload（不再 0.45+1.0 双次、且不触网）
     sXBSPendingNativeRefresh = YES;
     LBAppendNativeMarker([NSString stringWithFormat:
                           @"xbsRestore setDic=%d reset=%d rebuild=%d bw=%lu name=%@ pendingRefresh=1",
                           setOk ? 1 : 0, didReset ? 1 : 0, rebuiltChrome ? 1 : 0,
                           (unsigned long)donorBW.count, title]);
-    // 子页挂载晚一拍：再补两次软刷，避免 tvOrCv=0 白屏
     __weak UIViewController *weakHost = host;
-    for (NSNumber *delayNum in @[ @0.45, @1.0 ]) {
-        NSTimeInterval delay = delayNum.doubleValue;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            UIViewController *h = weakHost;
-            if (!h || !LBIsDiscoverNativeXBSMode()) return;
-            sXBSPendingNativeRefresh = YES;
-            LBReloadDiscoverNativeList(h);
-        });
-    }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        UIViewController *h = weakHost;
+        if (!h || !LBIsDiscoverNativeXBSMode()) return;
+        sXBSPendingNativeRefresh = YES;
+        LBReloadDiscoverNativeList(h);
+    });
     return setOk || didReset || rebuiltChrome;
 }
 
@@ -3056,7 +3052,9 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
     return neu;
 }
 
-/// XBS：只软刷原生表/子页，禁止叠 Legado overlay / Reveal
+/// XBS：只软刷原生表/集合视图，禁止叠 Legado overlay / Reveal。
+/// 禁止对 VC 调 refresh/loadData：会清空 arrBaseData 并重入网络，
+/// 与 resetContent 后的原生刷新竞态 → 一直「正在刷新」且 arrN=0。
 static void LBSoftReloadNativeDiscoverTables(UIViewController *root) {
     if (!root) return;
     NSMutableArray<UIViewController *> *stack = [NSMutableArray arrayWithObject:root];
@@ -3068,11 +3066,7 @@ static void LBSoftReloadNativeDiscoverTables(UIViewController *root) {
             [stack addObject:ch];
         }
         if (vc.presentedViewController) [stack addObject:vc.presentedViewController];
-        for (NSString *selName in @[@"reloadData", @"refresh", @"reload", @"loadData", @"refreshContent"]) {
-            SEL sel = NSSelectorFromString(selName);
-            if (![vc respondsToSelector:sel]) continue;
-            @try { ((void (*)(id, SEL))objc_msgSend)(vc, sel); } @catch (__unused NSException *e) {}
-        }
+        // 仅 UI 层 reloadData；不触达 refresh/loadData（原生拉书中）
         if (!vc.isViewLoaded) continue;
         NSMutableArray<UIView *> *views = [NSMutableArray arrayWithObject:vc.view];
         while (views.count > 0) {
@@ -3086,7 +3080,7 @@ static void LBSoftReloadNativeDiscoverTables(UIViewController *root) {
             }
         }
     }
-    LBAppendNativeMarker([NSString stringWithFormat:@"reload XBS soft tvOrCv=%ld pendingWas=%d",
+    LBAppendNativeMarker([NSString stringWithFormat:@"reload XBS soft tvOrCv=%ld pendingWas=%d noNet",
                           (long)tvN, sXBSPendingNativeRefresh ? 1 : 0]);
 }
 

@@ -499,8 +499,25 @@ static void LBDiscover_onSegmentChanged(id self, SEL _cmd) {
         });
         LBScheduleDiscoverHostRescue();
     } else {
-        sDiscoverTabActive = NO;
-        sPreferDiscoverInjectUntil = 0;
+        // 分段不在「发现」：若广场宿主仍可见则保留 sticky（与 setSelectedSegmentIndex 对齐）
+        BOOL worldStillVisible = NO;
+        @try {
+            for (UIViewController *h in (LBFindDiscoverHostVCs() ?: @[])) {
+                NSString *hcn = NSStringFromClass([h class]);
+                if (([hcn containsString:@"BookWorld"] || [hcn containsString:@"BookStore"] ||
+                     [hcn containsString:@"Shudan"]) &&
+                    h.isViewLoaded && h.view.window) {
+                    worldStillVisible = YES;
+                    break;
+                }
+            }
+        } @catch (__unused NSException *e) {}
+        if (!worldStillVisible) {
+            sDiscoverTabActive = NO;
+            sPreferDiscoverInjectUntil = 0;
+        } else {
+            LBDiscoverAppendMarker(@"discoverTab onSegmentChanged shelf but worldVisible keepSticky");
+        }
     }
 }
 
@@ -642,11 +659,32 @@ static void LBDiscover_setSelectedSegmentIndex(id self, SEL _cmd, NSInteger idx)
         });
         LBScheduleDiscoverHostRescue();
     } else {
-        sDiscoverTabActive = NO;
-        sPreferDiscoverInjectUntil = 0;
-        LBDiscoverAppendMarker([NSString stringWithFormat:
-                                @"discoverTab setSelectedSegmentIndex idx=%ld title=%@ discover=0 sticky=%d",
-                                (long)idx, title, LBIsDiscoverTabActive() ? 1 : 0]);
+        // 底层书架分段回到「书架」时：若发现宿主仍在导航栈顶/可见，勿清 sticky
+        // （点发现会 push BookWorld，宿主分段常被置回书架，误清会导致后续 Hook 失真）
+        BOOL worldStillVisible = NO;
+        @try {
+            for (UIViewController *h in (LBFindDiscoverHostVCs() ?: @[])) {
+                NSString *hcn = NSStringFromClass([h class]);
+                if ([hcn containsString:@"BookWorld"] || [hcn containsString:@"BookStore"] ||
+                    [hcn containsString:@"Shudan"]) {
+                    if (h.isViewLoaded && h.view.window) {
+                        worldStillVisible = YES;
+                        break;
+                    }
+                }
+            }
+        } @catch (__unused NSException *e) {}
+        if (worldStillVisible) {
+            LBDiscoverAppendMarker([NSString stringWithFormat:
+                                    @"discoverTab setSelectedSegmentIndex idx=%ld title=%@ keepSticky worldVisible=1",
+                                    (long)idx, title]);
+        } else {
+            sDiscoverTabActive = NO;
+            sPreferDiscoverInjectUntil = 0;
+            LBDiscoverAppendMarker([NSString stringWithFormat:
+                                    @"discoverTab setSelectedSegmentIndex idx=%ld title=%@ discover=0 sticky=%d",
+                                    (long)idx, title, LBIsDiscoverTabActive() ? 1 : 0]);
+        }
     }
 }
 
