@@ -370,6 +370,8 @@ static NSString *LBSearchBookKey(NSDictionary *book) {
 }
 
 static BOOL LBArrayHasLegadoBooks(id cur);
+static BOOL LBArrayLooksLikeNativeBooks(id cur);
+static BOOL LBDictLooksLikeNativeBook(NSDictionary *d);
 static IMP sOrigHeightForRow = NULL;
 static IMP sOrigPlazaDidSelect = NULL;
 static IMP sTruePlainDidSelect = NULL;
@@ -378,12 +380,15 @@ static void LBHookedPlazaDidSelect(id self, SEL _cmd, UITableView *tv, NSIndexPa
 static CGFloat LBHookedHeightForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip) {
     @try {
         id cur = [self valueForKey:@"arrBaseData"];
-        if (!LBIsDiscoverNativeXBSMode() &&
-            [cur isKindOfClass:[NSArray class]] && [cur count] > 0 &&
-            (LBArrayHasLegadoBooks(cur) ||
-             (LBIsDiscoverTabActive() && tv.dataSource == self))) {
-            return 108.0;
+        BOOL forceBookH = NO;
+        if ([cur isKindOfClass:[NSArray class]] && [cur count] > 0) {
+            if (LBArrayHasLegadoBooks(cur) ||
+                (LBIsDiscoverTabActive() && tv.dataSource == self &&
+                 (!LBIsDiscoverNativeXBSMode() || LBArrayLooksLikeNativeBooks(cur)))) {
+                forceBookH = !LBIsDiscoverNativeXBSMode() || LBArrayLooksLikeNativeBooks(cur);
+            }
         }
+        if (forceBookH) return 108.0;
     } @catch (__unused NSException *e) {}
     if (sOrigHeightForRow) {
         return ((CGFloat (*)(id, SEL, UITableView *, NSIndexPath *))sOrigHeightForRow)(self, _cmd, tv, ip);
@@ -817,6 +822,39 @@ static BOOL LBArrayHasLegadoBooks(id cur) {
     return NO;
 }
 
+/// 原生 XBS 书行（有 bookUrl / 书名+作者）；分类标签通常只有 title/name
+static BOOL LBDictLooksLikeNativeBook(NSDictionary *d) {
+    if (![d isKindOfClass:[NSDictionary class]] || d.count == 0) return NO;
+    if (d[@"legadoBridge"] || d[@"fromLegadoBridge"]) return YES;
+    id bu = d[@"bookUrl"] ?: d[@"url"];
+    if ([bu isKindOfClass:[NSString class]] && [(NSString *)bu length] > 8) {
+        NSString *s = (NSString *)bu;
+        if ([s hasPrefix:@"http"] || [s containsString:@"://"] || [s containsString:@"/"]) return YES;
+    }
+    id bn = d[@"bookName"] ?: d[@"name"];
+    id author = d[@"author"];
+    if ([bn isKindOfClass:[NSString class]] && [(NSString *)bn length] > 0 &&
+        [author isKindOfClass:[NSString class]] && [(NSString *)author length] > 0) {
+        return YES;
+    }
+    if (d[@"coverUrl"] || d[@"cover"] || d[@"img"]) {
+        if ([bn isKindOfClass:[NSString class]] && [(NSString *)bn length] > 0) return YES;
+    }
+    return NO;
+}
+
+static BOOL LBArrayLooksLikeNativeBooks(id cur) {
+    if (![cur isKindOfClass:[NSArray class]] || [(NSArray *)cur count] == 0) return NO;
+    NSInteger checked = 0, books = 0;
+    for (id item in (NSArray *)cur) {
+        if (![item isKindOfClass:[NSDictionary class]]) continue;
+        checked++;
+        if (LBDictLooksLikeNativeBook((NSDictionary *)item)) books++;
+        if (checked >= 8) break;
+    }
+    return checked > 0 && books * 2 >= checked; // 过半像书
+}
+
 /// 发现页原生封面 cell：左封面 + 右标题/作者/简介
 static NSCache *LBDiscoverCoverCache(void) {
     static NSCache *cache;
@@ -1227,11 +1265,11 @@ static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInte
     @try {
         id cur = [self valueForKey:@"arrBaseData"];
         if (plazaHost && [cur isKindOfClass:[NSArray class]] && tv.dataSource == self) {
-            // 发现态：safeVDL 后原生 DS 已空，有 arrBaseData 就按我们的行数出
-            if (LBIsDiscoverNativeXBSMode() && LBIsDiscoverTabActive()) {
-                return (NSInteger)[(NSArray *)cur count];
-            }
-            if (LBIsDiscoverTabActive() || LBArrayHasLegadoBooks(cur)) {
+            // 纯 XBS：默认交给原生行数（arr 可能是分类标签）。
+            // 仅当样本过半像「书」且原生行数为 0 时，才用 arr 兜底出书行。
+            if (LBIsDiscoverNativeXBSMode()) {
+                // fall through — 下面 orig 后再判断兜底
+            } else if (LBIsDiscoverTabActive() || LBArrayHasLegadoBooks(cur)) {
                 return (NSInteger)[(NSArray *)cur count];
             }
         }
@@ -1256,6 +1294,11 @@ static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInte
         id cur = [self valueForKey:@"arrBaseData"];
         if (![cur isKindOfClass:[NSArray class]] || [cur count] == 0) return orig;
         if (LBArrayHasLegadoBooks(cur)) return (NSInteger)[cur count];
+        // XBS：原生 rows=0 但 arr 像书 → 兜底出书（历史 arrN=100 空渲染）
+        if (plazaHost && LBIsDiscoverNativeXBSMode() && LBIsDiscoverTabActive() &&
+            LBArrayLooksLikeNativeBooks(cur)) {
+            return (NSInteger)[cur count];
+        }
     } @catch (__unused NSException *e) {}
     return orig;
 }
@@ -1275,19 +1318,22 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
         || [cn containsString:@"BookStore"]
         || [cn containsString:@"Shudan"];
     // 发现/广场：Legado 字典走自造封面 cell（原生 cell 常黑底无字且不抛）
+    // XBS：仅当 arr 像书（非分类标签）时用可见 cell 兜底；标签墙交给原生
     if (plazaHost) {
         @try {
             id cur = [self valueForKey:@"arrBaseData"];
-            BOOL useLegadoCell = !LBIsDiscoverNativeXBSMode() &&
+            BOOL useLegadoCell =
                 (LBArrayHasLegadoBooks(cur) ||
                  (LBIsDiscoverTabActive() &&
                   [cur isKindOfClass:[NSArray class]] && [cur count] > 0 &&
-                  tv.dataSource == self));
+                  tv.dataSource == self &&
+                  (!LBIsDiscoverNativeXBSMode() || LBArrayLooksLikeNativeBooks(cur))));
             if (useLegadoCell &&
                 [cur isKindOfClass:[NSArray class]] &&
                 ip.row >= 0 && ip.row < (NSInteger)[(NSArray *)cur count]) {
                 id item = [(NSArray *)cur objectAtIndex:(NSUInteger)ip.row];
-                if ([item isKindOfClass:[NSDictionary class]]) {
+                if ([item isKindOfClass:[NSDictionary class]] &&
+                    (!LBIsDiscoverNativeXBSMode() || LBDictLooksLikeNativeBook((NSDictionary *)item))) {
                     return LBMakeLegadoDiscoverBookCell(tv, (NSDictionary *)item);
                 }
             }

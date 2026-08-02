@@ -3100,6 +3100,30 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
                                LBReadHostSourceName(host) ?: @"-"];
             [probe writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_clear_probe.txt"]
                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            // 探针：首项形状（区分标签墙 vs 书）
+            if (n > 0 && [a isKindOfClass:[NSArray class]]) {
+                id first = [(NSArray *)a firstObject];
+                NSString *shape = @"?";
+                if ([first isKindOfClass:[NSDictionary class]]) {
+                    NSDictionary *d = (NSDictionary *)first;
+                    NSArray *ks = d.allKeys ?: @[];
+                    id bn = d[@"bookName"] ?: d[@"name"] ?: d[@"title"];
+                    id bu = d[@"bookUrl"] ?: d[@"url"];
+                    shape = [NSString stringWithFormat:@"dict keys=%lu bookName=%@ bookUrl=%@ sample=%@",
+                             (unsigned long)ks.count,
+                             [bn isKindOfClass:[NSString class]] ? bn : @"-",
+                             [bu isKindOfClass:[NSString class]] ? bu : @"-",
+                             [[ks componentsJoinedByString:@","] length] > 180
+                                 ? [[ks componentsJoinedByString:@","] substringToIndex:180]
+                                 : [ks componentsJoinedByString:@","]];
+                } else {
+                    shape = [NSString stringWithFormat:@"%@ %@",
+                             NSStringFromClass([first class]), first ?: @""];
+                }
+                [shape writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_xbs_arr_shape.txt"]
+                        atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            }
+            // 纯 XBS：禁止 fixDS（arr 可能是标签；夺 DS + 强行 rows=arrN 会制造空列表）
             if (n > 0 && list.isViewLoaded && list.view) {
                 UITableView *tv = nil;
                 NSMutableArray *q = [NSMutableArray arrayWithObject:list.view];
@@ -3113,27 +3137,47 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
                     [q addObjectsFromArray:v.subviews];
                 }
                 if (tv) {
-                    NSInteger rows = 0;
+                    NSInteger rows = -1, vis = -1;
                     @try {
                         if ([tv.dataSource respondsToSelector:
                              @selector(tableView:numberOfRowsInSection:)]) {
                             rows = [tv.dataSource tableView:tv numberOfRowsInSection:0];
                         }
+                        vis = (NSInteger)tv.visibleCells.count;
                     } @catch (__unused NSException *e) {}
-                    if (rows == 0) {
-                        LBEnsurePlazaListTableHooks([list class]);
-                        BOOL replaced = (tv.dataSource != list);
-                        if (replaced) {
-                            tv.dataSource = (id<UITableViewDataSource>)list;
-                            tv.delegate = (id<UITableViewDelegate>)list;
+                    LBAppendNativeMarker([NSString stringWithFormat:
+                                          @"reload XBS observe owner=%@ arrN=%ld rows=%ld vis=%ld ds=%@ noFixDS",
+                                          NSStringFromClass([list class]), (long)n, (long)rows, (long)vis,
+                                          tv.dataSource ? NSStringFromClass([tv.dataSource class]) : @"-"]);
+                }
+            } else if (n == 0 && list) {
+                // 仅 pending 软刷场景：延迟一次原生 loadData（不连环），踢醒卡住的刷新
+                static CFAbsoluteTime sLastXBSKickAt = 0;
+                CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+                if (sXBSPendingNativeRefresh && (now - sLastXBSKickAt) > 2.5) {
+                    sLastXBSKickAt = now;
+                    __weak UIViewController *weakList = list;
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
+                                   dispatch_get_main_queue(), ^{
+                        UIViewController *lc = weakList;
+                        if (!lc || !LBIsDiscoverNativeXBSMode()) return;
+                        NSInteger n2 = -1;
+                        @try {
+                            id a2 = [lc valueForKey:@"arrBaseData"];
+                            if ([a2 isKindOfClass:[NSArray class]]) n2 = (NSInteger)[(NSArray *)a2 count];
+                        } @catch (__unused NSException *e) {}
+                        if (n2 > 0) return;
+                        for (NSString *selName in @[@"loadData", @"refresh", @"reloadData"]) {
+                            SEL sel = NSSelectorFromString(selName);
+                            if (![lc respondsToSelector:sel]) continue;
+                            @try {
+                                ((void (*)(id, SEL))objc_msgSend)(lc, sel);
+                                LBAppendNativeMarker([NSString stringWithFormat:
+                                                      @"reload XBS kick once sel=%@", selName]);
+                                break;
+                            } @catch (__unused NSException *e) {}
                         }
-                        @try { [tv reloadData]; } @catch (__unused NSException *e) {}
-                        LBAppendNativeMarker([NSString stringWithFormat:
-                                              @"reload XBS fixDS owner=%@ arrN=%ld replaced=%d ds=%@",
-                                              NSStringFromClass([list class]), (long)n,
-                                              replaced ? 1 : 0,
-                                              tv.dataSource ? NSStringFromClass([tv.dataSource class]) : @"-"]);
-                    }
+                    });
                 }
             }
         } @catch (__unused NSException *e) {}
