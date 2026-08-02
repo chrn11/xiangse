@@ -900,12 +900,12 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     /// 触发发现请求；结果走搜索响应通知（带 fromExplore）
     @objc(handleExploreRequestWithSourceUrl:exploreUrl:page:)
     public func handleExploreRequest(sourceUrl: String?, exploreUrl: String?, page: Int) {
-        // 同源防抖：切源回调 + 深链 + 原生回调会并发触发多次 explore，
-        // 短时间（3s）内同源只执行最后一次，避免 generation 互相作废导致灌书竞态
-        let debounceKey = sourceUrl ?? exploreUrl ?? ""
+        // 同源+同 kind 防抖：切源/深链/原生回调会连打多次。
+        // 重复调用只忽略，禁止 bump generation（否则进行中的 Task 被作废且无后继 → 永不灌书/空态）。
+        let debounceKey = "\(sourceUrl ?? "")|\(exploreUrl ?? "")|\(max(page, 1))"
         let now = Date().timeIntervalSince1970
-        if sLastExploreKey == debounceKey, now - sLastExploreAt < 3.0 {
-            sExploreGeneration &+= 1
+        if sLastExploreKey == debounceKey, now - sLastExploreAt < 2.5 {
+            writeSearchMarker("explore debounce skip key=\(debounceKey)")
             return
         }
         sLastExploreKey = debounceKey
@@ -913,9 +913,12 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         // 并发 explore 用世代号丢弃过期结果，避免后发 clear 清掉先发 inject
         sExploreGeneration &+= 1
         let generation = sExploreGeneration
+        let exploreUrlCopy = exploreUrl
+        let sourceUrlCopy = sourceUrl
+        writeSearchMarker("explore start gen=\(generation) src=\(sourceUrl ?? "-") kind=\(exploreUrl ?? "-")")
         Task {
             let targets: [MemoryBridgeBookSource]
-            if let sourceUrl, !sourceUrl.isEmpty,
+            if let sourceUrl = sourceUrlCopy, !sourceUrl.isEmpty,
                let one = SourceRegistry.shared.source(forUrl: sourceUrl),
                SourceRegistry.shared.isEnabled(url: one.bookSourceUrl) {
                 targets = [one]
@@ -923,6 +926,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 // 指定源 explore：先把发现宿主切到该源（清 XBS 态），
                 // 否则 LBIsDiscoverNativeXBSMode 会丢弃 explore 结果（发现页不出书）
                 await MainActor.run {
+                    LBSetDiscoverNativeXBSMode(false)
                     LBSwitchDiscoverToSourceName(one.bookSourceName ?? one.bookSourceUrl)
                 }
             } else if let sel = selectedExploreSourceUrl, !sel.isEmpty,
@@ -949,11 +953,17 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                         XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
                     ]
                 )
+                await MainActor.run {
+                    guard generation == sExploreGeneration else { return }
+                    LBSetDiscoverNativeXBSMode(false)
+                    LBShowDiscoverExploreEmptyHint("暂无可发现书源")
+                }
                 return
             }
             // 换分类/换源：先清空再灌，避免旧书残留
             await MainActor.run {
                 guard generation == sExploreGeneration else { return }
+                LBSetDiscoverNativeXBSMode(false)
                 LBClearDiscoverExploreBooks()
             }
             guard generation == sExploreGeneration else { return }
@@ -965,7 +975,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     let results = try await Self.withTimeout(seconds: 20) {
                         try await BridgeWebBook.exploreBook(
                             source: source,
-                            url: exploreUrl,
+                            url: exploreUrlCopy,
                             page: max(page, 1)
                         )
                     }
@@ -1012,9 +1022,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                             guard generation == sExploreGeneration else { return }
                             // 指定源 explore：宿主切源异步完成前可能仍是 XBS 态，
                             // 强制清掉，否则 LBApplySearchResultsToUI 会丢 explore 结果（发现页不出书）
-                            if let sourceUrl, !sourceUrl.isEmpty {
-                                LBSetDiscoverNativeXBSMode(false)
-                            }
+                            LBSetDiscoverNativeXBSMode(false)
                             LBApplySearchResultsToUI(books, "explore")
                         }
                     }
@@ -1022,6 +1030,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                         writeSearchMarker("explore empty src=\(source.bookSourceUrl)")
                         await MainActor.run {
                             guard generation == sExploreGeneration else { return }
+                            LBSetDiscoverNativeXBSMode(false)
                             LBDismissDiscoverLoadingHUD()
                             LBShowDiscoverExploreEmptyHint("暂无书籍（可能需登录，或该分类无内容）")
                         }
@@ -1038,11 +1047,14 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                         hint = "需要登录后才能发现书籍"
                     } else if errMsg.contains("JS") || errMsg.contains("URL") {
                         hint = "发现地址解析失败：\(String(errMsg.prefix(80)))"
+                    } else if errMsg.contains("空") || errMsg.lowercased().contains("empty") {
+                        hint = "暂无书籍（接口无内容，可能需登录）"
                     } else {
                         hint = "发现加载失败：\(String(errMsg.prefix(80)))"
                     }
                     await MainActor.run {
                         guard generation == sExploreGeneration else { return }
+                        LBSetDiscoverNativeXBSMode(false)
                         LBDismissDiscoverLoadingHUD()
                         LBShowDiscoverExploreEmptyHint(hint)
                     }
@@ -1052,12 +1064,13 @@ private final class SearchOutcomeBox: @unchecked Sendable {
             if total == 0 {
                 await MainActor.run {
                     guard generation == sExploreGeneration else { return }
+                    LBSetDiscoverNativeXBSMode(false)
                     LBDismissDiscoverLoadingHUD()
                     // 若各源已各自 show empty，此处兜底再盖一次
                     LBShowDiscoverExploreEmptyHint("暂无书籍（可能需登录，或该分类无内容）")
                 }
             }
-            writeSearchMarker("explore ok total=\(total) sources=\(targets.count)")
+            writeSearchMarker("explore ok total=\(total) sources=\(targets.count) gen=\(generation)")
         }
     }
 

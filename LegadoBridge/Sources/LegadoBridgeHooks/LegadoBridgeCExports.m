@@ -1718,9 +1718,9 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
         });
         return;
     }
+    // Legado 空态必须盖墙：即使残留 XBS 标志也强制清掉再画
     if (LBIsDiscoverNativeXBSMode()) {
-        LBClearDiscoverExploreEmptyHint();
-        return;
+        LBSetDiscoverNativeXBSMode(NO);
     }
     NSString *text = message.length > 0
         ? message
@@ -1729,7 +1729,18 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
         UIViewController *host = nil;
         NSArray *hosts = LBFindDiscoverHostVCs() ?: @[];
         if (hosts.count > 0) host = hosts.firstObject;
-        if (!host || !host.isViewLoaded || !host.view) return;
+        if (!host) {
+            [@"explore empty hint skip noHost"
+                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            return;
+        }
+        if (!host.isViewLoaded || !host.view) {
+            [@"explore empty hint skip noView"
+                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            return;
+        }
         LBClearDiscoverExploreEmptyHint();
 
         CGFloat top = 88;
@@ -1740,11 +1751,23 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
             if (b > 40) top = b;
         }
         CGRect hb = host.view.bounds;
-        if (hb.size.width < 2 || hb.size.height < top + 40) return;
+        if (hb.size.width < 2) hb = [UIScreen mainScreen].bounds;
+        if (hb.size.height < top + 40) {
+            NSString *skip = [NSString stringWithFormat:
+                              @"explore empty hint skip bounds w=%.0f h=%.0f top=%.0f",
+                              hb.size.width, hb.size.height, top];
+            [skip writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+                   atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            return;
+        }
         UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, top, hb.size.width, hb.size.height - top)];
         box.tag = kLBExploreEmptyHintTag;
         box.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        box.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
+        if (@available(iOS 13.0, *)) {
+            box.backgroundColor = [UIColor systemBackgroundColor];
+        } else {
+            box.backgroundColor = [UIColor whiteColor];
+        }
         box.userInteractionEnabled = YES; // 挡住底层标签墙误点
 
         UILabel *lab = [[UILabel alloc] initWithFrame:CGRectInset(box.bounds, 24, 24)];
@@ -1753,16 +1776,20 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
         lab.textAlignment = NSTextAlignmentCenter;
         lab.numberOfLines = 0;
         lab.font = [UIFont systemFontOfSize:15 weight:UIFontWeightRegular];
-        lab.textColor = [UIColor colorWithWhite:0.35 alpha:1];
+        if (@available(iOS 13.0, *)) {
+            lab.textColor = [UIColor secondaryLabelColor];
+        } else {
+            lab.textColor = [UIColor darkGrayColor];
+        }
         [box addSubview:lab];
         [host.view addSubview:box];
         [host.view bringSubviewToFront:box];
         if ([title isKindOfClass:[UIView class]]) {
             [host.view bringSubviewToFront:(UIView *)title];
         }
-        [@"explore empty hint shown"
-            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        NSString *shown = [NSString stringWithFormat:@"explore empty hint shown msg=%@", text];
+        [shown writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     } @catch (__unused NSException *e) {}
 }
 
