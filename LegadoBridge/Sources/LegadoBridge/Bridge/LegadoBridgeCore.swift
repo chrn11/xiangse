@@ -1539,6 +1539,8 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 cookieString: CookieManager.shared.mergeCookies(ex2, cookieString)
             )
         }
+        // 书山等 exploreUrl 把 session 写进 kind URL：Cookie 变了必须重算分类缓存
+        invalidateExploreKindsCache(forSourceUrl: nil)
         let path = (NSHomeDirectory() as NSString)
             .appendingPathComponent("Documents/legado_cookie_jar.txt")
         let line = "save key=\(key) len=\(merged.count) src=\(url)\n"
