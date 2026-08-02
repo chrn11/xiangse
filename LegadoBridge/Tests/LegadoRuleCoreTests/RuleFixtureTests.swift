@@ -667,6 +667,32 @@ final class RuleFixtureTests: XCTestCase {
         CookieManager.shared.removeAll()
     }
 
+    /// 书山 getSessionId：cookie.getCookie('fanqienovel.com') 须可读 jar
+    func testCookieGetCookieAliasBareDomain() throws {
+        CookieManager.shared.removeAll()
+        CookieManager.shared.saveCookie(
+            url: "www.fanqienovel.com",
+            cookieString: "sessionid=sess_fixture_001; other=1"
+        )
+        let result = try RuleWebBook.evaluateString(
+            rule: "@js:cookie.getCookie('fanqienovel.com')",
+            body: "<html></html>"
+        )
+        XCTAssertTrue(
+            result.contains("sessionid=sess_fixture_001"),
+            "getCookie(裸域名) 应读到 jar，实际: \(result)"
+        )
+        let viaGet = try RuleWebBook.evaluateString(
+            rule: "@js:cookie.get('fanqienovel.com')",
+            body: "<html></html>"
+        )
+        XCTAssertTrue(
+            viaGet.contains("sessionid=sess_fixture_001"),
+            "cookie.get 应与 getCookie 同源，实际: \(viaGet)"
+        )
+        CookieManager.shared.removeAll()
+    }
+
     /// getResponseBody 重建 AnalyzeUrl 时须能按请求 URL host 注入 Cookie（勿因 domain 空串丢 Cookie）
     func testAnalyzeUrlDomainSeedFromMUrlWhenSourceNil() {
         CookieManager.shared.removeAll()

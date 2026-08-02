@@ -790,16 +790,56 @@ class JSBridge: JsEncodeUtils {
 
     // MARK: - cookie 对象注入
 
+    /// 解析书源常用的 cookie 查询串：裸域名 / 完整 URL / CookieManager key
+    private static func lookupCookieHeader(for tag: String) -> String {
+        let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+
+        var keys: [String] = [trimmed]
+        if let asURL = URL(string: trimmed), let host = asURL.host, !host.isEmpty {
+            keys.append(host)
+        } else if !trimmed.contains("://") {
+            keys.append("https://\(trimmed)")
+            keys.append("http://\(trimmed)")
+            if !trimmed.hasPrefix("www.") {
+                keys.append("www.\(trimmed)")
+                keys.append("https://www.\(trimmed)")
+            }
+        }
+        // 去重保序
+        var seen = Set<String>()
+        let uniqueKeys = keys.filter { seen.insert($0).inserted }
+
+        for key in uniqueKeys {
+            if let c = CookieManager.shared.getCookie(for: key), !c.isEmpty {
+                return c
+            }
+        }
+
+        // HTTPCookieStorage：裸域名补 https://
+        let urlCandidates: [URL] = uniqueKeys.compactMap { key in
+            if let u = URL(string: key), u.host != nil { return u }
+            if !key.contains("://") { return URL(string: "https://\(key)") }
+            return nil
+        }
+        for u in urlCandidates {
+            if let cookies = HTTPCookieStorage.shared.cookies(for: u), !cookies.isEmpty {
+                return cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+            }
+        }
+        return ""
+    }
+
     private func injectCookieObject(into jsContext: JSContext) {
         let cookieObject = JSValue(newObjectIn: jsContext)
 
-        let getCookieBlock: @convention(block) (String) -> String = { url in
-            guard let cookieURL = URL(string: url), let cookies = HTTPCookieStorage.shared.cookies(for: cookieURL), !cookies.isEmpty else { return "" }
-            return cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+        // Android CookieStore.getCookie(url)：书山等写 cookie.getCookie('fanqienovel.com')
+        let getCookieBlock: @convention(block) (String) -> String = { tag in
+            Self.lookupCookieHeader(for: tag)
         }
 
         let getCookieKeyBlock: @convention(block) (String, String) -> String = { tag, key in
-            let cookie = CookieManager.shared.getCookie(for: tag) ?? ""
+            let cookie = Self.lookupCookieHeader(for: tag)
             for pair in cookie.split(separator: ";").map({ $0.trimmingCharacters(in: .whitespaces) }) {
                 let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
                 if parts.count == 2 && parts[0] == key { return parts[1] }
@@ -808,22 +848,51 @@ class JSBridge: JsEncodeUtils {
         }
 
         let setCookieBlock: @convention(block) (String, String) -> Void = { url, cookie in
-            guard let cookieURL = URL(string: url), !cookie.isEmpty else { return }
+            guard !url.isEmpty, !cookie.isEmpty else { return }
+            // 同步落盘 CookieManager（裸域名 / URL 都能取）
+            let key: String
+            if let host = URL(string: url)?.host, !host.isEmpty {
+                key = host
+            } else if !url.contains("://") {
+                key = url
+            } else {
+                key = url
+            }
+            let existing = CookieManager.shared.getCookie(for: key) ?? ""
+            CookieManager.shared.saveCookie(
+                url: key,
+                cookieString: CookieManager.shared.mergeCookies(existing, cookie)
+            )
+            let cookieURL = URL(string: url)
+                ?? URL(string: url.contains("://") ? url : "https://\(url)")
+            guard let cookieURL else { return }
             let parsed = HTTPCookie.cookies(withResponseHeaderFields: ["Set-Cookie": cookie], for: cookieURL)
             if parsed.isEmpty {
-                if let simple = Self.makeSimpleCookie(cookie, for: cookieURL) { HTTPCookieStorage.shared.setCookie(simple) }
+                if let simple = Self.makeSimpleCookie(cookie, for: cookieURL) {
+                    HTTPCookieStorage.shared.setCookie(simple)
+                }
             } else {
                 for item in parsed { HTTPCookieStorage.shared.setCookie(item) }
             }
         }
 
         let removeCookieBlock: @convention(block) (String) -> Void = { url in
-            guard let cookieURL = URL(string: url), let cookies = HTTPCookieStorage.shared.cookies(for: cookieURL) else { return }
-            for item in cookies { HTTPCookieStorage.shared.deleteCookie(item) }
             CookieManager.shared.removeCookie(for: url)
+            if let host = URL(string: url)?.host {
+                CookieManager.shared.removeCookie(for: host)
+            } else if !url.contains("://") {
+                CookieManager.shared.removeCookie(for: url)
+            }
+            let cookieURL = URL(string: url)
+                ?? URL(string: url.contains("://") ? url : "https://\(url)")
+            guard let cookieURL,
+                  let cookies = HTTPCookieStorage.shared.cookies(for: cookieURL) else { return }
+            for item in cookies { HTTPCookieStorage.shared.deleteCookie(item) }
         }
 
         cookieObject?.setObject(getCookieBlock, forKeyedSubscript: "get" as NSString)
+        // 书山 getSessionId / fq_login：cookie.getCookie(domain)
+        cookieObject?.setObject(getCookieBlock, forKeyedSubscript: "getCookie" as NSString)
         cookieObject?.setObject(getCookieKeyBlock, forKeyedSubscript: "getKey" as NSString)
         cookieObject?.setObject(setCookieBlock, forKeyedSubscript: "set" as NSString)
         cookieObject?.setObject(removeCookieBlock, forKeyedSubscript: "remove" as NSString)

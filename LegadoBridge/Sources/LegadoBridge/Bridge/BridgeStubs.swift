@@ -84,13 +84,15 @@ public final class CookieManager {
         if let host = URL(string: domain)?.host, let c = store[host], !c.isEmpty {
             return c
         }
-        // 回灌偶发用完整页面 URL 作 key：按 host 反查
+        // 回灌偶发用完整页面 URL 作 key：按 host / 后缀反查
+        // 书山 getCookie('fanqienovel.com') ↔ 存盘 key=www.fanqienovel.com
         let wantHost = URL(string: domain)?.host ?? domain
         if !wantHost.isEmpty {
             for (key, value) in store {
                 guard !value.isEmpty else { continue }
-                if key == wantHost { return value }
-                if let keyHost = URL(string: key)?.host, keyHost == wantHost {
+                if key == wantHost || key.hasSuffix("." + wantHost) { return value }
+                if let keyHost = URL(string: key)?.host,
+                   keyHost == wantHost || keyHost.hasSuffix("." + wantHost) {
                     return value
                 }
             }
