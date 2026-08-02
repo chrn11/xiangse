@@ -840,6 +840,73 @@ static BOOL LBForceSetDicModel(UIViewController *host, NSDictionary *model) {
     }
 }
 
+/// 仅从 BookSourceModelManager 灌回本源 dicModel（不 resetContent）。
+/// 用于 sync 时 host.bookWorld 已空但 chrome 残留：点标签会「空列表」。
+static BOOL LBEnsureXBSDicModelOnly(UIViewController *host, NSString *sourceName) {
+    if (!host || sourceName.length == 0) return NO;
+    NSString *want = LBNormalizeSourceDisplayName(sourceName) ?: sourceName;
+    Class mgrCls = NSClassFromString(@"BookSourceModelManager");
+    id mgr = nil;
+    if (mgrCls && [mgrCls respondsToSelector:@selector(sharedInstance)]) {
+        mgr = ((id (*)(id, SEL))objc_msgSend)(mgrCls, @selector(sharedInstance));
+    }
+    if (!mgr) return NO;
+    id list = nil;
+    @try { list = [mgr valueForKey:@"dicModelList"]; } @catch (__unused NSException *e) {}
+    if (![list isKindOfClass:[NSDictionary class]]) return NO;
+
+    __block NSDictionary *picked = nil;
+    __block NSString *pickedName = nil;
+    for (id key in [(NSDictionary *)list allKeys]) {
+        if (![key isKindOfClass:[NSString class]]) continue;
+        NSString *k = (NSString *)key;
+        NSString *nk = LBNormalizeSourceDisplayName(k) ?: k;
+        if ([k isEqualToString:sourceName] || [k isEqualToString:want] || [nk isEqualToString:want]) {
+            id obj = ((NSDictionary *)list)[k];
+            if ([obj isKindOfClass:[NSDictionary class]]) {
+                picked = obj;
+                pickedName = k;
+                break;
+            }
+        }
+    }
+    if (!picked) {
+        [(NSDictionary *)list enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
+            if (![obj isKindOfClass:[NSDictionary class]]) return;
+            NSDictionary *m = (NSDictionary *)obj;
+            id v = m[@"cf_title"] ?: m[@"title"] ?: m[@"sourceName"];
+            NSString *cf = [v isKindOfClass:[NSString class]] ? LBNormalizeSourceDisplayName(v) : nil;
+            if (cf.length && ([cf isEqualToString:want] ||
+                              [cf containsString:want] || [want containsString:cf])) {
+                picked = m;
+                pickedName = [key isKindOfClass:[NSString class]] ? (NSString *)key : want;
+                *stop = YES;
+            }
+        }];
+    }
+    if (![picked isKindOfClass:[NSDictionary class]]) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"ensureDic miss name=%@", want]);
+        return NO;
+    }
+    id bw = picked[@"bookWorld"];
+    NSUInteger bwN = [bw isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)bw count] : 0;
+    if (bwN < 3) {
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"ensureDic thinBW keys=%lu name=%@",
+                              (unsigned long)bwN, pickedName ?: want]);
+        return NO;
+    }
+    NSMutableDictionary *model = [picked mutableCopy];
+    if (want.length > 0) model[@"cf_title"] = want;
+    BOOL ok = LBForceSetDicModel(host, model);
+    @try { [host setValue:(pickedName ?: want) forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
+    @try { [host setValue:(pickedName ?: want) forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
+    LBAppendNativeMarker([NSString stringWithFormat:
+                          @"ensureDic setOnly=%d bw=%lu name=%@ noReset",
+                          ok ? 1 : 0, (unsigned long)bwN, pickedName ?: want]);
+    return ok;
+}
+
 /// openConfig 在 BookWorldHomeCon 上常无 IMP（noSel）：用 manager 模型 + resetContent 重建标签墙
 static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceName) {
     if (!host || sourceName.length == 0) return NO;
@@ -3255,6 +3322,30 @@ static void LBDiscover_onHeaderBtn(id self, SEL _cmd, id sender) {
     if (!discoverCtx) return;
     if (LBIsDiscoverNativeXBSMode()) {
         LBAppendNativeMarker(@"headerBtn XBS passthrough only");
+        // 点标签后延迟看 arrBaseData：区分「原生未拉」与「有数据未渲染」
+        UIViewController *probeHost = [self isKindOfClass:[UIViewController class]]
+            ? (UIViewController *)self : LBPrimaryDiscoverHost();
+        __weak UIViewController *weakHost = probeHost;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            UIViewController *h = weakHost;
+            if (!h || !LBIsDiscoverNativeXBSMode()) return;
+            NSInteger n = -1;
+            NSUInteger bwN = 0;
+            @try {
+                UIViewController *list = LBActiveDiscoverListVC(h) ?: h;
+                id a = [list valueForKey:@"arrBaseData"];
+                if ([a isKindOfClass:[NSArray class]]) n = (NSInteger)[(NSArray *)a count];
+                id dm = [h valueForKey:@"dicModel"];
+                if ([dm isKindOfClass:[NSDictionary class]]) {
+                    id bw = ((NSDictionary *)dm)[@"bookWorld"];
+                    if ([bw isKindOfClass:[NSDictionary class]]) bwN = [(NSDictionary *)bw count];
+                }
+            } @catch (__unused NSException *e) {}
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"headerBtn probe arrN=%ld bw=%lu",
+                                  (long)n, (unsigned long)bwN]);
+        });
         return;
     }
 
@@ -3782,11 +3873,12 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
         } else {
             name = LBReadHostSourceName(host);
         }
-        // 关键：syncMode 禁止 LBRestoreNativeXBSChrome。
-        // 真机：进发现即 setDic+reset → 只剩分类墙且永不拉书；skipAlreadyLive 又因
-        // 首次 dicModel 未就绪挡不住。restore 只留给 nativeSwitch（用户点「切换」）。
+        // syncMode：默认不 restore/reset。
+        // 但 host.bookWorld 已空（bw<3）时点标签必「空列表」→ 只 setDicModel 灌回，不 reset。
+        // chrome 也缺失时才走完整 restore（nativeSwitch 同款）。
         NSInteger arrN = -1;
         NSUInteger bwN = 0;
+        id tv = nil; id scroll = nil;
         @try {
             UIViewController *list = LBActiveDiscoverListVC(host) ?: host;
             id a = [list valueForKey:@"arrBaseData"];
@@ -3796,11 +3888,46 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
                 id bw = ((NSDictionary *)dm)[@"bookWorld"];
                 if ([bw isKindOfClass:[NSDictionary class]]) bwN = [(NSDictionary *)bw count];
             }
+            @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+            @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
         } @catch (__unused NSException *e) {}
+
+        BOOL didEnsure = NO;
+        BOOL didRestore = NO;
+        if (host && name.length > 0 &&
+            ![name isEqualToString:@"切换站点"] &&
+            ![name isEqualToString:@"书源"] &&
+            ![name isEqualToString:@"发现"] &&
+            bwN < 3) {
+            static NSString *sLastEnsureName = nil;
+            static CFAbsoluteTime sLastEnsureAt = 0;
+            CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+            BOOL sameRecent = (sLastEnsureName &&
+                               [sLastEnsureName isEqualToString:name] &&
+                               (now - sLastEnsureAt) < 3.0);
+            if (!sameRecent) {
+                sLastEnsureName = [name copy];
+                sLastEnsureAt = now;
+                if (tv && scroll) {
+                    didEnsure = LBEnsureXBSDicModelOnly(host, name);
+                } else {
+                    BOOL prevHandling = sHandlingDiscoverSwitch;
+                    sHandlingDiscoverSwitch = YES;
+                    @try {
+                        didRestore = LBRestoreNativeXBSChrome(host, name);
+                    } @catch (__unused NSException *e) {
+                        didRestore = NO;
+                    } @finally {
+                        sHandlingDiscoverSwitch = prevHandling;
+                    }
+                }
+            }
+        }
         LBAppendNativeMarker([NSString stringWithFormat:
-                              @"syncMode XBS=1 skipRestore host=%@ name=%@ arrN=%ld bw=%lu",
+                              @"syncMode XBS=1 skipRestore host=%@ name=%@ arrN=%ld bw=%lu ensure=%d restore=%d",
                               host ? NSStringFromClass([host class]) : @"-",
-                              name ?: @"-", (long)arrN, (unsigned long)bwN]);
+                              name ?: @"-", (long)arrN, (unsigned long)bwN,
+                              didEnsure ? 1 : 0, didRestore ? 1 : 0]);
     } else {
         LBAppendNativeMarker([NSString stringWithFormat:
                               @"syncMode XBS=0 host=%@ name=%@",
