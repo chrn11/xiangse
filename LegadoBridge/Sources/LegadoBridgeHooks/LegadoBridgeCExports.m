@@ -727,6 +727,11 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
             } // !nativeXBS
         } else if (plazaHost && LBIsDiscoverTabActive()) {
+            if (LBIsDiscoverNativeXBSMode()) {
+                [@"uiInject XBS noTV skipEnsure"
+                    writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
+                    atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            } else {
             for (UIViewController *h in (LBFindDiscoverHostVCs() ?: @[])) {
                 UITableView *ensured = LBEnsureDiscoverListSurface(h);
                 if (ensured) {
@@ -744,6 +749,7 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                               vcn, NSStringFromClass([feedVC class]), tv ? 1 : 0];
             [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            }
         } else {
             NSString *diag = [NSString stringWithFormat:@"uiInject no UITableView host=%@", vcn];
             [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
