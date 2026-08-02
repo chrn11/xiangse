@@ -626,11 +626,20 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
             BOOL needOwnDS = !nativeXBS &&
                 (brokenDS || (!discoverList && ds != (id)feedVC)
                  || (discoverList && preArrN > 0));
-            if (needOwnDS) {
+            if (nativeXBS) {
+                // 纯 XBS 发现：完全不要动表（reload/pin/bringFront 会卡在「正在刷新」）
+                NSString *diag = [NSString stringWithFormat:
+                    @"uiInject XBS skipMutate ds=%@ arr=%lu host=%@ feed=%@ tv=%@",
+                    dsCls, (unsigned long)preArrN, vcn,
+                    NSStringFromClass([feedVC class]), NSStringFromClass([tv class])];
+                [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
+                       atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            } else if (needOwnDS) {
                 LBEnsurePlazaTableDataSourceMethods([feedVC class]);
                 tv.dataSource = (id<UITableViewDataSource>)feedVC;
                 tv.delegate = (id<UITableViewDelegate>)feedVC;
             }
+            if (!nativeXBS) {
             @try {
                 tv.hidden = NO;
                 tv.alpha = 1;
@@ -639,7 +648,7 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                     [tv.backgroundColor isEqual:[UIColor colorWithWhite:0.08 alpha:1]]) {
                     tv.backgroundColor = [UIColor whiteColor];
                 }
-                if (!nativeXBS && (needOwnDS || discoverList)) {
+                if (needOwnDS || discoverList) {
                     tv.rowHeight = 108;
                     tv.estimatedRowHeight = 108;
                     tv.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
@@ -692,7 +701,7 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 if ([cur isKindOfClass:[NSArray class]]) arrN = [cur count];
             } @catch (__unused NSException *e) {}
             // 有书无行：强制自有 DS 重载（纯 XBS 不碰，交给原生）
-            if (!nativeXBS && arrN > 0 && rows == 0) {
+            if (arrN > 0 && rows == 0) {
                 LBEnsurePlazaTableDataSourceMethods([feedVC class]);
                 tv.dataSource = (id<UITableViewDataSource>)feedVC;
                 tv.delegate = (id<UITableViewDelegate>)feedVC;
@@ -716,6 +725,7 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
                 tv.frame.size.width, tv.frame.size.height, tv.frame.origin.x, tv.frame.origin.y];
             [diag writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_ds.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            } // !nativeXBS
         } else if (plazaHost && LBIsDiscoverTabActive()) {
             for (UIViewController *h in (LBFindDiscoverHostVCs() ?: @[])) {
                 UITableView *ensured = LBEnsureDiscoverListSurface(h);
