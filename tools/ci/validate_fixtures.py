@@ -66,6 +66,51 @@ def validate_file(path: Path) -> list[str]:
     return errors
 
 
+def is_top_level_explore_js(raw: object) -> bool:
+    if not isinstance(raw, str):
+        return False
+    t = raw.strip().lower()
+    return t.startswith("@js:") or t.startswith("<js>")
+
+
+def validate_yckceo_batch() -> list[str]:
+    """发现页 Phase1：yckceo 批次夹具须存在且带 exploreUrl（供 explore JS 单测）。"""
+    batch = FIXTURES / "yckceo-batch"
+    errors: list[str] = []
+    if not batch.is_dir():
+        return [f"缺少目录: fixtures/yckceo-batch/"]
+    files = sorted(batch.glob("*.json"))
+    if len(files) < 8:
+        errors.append(f"yckceo-batch 夹具不足 8 个（当前 {len(files)}）")
+    js_count = 0
+    for path in files:
+        try:
+            sources = load_sources(path)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{path.name}: 解析失败 — {exc}")
+            continue
+        if not sources:
+            errors.append(f"{path.name}: 无书源对象")
+            continue
+        src = sources[0]
+        if not is_legado_source(src):
+            errors.append(f"{path.name}: 非合法 Legado 书源")
+            continue
+        explore = src.get("exploreUrl")
+        if not isinstance(explore, str) or not explore.strip():
+            errors.append(f"{path.name}: 缺少非空 exploreUrl（发现页单测依赖）")
+            continue
+        if is_top_level_explore_js(explore):
+            js_count += 1
+        # 结构回归：未求值时注释行不得被当成唯一分类线索（仅记录形态）
+        if "//" in explore and "::" in explore and not is_top_level_explore_js(explore):
+            # 非顶层 JS 的多行里若有 //名::url，引擎应跳过；此处只确保夹具可读
+            pass
+    if files and js_count == 0:
+        errors.append("yckceo-batch: 预期至少 1 个顶层 @js:/<js> exploreUrl")
+    return errors
+
+
 def main() -> int:
     if not FIXTURES.is_dir():
         print(f"FAIL: fixtures 目录不存在: {FIXTURES}", file=sys.stderr)
@@ -85,13 +130,18 @@ def main() -> int:
             continue
         errors.extend(validate_file(path))
 
+    errors.extend(validate_yckceo_batch())
+
     if errors:
         print("固定夹具硬门禁失败：")
         for e in errors:
             print(f"  - {e}")
         return 1
 
-    print(f"固定夹具硬门禁通过（校验 {len(REQUIRED_FILES)} 个必需文件 + 额外 legado*.json）")
+    print(
+        f"固定夹具硬门禁通过（校验 {len(REQUIRED_FILES)} 个必需文件"
+        f" + 额外 legado*.json + yckceo-batch）"
+    )
     return 0
 
 

@@ -90,6 +90,8 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
 static void LBRevealDiscoverTitleAndList(UIViewController *host);
 static void LBRevealDiscoverTitleAndListEx(UIViewController *host, BOOL force);
 static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot);
+static void LBRefreshDiscoverKindBarEx(BOOL force);
+static void LBRefreshDiscoverKindBarForced(void);
 
 static id LBKindCore(void) {
     return LBLegadoCoreIfReady();
@@ -2413,8 +2415,12 @@ static NSArray *LBDedupExploreKinds(NSArray *kinds) {
         NSDictionary *dict = (NSDictionary *)item;
         NSString *title = dict[@"title"];
         if (![title isKindOfClass:[NSString class]] || title.length == 0) title = @"分类";
-        if ([seen containsObject:title]) continue;
-        [seen addObject:title];
+        NSString *url = dict[@"url"];
+        if (![url isKindOfClass:[NSString class]]) url = @"";
+        // B-03：按 (title, url) 去重，同名不同 URL 均保留
+        NSString *key = [NSString stringWithFormat:@"%@\u001F%@", title, url];
+        if ([seen containsObject:key]) continue;
+        [seen addObject:key];
         [out addObject:dict];
     }
     return out.count > 0 ? out : kinds;
@@ -2433,8 +2439,11 @@ static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *ki
         if (![item isKindOfClass:[NSDictionary class]]) continue;
         NSString *t = item[@"title"];
         NSString *title = ([t isKindOfClass:[NSString class]] && t.length > 0) ? t : @"分类";
-        if ([seen containsObject:title]) continue; // B-03 去重
-        [seen addObject:title];
+        NSString *u = item[@"url"];
+        NSString *url = ([u isKindOfClass:[NSString class]]) ? u : @"";
+        NSString *key = [NSString stringWithFormat:@"%@\u001F%@", title, url];
+        if ([seen containsObject:key]) continue; // B-03：(title,url) 去重
+        [seen addObject:key];
         [titles addObject:title];
     }
     if (titles.count == 0) [titles addObject:@"发现"];
@@ -3706,6 +3715,10 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
     id core = LBKindCore();
     if (core && legadoUrl.length > 0) {
         @try { [core setValue:legadoUrl forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
+        if ([core respondsToSelector:@selector(warmupExploreKindsForSourceUrl:)]) {
+            ((void (*)(id, SEL, NSString *))objc_msgSend)(
+                core, @selector(warmupExploreKindsForSourceUrl:), legadoUrl);
+        }
     }
     NSArray *kinds = @[];
     if (core && legadoUrl.length > 0 &&
@@ -3965,6 +3978,14 @@ void LBInstallDiscoverNativeUIHooks(void) {
             LBHookDiscoverNativeUIOnClass(NSClassFromString(cn));
         }
         LBInstallBookListSafeViewDidLoad();
+        // 顶层 JS exploreUrl 异步预热完成后重刷分类条
+        [[NSNotificationCenter defaultCenter]
+            addObserverForName:@"LegadoExploreKindsDidUpdate"
+                        object:nil
+                         queue:[NSOperationQueue mainQueue]
+                    usingBlock:^(__unused NSNotification *note) {
+            LBRefreshDiscoverKindBarForced();
+        }];
         [@"discover native UI hooks installed"
             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_discover_native.txt"]
             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
@@ -4163,14 +4184,23 @@ void LBNotifyDiscoverNativeSourceSwitched(NSString *sourceName) {
 
 /// 刷新原生分类标签（原 LBRefreshDiscoverKindBar，已去掉 overlay）
 void LBRefreshDiscoverKindBar(void) {
+    LBRefreshDiscoverKindBarEx(NO);
+}
+
+/// 强制刷新（跳过 0.35s 防抖；供 exploreKinds 预热完成通知）
+static void LBRefreshDiscoverKindBarForced(void) {
+    LBRefreshDiscoverKindBarEx(YES);
+}
+
+static void LBRefreshDiscoverKindBarEx(BOOL force) {
     if (![NSThread isMainThread]) {
-        dispatch_async(dispatch_get_main_queue(), ^{ LBRefreshDiscoverKindBar(); });
+        dispatch_async(dispatch_get_main_queue(), ^{ LBRefreshDiscoverKindBarEx(force); });
         return;
     }
     if (!LBIsDiscoverTabActive()) return;
     static CFAbsoluteTime sLastRefreshAt = 0;
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-    if ((now - sLastRefreshAt) < 0.35) return;
+    if (!force && (now - sLastRefreshAt) < 0.35) return;
     sLastRefreshAt = now;
     LBInstallDiscoverNativeUIHooks();
 

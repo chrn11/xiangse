@@ -95,6 +95,152 @@ final class RuleFixtureTests: XCTestCase {
         XCTAssertEqual(kinds[1].url, "https://ex/rank")
     }
 
+    /// 行首 // 注释不得变成分类标题（7616 垃圾「//全部玄幻」回归）
+    func testParseExploreKindsSkipsLineComments() {
+        let raw = """
+        //全部玄幻::/explore/a
+        玄幻::/fenlei/xuanhuan/{{page}}/
+        //排行::/explore/b
+        都市::/fenlei/dushi/{{page}}/
+        """
+        let kinds = RuleWebBook.parseExploreKinds(raw)
+        XCTAssertEqual(kinds.map(\.title), ["玄幻", "都市"])
+        XCTAssertFalse(kinds.contains { $0.title.hasPrefix("//") })
+    }
+
+    /// 未求值的顶层 @js: 不得塌缩成「发现」+ 脚本当 URL
+    func testParseExploreKindsTopLevelJSWithoutEvalReturnsEmpty() {
+        let raw = """
+        @js:
+        //全部玄幻::/a
+        JSON.stringify([{title:"玄幻",url:"/a"}])
+        """
+        let kinds = RuleWebBook.parseExploreKinds(raw)
+        XCTAssertTrue(kinds.isEmpty, "未求值顶层 JS 应回落空，实际: \(kinds)")
+    }
+
+    /// 顶层 @js: 求值后按 JSON kinds 展开
+    func testParseExploreKindsEvaluatesTopLevelJSJSON() {
+        let raw = #"@js:JSON.stringify([{title:"玄幻",url:"/xuanhuan/{{page}}/"},{title:"都市",url:"/dushi/{{page}}/"}])"#
+        let kinds = RuleWebBook.parseExploreKinds(raw, source: nil, evaluateJS: true, jsTimeoutSeconds: 5)
+        XCTAssertEqual(kinds.map(\.title), ["玄幻", "都市"])
+        XCTAssertEqual(kinds[0].url, "/xuanhuan/{{page}}/")
+        XCTAssertFalse(kinds.contains { $0.title.hasPrefix("//") })
+    }
+
+    /// 顶层 @js: 直接返回数组对象（非 stringify）亦须可解析
+    func testParseExploreKindsEvaluatesTopLevelJSArrayObject() {
+        let raw = #"@js:[{title:"男频",url:"/nan/"},{title:"女频",url:"/nv/"}]"#
+        let kinds = RuleWebBook.parseExploreKinds(raw, source: nil, evaluateJS: true, jsTimeoutSeconds: 5)
+        XCTAssertEqual(kinds.map(\.title), ["男频", "女频"])
+    }
+
+    /// JS 抛错时回落空数组，不崩
+    func testParseExploreKindsJSFailureReturnsEmpty() {
+        let raw = #"@js:throw new Error("explore-boom")"#
+        let kinds = RuleWebBook.parseExploreKinds(raw, source: nil, evaluateJS: true, jsTimeoutSeconds: 3)
+        XCTAssertTrue(kinds.isEmpty)
+    }
+
+    /// <js> 包裹与 @js: 等价
+    func testParseExploreKindsEvaluatesJSBlockTag() {
+        let raw = #"<js>JSON.stringify([{title:"发现A",url:"https://ex/a"}])</js>"#
+        let kinds = RuleWebBook.parseExploreKinds(raw, source: nil, evaluateJS: true, jsTimeoutSeconds: 5)
+        XCTAssertEqual(kinds.map(\.title), ["发现A"])
+        XCTAssertEqual(kinds.first?.url, "https://ex/a")
+    }
+
+    func testAbsoluteExploreURLJoinsRelativePath() {
+        let abs = RuleWebBook.absoluteExploreURL(
+            baseUrl: "https://www.lysxh.com/",
+            path: "/fenlei/xuanhuan/{{page}}/"
+        )
+        XCTAssertTrue(abs.hasPrefix("https://www.lysxh.com/fenlei/"), "实际: \(abs)")
+        XCTAssertEqual(
+            RuleWebBook.absoluteExploreURL(baseUrl: "https://ex.com", path: "https://other.com/a"),
+            "https://other.com/a"
+        )
+    }
+
+    /// yckceo 7616：结构层不得产出 // 前缀标题；求值失败（无网/无 token）须空回落不崩
+    func testYckceo7616ExploreKindsSnapshot() throws {
+        guard let url = Self.repoFixtureURL("yckceo-batch/7616.json") else {
+            throw XCTSkip("仓库 fixtures/yckceo-batch/7616.json 不可用")
+        }
+        let data = try Data(contentsOf: url)
+        let root = try JSONSerialization.jsonObject(with: data)
+        let obj: [String: Any]
+        if let arr = root as? [[String: Any]], let first = arr.first {
+            obj = first
+        } else if let dict = root as? [String: Any] {
+            obj = dict
+        } else {
+            return XCTFail("夹具 JSON 形态异常")
+        }
+        guard let explore = obj["exploreUrl"] as? String, !explore.isEmpty else {
+            return XCTFail("7616 缺少 exploreUrl")
+        }
+        XCTAssertTrue(RuleWebBook.isTopLevelExploreJS(explore))
+
+        let structural = RuleWebBook.parseExploreKinds(explore)
+        XCTAssertTrue(structural.isEmpty, "未求值不得产出分类，实际: \(structural)")
+        XCTAssertFalse(structural.contains { $0.title.hasPrefix("//") })
+
+        let source = ExploreFixtureSource(
+            bookSourceUrl: (obj["bookSourceUrl"] as? String) ?? "https://m.qidian.com",
+            jsLib: obj["jsLib"] as? String,
+            exploreUrl: explore
+        )
+        let evaluated = RuleWebBook.parseExploreKinds(
+            explore,
+            source: source,
+            evaluateJS: true,
+            jsTimeoutSeconds: 6
+        )
+        XCTAssertFalse(evaluated.contains { $0.title.hasPrefix("//") }, "求值后不得含 // 标题: \(evaluated)")
+        if let first = evaluated.first {
+            let u = first.url.trimmingCharacters(in: .whitespacesAndNewlines)
+            XCTAssertFalse(u.isEmpty)
+            XCTAssertFalse(u.hasPrefix("@js:"), "首 kind URL 不得残留 @js:，实际: \(u)")
+        }
+    }
+
+    /// yckceo 7574：JSON kinds 空 url 跳过；标题合法
+    func testYckceo7574ExploreKindsJSONSnapshot() throws {
+        guard let url = Self.repoFixtureURL("yckceo-batch/7574.json") else {
+            throw XCTSkip("仓库 fixtures/yckceo-batch/7574.json 不可用")
+        }
+        let data = try Data(contentsOf: url)
+        let root = try JSONSerialization.jsonObject(with: data)
+        let obj: [String: Any]
+        if let arr = root as? [[String: Any]], let first = arr.first {
+            obj = first
+        } else if let dict = root as? [String: Any] {
+            obj = dict
+        } else {
+            return XCTFail("夹具 JSON 形态异常")
+        }
+        guard let explore = obj["exploreUrl"] as? String, !explore.isEmpty else {
+            return XCTFail("7574 缺少 exploreUrl")
+        }
+        let kinds = RuleWebBook.parseExploreKinds(explore)
+        XCTAssertFalse(kinds.isEmpty, "7574 应解析出非空分类")
+        XCTAssertFalse(kinds.contains { $0.title.hasPrefix("//") })
+        XCTAssertTrue(kinds.allSatisfy { !$0.url.isEmpty })
+    }
+
+    private static func repoFixtureURL(_ relative: String) -> URL? {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<8 {
+            url.deleteLastPathComponent()
+            let candidate = url.appendingPathComponent("fixtures").appendingPathComponent(relative)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
     // MARK: - CSS
 
     func testCSSSelectorExtractsBookName() throws {
@@ -721,6 +867,37 @@ private final class JsLibFixtureSource: BridgeSourceProtocol {
 
     init(jsLib: String?) {
         self.jsLib = jsLib
+    }
+
+    func getSearchRule() -> BridgeSearchRule? { nil }
+    func getExploreRule() -> BridgeExploreRule? { nil }
+    func getBookInfoRule() -> BridgeBookInfoRule? { nil }
+    func getTocRule() -> TocRule? { nil }
+    func getContentRule() -> BridgeContentRule? { nil }
+    func getReviewRule() -> BridgeReviewRule? { nil }
+}
+
+/// exploreUrl / jsLib 快照夹具
+private final class ExploreFixtureSource: BridgeSourceProtocol {
+    let bookSourceUrl: String
+    let bookSourceName = "explore夹具"
+    var header: String? { nil }
+    var enabledCookieJar: Bool { false }
+    var loginCheckJs: String? { nil }
+    var loginUrl: String? { nil }
+    var loginUi: String? { nil }
+    var bookUrlPattern: String? { nil }
+    var searchUrl: String? { nil }
+    var exploreUrl: String?
+    var concurrentRate: String? { nil }
+    var jsLib: String?
+    var variable: String? { nil }
+    var coverDecodeJs: String? { nil }
+
+    init(bookSourceUrl: String, jsLib: String?, exploreUrl: String?) {
+        self.bookSourceUrl = bookSourceUrl
+        self.jsLib = jsLib
+        self.exploreUrl = exploreUrl
     }
 
     func getSearchRule() -> BridgeSearchRule? { nil }

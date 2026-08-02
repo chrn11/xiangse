@@ -1445,9 +1445,20 @@ class AnalyzeUrl {
 
     /// 获取绝对 URL（对应 Android NetworkUtils.getAbsoluteURL）
     private static func getAbsoluteURL(baseUrl: String, _ url: String) -> String {
-        if url.hasPrefix("http") { return url }
-        guard !baseUrl.isEmpty, let base = URL(string: baseUrl) else { return url }
-        return URL(string: url, relativeTo: base)?.absoluteString ?? url
+        absoluteURL(baseUrl: baseUrl, url)
+    }
+
+    /// 相对路径按 baseUrl 拼绝对地址（供发现分类等复用）。
+    static func absoluteURL(baseUrl: String, _ url: String) -> String {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return trimmed }
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("http://") || lower.hasPrefix("https://")
+            || lower.hasPrefix("data:") || lower.hasPrefix("@js:") || lower.hasPrefix("<js>") {
+            return trimmed
+        }
+        guard !baseUrl.isEmpty, let base = URL(string: baseUrl) else { return trimmed }
+        return URL(string: trimmed, relativeTo: base)?.absoluteString ?? trimmed
     }
 
     /// 获取 URL 的 baseUrl 部分

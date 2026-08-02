@@ -45,6 +45,14 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     /// explore 防抖：同源短时间只执行最后一次（切源回调+深链+原生回调并发触发）
     private var sLastExploreKey: String = ""
     private var sLastExploreAt: TimeInterval = 0
+    /// 发现分类缓存：sourceUrl → (exploreUrl 指纹, JSON)
+    private var exploreKindsCache: [String: (fingerprint: String, json: String)] = [:]
+    private var exploreKindsWarming: Set<String> = []
+    private let exploreKindsCacheQueue = DispatchQueue(label: "com.xiangse.legado-bridge.explore-kinds")
+    /// 分类预热完成（userInfo: sourceUrl）
+    @objc public static let exploreKindsDidUpdateNotification = Notification.Name("LegadoExploreKindsDidUpdate")
+    /// ObjC / KVO 用通知名字符串
+    @objc public static let exploreKindsDidUpdateNotificationName = "LegadoExploreKindsDidUpdate"
 
     private override init() {
         super.init()
@@ -742,46 +750,128 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     }
 
     /// 某源 exploreUrl 解析出的分类标签：[{title,url},…]
+    /// 顶层 JS 源：只读缓存；未命中则异步预热并返回 `[]`（完成后发通知）。
+    /// 非 JS 源：同步结构解析并写缓存。
     @objc(exploreKindsJSONForSourceUrl:)
     public func exploreKindsJSON(forSourceUrl sourceUrl: String?) -> String {
-        let src: MemoryBridgeBookSource?
-        if let sourceUrl, !sourceUrl.isEmpty {
-            src = SourceRegistry.shared.source(forUrl: sourceUrl)
-        } else if let sel = selectedExploreSourceUrl, !sel.isEmpty {
-            src = SourceRegistry.shared.source(forUrl: sel)
-        } else {
-            src = SourceRegistry.shared.exploreCapableSources().first
-        }
-        guard let src, let raw = src.exploreUrl, !raw.isEmpty else {
+        guard let resolved = resolveExploreSource(sourceUrl),
+              let raw = resolved.exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
             return "[]"
         }
-        var kinds = RuleWebBook.parseExploreKinds(raw).map { ["title": $0.title, "url": $0.url] }
-        // 领域书库：源里常只配单条玄幻 URL，按站点固定分类表展开（与书源注释一致）
-        if kinds.count == 1 {
-            let key = (sourceUrl?.isEmpty == false ? sourceUrl! : src.bookSourceUrl).lowercased()
-            if key.contains("lysxh.com") {
-                let fenlei: [(String, String)] = [
-                    ("玄幻", "/fenlei/xuanhuan/{{page}}/"),
-                    ("武侠", "/fenlei/wuxia/{{page}}/"),
-                    ("都市", "/fenlei/dushi/{{page}}/"),
-                    ("历史", "/fenlei/lishi/{{page}}/"),
-                    ("网游", "/fenlei/wangyou/{{page}}/"),
-                    ("科幻", "/fenlei/kehuan/{{page}}/"),
-                    ("女生", "/fenlei/nvsheng/{{page}}/")
-                ]
-                kinds = fenlei.map { ["title": $0.0, "url": $0.1] }
+        let cacheKey = resolved.bookSourceUrl
+        let fingerprint = raw
+
+        if let cached = exploreKindsCacheQueue.sync(execute: { exploreKindsCache[cacheKey] }),
+           cached.fingerprint == fingerprint {
+            return cached.json
+        }
+
+        if RuleWebBook.isTopLevelExploreJS(raw) {
+            warmupExploreKinds(forSourceUrl: cacheKey)
+            return "[]"
+        }
+
+        let kinds = RuleWebBook.parseExploreKinds(raw, source: resolved, evaluateJS: false)
+        let json = encodeExploreKindsJSON(kinds, baseUrl: resolved.bookSourceUrl)
+        storeExploreKindsCache(key: cacheKey, fingerprint: fingerprint, json: json)
+        return json
+    }
+
+    /// 异步预热某源分类缓存（切源时调用；完成后发 `exploreKindsDidUpdateNotification`）。
+    @objc(warmupExploreKindsForSourceUrl:)
+    public func warmupExploreKinds(forSourceUrl sourceUrl: String?) {
+        guard let resolved = resolveExploreSource(sourceUrl),
+              let raw = resolved.exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return
+        }
+        let cacheKey = resolved.bookSourceUrl
+        let fingerprint = raw
+        let shouldStart: Bool = exploreKindsCacheQueue.sync {
+            if let cached = exploreKindsCache[cacheKey], cached.fingerprint == fingerprint {
+                return false
+            }
+            if exploreKindsWarming.contains(cacheKey) { return false }
+            exploreKindsWarming.insert(cacheKey)
+            return true
+        }
+        guard shouldStart else { return }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            defer {
+                self.exploreKindsCacheQueue.sync { _ = self.exploreKindsWarming.remove(cacheKey) }
+            }
+            let kinds = RuleWebBook.parseExploreKinds(
+                raw,
+                source: resolved,
+                evaluateJS: true,
+                jsTimeoutSeconds: 12
+            )
+            let json = self.encodeExploreKindsJSON(kinds, baseUrl: resolved.bookSourceUrl)
+            self.storeExploreKindsCache(key: cacheKey, fingerprint: fingerprint, json: json)
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: Self.exploreKindsDidUpdateNotification,
+                    object: self,
+                    userInfo: ["sourceUrl": cacheKey]
+                )
             }
         }
-        // B-03：同名分类只保留首次（避免「历史」双份）
+    }
+
+    /// 清除某源（或全部）分类缓存。
+    @objc(invalidateExploreKindsCacheForSourceUrl:)
+    public func invalidateExploreKindsCache(forSourceUrl sourceUrl: String?) {
+        exploreKindsCacheQueue.sync {
+            if let sourceUrl, !sourceUrl.isEmpty {
+                exploreKindsCache.removeValue(forKey: sourceUrl)
+                exploreKindsWarming.remove(sourceUrl)
+            } else {
+                exploreKindsCache.removeAll()
+                exploreKindsWarming.removeAll()
+            }
+        }
+    }
+
+    private func resolveExploreSource(_ sourceUrl: String?) -> MemoryBridgeBookSource? {
+        if let sourceUrl, !sourceUrl.isEmpty {
+            return SourceRegistry.shared.source(forUrl: sourceUrl)
+        }
+        if let sel = selectedExploreSourceUrl, !sel.isEmpty {
+            return SourceRegistry.shared.source(forUrl: sel)
+        }
+        return SourceRegistry.shared.exploreCapableSources().first
+    }
+
+    private func storeExploreKindsCache(key: String, fingerprint: String, json: String) {
+        exploreKindsCacheQueue.sync {
+            exploreKindsCache[key] = (fingerprint: fingerprint, json: json)
+        }
+    }
+
+    /// 编码分类 JSON：相对 URL 绝对化 + 按 (title,url) 去重。
+    private func encodeExploreKindsJSON(
+        _ kinds: [RuleWebBook.ExploreKind],
+        baseUrl: String
+    ) -> String {
+        var rows: [[String: String]] = kinds.map { kind in
+            let abs = RuleWebBook.absoluteExploreURL(baseUrl: baseUrl, path: kind.url)
+            return ["title": kind.title, "url": abs]
+        }
+        // B-03：按 (title, url) 去重，同名不同 URL 均保留
         var seen = Set<String>()
-        kinds = kinds.filter { row in
+        rows = rows.filter { row in
             let t = (row["title"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let key = t.isEmpty ? (row["url"] ?? "") : t
-            if key.isEmpty || seen.contains(key) { return false }
+            let u = (row["url"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = "\(t)\u{1F}\(u)"
+            if t.isEmpty && u.isEmpty { return false }
+            if seen.contains(key) { return false }
             seen.insert(key)
             return true
         }
-        guard let data = try? JSONSerialization.data(withJSONObject: kinds),
+        guard let data = try? JSONSerialization.data(withJSONObject: rows),
               let s = String(data: data, encoding: .utf8) else {
             return "[]"
         }

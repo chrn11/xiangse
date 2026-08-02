@@ -107,8 +107,49 @@ public enum RuleWebBook {
         }
     }
 
+    /// exploreUrl 是否以顶层 `@js:` / `<js>` 脚本开头（须求值后再解析分类）。
+    public static func isTopLevelExploreJS(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let lower = trimmed.lowercased()
+        return lower.hasPrefix("@js:") || lower.hasPrefix("<js>")
+    }
+
     /// 解析 exploreUrl 为全部分类（名::url 多行 / && 分隔 / JSON kinds / 单 URL）。
+    /// - Note: 无 `source` 时不执行顶层 JS，仅做结构解析（并跳过 `//` 注释行）。
     public static func parseExploreKinds(_ raw: String) -> [ExploreKind] {
+        parseExploreKinds(raw, source: nil, evaluateJS: false)
+    }
+
+    /// 解析 exploreUrl；`evaluateJS == true` 且为顶层 JS 时，用绑定了 source 的 JSContext 求值后再结构解析。
+    /// JS 失败 / 超时 → 返回空数组（不崩、不产出 `//` 垃圾标题或整段脚本当 URL）。
+    public static func parseExploreKinds(
+        _ raw: String,
+        source: (any BridgeSourceProtocol)?,
+        evaluateJS: Bool = true,
+        jsTimeoutSeconds: TimeInterval = 8
+    ) -> [ExploreKind] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        var text = trimmed
+        if evaluateJS, isTopLevelExploreJS(text) {
+            guard let evaluated = evaluateExploreUrlJS(
+                text,
+                source: source,
+                timeoutSeconds: jsTimeoutSeconds
+            ) else {
+                return []
+            }
+            text = evaluated.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty, !isTopLevelExploreJS(text) else { return [] }
+        }
+
+        return parseExploreKindsStructural(text)
+    }
+
+    /// 结构解析（JSON / 多行名::url / 单 URL）；跳过 `//`、`°`、`☆` 行。
+    public static func parseExploreKindsStructural(_ raw: String) -> [ExploreKind] {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
@@ -141,7 +182,8 @@ public enum RuleWebBook {
             var out: [ExploreKind] = []
             for line in normalized.components(separatedBy: "\n") {
                 let l = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !l.isEmpty, !l.hasPrefix("°"), !l.hasPrefix("☆") else { continue }
+                guard !l.isEmpty else { continue }
+                guard !l.hasPrefix("°"), !l.hasPrefix("☆"), !l.hasPrefix("//") else { continue }
                 guard let range = l.range(of: "::") else { continue }
                 let title = String(l[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
                 let u = String(l[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -156,10 +198,15 @@ public enum RuleWebBook {
             if let range = trimmed.range(of: "::") {
                 let title = String(trimmed[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
                 let u = String(trimmed[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !u.isEmpty {
+                if !u.isEmpty, !title.hasPrefix("//") {
                     return [ExploreKind(title: title.isEmpty ? "发现" : title, url: u)]
                 }
             }
+        }
+
+        // 顶层 JS 原文不得塌缩成「发现」伪分类
+        if isTopLevelExploreJS(trimmed) {
+            return []
         }
 
         return [ExploreKind(title: "发现", url: trimmed)]
@@ -168,6 +215,102 @@ public enum RuleWebBook {
     /// 把 exploreUrl 收成可请求的单条地址（取 parseExploreKinds 第一项）。
     public static func resolveExploreFetchURL(_ raw: String) -> String? {
         parseExploreKinds(raw).first?.url
+    }
+
+    /// 相对路径按 bookSourceUrl 拼绝对地址（泛化原 lysxh 硬编码）。
+    public static func absoluteExploreURL(baseUrl: String, path: String) -> String {
+        AnalyzeUrl.absoluteURL(baseUrl: baseUrl, path)
+    }
+
+    // MARK: - exploreUrl 顶层 JS
+
+    private static func extractExploreJSCode(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.lowercased().hasPrefix("@js:") {
+            return String(trimmed.dropFirst(4))
+        }
+        if trimmed.lowercased().hasPrefix("<js>") {
+            var code = String(trimmed.dropFirst(4))
+            if code.lowercased().hasSuffix("</js>") {
+                code = String(code.dropLast(5))
+            }
+            return code
+        }
+        return trimmed
+    }
+
+    /// 求值 exploreUrl 顶层 JS；超时或失败返回 nil。
+    private static func evaluateExploreUrlJS(
+        _ raw: String,
+        source: (any BridgeSourceProtocol)?,
+        timeoutSeconds: TimeInterval
+    ) -> String? {
+        let code = extractExploreJSCode(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty else { return nil }
+
+        // 用 eval 取脚本完成值（对齐 AnalyzeUrl.analyzeJs）；数组/对象再 JSON.stringify。
+        var jsonErr: NSString?
+        guard let codeJSON = ObjCExceptionCatch.jsonStringLiteral(code, error: &jsonErr) as String? else {
+            return nil
+        }
+        let wrapped = """
+        (function(){
+          var __exploreOut = eval(\(codeJSON));
+          if (__exploreOut === undefined || __exploreOut === null) return '';
+          if (typeof __exploreOut === 'string') return __exploreOut;
+          try { return JSON.stringify(__exploreOut); } catch (e) { return String(__exploreOut); }
+        })()
+        """
+
+        let baseUrl = source?.bookSourceUrl ?? ""
+        let seedUrl = baseUrl.isEmpty ? "https://localhost/" : baseUrl
+        let timeout = max(0.5, timeoutSeconds)
+
+        final class Box: @unchecked Sendable {
+            var value: String?
+            let lock = NSLock()
+        }
+        let box = Box()
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { group.leave() }
+            let analyzer = AnalyzeUrl(
+                mUrl: seedUrl,
+                key: nil,
+                page: 1,
+                baseUrl: baseUrl,
+                source: source
+            )
+            var err: String?
+            guard let out = analyzer.evalJS(wrapped, result: nil, errorOut: &err, lite: false) else {
+                return
+            }
+            let text: String
+            if let s = out as? String {
+                text = s
+            } else {
+                text = String(describing: out)
+            }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  trimmed != "null",
+                  trimmed != "undefined",
+                  !trimmed.hasPrefix("@js:"),
+                  !trimmed.hasPrefix("<js>") else {
+                return
+            }
+            box.lock.lock()
+            box.value = trimmed
+            box.lock.unlock()
+        }
+        let waited = group.wait(timeout: .now() + timeout)
+        if waited == .timedOut {
+            return nil
+        }
+        box.lock.lock()
+        defer { box.lock.unlock() }
+        return box.value
     }
 
     /// 发现页列表；`url` 为空时使用源的 `exploreUrl`（自动展开分类表）
