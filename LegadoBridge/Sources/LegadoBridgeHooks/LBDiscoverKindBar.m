@@ -962,6 +962,27 @@ static BOOL LBEnsureXBSDicModelOnly(UIViewController *host, NSString *sourceName
     return ok && afterN >= 3;
 }
 
+/// 诊断探针:统计 bookWorld 的 key 数 + 嵌套书项数(array 元素数 / dict 项数)
+static void LBProbeBookWorldNested(UIViewController *host, NSString *tag) {
+    if (!host) return;
+    NSUInteger bwN = 0, nestedN = 0;
+    @try {
+        id dm = nil;
+        @try { dm = [host valueForKey:@"dicModel"]; } @catch (__unused NSException *e) {}
+        if (![dm isKindOfClass:[NSDictionary class]]) return;
+        id bw = ((NSDictionary *)dm)[@"bookWorld"];
+        if (![bw isKindOfClass:[NSDictionary class]]) return;
+        NSDictionary *bwd = (NSDictionary *)bw;
+        bwN = bwd.count;
+        for (id v in bwd.allValues) {
+            if ([v isKindOfClass:[NSArray class]]) nestedN += [(NSArray *)v count];
+            else if ([v isKindOfClass:[NSDictionary class]]) nestedN += [(NSDictionary *)v count];
+        }
+    } @catch (__unused NSException *e) {}
+    LBAppendNativeMarker([NSString stringWithFormat:@"bwProbe %@ keys=%lu nested=%lu",
+                          tag ?: @"-", (unsigned long)bwN, (unsigned long)nestedN]);
+}
+
 /// openConfig 在 BookWorldHomeCon 上常无 IMP（noSel）：用 manager 模型 + resetContent 重建标签墙
 static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceName) {
     if (!host || sourceName.length == 0) return NO;
@@ -984,6 +1005,8 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
                           ([curNorm isEqualToString:want] ||
                            [curNorm containsString:want] || [want containsString:curNorm]));
         if (nameMatch && tv && scroll && bwN >= 3 && host.isViewLoaded && host.view.window) {
+            // 探针:分类壳(3 键)与完整书墙都能过 bwN>=3,须用嵌套书项数区分
+            LBProbeBookWorldNested(host, @"skipAlreadyLive");
             LBAppendNativeMarker([NSString stringWithFormat:
                                   @"xbsRestore skipAlreadyLive name=%@ bw=%lu",
                                   want, (unsigned long)bwN]);
@@ -1174,6 +1197,9 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
     @try { [host setValue:donorBW.allKeys forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
 
     BOOL setOk = LBForceSetDicModel(host, model);
+
+    // 探针:验证 setter 是否丢 bookWorld(setDic 后回读 keys/嵌套数,与 model 输入对照)
+    LBProbeBookWorldNested(host, @"afterSetDic");
 
     // T2：Legado 灌头后常残留单「发现」tab + feedOverlay，仅 resetContent 会白屏。
     // 顶栏标题与 donor 大类对不上时，拆壳再 createCons + reset。
