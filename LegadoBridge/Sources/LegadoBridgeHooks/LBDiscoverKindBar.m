@@ -2405,6 +2405,36 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
     LBUnlinkDiscoverTitleContent(host);
 }
 
+/// 默认分类：优先「个性推荐 / read_recommend」，其次带 session 的书山 API；
+/// 禁止默认落到 fanqienovel.com/fqbookshelf（HTML 书架页 explore 常空，还会冲掉推荐请求）。
+static NSInteger LBPreferredExploreKindIndex(NSArray *kinds) {
+    if (![kinds isKindOfClass:[NSArray class]] || kinds.count == 0) return 0;
+    NSInteger fallbackSession = -1;
+    NSInteger fallbackNonShelf = -1;
+    for (NSUInteger i = 0; i < kinds.count; i++) {
+        id item = kinds[i];
+        if (![item isKindOfClass:[NSDictionary class]]) continue;
+        NSString *url = item[@"url"];
+        NSString *title = item[@"title"];
+        if (![url isKindOfClass:[NSString class]] || url.length == 0) continue;
+        NSString *ul = url.lowercaseString;
+        NSString *tl = [title isKindOfClass:[NSString class]] ? title : @"";
+        if ([ul containsString:@"fanqienovel.com/fqbookshelf"]) continue;
+        if ([ul containsString:@"read_recommend"] || [tl containsString:@"个性推荐"]) {
+            return (NSInteger)i;
+        }
+        if (fallbackSession < 0 && [ul containsString:@"session="] &&
+            ([ul containsString:@"/read_"] || [ul containsString:@"vossc"] ||
+             [ul containsString:@"gyks"])) {
+            fallbackSession = (NSInteger)i;
+        }
+        if (fallbackNonShelf < 0) fallbackNonShelf = (NSInteger)i;
+    }
+    if (fallbackSession >= 0) return fallbackSession;
+    if (fallbackNonShelf >= 0) return fallbackNonShelf;
+    return 0;
+}
+
 /// 分类条跟当前 Legado 源 exploreUrl 解析结果走（换源即换分类），donor 只当壳
 static NSArray *LBDedupExploreKinds(NSArray *kinds) {
     if (kinds.count == 0) return kinds;
@@ -2474,9 +2504,11 @@ static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *ki
         LBAppendNativeMarker(@"applySrcKinds skip same titles");
     }
     sCachedKinds = [kinds copy];
+    // 换源/登录后重算默认选中：不要钉死 index0「我的书架」
+    sSelectedKindIndex = LBPreferredExploreKindIndex(kinds);
     if (sSelectedKindIndex >= (NSInteger)titles.count) sSelectedKindIndex = 0;
-    LBAppendNativeMarker([NSString stringWithFormat:@"applySrcKinds n=%lu src=%@ sample=%@",
-                          (unsigned long)titles.count, srcName ?: @"",
+    LBAppendNativeMarker([NSString stringWithFormat:@"applySrcKinds n=%lu src=%@ sel=%ld sample=%@",
+                          (unsigned long)titles.count, srcName ?: @"", (long)sSelectedKindIndex,
                           [[titles subarrayWithRange:NSMakeRange(0, MIN((NSUInteger)4, titles.count))]
                            componentsJoinedByString:@","]]);
 }
@@ -3742,16 +3774,21 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
     LBFeedNativeDiscoverHeader(host, kinds, cleanName);
     UITableView *surface = LBEnsureDiscoverListSurface(host);
     NSString *kindUrl = nil;
-    if (kinds.count > 0 && [kinds[0][@"url"] isKindOfClass:[NSString class]]) {
-        kindUrl = kinds[0][@"url"];
+    if (kinds.count > 0) {
+        NSInteger pref = LBPreferredExploreKindIndex(kinds);
+        sSelectedKindIndex = pref;
+        id u = (pref >= 0 && pref < (NSInteger)kinds.count) ? kinds[(NSUInteger)pref][@"url"] : nil;
+        if ([u isKindOfClass:[NSString class]] && [(NSString *)u length] > 0) {
+            kindUrl = (NSString *)u;
+        }
     } else if (legadoUrl.length > 0) {
         // 单 exploreUrl 无分类表时，直接用源 explore
         kindUrl = nil;
     }
     LBAppendNativeMarker([NSString stringWithFormat:
-                          @"nativeSwitch Legado kinds=%lu kind0=%@ surface=%d",
+                          @"nativeSwitch Legado kinds=%lu kind0=%@ sel=%ld surface=%d",
                           (unsigned long)kinds.count, kindUrl ?: @"-",
-                          surface ? 1 : 0]);
+                          (long)sSelectedKindIndex, surface ? 1 : 0]);
     if (legadoUrl.length == 0) return;
 
     NSString *srcCopy = [legadoUrl copy];

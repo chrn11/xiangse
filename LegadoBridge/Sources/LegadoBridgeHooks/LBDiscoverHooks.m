@@ -349,9 +349,34 @@ static void LBTriggerLegadoExploreForDiscoverTab(void) {
             core, @selector(exploreKindsJSONForSourceUrl:), src);
         NSData *data = [kj dataUsingEncoding:NSUTF8StringEncoding];
         id arr = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
+        // 与 KindBar 一致：优先个性推荐 / 带 session 的书山 API，避开 fqbookshelf
         if ([arr isKindOfClass:[NSArray class]] && [arr count] > 0) {
-            id u = arr[0][@"url"];
-            if ([u isKindOfClass:[NSString class]]) kindUrl = u;
+            NSInteger fallbackSession = -1;
+            NSInteger fallbackOther = -1;
+            for (NSUInteger i = 0; i < [arr count]; i++) {
+                id item = arr[i];
+                if (![item isKindOfClass:[NSDictionary class]]) continue;
+                NSString *u = item[@"url"];
+                NSString *t = item[@"title"];
+                if (![u isKindOfClass:[NSString class]] || u.length == 0) continue;
+                NSString *ul = u.lowercaseString;
+                NSString *tl = [t isKindOfClass:[NSString class]] ? t : @"";
+                if ([ul containsString:@"fanqienovel.com/fqbookshelf"]) continue;
+                if ([ul containsString:@"read_recommend"] || [tl containsString:@"个性推荐"]) {
+                    kindUrl = u;
+                    break;
+                }
+                if (fallbackSession < 0 && [ul containsString:@"session="]) {
+                    fallbackSession = (NSInteger)i;
+                }
+                if (fallbackOther < 0) fallbackOther = (NSInteger)i;
+            }
+            if (kindUrl.length == 0) {
+                NSInteger pick = fallbackSession >= 0 ? fallbackSession
+                    : (fallbackOther >= 0 ? fallbackOther : 0);
+                id u = arr[(NSUInteger)pick][@"url"];
+                if ([u isKindOfClass:[NSString class]]) kindUrl = u;
+            }
         }
     }
     LBDiscoverAppendMarker([NSString stringWithFormat:
