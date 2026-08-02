@@ -898,12 +898,37 @@ static BOOL LBEnsureXBSDicModelOnly(UIViewController *host, NSString *sourceName
     }
     NSMutableDictionary *model = [picked mutableCopy];
     if (want.length > 0) model[@"cf_title"] = want;
-    // 必须挡住 setDicModel hook：否则会异步 LBHandleDiscoverSourceSwitched → restore/reset
+    // 原生 setDicModel: 会丢 bookWorld（ensure 后 after=0）。优先写 ivar，避开 setter。
     BOOL prevHandling = sHandlingDiscoverSwitch;
     sHandlingDiscoverSwitch = YES;
     BOOL ok = NO;
+    NSString *via = @"none";
     @try {
-        ok = LBForceSetDicModel(host, model);
+        Ivar iv = class_getInstanceVariable([host class], "_dicModel");
+        if (!iv) iv = class_getInstanceVariable(object_getClass(host), "_dicModel");
+        if (!iv) {
+            unsigned int n = 0;
+            Ivar *ivars = class_copyIvarList([host class], &n);
+            for (unsigned int i = 0; i < n; i++) {
+                const char *nm = ivar_getName(ivars[i]);
+                if (nm && strstr(nm, "dicModel")) { iv = ivars[i]; break; }
+            }
+            if (ivars) free(ivars);
+        }
+        if (iv) {
+            object_setIvar(host, iv, model);
+            ok = YES;
+            via = @"ivar";
+        } else {
+            @try {
+                [host setValue:model forKey:@"dicModel"];
+                ok = YES;
+                via = @"kvc";
+            } @catch (__unused NSException *e1) {
+                ok = LBForceSetDicModel(host, model);
+                via = @"setDic";
+            }
+        }
     } @finally {
         sHandlingDiscoverSwitch = prevHandling;
     }
@@ -911,17 +936,29 @@ static BOOL LBEnsureXBSDicModelOnly(UIViewController *host, NSString *sourceName
     @try { [host setValue:(pickedName ?: want) forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
     // 回读确认 bookWorld 是否真挂上
     NSUInteger afterN = 0;
+    NSUInteger afterNested = 0;
     @try {
-        id dm = [host valueForKey:@"dicModel"];
+        id dm = nil;
+        @try { dm = [host valueForKey:@"dicModel"]; } @catch (__unused NSException *e) {}
+        if (!dm) {
+            Ivar iv2 = class_getInstanceVariable([host class], "_dicModel");
+            if (iv2) dm = object_getIvar(host, iv2);
+        }
         if ([dm isKindOfClass:[NSDictionary class]]) {
             id bw2 = ((NSDictionary *)dm)[@"bookWorld"];
-            if ([bw2 isKindOfClass:[NSDictionary class]]) afterN = [(NSDictionary *)bw2 count];
+            if ([bw2 isKindOfClass:[NSDictionary class]]) {
+                afterN = [(NSDictionary *)bw2 count];
+                for (id v in [(NSDictionary *)bw2 allValues]) {
+                    if ([v isKindOfClass:[NSArray class]]) afterNested += [(NSArray *)v count];
+                    else if ([v isKindOfClass:[NSDictionary class]]) afterNested += [(NSDictionary *)v count];
+                }
+            }
         }
     } @catch (__unused NSException *e) {}
     LBAppendNativeMarker([NSString stringWithFormat:
-                          @"ensureDic setOnly=%d bw=%lu after=%lu name=%@ noReset",
-                          ok ? 1 : 0, (unsigned long)bwN, (unsigned long)afterN,
-                          pickedName ?: want]);
+                          @"ensureDic setOnly=%d via=%@ bw=%lu after=%lu nested=%lu name=%@ noReset",
+                          ok ? 1 : 0, via, (unsigned long)bwN, (unsigned long)afterN,
+                          (unsigned long)afterNested, pickedName ?: want]);
     return ok && afterN >= 3;
 }
 
