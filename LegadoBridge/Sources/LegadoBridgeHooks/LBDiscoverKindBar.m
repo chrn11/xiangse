@@ -3768,7 +3768,7 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
             @try { LBRemoveDiscoverOverlays(host); } @catch (__unused NSException *e) {}
         }
         sCachedKinds = nil;
-        sNativeChromeBuilt = NO;
+        // 勿清 sNativeChromeBuilt：sync 轮询会反复进来；清掉易触发下游误重建
         id core = LBKindCore();
         if (core) {
             @try { [core setValue:nil forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
@@ -3782,37 +3782,25 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
         } else {
             name = LBReadHostSourceName(host);
         }
-        BOOL opened = NO;
-        if (host && name.length > 0 &&
-            ![name isEqualToString:@"切换站点"] &&
-            ![name isEqualToString:@"书源"] &&
-            ![name isEqualToString:@"发现"]) {
-            static NSString *sLastXBSRestoreName = nil;
-            static CFAbsoluteTime sLastXBSRestoreAt = 0;
-            CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-            BOOL sameRecent = (sLastXBSRestoreName &&
-                               [sLastXBSRestoreName isEqualToString:name] &&
-                               (now - sLastXBSRestoreAt) < 2.5);
-            if (!sameRecent) {
-                sLastXBSRestoreName = [name copy];
-                sLastXBSRestoreAt = now;
-                BOOL prevHandling = sHandlingDiscoverSwitch;
-                sHandlingDiscoverSwitch = YES;
-                @try {
-                    opened = LBRestoreNativeXBSChrome(host, name);
-                } @catch (__unused NSException *e) {
-                    opened = NO;
-                } @finally {
-                    sHandlingDiscoverSwitch = prevHandling;
-                }
-                // 纯 XBS：restore 已 resetContent，禁止再延迟 LBReload（即便 noop 也会打乱时序）
-                // opened 后交给原生拉书即可
+        // 关键：syncMode 禁止 LBRestoreNativeXBSChrome。
+        // 真机：进发现即 setDic+reset → 只剩分类墙且永不拉书；skipAlreadyLive 又因
+        // 首次 dicModel 未就绪挡不住。restore 只留给 nativeSwitch（用户点「切换」）。
+        NSInteger arrN = -1;
+        NSUInteger bwN = 0;
+        @try {
+            UIViewController *list = LBActiveDiscoverListVC(host) ?: host;
+            id a = [list valueForKey:@"arrBaseData"];
+            if ([a isKindOfClass:[NSArray class]]) arrN = (NSInteger)[(NSArray *)a count];
+            id dm = [host valueForKey:@"dicModel"];
+            if ([dm isKindOfClass:[NSDictionary class]]) {
+                id bw = ((NSDictionary *)dm)[@"bookWorld"];
+                if ([bw isKindOfClass:[NSDictionary class]]) bwN = [(NSDictionary *)bw count];
             }
-        }
+        } @catch (__unused NSException *e) {}
         LBAppendNativeMarker([NSString stringWithFormat:
-                              @"syncMode XBS=1 host=%@ name=%@ openCfg=%d",
+                              @"syncMode XBS=1 skipRestore host=%@ name=%@ arrN=%ld bw=%lu",
                               host ? NSStringFromClass([host class]) : @"-",
-                              name ?: @"-", opened ? 1 : 0]);
+                              name ?: @"-", (long)arrN, (unsigned long)bwN]);
     } else {
         LBAppendNativeMarker([NSString stringWithFormat:
                               @"syncMode XBS=0 host=%@ name=%@",
