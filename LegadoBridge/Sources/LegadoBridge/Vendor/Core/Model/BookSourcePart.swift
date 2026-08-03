@@ -80,6 +80,13 @@ public struct BookSourcePart: Codable, Identifiable {
         public var wordCount: String?
         public var canReName: String?
         public var downloadUrls: String?
+
+        // Legado JSON 字段名是 `init`，不是 `initRule`
+        enum CodingKeys: String, CodingKey {
+            case initRule = "init"
+            case name, author, intro, kind, lastChapter, updateTime
+            case coverUrl, tocUrl, wordCount, canReName, downloadUrls
+        }
     }
 
     public struct TocRulePart: Codable {
