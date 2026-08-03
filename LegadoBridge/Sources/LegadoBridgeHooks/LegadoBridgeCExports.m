@@ -121,6 +121,9 @@ static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInte
 static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip);
 static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInteger section);
 static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip);
+static BOOL LBVCIsCatalogTableContext(id selfObj);
+static BOOL LBItemLooksLikeChapter(id item);
+static BOOL LBArrayLooksLikeChapters(NSArray *arr);
 
 static void LBSetSearchKeywordOnVC(UIViewController *vc, NSString *keyword);
 static NSArray<UIWindow *> *LBAllAppWindows(void);
@@ -1274,6 +1277,9 @@ static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInte
         }
         return 0;
     }
+    if (LBVCIsCatalogTableContext(self)) {
+        return LBHookedCatalogNumberOfRows(self, _cmd, tv, section);
+    }
     NSString *cn = NSStringFromClass([self class]);
     BOOL plazaHost = [cn containsString:@"BookList"]
         || [cn containsString:@"BookWorld"]
@@ -1282,6 +1288,10 @@ static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInte
     @try {
         id cur = [self valueForKey:@"arrBaseData"];
         if (plazaHost && [cur isKindOfClass:[NSArray class]] && tv.dataSource == self) {
+            // 章节误灌 arrBaseData：走目录行数，勿当书画行
+            if (LBArrayLooksLikeChapters(cur)) {
+                return LBHookedCatalogNumberOfRows(self, _cmd, tv, section);
+            }
             // 纯 XBS：默认交给原生行数（arr 可能是分类标签）。
             // 仅当样本过半像「书」且原生行数为 0 时，才用 arr 兜底出书行。
             if (LBIsDiscoverNativeXBSMode()) {
@@ -1329,6 +1339,10 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
         }
         return nil;
     }
+    // CatalogCon 常继承 BookList 链：禁止用发现封面 cell 画章节（暂无封面+目录加载中挤成一团）
+    if (LBVCIsCatalogTableContext(self)) {
+        return LBHookedCatalogCellForRow(self, _cmd, tv, ip);
+    }
     NSString *cn = NSStringFromClass([self class]);
     BOOL plazaHost = [cn containsString:@"BookList"]
         || [cn containsString:@"BookWorld"]
@@ -1339,6 +1353,10 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
     if (plazaHost) {
         @try {
             id cur = [self valueForKey:@"arrBaseData"];
+            // 章节误灌进 arrBaseData 时绝不能当书画封面
+            if (LBArrayLooksLikeChapters(cur)) {
+                return LBHookedCatalogCellForRow(self, _cmd, tv, ip);
+            }
             BOOL useLegadoCell =
                 (LBArrayHasLegadoBooks(cur) ||
                  (LBIsDiscoverTabActive() &&
@@ -1350,6 +1368,7 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
                 ip.row >= 0 && ip.row < (NSInteger)[(NSArray *)cur count]) {
                 id item = [(NSArray *)cur objectAtIndex:(NSUInteger)ip.row];
                 if ([item isKindOfClass:[NSDictionary class]] &&
+                    !LBItemLooksLikeChapter(item) &&
                     (!LBIsDiscoverNativeXBSMode() || LBDictLooksLikeNativeBook((NSDictionary *)item))) {
                     return LBMakeLegadoDiscoverBookCell(tv, (NSDictionary *)item);
                 }
@@ -2247,7 +2266,9 @@ static BOOL LBHudMessageIsWrongBook(NSString *text) {
     if (![text isKindOfClass:[NSString class]] || text.length == 0) return NO;
     return [text containsString:@"错误的书本"] ||
            [text containsString:@"没有这本书"] ||
-           [text containsString:@"找不到目录数据"];
+           [text containsString:@"找不到目录数据"] ||
+           [text containsString:@"未发现目录"] ||
+           [text containsString:@"目录加载失败"];
 }
 
 static BOOL LBShouldSuppressWrongBookHud(void) {
@@ -2263,11 +2284,11 @@ static BOOL LBShouldSuppressWrongBookHud(void) {
 }
 
 static NSArray *LBCatalogLoadingPlaceholder(void) {
+    // 仅纯章节字段：勿带 bookUrl/cover/intro，避免被发现封面 cell 当成书
     return @[
         @{
             @"cpTitle": @"目录加载中…",
             @"title": @"目录加载中…",
-            @"name": @"目录加载中…",
             @"chapterName": @"目录加载中…",
             @"cpUrl": @"legado://catalog-loading",
             @"chapterUrl": @"legado://catalog-loading",
@@ -2768,9 +2789,17 @@ static BOOL LBWriteChaptersOntoObject(id obj, NSArray *chapters) {
         } @catch (__unused NSException *e) {}
     }
     if (LBTrySetArrayKey(obj, @"arrSource", chapters)) wrote = YES;
-    for (NSString *key in @[@"arrCatalog", @"arrBaseData", @"arrCpInfo", @"chapterList"]) {
+    // 禁止写 arrBaseData：那是发现/搜索书列表字段，章节灌进去会套封面 cell（暂无封面挤目录）
+    for (NSString *key in @[@"arrCatalog", @"arrCpInfo", @"chapterList"]) {
         if (LBTrySetArrayKey(obj, key, chapters)) wrote = YES;
     }
+    // 若 arrBaseData 里已是章节脏数据，清掉以免广场 cell 误绘
+    @try {
+        id base = [obj valueForKey:@"arrBaseData"];
+        if (LBArrayLooksLikeChapters(base)) {
+            LBTrySetArrayKey(obj, @"arrBaseData", @[]);
+        }
+    } @catch (__unused NSException *e) {}
     @try {
         id cv = [obj valueForKey:@"catalogView"];
         if (cv && cv != obj) {
@@ -4235,14 +4264,26 @@ static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView
     if (legadoFallback && ip.row >= 0 && ip.row < (NSInteger)use.count) {
         id item = use[(NSUInteger)ip.row];
         NSString *title = LBChapterTitleFromItem(item) ?: [NSString stringWithFormat:@"章节 %ld", (long)ip.row + 1];
-        UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"legado.catalog.cp"];
+        // 勿复用发现封面 cell（同 table 从广场 push 过来时 reuse 池里可能还有 LBDiscoverCoverCellV2）
+        UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"legado.catalog.cp.v2"];
         if (!cell) {
             cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
-                                         reuseIdentifier:@"legado.catalog.cp"];
+                                         reuseIdentifier:@"legado.catalog.cp.v2"];
         }
+        // 清掉误复用的封面子视图
+        for (UIView *sub in [cell.contentView.subviews copy]) {
+            if (sub.tag == 9101 || sub.tag == 9102 || sub.tag == 9103 || sub.tag == 9104 || sub.tag == 9105) {
+                [sub removeFromSuperview];
+            }
+        }
+        cell.imageView.image = nil;
         cell.textLabel.text = title;
+        cell.textLabel.numberOfLines = 1;
+        cell.textLabel.font = [UIFont systemFontOfSize:16];
         cell.textLabel.textColor = [UIColor labelColor];
-        cell.backgroundColor = [UIColor clearColor];
+        cell.detailTextLabel.text = nil;
+        cell.backgroundColor = [UIColor systemBackgroundColor];
+        cell.contentView.backgroundColor = [UIColor systemBackgroundColor];
         // 禁选：点章走透明按钮 → 原生 openReader（失败再 Bridge）
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
         // 无障碍/坐标点常碰不到原生 didSelect：透明按钮铺满 cell
