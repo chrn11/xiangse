@@ -146,6 +146,7 @@ class JSBridge: JsEncodeUtils {
         let previous = jsContext.exceptionHandler
         jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
         var objcError: NSString?
+        installRhinoThisProxy(into: jsContext)
         _ = ObjCExceptionCatch.evaluateScript(rhinoCompatThisBinding(script), in: jsContext, error: &objcError)
         jsContext.exceptionHandler = previous
         if let objcError {
@@ -156,8 +157,8 @@ class JSBridge: JsEncodeUtils {
         }
     }
 
-    /// Rhino 兼容：自由函数里 `const {java}=this` 在 JSC 下 `this===undefined` 会 TypeError。
-    /// 书山 bookList / jsLib 大量依赖该写法；改成 `(this||globalThis)`（含多行解构）。
+    /// Rhino 兼容：自由函数里 `const {java}=this` 在 JSC 下 this 常为 undefined。
+    /// 调用方须先 `installRhinoThisProxy(into:)`；再把 `} = this` 改成 `} = __legadoRhinoThis`。
     static func rhinoCompatThisBinding(_ script: String) -> String {
         guard script.contains("this") else { return script }
         guard let re = try? NSRegularExpression(
@@ -169,8 +170,22 @@ class JSBridge: JsEncodeUtils {
             in: script,
             options: [],
             range: range,
-            withTemplate: "$1 = (this || globalThis)"
+            withTemplate: "$1 = __legadoRhinoThis"
         )
+    }
+
+    /// 安装解构用代理：快照当前全局的 java/source/cookie/result/baseUrl。
+    /// 禁止用 getter `return java`（会与同名属性递归）。
+    static func installRhinoThisProxy(into jsContext: JSContext) {
+        _ = ObjCExceptionCatch.evaluateScript("""
+        var __legadoRhinoThis = {
+          java: (typeof java !== 'undefined' ? java : undefined),
+          source: (typeof source !== 'undefined' ? source : undefined),
+          cookie: (typeof cookie !== 'undefined' ? cookie : undefined),
+          result: (typeof result !== 'undefined' ? result : undefined),
+          baseUrl: (typeof baseUrl !== 'undefined' ? baseUrl : undefined)
+        };
+        """, in: jsContext, error: nil)
     }
 
     /// 单行 http(s) URL → 视为远程脚本地址（非内联 JS）

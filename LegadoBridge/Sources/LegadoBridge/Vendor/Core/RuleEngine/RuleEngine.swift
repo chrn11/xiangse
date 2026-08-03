@@ -828,14 +828,16 @@ class RuleEngine {
         exec.jsContext.setValue(baseUrl, forKey: "baseUrl")
         // reinject 后再次确保 jsLib（source 可能在 lazy 之后才绑定）
         JSBridge.evaluateJsLib(of: source, into: exec.jsContext)
+        JSBridge.installRhinoThisProxy(into: exec.jsContext)
 
         var jsError: String?
         exec.jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
         // 探针提前：即便后续桥接崩溃也能看到进了 getJsElements
+        let patchedCode = JSBridge.rhinoCompatThisBinding(jsCode)
         do {
             let path = (NSHomeDirectory() as NSString)
                 .appendingPathComponent("Documents/legado_js_elements_probe.txt")
-            let pre = "ts=\(ISO8601DateFormatter().string(from: Date())) enter prefix=\(prefixRule.prefix(30)) suffix=\(suffixRule.prefix(20)) codePrefix=\(jsCode.prefix(60).replacingOccurrences(of: "\n", with: " "))\n"
+            let pre = "ts=\(ISO8601DateFormatter().string(from: Date())) enter prefix=\(prefixRule.prefix(30)) suffix=\(suffixRule.prefix(20)) patched=\(patchedCode.contains("__legadoRhinoThis") ? 1 : 0) codePrefix=\(patchedCode.prefix(80).replacingOccurrences(of: "\n", with: " "))\n"
             if let data = pre.data(using: .utf8) {
                 if FileManager.default.fileExists(atPath: path), let fh = FileHandle(forWritingAtPath: path) {
                     fh.seekToEndOfFile(); fh.write(data); try? fh.close()
@@ -844,7 +846,7 @@ class RuleEngine {
                 }
             }
         }
-        let value = exec.jsContext.evaluateScript(JSBridge.rhinoCompatThisBinding(jsCode))
+        let value = exec.jsContext.evaluateScript(patchedCode)
         if let jsError, !jsError.isEmpty {
             DebugLogger.shared.log("[getJsElements] \(jsError)")
         }
