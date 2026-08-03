@@ -1501,6 +1501,14 @@ class RuleEngine {
     
     /// 从 JSON 字典中提取字符串
     private func getStringFromJson(ruleStr: String, json: [String: Any]) -> String {
+        // `||` 须先短路求值；整串当 JSONPath 会变成不存在的键名。
+        if let orParts = RuleSplitter.splitTopLevel(ruleStr, token: "||"), orParts.count > 1 {
+            for part in orParts {
+                let value = getStringFromJson(ruleStr: part.trimmingCharacters(in: .whitespacesAndNewlines), json: json)
+                if !value.isEmpty { return value }
+            }
+            return ""
+        }
         let path = normalizeJSONPath(ruleStr)
         let values = JSONPathParser.evaluate(path: path, root: json)
         guard let first = values.first else { return "" }
@@ -2671,17 +2679,30 @@ class JavaScriptParser: RuleExecutor {
     
     func execute(_ rule: String, context: ExecutionContext) throws -> RuleResult {
         let jsCode = extractJS(rule)
-        // JSON 字面量注入，避免 setValue:forKey 未落到 JS 全局（同 @ 链修复）
-        let resultText: String = {
-            if case .string(let s) = context.lastResult { return s }
-            if case .list(let vals) = context.lastResult { return vals.first ?? "" }
-            return (context.document as? String) ?? ""
-        }()
-        let resultLiteral = jsonLiteral(resultText)
-        let baseLiteral = jsonLiteral(context.baseURL?.absoluteString ?? "")
         _ = context.jsContext
-        context.jsContext.evaluateScript("var result = \(resultLiteral); var baseUrl = \(baseLiteral);")
+        let baseLiteral = jsonLiteral(context.baseURL?.absoluteString ?? "")
+        // 列表项是 JSON 字典时，必须把 dict 注入为 result 对象。
+        // 只注入字符串时 result.book_id 全空 → bookUrl 拼成同一 data: URL → dedupe 只剩 1 本。
+        // 若链式规则已有非空 lastResult，优先用字符串（保持 @js 链语义）。
+        let priorText: String? = {
+            if case .string(let s) = context.lastResult, !s.isEmpty { return s }
+            if case .list(let vals) = context.lastResult, let first = vals.first, !first.isEmpty {
+                return first
+            }
+            return nil
+        }()
+        if let priorText {
+            let resultLiteral = jsonLiteral(priorText)
+            context.jsContext.evaluateScript("var result = \(resultLiteral); var baseUrl = \(baseLiteral);")
+        } else if injectJSONResult(into: context) {
+            context.jsContext.evaluateScript("var baseUrl = \(baseLiteral);")
+        } else {
+            let resultText = (context.document as? String) ?? ""
+            let resultLiteral = jsonLiteral(resultText)
+            context.jsContext.evaluateScript("var result = \(resultLiteral); var baseUrl = \(baseLiteral);")
+        }
         JSBridge.evaluateJsLib(of: context.source, into: context.jsContext)
+        JSBridge.installRhinoThisProxy(into: context.jsContext)
         var jsError: String?
         context.jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
         let jsValue = context.jsContext.evaluateScript(jsCode)
@@ -2692,6 +2713,31 @@ class JavaScriptParser: RuleExecutor {
             return .string(string)
         }
         return .none
+    }
+
+    /// 将 jsonDict / jsonValue 注入为 JS 全局 `result`（对象/数组），成功返回 true。
+    private func injectJSONResult(into context: ExecutionContext) -> Bool {
+        let js = context.jsContext
+        if let dict = context.jsonDict ?? (context.jsonValue as? [String: Any]) {
+            let obj = dict as NSDictionary
+            js.setObject(obj, forKeyedSubscript: "result" as NSString)
+            js.globalObject?.setObject(obj, forKeyedSubscript: "result" as NSString)
+            return true
+        }
+        if let arr = context.jsonValue as? [Any], JSONSerialization.isValidJSONObject(arr) {
+            let obj = arr as NSArray
+            js.setObject(obj, forKeyedSubscript: "result" as NSString)
+            js.globalObject?.setObject(obj, forKeyedSubscript: "result" as NSString)
+            return true
+        }
+        if let value = context.jsonValue,
+           JSONSerialization.isValidJSONObject(value),
+           let data = try? JSONSerialization.data(withJSONObject: value),
+           let expr = String(data: data, encoding: .utf8) {
+            js.evaluateScript("var result = \(expr);")
+            return true
+        }
+        return false
     }
 
     private func jsonLiteral(_ value: String) -> String {
