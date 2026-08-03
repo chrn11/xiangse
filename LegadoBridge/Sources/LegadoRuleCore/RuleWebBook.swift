@@ -1214,9 +1214,9 @@ public enum RuleWebBook {
             }
             var parsedBookUrl = ruleEngine.getString(ruleStr: bookUrlRule, elementContext: el, baseUrl: baseUrl)
             // 常见源写 a:nth-child(1)@href：当 a 不是父节点第 1 子时取空，列表有书名却点不进。
-            // 回退同元素内首个链接，避免「能看见书、点开 no bookUrl」。
+            // 回退同元素内首链；勿用裸 a@href（多 a 会用 \n 拼成非法 URL，目录「网络响应为空」）。
             if parsedBookUrl.isEmpty {
-                for fallback in ["a@href", "tag.a@href", "a@data-href"] {
+                for fallback in ["a.0@href", "tag.a.0@href", "a@data-href", "a@href", "tag.a@href"] {
                     let u = ruleEngine.getString(ruleStr: fallback, elementContext: el, baseUrl: baseUrl)
                     if !u.isEmpty {
                         parsedBookUrl = u
@@ -1225,7 +1225,7 @@ public enum RuleWebBook {
                 }
             }
             // 勿用列表页 baseUrl 填空 bookUrl：否则 10 条会去重成 1 条
-            item.bookUrl = parsedBookUrl
+            item.bookUrl = primaryBookUrl(parsedBookUrl)
             let parsedCover = ruleEngine.getString(ruleStr: coverUrlRule, elementContext: el, baseUrl: baseUrl)
             if !parsedCover.isEmpty {
                 let absolute = URL(string: parsedCover, relativeTo: URL(string: baseUrl))?.absoluteURL.absoluteString ?? parsedCover
@@ -1312,6 +1312,14 @@ public enum RuleWebBook {
             if seen.insert(key).inserted { output.append(item) }
         }
         return output
+    }
+
+    /// getString 多匹配会用 \\n 拼接；bookUrl 只保留第一条非空 URL。
+    private static func primaryBookUrl(_ value: String) -> String {
+        value
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
     }
 
     private static func normalizeBookName(_ value: String) -> String {
