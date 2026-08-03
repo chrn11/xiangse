@@ -3084,9 +3084,10 @@ static void LBInstallOpenOnceClearOnShelfAppear(void) {
 static NSString *LBCatalogCacheSafeKey(NSString *bookUrl) {
     // 须逐字符重建：若 in-place 把非法字符换成 `_`，`_` 仍非 alnum → 死循环，
     // nativeRead 会卡在 LBEnsurePendingCatalogForBook（真机：openurl 有、request/trace 无）。
+    // 长 data: URL 仅取后缀易碰撞（书山 contentUrl 尾部常同为 type/qingci）；用 hash+头尾。
     if (bookUrl.length == 0) return @"unknown";
     NSCharacterSet *allowed = [NSCharacterSet alphanumericCharacterSet];
-    NSMutableString *s = [NSMutableString stringWithCapacity:MIN(bookUrl.length, (NSUInteger)120)];
+    NSMutableString *s = [NSMutableString stringWithCapacity:MIN(bookUrl.length, (NSUInteger)160)];
     for (NSUInteger i = 0; i < bookUrl.length; i++) {
         unichar c = [bookUrl characterAtIndex:i];
         if ([allowed characterIsMember:c]) {
@@ -3095,10 +3096,10 @@ static NSString *LBCatalogCacheSafeKey(NSString *bookUrl) {
             [s appendString:@"_"];
         }
     }
-    if (s.length > 120) {
-        return [s substringFromIndex:s.length - 120];
-    }
-    return s;
+    NSUInteger h = [bookUrl hash];
+    NSString *head = s.length > 24 ? [s substringToIndex:24] : [s copy];
+    NSString *tail = s.length > 24 ? [s substringFromIndex:s.length - 24] : @"";
+    return [NSString stringWithFormat:@"%08lx_%@_%@", (unsigned long)h, head, tail];
 }
 
 static NSString *LBCatalogCachePath(NSString *bookUrl) {
@@ -3982,10 +3983,34 @@ static void LBCatalogSetArrCatalog_IMP(id self, SEL _cmd, id arr) {
     if (sCatalogInjectReentrant) return;
     BOOL empty = (!arr || ([arr isKindOfClass:[NSArray class]] && [arr count] == 0));
     if (!empty || sPendingCatalogChapters.count == 0) return;
+    // 仅当 VC 书目与 pending 同书才盖回，避免换书后空目录被他书 pending 填回
+    NSString *vcBu = nil;
+    @try {
+        id v = [self valueForKey:@"bookUrl"];
+        if ([v isKindOfClass:[NSString class]]) vcBu = v;
+    } @catch (__unused NSException *e) {}
+    if (vcBu.length == 0) {
+        @try {
+            id dic = [self valueForKey:@"dicBook"];
+            if ([dic isKindOfClass:[NSDictionary class]]) {
+                id v = dic[@"bookUrl"] ?: dic[@"url"];
+                if ([v isKindOfClass:[NSString class]]) vcBu = v;
+            }
+        } @catch (__unused NSException *e) {}
+    }
+    if (vcBu.length > 0 && sPendingCatalogBookUrl.length > 0 &&
+        ![vcBu isEqualToString:sPendingCatalogBookUrl]) {
+        return;
+    }
     // 原生异步回写空目录时，用 pending 盖回（含 ivar 强写）
     NSArray *ch = [sPendingCatalogChapters copy];
+    NSString *pendingBu = [sPendingCatalogBookUrl copy];
     dispatch_async(dispatch_get_main_queue(), ^{
         if (sPendingCatalogChapters.count == 0) return;
+        if (pendingBu.length > 0 && sPendingCatalogBookUrl.length > 0 &&
+            ![pendingBu isEqualToString:sPendingCatalogBookUrl]) {
+            return;
+        }
         LBWriteChaptersOntoObject(self, ch);
         if ([self isKindOfClass:[UIViewController class]]) {
             LBReloadCatalogVC((UIViewController *)self);
@@ -4357,7 +4382,24 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
         mark(@"searchPush fail: no bookUrl");
         return NO;
     }
+    // 必须先按「旧 bookUrl」判串书再改写：若先赋 sPendingCatalogBookUrl=bu，
+    // 下面 ![pendingBu isEqual:bu] 恒为假，旧目录会灌进新书 CatalogCon（先错后对）。
+    NSString *prevPendingBu = sPendingCatalogBookUrl;
+    if (sPendingCatalogChapters.count > 0 &&
+        (prevPendingBu.length == 0 || ![prevPendingBu isEqualToString:bu])) {
+        sPendingCatalogChapters = nil;
+        sCatalogUserOrderLocked = NO;
+        mark([NSString stringWithFormat:@"searchPush clearStaleCatalog prev=%@ next=%@",
+              prevPendingBu ?: @"", bu]);
+    }
     sPendingCatalogBookUrl = [bu copy];
+    // 同书盘缓存可立刻灌入正确目录；换书后空列表等待网络，禁止他书 pending
+    if (sPendingCatalogChapters.count == 0) {
+        NSArray *cached = LBLoadCatalogCache(bu);
+        if (cached.count > 0) {
+            sPendingCatalogChapters = [cached copy];
+        }
+    }
     if (su.length > 0) sPendingCatalogSourceUrl = [su copy];
     else if (sPendingCatalogSourceUrl.length == 0) {
         sPendingCatalogSourceUrl = LBOriginSourceUrlFromBookUrl(bu);
@@ -4369,13 +4411,6 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
         sPendingCatalogSourceName = @"本地静态测试源";
     }
     if (su.length == 0) su = sPendingCatalogSourceUrl;
-
-    if (sPendingCatalogChapters.count > 0 &&
-        sPendingCatalogBookUrl.length > 0 &&
-        ![sPendingCatalogBookUrl isEqualToString:bu]) {
-        // 换书时丢弃串书 pending，避免目录页展示他书章节名
-        sPendingCatalogChapters = nil;
-    }
 
     // 强制桥接回退：Documents/legado_u1_catalog_bridge_only.txt 存在则不走 CatalogCon
     BOOL forceBridge = [[NSFileManager defaultManager]
@@ -11323,9 +11358,31 @@ void LBInstallCatalogUIAppearFlush(void) {
         IMP hook = imp_implementationWithBlock(^void(id selfObj, BOOL animated) {
             ((void (*)(id, SEL, BOOL))orig)(selfObj, sel, animated);
             if (sPendingCatalogChapters.count == 0) return;
+            NSString *vcBu = nil;
+            @try {
+                id v = [selfObj valueForKey:@"bookUrl"];
+                if ([v isKindOfClass:[NSString class]]) vcBu = v;
+            } @catch (__unused NSException *e) {}
+            if (vcBu.length == 0) {
+                @try {
+                    id dic = [selfObj valueForKey:@"dicBook"];
+                    if ([dic isKindOfClass:[NSDictionary class]]) {
+                        id v = dic[@"bookUrl"] ?: dic[@"url"];
+                        if ([v isKindOfClass:[NSString class]]) vcBu = v;
+                    }
+                } @catch (__unused NSException *e) {}
+            }
+            if (vcBu.length > 0 && sPendingCatalogBookUrl.length > 0 &&
+                ![vcBu isEqualToString:sPendingCatalogBookUrl]) {
+                return;
+            }
             NSArray *ch = [sPendingCatalogChapters copy];
             NSString *bu = [sPendingCatalogBookUrl copy];
             dispatch_async(dispatch_get_main_queue(), ^{
+                if (bu.length > 0 && sPendingCatalogBookUrl.length > 0 &&
+                    ![bu isEqualToString:sPendingCatalogBookUrl]) {
+                    return;
+                }
                 LBApplyPendingCatalogToVCs(ch, bu, @"appear");
                 LBScheduleCatalogReapply(ch, bu);
             });
@@ -11390,16 +11447,24 @@ void LBApplyCatalogToUI(NSArray *chapters, NSString *bookUrl) {
     }
     @try {
         LBInstallCatalogUIAppearFlush();
-        // 换书时解除用户倒序锁；同书刷新仍允许引擎新目录覆盖（reapply 短延迟由 lock 挡住）
+        // 用户已换书：丢弃他书迟到的异步目录，避免「先错后对」覆盖当前页
         if (bookUrl.length > 0 &&
             sPendingCatalogBookUrl.length > 0 &&
             ![bookUrl isEqualToString:sPendingCatalogBookUrl]) {
-            sCatalogUserOrderLocked = NO;
+            LBCatalogWriteMarker([NSString stringWithFormat:
+                                  @"uiInject skip-stale book=%@ current=%@ n=%lu",
+                                  bookUrl, sPendingCatalogBookUrl,
+                                  (unsigned long)chapters.count]);
+            // 仍写入该书自己的盘缓存，供下次点进该书秒开
+            LBSaveCatalogCache(bookUrl, chapters);
+            return;
         }
         if (!sCatalogUserOrderLocked) {
             sPendingCatalogChapters = [chapters copy];
         }
-        sPendingCatalogBookUrl = [bookUrl copy];
+        if (bookUrl.length > 0) {
+            sPendingCatalogBookUrl = [bookUrl copy];
+        }
         LBSaveCatalogCache(bookUrl, chapters);
         NSArray *applyCh = sCatalogUserOrderLocked && sPendingCatalogChapters.count > 0
             ? sPendingCatalogChapters : chapters;

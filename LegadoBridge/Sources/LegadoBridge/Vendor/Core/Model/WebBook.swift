@@ -355,7 +355,8 @@ class WebBook {
                 body: preparedNextBody,
                 baseUrl: nextRedirectUrl,
                 rule: tocRule,
-                startIndex: chapters.count
+                startIndex: chapters.count,
+                source: source
             )
             chapters.append(contentsOf: nextChapters)
 

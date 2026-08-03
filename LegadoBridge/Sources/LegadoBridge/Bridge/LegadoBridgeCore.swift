@@ -1392,7 +1392,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 LBApplyCatalogToUI(chapterMaps as [Any], bookUrl)
             } catch {
                 writeCatalogMarker("err book=\(bookUrl) \(error.localizedDescription)")
-                // 8.5：目录网络失败时尝试盘缓存（与 C 侧 LBCatalogCachePath 规则对齐）
+                // 8.5：目录网络失败时尝试盘缓存（与 C 侧 LBCatalogCacheSafeKey 对齐：hash+头尾）
                 let cacheDir = (NSHomeDirectory() as NSString)
                     .appendingPathComponent("Documents/legado_catalog_cache")
                 let allowed = CharacterSet.alphanumerics
@@ -1400,10 +1400,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 for ch in bookUrl.unicodeScalars {
                     safe.append(allowed.contains(ch) ? Character(ch) : "_")
                 }
-                if safe.count > 120 {
-                    safe = String(safe.suffix(120))
-                }
-                let file = (cacheDir as NSString).appendingPathComponent("\(safe).json")
+                let h = UInt(bitPattern: Int((bookUrl as NSString).hash))
+                let head = safe.count > 24 ? String(safe.prefix(24)) : safe
+                let tail = safe.count > 24 ? String(safe.suffix(24)) : ""
+                let key = String(format: "%08lx_%@_%@", h, head, tail)
+                let file = (cacheDir as NSString).appendingPathComponent("\(key).json")
                 if let data = try? Data(contentsOf: URL(fileURLWithPath: file)),
                    let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let chapters = obj["chapters"] as? [[String: Any]], !chapters.isEmpty {
