@@ -174,18 +174,17 @@ class JSBridge: JsEncodeUtils {
         )
     }
 
-    /// 安装解构用代理：快照当前全局的 java/source/cookie/result/baseUrl。
-    /// 禁止用 getter `return java`（会与同名属性递归）。
+    /// 安装解构用代理：从当前 JSContext 快照 java/source/cookie/result/baseUrl。
+    /// 用 Swift bindGlobal，避免 evaluateScript 里 typeof/赋值在真机不可见。
     static func installRhinoThisProxy(into jsContext: JSContext) {
-        _ = ObjCExceptionCatch.evaluateScript("""
-        var __legadoRhinoThis = {
-          java: (typeof java !== 'undefined' ? java : undefined),
-          source: (typeof source !== 'undefined' ? source : undefined),
-          cookie: (typeof cookie !== 'undefined' ? cookie : undefined),
-          result: (typeof result !== 'undefined' ? result : undefined),
-          baseUrl: (typeof baseUrl !== 'undefined' ? baseUrl : undefined)
-        };
-        """, in: jsContext, error: nil)
+        let proxy = JSValue(newObjectIn: jsContext)
+        for name in ["java", "source", "cookie", "result", "baseUrl"] {
+            if let v = jsContext.objectForKeyedSubscript(name as NSString),
+               !v.isUndefined, !v.isNull {
+                proxy?.setObject(v, forKeyedSubscript: name as NSString)
+            }
+        }
+        bindGlobal(proxy, name: "__legadoRhinoThis", into: jsContext)
     }
 
     /// 单行 http(s) URL → 视为远程脚本地址（非内联 JS）

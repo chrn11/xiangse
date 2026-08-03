@@ -837,7 +837,7 @@ class RuleEngine {
         do {
             let path = (NSHomeDirectory() as NSString)
                 .appendingPathComponent("Documents/legado_js_elements_probe.txt")
-            let pre = "ts=\(ISO8601DateFormatter().string(from: Date())) enter prefix=\(prefixRule.prefix(30)) suffix=\(suffixRule.prefix(20)) patched=\(patchedCode.contains("__legadoRhinoThis") ? 1 : 0) codePrefix=\(patchedCode.prefix(80).replacingOccurrences(of: "\n", with: " "))\n"
+            let pre = "ts=\(ISO8601DateFormatter().string(from: Date())) enter prefix=\(prefixRule.prefix(30)) suffix=\(suffixRule.prefix(20)) patched=\(patchedCode.contains("__legadoRhinoThis") ? 1 : 0) proxy=\(exec.jsContext.objectForKeyedSubscript("__legadoRhinoThis" as NSString)?.isObject == true ? 1 : 0) java=\(exec.jsContext.objectForKeyedSubscript("java" as NSString)?.isObject == true ? 1 : 0) codePrefix=\(patchedCode.prefix(80).replacingOccurrences(of: "\n", with: " "))\n"
             if let data = pre.data(using: .utf8) {
                 if FileManager.default.fileExists(atPath: path), let fh = FileHandle(forWritingAtPath: path) {
                     fh.seekToEndOfFile(); fh.write(data); try? fh.close()
