@@ -1051,13 +1051,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     }
                     if results.isEmpty {
                         writeSearchMarker("explore empty src=\(source.bookSourceUrl)")
-                        let emptyHint: String
-                        if let exploreUrlCopy, exploreUrlCopy.contains("session="),
-                           exploreUrlCopy.hasSuffix("session=") || exploreUrlCopy.contains("session=&") {
-                            emptyHint = "需要番茄登录后才能发现书籍（session 为空）"
-                        } else {
-                            emptyHint = "暂无书籍（可能需登录，或该分类无内容）"
-                        }
+                        let emptyHint = Self.exploreEmptyHint(
+                            source: source,
+                            exploreUrl: exploreUrlCopy,
+                            errorMessage: nil
+                        )
                         await MainActor.run {
                             guard generation == sExploreGeneration else { return }
                             LBSetDiscoverNativeXBSMode(false)
@@ -1071,17 +1069,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     if let bridgeErr = error as? LegadoBridgeError, case .timeout = bridgeErr {
                         writeSearchMarker("explore timeout src=\(source.bookSourceUrl)")
                     }
-                    let errMsg = error.localizedDescription
-                    let hint: String
-                    if errMsg.contains("登录") || errMsg.lowercased().contains("login") {
-                        hint = "需要登录后才能发现书籍"
-                    } else if errMsg.contains("JS") || errMsg.contains("URL") {
-                        hint = "发现地址解析失败：\(String(errMsg.prefix(80)))"
-                    } else if errMsg.contains("空") || errMsg.lowercased().contains("empty") {
-                        hint = "暂无书籍（接口无内容，可能需登录）"
-                    } else {
-                        hint = "发现加载失败：\(String(errMsg.prefix(80)))"
-                    }
+                    let hint = Self.exploreEmptyHint(
+                        source: source,
+                        exploreUrl: exploreUrlCopy,
+                        errorMessage: error.localizedDescription
+                    )
                     await MainActor.run {
                         guard generation == sExploreGeneration else { return }
                         LBSetDiscoverNativeXBSMode(false)
@@ -1090,14 +1082,12 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     }
                 }
             }
-            // 空结果也收尾：摘「章节加载中」，防「没书但一直转圈」
+            // 空结果也收尾：摘「章节加载中」；勿再用笼统文案盖掉上面按源判定的提示
             if total == 0 {
                 await MainActor.run {
                     guard generation == sExploreGeneration else { return }
                     LBSetDiscoverNativeXBSMode(false)
                     LBDismissDiscoverLoadingHUD()
-                    // 若各源已各自 show empty，此处兜底再盖一次
-                    LBShowDiscoverExploreEmptyHint("暂无书籍（可能需登录，或该分类无内容）")
                 }
             }
             writeSearchMarker("explore ok total=\(total) sources=\(targets.count) gen=\(generation)")
@@ -1648,6 +1638,54 @@ private final class SearchOutcomeBox: @unchecked Sendable {
             return c
         }
         return CookieManager.shared.getCookie(for: url)
+    }
+
+    /// 书源是否声明登录能力（Legado：有 loginUi 或 loginUrl，无 needLogin 布尔）
+    private static func sourceDeclaresLogin(_ source: MemoryBridgeBookSource) -> Bool {
+        let ui = source.loginUi?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let url = source.loginUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !ui.isEmpty || !url.isEmpty
+    }
+
+    /// 是否已有 loginHeader（真登录痕迹；仅 cookie 不算）
+    private static func sourceHasLoginHeader(_ source: MemoryBridgeBookSource) -> Bool {
+        let header = LoginCredentialStore.getHeader(sourceUrl: source.bookSourceUrl)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return !header.isEmpty
+    }
+
+    /// 发现空/失败文案：按书源字段判定，禁止对无登录字段的源瞎写「需登录」
+    private static func exploreEmptyHint(
+        source: MemoryBridgeBookSource,
+        exploreUrl: String?,
+        errorMessage: String?
+    ) -> String {
+        // 番茄类分类：session 参数为空 → 明确要番茄登录
+        if let exploreUrl, exploreUrl.contains("session="),
+           exploreUrl.hasSuffix("session=") || exploreUrl.contains("session=&") {
+            return "需要番茄登录后才能发现书籍（session 为空）"
+        }
+        let err = (errorMessage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if err.contains("登录") || err.lowercased().contains("login") {
+            return "需要登录后才能发现书籍"
+        }
+        // 源声明了 loginUi/loginUrl，且尚无 loginHeader → 按字段提示可登录（非所有空结果都硬性「必须登录」）
+        if sourceDeclaresLogin(source), !sourceHasLoginHeader(source) {
+            return "暂无书籍（该源配置了登录，可登录后重试）"
+        }
+        if err.isEmpty {
+            return "暂无书籍"
+        }
+        if err.contains("JS") || err.contains("URL") {
+            return "发现地址解析失败：\(String(err.prefix(80)))"
+        }
+        if err.contains("空") || err.lowercased().contains("empty") {
+            return "暂无书籍（接口无内容）"
+        }
+        if err.lowercased().contains("timeout") || err.contains("超时") {
+            return "发现加载超时，请稍后重试"
+        }
+        return "发现加载失败：\(String(err.prefix(80)))"
     }
 
     /// 解析书源 loginUrl（相对路径相对 bookSourceUrl）

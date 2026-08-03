@@ -1758,7 +1758,7 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
     }
     NSString *text = message.length > 0
         ? message
-        : @"暂无书籍（可能需登录，或该分类无内容）";
+        : @"暂无书籍";
     BOOL needLogin = [text containsString:@"登录"] || [text containsString:@"session"];
     @try {
         UIViewController *host = nil;
@@ -1815,7 +1815,9 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
         if (needLogin) {
             loginBtn = [UIButton buttonWithType:UIButtonTypeSystem];
             loginBtn.translatesAutoresizingMaskIntoConstraints = NO;
-            [loginBtn setTitle:@"打开书源登录（番茄登录）" forState:UIControlStateNormal];
+            // 文案含「番茄」时用番茄提示，否则通用「打开书源登录」
+            NSString *btnTitle = [text containsString:@"番茄"] ? @"打开番茄登录" : @"打开书源登录";
+            [loginBtn setTitle:btnTitle forState:UIControlStateNormal];
             loginBtn.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
             [loginBtn addTarget:LBExploreEmptyHintActionsShared()
                          action:@selector(openLogin:)
