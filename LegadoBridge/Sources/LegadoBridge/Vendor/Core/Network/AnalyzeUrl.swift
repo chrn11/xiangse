@@ -36,6 +36,8 @@ struct AnalyzedUrl {
     var webView: Bool = false
     var webJs: String?
     var sourceRegex: String?
+    /// URL Option 的 type（如书山 `{"type":"shushan"}`）；data: 响应时须保留以便按 Android 输出 hex
+    var type: String?
 }
 
 // MARK: - AnalyzeUrl 主类
@@ -889,6 +891,23 @@ class AnalyzeUrl {
         setCookie()
         let startTime = Date().timeIntervalSince1970 * 1000
 
+        // data: URI：勿走 URLSession（长串常解析失败 → localhost；书山详情 baseUrl 须仍是 data:）
+        if urlNoQuery.hasPrefix("data:") {
+            if let data = Self.extractDataUri(urlNoQuery) {
+                let bodyText: String
+                if type != nil {
+                    // 对齐 Android：type 非空时 body 为 hex，供 java.hexDecodeToString
+                    bodyText = data.map { String(format: "%02x", $0) }.joined()
+                } else {
+                    bodyText = String(data: data, encoding: .utf8) ?? ""
+                }
+                let responseUrl = mUrl.hasPrefix("data:") ? mUrl : urlNoQuery
+                var response = StrResponse(url: responseUrl, body: bodyText)
+                response.putCallTime(Int(Date().timeIntervalSince1970 * 1000 - startTime))
+                return response
+            }
+        }
+
         do {
             let strResponse: StrResponse
 
@@ -1297,7 +1316,8 @@ class AnalyzeUrl {
             charset: analyzer.charset,
             webView: analyzer.useWebView,
             webJs: analyzer.webJs,
-            sourceRegex: nil
+            sourceRegex: nil,
+            type: analyzer.type
         )
     }
 
@@ -1311,8 +1331,16 @@ class AnalyzeUrl {
         forceWebView: Bool = false,
         source: (any BridgeSourceProtocol)? = nil
     ) async throws -> (body: String, url: String) {
+        // 二次构造会丢掉首轮 Option；data: + type 须拼回，否则书山详情变成 UTF8 而非 hex。
+        var mUrl = analyzedUrl.url
+        if let type = analyzedUrl.type?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !type.isEmpty,
+           mUrl.hasPrefix("data:"),
+           !mUrl.contains(",{\"type\"") {
+            mUrl = mUrl + ",{\"type\":\"\(type)\"}"
+        }
         let analyzer = AnalyzeUrl(
-            mUrl: analyzedUrl.url,
+            mUrl: mUrl,
             baseUrl: source?.bookSourceUrl ?? analyzedUrl.url,
             source: source
         )

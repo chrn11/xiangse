@@ -428,9 +428,12 @@ public enum RuleWebBook {
         Self.writeBookInfoBodyProbe(bookUrl: book.bookUrl, redirectUrl: redirectUrl, body: body)
         guard !body.isEmpty else { throw WebBookError.emptyResponse }
 
+        // data: 详情：规则里的 baseUrl.startsWith("data:") 须见原始 bookUrl，不能用 localhost
+        let ruleBaseUrl = book.bookUrl.hasPrefix("data:") ? book.bookUrl : redirectUrl
+
         var elementCtx: ElementContext
         do {
-            elementCtx = try makeElementContext(body: body, baseUrl: redirectUrl)
+            elementCtx = try makeElementContext(body: body, baseUrl: ruleBaseUrl)
         } catch {
             throw WebBookError.parseFailed(
                 "详情 HTML 解析失败: \(error.localizedDescription) bodyLen=\(body.count) head=\(String(body.prefix(120)).replacingOccurrences(of: "\n", with: " "))"
@@ -439,22 +442,22 @@ public enum RuleWebBook {
 
         if let initRule = infoRule.initRule?.trimmingCharacters(in: .whitespacesAndNewlines),
            !initRule.isEmpty,
-           let initialized = try ruleEngine.getElements(ruleStr: initRule, body: body, baseUrl: redirectUrl).first {
+           let initialized = try ruleEngine.getElements(ruleStr: initRule, body: body, baseUrl: ruleBaseUrl).first {
             elementCtx = initialized
         }
 
         let canRename = !(infoRule.canReName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
 
         if let name = infoRule.name {
-            let parsed = normalizeBookName(ruleEngine.getString(ruleStr: name, elementContext: elementCtx, baseUrl: redirectUrl))
+            let parsed = normalizeBookName(ruleEngine.getString(ruleStr: name, elementContext: elementCtx, baseUrl: ruleBaseUrl))
             if !parsed.isEmpty, (canRename || book.name.isEmpty) { book.name = parsed }
         }
         if let author = infoRule.author {
-            let parsed = normalizeBookAuthor(ruleEngine.getString(ruleStr: author, elementContext: elementCtx, baseUrl: redirectUrl))
+            let parsed = normalizeBookAuthor(ruleEngine.getString(ruleStr: author, elementContext: elementCtx, baseUrl: ruleBaseUrl))
             if !parsed.isEmpty, (canRename || book.author.isEmpty) { book.author = parsed }
         }
         if let kind = infoRule.kind {
-            let parsed = ruleEngine.getString(ruleStr: kind, elementContext: elementCtx, baseUrl: redirectUrl)
+            let parsed = ruleEngine.getString(ruleStr: kind, elementContext: elementCtx, baseUrl: ruleBaseUrl)
             if !parsed.isEmpty {
                 book.kind = parsed
                     .components(separatedBy: .newlines)
@@ -464,35 +467,40 @@ public enum RuleWebBook {
             }
         }
         if let intro = infoRule.intro {
-            let parsed = ruleEngine.getString(ruleStr: intro, elementContext: elementCtx, baseUrl: redirectUrl)
+            let parsed = ruleEngine.getString(ruleStr: intro, elementContext: elementCtx, baseUrl: ruleBaseUrl)
             if !parsed.isEmpty { book.intro = normalizeIntro(parsed) }
         }
         if let coverUrl = infoRule.coverUrl {
-            let parsed = ruleEngine.getString(ruleStr: coverUrl, elementContext: elementCtx, baseUrl: redirectUrl)
+            let parsed = ruleEngine.getString(ruleStr: coverUrl, elementContext: elementCtx, baseUrl: ruleBaseUrl)
             if !parsed.isEmpty {
-                let absolute = URL(string: parsed, relativeTo: URL(string: redirectUrl))?.absoluteURL.absoluteString ?? parsed
+                let absolute = URL(string: parsed, relativeTo: URL(string: ruleBaseUrl))?.absoluteURL.absoluteString ?? parsed
                 book.coverUrl = CoverDecodeHelper.decodeCoverURL(
                     absolute,
                     decodeJs: source.coverDecodeJs,
-                    baseUrl: redirectUrl,
+                    baseUrl: ruleBaseUrl,
                     source: source
                 )
             }
         }
         if let tocUrl = infoRule.tocUrl {
-            let parsed = ruleEngine.getString(ruleStr: tocUrl, elementContext: elementCtx, baseUrl: redirectUrl)
+            let parsed = ruleEngine.getString(ruleStr: tocUrl, elementContext: elementCtx, baseUrl: ruleBaseUrl)
             if !parsed.isEmpty {
-                book.tocUrl = URL(string: parsed, relativeTo: URL(string: redirectUrl))?.absoluteURL.absoluteString ?? parsed
+                // data:catalogUrl 不可相对 localhost 解析
+                if parsed.hasPrefix("data:") {
+                    book.tocUrl = parsed
+                } else {
+                    book.tocUrl = URL(string: parsed, relativeTo: URL(string: ruleBaseUrl))?.absoluteURL.absoluteString ?? parsed
+                }
             }
         }
         if book.tocUrl.isEmpty { book.tocUrl = book.bookUrl }
         if book.tocUrl == book.bookUrl { book.tocHtml = body }
         if let lastChapter = infoRule.lastChapter {
-            let parsed = ruleEngine.getString(ruleStr: lastChapter, elementContext: elementCtx, baseUrl: redirectUrl)
+            let parsed = ruleEngine.getString(ruleStr: lastChapter, elementContext: elementCtx, baseUrl: ruleBaseUrl)
             if !parsed.isEmpty { book.latestChapterTitle = parsed }
         }
         if let wordCount = infoRule.wordCount {
-            let parsed = ruleEngine.getString(ruleStr: wordCount, elementContext: elementCtx, baseUrl: redirectUrl)
+            let parsed = ruleEngine.getString(ruleStr: wordCount, elementContext: elementCtx, baseUrl: ruleBaseUrl)
             if !parsed.isEmpty { book.wordCount = formatWordCount(parsed) }
         }
 

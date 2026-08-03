@@ -13,6 +13,8 @@ import Foundation
 class StrResponse {
     /// 原始 HTTPURLResponse（对应 Android 的 raw: Response）
     private(set) var raw: HTTPURLResponse?
+    /// 当 Foundation 无法把 `data:` 等长串解析成 URL 时，仍保留逻辑 URL（避免落成 localhost）
+    private var explicitURL: String?
     /// 响应体
     var body: String?
     /// 错误响应体
@@ -28,20 +30,29 @@ class StrResponse {
 
     /// 从 URL 字符串构造合成响应（对应 Android StrResponse(url, body)）
     init(url: String, body: String?) {
-        var request = URLRequest(url: URL(string: url) ?? URL(string: "http://localhost/")!)
-        request.httpMethod = "GET"
-        let syntheticURL = URL(string: url) ?? URL(string: "http://localhost/")!
-        self.raw = HTTPURLResponse(
-            url: syntheticURL,
-            statusCode: 200,
-            httpVersion: "HTTP/1.1",
-            headerFields: nil
-        )
+        self.explicitURL = url
+        if let parsed = URL(string: url) {
+            self.raw = HTTPURLResponse(
+                url: parsed,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: nil
+            )
+        } else {
+            // data: 超长等无法构造 URL —— raw 用占位，对外 url 仍返回原文
+            self.raw = HTTPURLResponse(
+                url: URL(string: "http://localhost/")!,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: nil
+            )
+        }
         self.body = body
     }
 
     /// 从错误构造合成响应（对应 Android getErrStrResponse）
     init(url: String, errorMessage: String, errorCode: Int = 500) {
+        self.explicitURL = url
         let syntheticURL = URL(string: url) ?? URL(string: "http://localhost/")!
         self.raw = HTTPURLResponse(
             url: syntheticURL,
@@ -63,8 +74,11 @@ class StrResponse {
         self.callTime = callTime
     }
 
-    /// 获取最终 URL（优先取重定向后的 URL）
+    /// 获取最终 URL（优先取显式 URL，再取重定向后的 URL）
     var url: String {
+        if let explicitURL, !explicitURL.isEmpty {
+            return explicitURL
+        }
         return raw?.url?.absoluteString ?? "http://localhost/"
     }
 
