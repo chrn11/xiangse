@@ -2244,6 +2244,44 @@ static void LBCatalogWriteMarker(NSString *msg) {
     [msg writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 }
 
+/// 换书/灌目录时摘掉原生「错误的书本」浮层（CatalogCon 空目录时常见）
+static void LBDismissWrongBookToast(void) {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ LBDismissWrongBookToast(); });
+        return;
+    }
+    for (UIWindow *w in LBAllAppWindows()) {
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:w];
+        while (stack.count > 0) {
+            UIView *cur = stack.lastObject;
+            [stack removeLastObject];
+            NSString *text = nil;
+            if ([cur isKindOfClass:[UILabel class]]) {
+                text = [(UILabel *)cur text];
+            } else if ([cur respondsToSelector:@selector(text)]) {
+                @try {
+                    id t = [cur valueForKey:@"text"];
+                    if ([t isKindOfClass:[NSString class]]) text = t;
+                } @catch (__unused NSException *e) {}
+            }
+            if ([text isKindOfClass:[NSString class]] && [text containsString:@"错误的书本"]) {
+                UIView *victim = cur;
+                if (cur.superview && cur.superview.subviews.count <= 6) {
+                    victim = cur.superview;
+                }
+                if (victim.superview && victim.superview.subviews.count <= 4 &&
+                    ![victim.superview isKindOfClass:[UIWindow class]]) {
+                    victim = victim.superview;
+                }
+                victim.hidden = YES;
+                [victim removeFromSuperview];
+                return;
+            }
+            for (UIView *sub in cur.subviews) [stack addObject:sub];
+        }
+    }
+}
+
 static void LBCatalogDumpVCTree(void) {
     NSMutableArray *lines = [NSMutableArray array];
     for (UIWindow *w in LBAllAppWindows()) {
@@ -3672,32 +3710,72 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
         LBWriteOpenReaderMarker([NSString stringWithFormat:@"nativeOpen phase=goStart ch=%@", chCopy]);
         // 源 URL：pending / bookUrl 源站 / 持久绑定（禁止写死 mock 端口）
         NSString *sourceName = sPendingCatalogSourceName.length > 0
-            ? sPendingCatalogSourceName : @"本地静态测试源";
+            ? sPendingCatalogSourceName : @"📚书山聚合";
         NSString *sourceUrl = LBResolvePendingSourceUrl(buCopy);
-        NSString *bookName = @"斗破苍穹";
-        NSString *author = @"天蚕土豆";
+        NSString *bookName = nil;
+        NSString *author = @"";
+        NSString *coverUrl = @"";
+        NSString *intro = @"";
         for (UIViewController *vc in LBFindCatalogVCs()) {
             NSString *cn = NSStringFromClass([vc class]);
-            if (![cn containsString:@"LBLegadoCatalogListVC"]) continue;
             @try {
-                id su = [vc valueForKey:@"sourceUrl"];
-                if ([su isKindOfClass:[NSString class]] && [(NSString *)su length] > 0) {
-                    sourceUrl = su;
+                if ([cn containsString:@"CatalogCon"] || [cn containsString:@"BookDetail"]) {
+                    id dic = [vc valueForKey:@"dicBook"];
+                    if ([dic isKindOfClass:[NSDictionary class]]) {
+                        NSDictionary *d = (NSDictionary *)dic;
+                        id nm = d[@"name"] ?: d[@"bookName"] ?: d[@"title"];
+                        if ([nm isKindOfClass:[NSString class]] && [(NSString *)nm length] > 0) {
+                            bookName = nm;
+                        }
+                        id au = d[@"author"];
+                        if ([au isKindOfClass:[NSString class]]) author = au;
+                        id cv = d[@"coverUrl"] ?: d[@"cover"];
+                        if ([cv isKindOfClass:[NSString class]]) coverUrl = cv;
+                        id inn = d[@"intro"] ?: d[@"desc"];
+                        if ([inn isKindOfClass:[NSString class]]) intro = inn;
+                        id su = d[@"sourceUrl"] ?: d[@"bookSourceUrl"];
+                        if ([su isKindOfClass:[NSString class]] && [(NSString *)su length] > 0) {
+                            sourceUrl = su;
+                        }
+                        id sn = d[@"sourceName"] ?: d[@"bookSourceName"];
+                        if ([sn isKindOfClass:[NSString class]] && [(NSString *)sn length] > 0) {
+                            sourceName = sn;
+                        }
+                    }
+                    if (bookName.length == 0) {
+                        id t = [vc valueForKey:@"title"];
+                        if ([t isKindOfClass:[NSString class]] && [(NSString *)t length] > 0) {
+                            bookName = t;
+                        }
+                    }
                 }
-                id bt = [vc valueForKey:@"bookTitle"];
-                if ([bt isKindOfClass:[NSString class]] && [(NSString *)bt length] > 0) {
-                    bookName = bt;
+                if ([cn containsString:@"LBLegadoCatalogListVC"]) {
+                    id su = [vc valueForKey:@"sourceUrl"];
+                    if ([su isKindOfClass:[NSString class]] && [(NSString *)su length] > 0) {
+                        sourceUrl = su;
+                    }
+                    id bt = [vc valueForKey:@"bookTitle"];
+                    if ([bt isKindOfClass:[NSString class]] && [(NSString *)bt length] > 0) {
+                        bookName = bt;
+                    }
                 }
             } @catch (__unused NSException *e) {}
-            break;
         }
+        if (bookName.length == 0 && [itemCopy isKindOfClass:[NSDictionary class]]) {
+            id bn = ((NSDictionary *)itemCopy)[@"bookName"] ?: ((NSDictionary *)itemCopy)[@"name"];
+            if ([bn isKindOfClass:[NSString class]] && [(NSString *)bn length] > 0 &&
+                ![((NSString *)bn) containsString:@"章"]) {
+                bookName = bn;
+            }
+        }
+        if (bookName.length == 0) bookName = @"书";
         NSMutableDictionary *book = [NSMutableDictionary dictionary];
         book[@"name"] = bookName;
         book[@"bookName"] = bookName;
-        book[@"author"] = author;
-        book[@"bookKey"] = [NSString stringWithFormat:@"%@|%@", bookName, author];
-        book[@"coverUrl"] = @"";
-        book[@"intro"] = @"这里是斗气的世界，没有花俏的魔法，有的，只是繁衍到巅峰的斗气！";
+        book[@"author"] = author ?: @"";
+        book[@"bookKey"] = [NSString stringWithFormat:@"%@|%@", bookName, author ?: @""];
+        book[@"coverUrl"] = coverUrl ?: @"";
+        book[@"intro"] = intro ?: @"";
         book[@"bookUrl"] = buCopy ?: @"";
         book[@"url"] = buCopy ?: @"";
         book[@"chapterUrl"] = chCopy ?: @"";
@@ -3742,6 +3820,8 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
         book[@"arrSourceInfoRequired"] = @[site];
         book[@"arrSourceInfoOptional"] = @[site];
         book[@"arrSourceType"] = @[@"text"];
+        book[@"legadoBridge"] = @"1";
+        book[@"fromLegadoBridge"] = @YES;
         @try {
             LBSanitizeBookDictForReaderEx(book, NO, YES);
         } @catch (NSException *e) {
@@ -4391,6 +4471,7 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
         sCatalogUserOrderLocked = NO;
         mark([NSString stringWithFormat:@"searchPush clearStaleCatalog prev=%@ next=%@",
               prevPendingBu ?: @"", bu]);
+        dispatch_async(dispatch_get_main_queue(), ^{ LBDismissWrongBookToast(); });
     }
     sPendingCatalogBookUrl = [bu copy];
     // 进目录浏览：清掉遗留 deferred 开章，避免目录一到就误开章 → 原生弹「错误的书本」
