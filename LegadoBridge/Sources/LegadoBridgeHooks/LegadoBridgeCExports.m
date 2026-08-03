@@ -11046,6 +11046,21 @@ static void LBOpenReader_KillIMP(id self, SEL _cmd, id book, id sourceName, id r
                      LBBookLooksLegadoForKillSwitch(record, &bu, &ch, &title));
     if (isLegado) {
         NSString *src = [sourceName isKindOfClass:[NSString class]] ? (NSString *)sourceName : nil;
+        // 目录尚未返回：禁止进原生阅读页（会弹「错误的书本」）；等章节就绪后再由点章/openOnce 打开
+        if (ch.length == 0 && sPendingCatalogChapters.count == 0) {
+            NSString *marker = [NSString stringWithFormat:
+                                @"nativeGuard openReader defer-noCatalog book=%@ src=%@",
+                                bu ?: @"", src ?: @""];
+            [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
+                                 @"Documents/legado_catalog_openreader.txt"]
+                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            if (bu.length > 0) {
+                NSString *su = LBReadingSourceUrlForBookUrl(bu);
+                if (su.length == 0 && [src isKindOfClass:[NSString class]]) su = src;
+                LBHandleCatalogRequest(bu, su);
+            }
+            return;
+        }
         NSMutableDictionary *m = nil;
         if ([book isKindOfClass:[NSDictionary class]]) {
             m = [NSMutableDictionary dictionaryWithDictionary:(NSDictionary *)book];
@@ -11062,6 +11077,19 @@ static void LBOpenReader_KillIMP(id self, SEL _cmd, id book, id sourceName, id r
         if (bu.length > 0) {
             built[@"bookUrl"] = bu;
             built[@"url"] = bu;
+        }
+        if (ch.length == 0 && sPendingCatalogChapters.count > 0) {
+            // 补第 0 章 URL，避免有目录却无 ch 时仍弹错误的书本
+            NSInteger idx = cpIdx;
+            if (idx < 0 || idx >= (NSInteger)sPendingCatalogChapters.count) idx = 0;
+            id item = sPendingCatalogChapters[(NSUInteger)idx];
+            if ([item isKindOfClass:[NSDictionary class]]) {
+                NSDictionary *d = (NSDictionary *)item;
+                ch = d[@"cpUrl"] ?: d[@"chapterUrl"] ?: d[@"url"];
+                if (title.length == 0) {
+                    title = d[@"cpTitle"] ?: d[@"title"] ?: d[@"name"] ?: d[@"chapterName"];
+                }
+            }
         }
         if (ch.length > 0) {
             built[@"chapterUrl"] = ch;
@@ -11080,6 +11108,15 @@ static void LBOpenReader_KillIMP(id self, SEL _cmd, id book, id sourceName, id r
                             bu ?: @"", ch ?: @"", src ?: @""];
         [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_openreader.txt"]
                  atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        if (ch.length == 0) {
+            // 仍无章链：勿进原生
+            marker = [NSString stringWithFormat:
+                      @"nativeGuard openReader skip-emptyCh book=%@", bu ?: @""];
+            [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
+                                 @"Documents/legado_catalog_openreader.txt"]
+                     atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            return;
+        }
         if (LBOrig_openReader) {
             LBOrig_openReader(self, _cmd, built, src.length > 0 ? src : (sourceName ?: @""), record);
         }
