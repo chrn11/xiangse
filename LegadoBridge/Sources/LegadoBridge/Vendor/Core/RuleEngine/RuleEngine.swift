@@ -844,7 +844,7 @@ class RuleEngine {
                 }
             }
         }
-        let value = exec.jsContext.evaluateScript(jsCode)
+        let value = exec.jsContext.evaluateScript(JSBridge.rhinoCompatThisBinding(jsCode))
         if let jsError, !jsError.isEmpty {
             DebugLogger.shared.log("[getJsElements] \(jsError)")
         }

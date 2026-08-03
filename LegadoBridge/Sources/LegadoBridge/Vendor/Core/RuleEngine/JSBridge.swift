@@ -146,7 +146,7 @@ class JSBridge: JsEncodeUtils {
         let previous = jsContext.exceptionHandler
         jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
         var objcError: NSString?
-        _ = ObjCExceptionCatch.evaluateScript(script, in: jsContext, error: &objcError)
+        _ = ObjCExceptionCatch.evaluateScript(rhinoCompatThisBinding(script), in: jsContext, error: &objcError)
         jsContext.exceptionHandler = previous
         if let objcError {
             DebugLogger.shared.log("[jsLib] objc \(objcError)")
@@ -154,6 +154,23 @@ class JSBridge: JsEncodeUtils {
         if let jsError, !jsError.isEmpty {
             DebugLogger.shared.log("[jsLib] \(jsError)")
         }
+    }
+
+    /// Rhino 兼容：自由函数里 `const {java}=this` 在 JSC 下 `this===undefined` 会 TypeError。
+    /// 书山 bookList / jsLib 大量依赖该写法；改成 `(this||globalThis)`（含多行解构）。
+    static func rhinoCompatThisBinding(_ script: String) -> String {
+        guard script.contains("this") else { return script }
+        guard let re = try? NSRegularExpression(
+            pattern: #"(\})\s*=\s*this\b"#,
+            options: []
+        ) else { return script }
+        let range = NSRange(script.startIndex..<script.endIndex, in: script)
+        return re.stringByReplacingMatches(
+            in: script,
+            options: [],
+            range: range,
+            withTemplate: "$1 = (this || globalThis)"
+        )
     }
 
     /// 单行 http(s) URL → 视为远程脚本地址（非内联 JS）
