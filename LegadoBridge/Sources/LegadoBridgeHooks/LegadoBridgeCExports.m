@@ -4582,6 +4582,13 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
           @"searchPushDetail book=%@ src=%@ on=%@ wrap=%d nav=%@ phase=u1catalog forceBridge=%d",
           bu, su ?: @"", via, presentedWrap ? 1 : 0,
           nav ? NSStringFromClass([nav class]) : @"nil", forceBridge ? 1 : 0]);
+    // 原生 CatalogCon 常在空目录时晚半拍弹「错误的书本」，多档摘掉
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{ LBDismissWrongBookToast(); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{ LBDismissWrongBookToast(); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{ LBDismissWrongBookToast(); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         if (sPendingCatalogChapters.count > 0) {
@@ -11591,6 +11598,7 @@ void LBApplyCatalogToUI(NSArray *chapters, NSString *bookUrl) {
         NSArray *applyCh = sCatalogUserOrderLocked && sPendingCatalogChapters.count > 0
             ? sPendingCatalogChapters : chapters;
         NSUInteger applied = LBApplyPendingCatalogToVCs(applyCh, bookUrl, @"ok");
+        LBDismissWrongBookToast();
         if (applied == 0) {
             LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject pending n=%lu book=%@ (no writable CatalogVC)",
                                   (unsigned long)applyCh.count, bookUrl ?: @""]);
