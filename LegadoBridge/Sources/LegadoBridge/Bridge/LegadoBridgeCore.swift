@@ -1640,26 +1640,15 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         return CookieManager.shared.getCookie(for: url)
     }
 
-    /// 书源是否声明登录能力（Legado：有 loginUi 或 loginUrl，无 needLogin 布尔）
-    private static func sourceDeclaresLogin(_ source: MemoryBridgeBookSource) -> Bool {
-        let ui = source.loginUi?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let url = source.loginUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return !ui.isEmpty || !url.isEmpty
-    }
-
-    /// 是否已有 loginHeader（真登录痕迹；仅 cookie 不算）
-    private static func sourceHasLoginHeader(_ source: MemoryBridgeBookSource) -> Bool {
-        let header = LoginCredentialStore.getHeader(sourceUrl: source.bookSourceUrl)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return !header.isEmpty
-    }
-
-    /// 发现空/失败文案：按书源字段判定，禁止对无登录字段的源瞎写「需登录」
+    /// 发现空/失败文案。
+    /// loginUi/loginUrl 只表示「能登录」，多数源可选登录；空结果不能仅凭字段就提示需登录。
+    /// 仅在硬证据时提登录：session 空、错误文案含登录/login。
     private static func exploreEmptyHint(
         source: MemoryBridgeBookSource,
         exploreUrl: String?,
         errorMessage: String?
     ) -> String {
+        _ = source // 保留参数供后续 loginCheckJs 等扩展
         // 番茄类分类：session 参数为空 → 明确要番茄登录
         if let exploreUrl, exploreUrl.contains("session="),
            exploreUrl.hasSuffix("session=") || exploreUrl.contains("session=&") {
@@ -1668,10 +1657,6 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         let err = (errorMessage ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if err.contains("登录") || err.lowercased().contains("login") {
             return "需要登录后才能发现书籍"
-        }
-        // 源声明了 loginUi/loginUrl，且尚无 loginHeader → 按字段提示可登录（非所有空结果都硬性「必须登录」）
-        if sourceDeclaresLogin(source), !sourceHasLoginHeader(source) {
-            return "暂无书籍（该源配置了登录，可登录后重试）"
         }
         if err.isEmpty {
             return "暂无书籍"
