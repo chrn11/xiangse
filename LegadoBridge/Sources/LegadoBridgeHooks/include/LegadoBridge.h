@@ -33,6 +33,8 @@ FOUNDATION_EXPORT BOOL LBDiscoverSyncModeForCurrentSource(void);
 FOUNDATION_EXPORT void LBRefreshDiscoverKindBar(void);
 /// 书源管理「发现」：真正切到指定源的发现态（禁止 Alert 冒充）
 FOUNDATION_EXPORT void LBSwitchDiscoverToSourceName(NSString * _Nullable sourceName);
+/// 发现宿主是否已是该源名（且 chrome 已建）；用于 explore 内避免连环 switch
+FOUNDATION_EXPORT BOOL LBDiscoverHostAlreadyShowingSource(NSString * _Nullable sourceName);
 /// 把目录章节灌入可见 CatalogCon/详情/阅读页的 arrCatalog 并 reload
 FOUNDATION_EXPORT void LBApplyCatalogToUI(NSArray *chapters, NSString * _Nullable bookUrl);
 /// 安装搜索页 viewDidAppear 冲刷 pending（LBInstallSearchHooks 内也会调用）

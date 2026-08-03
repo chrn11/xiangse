@@ -950,7 +950,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 // 否则 LBIsDiscoverNativeXBSMode 会丢弃 explore 结果（发现页不出书）
                 await MainActor.run {
                     LBSetDiscoverNativeXBSMode(false)
-                    LBSwitchDiscoverToSourceName(one.bookSourceName ?? one.bookSourceUrl)
+                    // 已在该源发现宿主时禁止再 switch（会连环 nativeSwitch→explore→冲掉灌书）
+                    let wantName = one.bookSourceName ?? one.bookSourceUrl
+                    if !LBDiscoverHostAlreadyShowingSource(wantName) {
+                        LBSwitchDiscoverToSourceName(wantName)
+                    }
                 }
             } else if let sel = selectedExploreSourceUrl, !sel.isEmpty,
                       let one = SourceRegistry.shared.source(forUrl: sel),
@@ -1001,11 +1005,8 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                         let cachedJSON = exploreKindsJSON(forSourceUrl: source.bookSourceUrl)
                         if let data = cachedJSON.data(using: .utf8),
                            let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-                            let pick = arr.first(where: {
-                                (($0["url"] as? String) ?? "")
-                                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                            })
-                            if let u = pick?["url"] as? String, !u.isEmpty {
+                            // 禁止默认落到 fqbookshelf（我的书架常空）；优先个性推荐
+                            if let u = Self.preferredExploreKindURL(from: arr), !u.isEmpty {
                                 kindForFetch = u
                             }
                         }
@@ -1671,6 +1672,28 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     /// 发现空/失败文案。
     /// loginUi/loginUrl 只表示「能登录」，多数源可选登录；空结果不能仅凭字段就提示需登录。
     /// 仅在硬证据时提登录：session 空、错误文案含登录/login。
+    /// 默认发现分类 URL：优先个性推荐 / read_recommend，跳过 fqbookshelf
+    private static func preferredExploreKindURL(from kinds: [[String: Any]]) -> String? {
+        var fallbackSession: String?
+        var fallbackOther: String?
+        for item in kinds {
+            guard let url = (item["url"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !url.isEmpty else { continue }
+            let ul = url.lowercased()
+            let title = (item["title"] as? String) ?? ""
+            if ul.contains("fanqienovel.com/fqbookshelf") { continue }
+            if ul.contains("read_recommend") || title.contains("个性推荐") {
+                return url
+            }
+            if fallbackSession == nil, ul.contains("session="),
+               (ul.contains("/read_") || ul.contains("vossc") || ul.contains("gyks")) {
+                fallbackSession = url
+            }
+            if fallbackOther == nil { fallbackOther = url }
+        }
+        return fallbackSession ?? fallbackOther
+    }
+
     private static func exploreEmptyHint(
         source: MemoryBridgeBookSource,
         exploreUrl: String?,

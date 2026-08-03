@@ -106,6 +106,7 @@ void LBPinDiscoverContentToFirstPage(UIViewController *host);
 void LBInstallDiscoverNativeUIHooks(void);
 /// T4：按源名切换发现页当前源（Legado explore / 原生 XBS），并尽量落到发现宿主
 void LBSwitchDiscoverToSourceName(NSString * _Nullable sourceName);
+BOOL LBDiscoverHostAlreadyShowingSource(NSString * _Nullable sourceName);
 void LBNotifyDiscoverNativeSourceSwitched(NSString * _Nullable sourceName);
 /// Legado 阅读护栏：消毒 dicBook/站点后走原生 openReader；点章失败再 Bridge
 void LBInstallLegadoReaderKillSwitch(void);

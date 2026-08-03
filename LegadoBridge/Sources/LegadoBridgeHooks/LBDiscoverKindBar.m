@@ -407,7 +407,8 @@ static void LBDiscoverHandleKindSelect(UIViewController *host, id pageTitleView,
     }
     if (sHandlingKindSelect) return;
     // SG 若仍用被污染的 btn.tag 回调，会传来 0x4C424Bxx；直接丢弃
-    if (index < 0 || index > 64) {
+    // 书山等源 kinds 可达数百；原 64 上限会丢弃合法点击
+    if (index < 0 || index > 512) {
         LBAppendNativeMarker([NSString stringWithFormat:@"nativeTab drop badIdx=%ld", (long)index]);
         return;
     }
@@ -510,11 +511,41 @@ static void LBAttachDiscoverKindButtonActions(UIViewController *host, id titleVi
     LBEnsureDiscoverKindBtnMethod([host class]);
     SEL sel = @selector(lb_discoverKindBtn:);
     UIView *root = (UIView *)titleView;
+    static const NSInteger kLBKindSoftScroll = 0x4C424B53; // 'LBKS'
+    UIScrollView *softScroll = nil;
+    for (UIView *sub in root.subviews) {
+        if (sub.tag == kLBKindSoftScroll && [sub isKindOfClass:[UIScrollView class]] && !sub.hidden) {
+            softScroll = (UIScrollView *)sub;
+            break;
+        }
+    }
+    // softScroll 自建按钮已带正确 index；禁止 hit overlay 挡点击，也不要按 donor 按钮重编号
+    if (softScroll) {
+        static const NSInteger kLBKindHit = 0x4C424B48; // 'LBKH'
+        UIWindow *win = host.view.window;
+        UIView *container = win ?: host.view;
+        NSMutableArray *junk = [NSMutableArray array];
+        for (UIView *sub in container.subviews) {
+            if (sub.tag == kLBKindHit) [junk addObject:sub];
+        }
+        for (UIView *sub in host.view.subviews) {
+            if (sub.tag == kLBKindHit) [junk addObject:sub];
+        }
+        for (UIView *v in junk) [v removeFromSuperview];
+        [root bringSubviewToFront:softScroll];
+        if (!sApplyingKinds) {
+            LBUnlinkDiscoverTitleContent(host);
+        }
+        LBAppendNativeMarker([NSString stringWithFormat:@"kindBtnAttach softScroll n=%lu",
+                              (unsigned long)softScroll.subviews.count]);
+        return;
+    }
     NSMutableArray<UIButton *> *btns = [NSMutableArray array];
     NSMutableArray *stack = [NSMutableArray arrayWithObject:root];
     while (stack.count) {
         UIView *v = stack.lastObject;
         [stack removeLastObject];
+        if (v.tag == kLBKindSoftScroll) continue; // 勿把自建条算进 donor
         if ([v isKindOfClass:[UIButton class]]) [btns addObject:(UIButton *)v];
         for (UIView *sub in v.subviews) [stack addObject:sub];
     }
@@ -671,9 +702,13 @@ static void LBPresentExploreSourcePicker(UIViewController *host) {
             UIViewController *h = host ?: LBPrimaryDiscoverHost();
             if (h) LBApplyLegadoSourceKindsToChrome(h, kinds, name);
             NSString *kindUrl = nil;
-            if (kinds.count > 0 && [kinds[0][@"url"] isKindOfClass:[NSString class]] &&
-                [(NSString *)kinds[0][@"url"] length] > 0) {
-                kindUrl = kinds[0][@"url"];
+            if (kinds.count > 0) {
+                NSInteger pref = LBPreferredExploreKindIndex(kinds);
+                sSelectedKindIndex = pref;
+                id u = (pref >= 0 && pref < (NSInteger)kinds.count) ? kinds[(NSUInteger)pref][@"url"] : nil;
+                if ([u isKindOfClass:[NSString class]] && [(NSString *)u length] > 0) {
+                    kindUrl = (NSString *)u;
+                }
             }
             if (kindUrl.length > 0) {
                 LBTriggerExploreKind(url, kindUrl);
@@ -2461,47 +2496,145 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
         @try { [(UIView *)tv setNeedsLayout]; [(UIView *)tv layoutIfNeeded]; } @catch (__unused NSException *e) {}
     }
     // 无重建时直接改按钮文案（否则一直停在 donor 男频…）
+    // Legado kinds 远多于 donor 按钮时：自建横向滚动分类条（禁工厂重建 SGPageTitleView）
     if ([tv isKindOfClass:[UIView class]]) {
+        UIView *titleRoot = (UIView *)tv;
+        static const NSInteger kLBKindSoftScroll = 0x4C424B53; // 'LBKS'
+        UIScrollView *softScroll = nil;
+        for (UIView *sub in titleRoot.subviews) {
+            if (sub.tag == kLBKindSoftScroll && [sub isKindOfClass:[UIScrollView class]]) {
+                softScroll = (UIScrollView *)sub;
+                break;
+            }
+        }
         NSMutableArray<UIButton *> *btns = [NSMutableArray array];
-        NSMutableArray *stack = [NSMutableArray arrayWithObject:(UIView *)tv];
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:titleRoot];
         while (stack.count) {
             UIView *v = stack.lastObject;
             [stack removeLastObject];
+            if (v.tag == kLBKindSoftScroll) continue; // 跳过自建条，勿把其按钮当 donor
             if ([v isKindOfClass:[UIButton class]]) [btns addObject:(UIButton *)v];
             for (UIView *sub in v.subviews) [stack addObject:sub];
         }
         NSArray *sorted = [btns sortedArrayUsingComparator:^NSComparisonResult(UIButton *a, UIButton *b) {
             return a.frame.origin.x < b.frame.origin.x ? NSOrderedAscending : NSOrderedDescending;
         }];
-        for (NSUInteger i = 0; i < sorted.count; i++) {
-            UIButton *b = sorted[i];
-            if (i < titles.count) {
-                NSString *name = [titles[i] isKindOfClass:[NSString class]] ? titles[i] : @"分类";
-                @try {
-                    [b setTitle:name forState:UIControlStateNormal];
-                    [b setTitle:name forState:UIControlStateSelected];
-                    b.titleLabel.text = name;
-                } @catch (__unused NSException *e) {}
-                b.hidden = NO;
-                b.alpha = 1;
-                b.userInteractionEnabled = YES;
-            } else {
-                // Legado 分类少于 donor 壳：藏多余按钮，避免「月票榜」假分类
+        BOOL needSoftScroll = (titles.count > 1 && sorted.count < titles.count);
+        BOOL usedSoftScroll = NO;
+        if (needSoftScroll) {
+            for (UIButton *b in sorted) {
                 b.hidden = YES;
                 b.alpha = 0;
                 b.userInteractionEnabled = NO;
             }
+            CGFloat h = MAX(38, titleRoot.bounds.size.height > 2 ? titleRoot.bounds.size.height : 38);
+            CGFloat w = titleRoot.bounds.size.width;
+            if (w < 2) w = host.isViewLoaded ? host.view.bounds.size.width : [UIScreen mainScreen].bounds.size.width;
+            if (!softScroll) {
+                softScroll = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 0, w, h)];
+                softScroll.tag = kLBKindSoftScroll;
+                softScroll.showsHorizontalScrollIndicator = NO;
+                softScroll.showsVerticalScrollIndicator = NO;
+                softScroll.alwaysBounceHorizontal = YES;
+                softScroll.backgroundColor = [UIColor clearColor];
+                softScroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+                [titleRoot addSubview:softScroll];
+            } else {
+                softScroll.frame = CGRectMake(0, 0, w, h);
+                softScroll.hidden = NO;
+            }
+            for (UIView *old in [softScroll.subviews copy]) {
+                [old removeFromSuperview];
+            }
+            LBEnsureDiscoverKindBtnMethod([host class]);
+            SEL tapSel = @selector(lb_discoverKindBtn:);
+            BOOL dark = LBAppDarkModeEnabled();
+            UIColor *normalC = dark ? [UIColor colorWithWhite:0.88 alpha:1]
+                                    : [UIColor colorWithWhite:0.20 alpha:1];
+            UIColor *selC = [UIColor colorWithRed:0.90 green:0.35 blue:0.10 alpha:1];
+            CGFloat x = 8;
+            NSInteger pref = sSelectedKindIndex;
+            if (pref < 0 || pref >= (NSInteger)titles.count) pref = 0;
+            for (NSUInteger i = 0; i < titles.count; i++) {
+                NSString *name = [titles[i] isKindOfClass:[NSString class]] ? titles[i] : @"分类";
+                UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
+                [b setTitle:name forState:UIControlStateNormal];
+                b.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
+                BOOL on = ((NSInteger)i == pref);
+                [b setTitleColor:on ? selC : normalC forState:UIControlStateNormal];
+                CGSize sz = [name sizeWithAttributes:@{NSFontAttributeName: b.titleLabel.font}];
+                CGFloat bw = MAX(44, sz.width + 16);
+                b.frame = CGRectMake(x, 0, bw, h);
+                objc_setAssociatedObject(b, &kLBKindBtnIndexKey, @((NSInteger)i),
+                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                [b addTarget:host action:tapSel forControlEvents:UIControlEventTouchUpInside];
+                [softScroll addSubview:b];
+                x += bw + 4;
+            }
+            softScroll.contentSize = CGSizeMake(MAX(w, x + 8), h);
+            // 滚到默认选中附近
+            CGFloat targetX = 0;
+            for (UIView *sub in softScroll.subviews) {
+                NSNumber *ix = objc_getAssociatedObject(sub, &kLBKindBtnIndexKey);
+                if ([ix isKindOfClass:[NSNumber class]] && ix.integerValue == pref) {
+                    targetX = MAX(0, sub.frame.origin.x - 40);
+                    break;
+                }
+            }
+            if (softScroll.contentSize.width > w) {
+                [softScroll setContentOffset:CGPointMake(MIN(targetX, softScroll.contentSize.width - w), 0)
+                                    animated:NO];
+            }
+            [titleRoot bringSubviewToFront:softScroll];
+            usedSoftScroll = YES;
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"forceTitles softScroll n=%lu donorBtn=%lu pref=%ld",
+                                  (unsigned long)titles.count, (unsigned long)sorted.count,
+                                  (long)pref]);
+        } else {
+            if (softScroll) {
+                softScroll.hidden = YES;
+                for (UIView *old in [softScroll.subviews copy]) {
+                    [old removeFromSuperview];
+                }
+            }
+            for (NSUInteger i = 0; i < sorted.count; i++) {
+                UIButton *b = sorted[i];
+                if (i < titles.count) {
+                    NSString *name = [titles[i] isKindOfClass:[NSString class]] ? titles[i] : @"分类";
+                    @try {
+                        [b setTitle:name forState:UIControlStateNormal];
+                        [b setTitle:name forState:UIControlStateSelected];
+                        b.titleLabel.text = name;
+                    } @catch (__unused NSException *e) {}
+                    b.hidden = NO;
+                    b.alpha = 1;
+                    b.userInteractionEnabled = YES;
+                } else {
+                    b.hidden = YES;
+                    b.alpha = 0;
+                    b.userInteractionEnabled = NO;
+                }
+            }
+            LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles softBtn n=%lu want=%lu hid=%lu",
+                                  (unsigned long)sorted.count, (unsigned long)titles.count,
+                                  (unsigned long)MAX((NSInteger)sorted.count - (NSInteger)titles.count, 0)]);
         }
-        objc_setAssociatedObject((UIView *)tv, &kLBKindWantCountKey, @(titles.count),
+        objc_setAssociatedObject(titleRoot, &kLBKindWantCountKey, @(titles.count),
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        LBAppendNativeMarker([NSString stringWithFormat:@"forceTitles softBtn n=%lu want=%lu hid=%lu",
-                              (unsigned long)sorted.count, (unsigned long)titles.count,
-                              (unsigned long)MAX((NSInteger)sorted.count - (NSInteger)titles.count, 0)]);
+        // softScroll 已自绘选中色；LBPaint 会在隐藏 donor 钮上叠「我的书架」字
+        if (!usedSoftScroll) {
+            LBEnableTitleScroll(tv);
+            LBAttachDiscoverKindButtonActions(host, tv);
+            LBPaintTitleLabels(tv, sSelectedKindIndex);
+        } else {
+            LBAttachDiscoverKindButtonActions(host, tv);
+        }
+    } else {
+        LBEnableTitleScroll(tv);
+        LBAttachDiscoverKindButtonActions(host, tv);
+        LBPaintTitleLabels(tv, sSelectedKindIndex);
     }
-    LBEnableTitleScroll(tv);
-    LBAttachDiscoverKindButtonActions(host, tv);
-    // 最后再画字并置顶，避免 scroll/unlink 盖住 overlay
-    LBPaintTitleLabels(tv, 0);
     if ([tv isKindOfClass:[UIView class]] && host.isViewLoaded && host.view) {
         UIView *title = (UIView *)tv;
         if (title.superview != host.view) {
@@ -2970,12 +3103,17 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                 NSString *src = LBCurrentExploreSourceUrl(core);
                 NSString *kindUrl = nil;
                 if (sCachedKinds.count > 0) {
-                    id u = sCachedKinds[0][@"url"];
-                    if ([u isKindOfClass:[NSString class]]) kindUrl = u;
+                    NSInteger pref = LBPreferredExploreKindIndex(sCachedKinds);
+                    sSelectedKindIndex = pref;
+                    id u = (pref >= 0 && pref < (NSInteger)sCachedKinds.count)
+                        ? sCachedKinds[(NSUInteger)pref][@"url"] : nil;
+                    if ([u isKindOfClass:[NSString class]] && [(NSString *)u length] > 0) {
+                        kindUrl = (NSString *)u;
+                    }
                 }
                 LBAppendNativeMarker([NSString stringWithFormat:
-                                      @"postChrome explore src=%@ kind=%@",
-                                      src ?: @"", kindUrl ?: @""]);
+                                      @"postChrome explore src=%@ kind=%@ pref=%ld",
+                                      src ?: @"", kindUrl ?: @"", (long)sSelectedKindIndex]);
                 if (src.length > 0) {
                     @try {
                         LBTriggerExploreKind(src, kindUrl);
@@ -3565,7 +3703,7 @@ static void LBDiscover_pageTitleSelected(id self, SEL _cmd, id pageTitleView, NS
                               (long)index]);
         return;
     }
-    if (index < 0 || index > 64) {
+    if (index < 0 || index > 512) {
         LBAppendNativeMarker([NSString stringWithFormat:@"pageTitle drop badIdx=%ld", (long)index]);
         return;
     }
@@ -4285,6 +4423,17 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
 }
 
 /// T4：管理页等入口按源名切发现（走 openConfig / HandleDiscoverSourceSwitched）
+BOOL LBDiscoverHostAlreadyShowingSource(NSString *sourceName) {
+    if (sourceName.length == 0) return NO;
+    UIViewController *host = LBPrimaryDiscoverHost();
+    if (!host) return NO;
+    if (!sNativeChromeBuilt) return NO;
+    NSString *cur = LBNormalizeSourceDisplayName(LBReadHostSourceName(host) ?: @"");
+    NSString *want = LBNormalizeSourceDisplayName(sourceName);
+    if (cur.length == 0 || want.length == 0) return NO;
+    return [cur isEqualToString:want];
+}
+
 void LBSwitchDiscoverToSourceName(NSString *sourceName) {
     if (sourceName.length == 0) return;
     if (![NSThread isMainThread]) {
@@ -4292,6 +4441,11 @@ void LBSwitchDiscoverToSourceName(NSString *sourceName) {
         dispatch_async(dispatch_get_main_queue(), ^{
             LBSwitchDiscoverToSourceName(name);
         });
+        return;
+    }
+    if (LBDiscoverHostAlreadyShowingSource(sourceName)) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"switchDiscover skip same name=%@",
+                              sourceName]);
         return;
     }
     LBSetDiscoverTabActive(YES);
