@@ -820,11 +820,19 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 jsTimeoutSeconds: 12
             )
             let json = self.encodeExploreKindsJSON(kinds, baseUrl: resolved.bookSourceUrl)
-            // 空分类（JS 失败/超时）不写缓存也不发通知：通知会触发刷新→再预热→死循环；
-            // 记失败时间节流，下次进发现/切源/手动刷新时自然重试
+            // 空分类（JS 失败/超时）不写缓存：记失败时间节流；仍通知 UI 清掉「分类加载中」并给失败文案
             guard !kinds.isEmpty else {
                 self.exploreKindsCacheQueue.sync {
                     self.exploreKindsWarmFailedAt[cacheKey] = Date().timeIntervalSince1970
+                }
+                self.writeSearchMarker("exploreKinds warm fail src=\(cacheKey)")
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: Self.exploreKindsDidUpdateNotification,
+                        object: self,
+                        userInfo: ["sourceUrl": cacheKey, "failed": true]
+                    )
+                    LBShowDiscoverExploreEmptyHint("分类加载失败，请稍后重试或切换书源")
                 }
                 return
             }
@@ -939,6 +947,12 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         let exploreUrlCopy = exploreUrl
         let sourceUrlCopy = sourceUrl
         writeSearchMarker("explore start gen=\(generation) src=\(sourceUrl ?? "-") kind=\(exploreUrl ?? "-")")
+        // 已有明确 kind：清掉「分类加载中」占位，避免超时后仍盖住失败/列表
+        if let exploreUrlCopy, !exploreUrlCopy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            DispatchQueue.main.async {
+                LBClearDiscoverExploreEmptyHint()
+            }
+        }
         Task {
             let targets: [MemoryBridgeBookSource]
             if let sourceUrl = sourceUrlCopy, !sourceUrl.isEmpty,
