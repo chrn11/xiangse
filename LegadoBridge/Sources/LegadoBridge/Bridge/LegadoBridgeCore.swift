@@ -994,11 +994,38 @@ private final class SearchOutcomeBox: @unchecked Sendable {
             for source in targets {
                 guard generation == sExploreGeneration else { return }
                 do {
+                    // kinds 未就绪时勿用 nil kind 进 exploreBook（会再跑顶层 JS 并报「未产出分类」）
+                    var kindForFetch = exploreUrlCopy
+                    let kindTrim = kindForFetch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if kindTrim.isEmpty {
+                        let cachedJSON = exploreKindsJSON(forSourceUrl: source.bookSourceUrl)
+                        if let data = cachedJSON.data(using: .utf8),
+                           let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                            let pick = arr.first(where: {
+                                (($0["url"] as? String) ?? "")
+                                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                            })
+                            if let u = pick?["url"] as? String, !u.isEmpty {
+                                kindForFetch = u
+                            }
+                        }
+                        if (kindForFetch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty,
+                           RuleWebBook.isTopLevelExploreJS(source.exploreUrl ?? "") {
+                            writeSearchMarker("explore defer JS kinds warming src=\(source.bookSourceUrl)")
+                            warmupExploreKinds(forSourceUrl: source.bookSourceUrl)
+                            await MainActor.run {
+                                guard generation == sExploreGeneration else { return }
+                                LBDismissDiscoverLoadingHUD()
+                                LBShowDiscoverExploreEmptyHint("分类加载中，请稍后…")
+                            }
+                            continue
+                        }
+                    }
                     // 与搜索同级的硬超时：explore 源挂起时禁止「章节加载中」卡死（验收发现页）
                     let results = try await Self.withTimeout(seconds: 20) {
                         try await BridgeWebBook.exploreBook(
                             source: source,
-                            url: exploreUrlCopy,
+                            url: kindForFetch,
                             page: max(page, 1)
                         )
                     }

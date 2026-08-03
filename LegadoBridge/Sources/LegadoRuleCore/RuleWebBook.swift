@@ -390,8 +390,9 @@ public enum RuleWebBook {
                 evaluateJS: true,
                 jsTimeoutSeconds: 12
             )
-            guard let first = kinds.first?.url, !first.isEmpty else {
-                throw WebBookError.noRule("发现 URL（exploreUrl JS 未产出分类）")
+            guard let first = kinds.first(where: { !$0.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })?.url,
+                  !first.isEmpty else {
+                throw WebBookError.noRule("发现分类未就绪或 JS 未产出可用地址，请稍后下拉刷新")
             }
             return first
         }

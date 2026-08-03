@@ -352,8 +352,13 @@ static NSString *LBResolveExploreKindUrl(NSInteger index, NSString *titleHint) {
     if (idx < 0) idx = sSelectedKindIndex;
     if (idx < 0) idx = 0;
     if (idx >= (NSInteger)kinds.count) idx = idx % (NSInteger)kinds.count;
-    id u = kinds[(NSUInteger)idx][@"url"];
-    return [u isKindOfClass:[NSString class]] ? u : nil;
+    // 跳过空 URL 项（部分源 JSON kinds 会有 title 无 url）
+    for (NSInteger step = 0; step < (NSInteger)kinds.count; step++) {
+        NSInteger i = (idx + step) % (NSInteger)kinds.count;
+        id u = kinds[(NSUInteger)i][@"url"];
+        if ([u isKindOfClass:[NSString class]] && [(NSString *)u length] > 0) return u;
+    }
+    return nil;
 }
 
 static void LBDiscoverFireExploreForIndex(NSInteger index, NSString *titleHint) {
@@ -374,6 +379,16 @@ static void LBDiscoverFireExploreForIndex(NSInteger index, NSString *titleHint) 
                           url.length ? url : @"-", src ?: @"-"]);
     if (src.length == 0) {
         LBAppendNativeMarker(@"nativeExplore skip: no src");
+        return;
+    }
+    // kinds 未就绪或该项无 URL：禁止 explore(nil)（会再跑顶层 JS，失败就盖「JS 未产出分类」）
+    if (url.length == 0) {
+        LBAppendNativeMarker(@"nativeExplore skip: empty kindUrl → warmup");
+        if (core && [core respondsToSelector:@selector(warmupExploreKindsForSourceUrl:)]) {
+            ((void (*)(id, SEL, NSString *))objc_msgSend)(
+                core, @selector(warmupExploreKindsForSourceUrl:), src);
+        }
+        LBShowDiscoverExploreEmptyHint(@"分类加载中，请稍后…");
         return;
     }
     @try {
@@ -656,10 +671,20 @@ static void LBPresentExploreSourcePicker(UIViewController *host) {
             UIViewController *h = host ?: LBPrimaryDiscoverHost();
             if (h) LBApplyLegadoSourceKindsToChrome(h, kinds, name);
             NSString *kindUrl = nil;
-            if (kinds.count > 0 && [kinds[0][@"url"] isKindOfClass:[NSString class]]) {
+            if (kinds.count > 0 && [kinds[0][@"url"] isKindOfClass:[NSString class]] &&
+                [(NSString *)kinds[0][@"url"] length] > 0) {
                 kindUrl = kinds[0][@"url"];
             }
-            LBTriggerExploreKind(url, kindUrl);
+            if (kindUrl.length > 0) {
+                LBTriggerExploreKind(url, kindUrl);
+            } else {
+                LBAppendNativeMarker(@"switchSrc defer explore (kinds empty)");
+                LBShowDiscoverExploreEmptyHint(@"分类加载中，请稍后…");
+                if ([core respondsToSelector:@selector(warmupExploreKindsForSourceUrl:)]) {
+                    ((void (*)(id, SEL, NSString *))objc_msgSend)(
+                        core, @selector(warmupExploreKindsForSourceUrl:), url);
+                }
+            }
         }]];
     }
     [ac addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
@@ -3889,6 +3914,7 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
     LBFeedNativeDiscoverHeader(host, kinds, cleanName);
     UITableView *surface = LBEnsureDiscoverListSurface(host);
     NSString *kindUrl = nil;
+    BOOL deferExploreUntilKinds = NO;
     if (kinds.count > 0) {
         NSInteger pref = LBPreferredExploreKindIndex(kinds);
         sSelectedKindIndex = pref;
@@ -3897,14 +3923,18 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
             kindUrl = (NSString *)u;
         }
     } else if (legadoUrl.length > 0) {
-        // 单 exploreUrl 无分类表时，直接用源 explore
-        kindUrl = nil;
+        // 顶层 JS exploreUrl：kinds 异步预热中，禁止立刻 explore(nil)
+        // （会同步再跑 12s JS，失败盖「exploreUrl JS 未产出分类」）
+        deferExploreUntilKinds = YES;
+        LBShowDiscoverExploreEmptyHint(@"分类加载中，请稍后…");
     }
     LBAppendNativeMarker([NSString stringWithFormat:
-                          @"nativeSwitch Legado kinds=%lu kind0=%@ sel=%ld surface=%d",
+                          @"nativeSwitch Legado kinds=%lu kind0=%@ sel=%ld surface=%d defer=%d",
                           (unsigned long)kinds.count, kindUrl ?: @"-",
-                          (long)sSelectedKindIndex, surface ? 1 : 0]);
+                          (long)sSelectedKindIndex, surface ? 1 : 0,
+                          deferExploreUntilKinds ? 1 : 0]);
     if (legadoUrl.length == 0) return;
+    if (deferExploreUntilKinds) return;
 
     NSString *srcCopy = [legadoUrl copy];
     NSString *kindCopy = [kindUrl copy];
@@ -4389,4 +4419,20 @@ static void LBRefreshDiscoverKindBarEx(BOOL force) {
     }
     NSArray *kinds = LBParseJSONArray(kindsJSON);
     LBFeedNativeDiscoverHeader(host, kinds, srcName);
+    // 预热完成后：若有可用 kind URL，自动拉一次书（补上切源时 defer 掉的 explore）
+    if (force && kinds.count > 0 && src.length > 0 && !LBIsDiscoverNativeXBSMode()) {
+        NSInteger pref = LBPreferredExploreKindIndex(kinds);
+        sSelectedKindIndex = pref;
+        sCachedKinds = [kinds copy];
+        id u = (pref >= 0 && pref < (NSInteger)kinds.count) ? kinds[(NSUInteger)pref][@"url"] : nil;
+        NSString *kindUrl = ([u isKindOfClass:[NSString class]] && [(NSString *)u length] > 0)
+            ? (NSString *)u : nil;
+        if (kindUrl.length > 0) {
+            LBClearDiscoverExploreEmptyHint();
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"kindsReady explore pref=%ld kind=%@",
+                                  (long)pref, kindUrl]);
+            LBTriggerExploreKind(src, kindUrl);
+        }
+    }
 }
