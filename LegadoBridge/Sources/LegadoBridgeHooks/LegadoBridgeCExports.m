@@ -2262,6 +2262,11 @@ static void LBCatalogWriteMarker(NSString *msg) {
 /// 换书/灌目录时摘掉原生「错误的书本」浮层（CatalogCon 空目录时常见）
 static NSTimeInterval sSuppressWrongBookHudUntil = 0;
 
+static NSArray<UIViewController *> *LBFindCatalogVCs(void);
+static void LBReloadCatalogVC(UIViewController *vc);
+static BOOL LBTrySetArrayKey(id obj, NSString *key, NSArray *chapters);
+static BOOL LBWriteChaptersOntoObject(id obj, NSArray *chapters);
+
 static BOOL LBHudMessageIsWrongBook(NSString *text) {
     if (![text isKindOfClass:[NSString class]] || text.length == 0) return NO;
     return [text containsString:@"错误的书本"] ||
@@ -2279,11 +2284,111 @@ static BOOL LBCatalogLooksLegadoPending(void) {
     return NO;
 }
 
+/// CatalogCon.dicBook 是否像 Legado 网文书（下拉会走 XBS 空查）
+static BOOL LBCatalogVCLooksLegado(id vc) {
+    if (!vc) return NO;
+    NSString *cn = NSStringFromClass([vc class]);
+    if (![cn containsString:@"Catalog"] && ![cn containsString:@"BookDetail"]) return NO;
+    @try {
+        id dic = [vc valueForKey:@"dicBook"];
+        if ([dic isKindOfClass:[NSDictionary class]]) {
+            id flag = dic[@"fromLegadoBridge"] ?: dic[@"legadoBridge"];
+            if ([flag respondsToSelector:@selector(boolValue)] && [flag boolValue]) return YES;
+            if ([flag isKindOfClass:[NSString class]] && [(NSString *)flag length] > 0) return YES;
+            id bu = dic[@"bookUrl"] ?: dic[@"url"];
+            if ([bu isKindOfClass:[NSString class]]) {
+                NSString *s = (NSString *)bu;
+                if ([s hasPrefix:@"http://"] || [s hasPrefix:@"https://"] || [s hasPrefix:@"data:"]) return YES;
+            }
+        }
+    } @catch (__unused NSException *e) {}
+    @try {
+        id bu = [vc valueForKey:@"bookUrl"];
+        if ([bu isKindOfClass:[NSString class]]) {
+            NSString *s = (NSString *)bu;
+            if ([s hasPrefix:@"http://"] || [s hasPrefix:@"https://"] || [s hasPrefix:@"data:"]) return YES;
+        }
+    } @catch (__unused NSException *e) {}
+    return NO;
+}
+
+static BOOL LBAnyVisibleCatalogLooksLegado(void) {
+    for (UIViewController *vc in LBFindCatalogVCs()) {
+        if (!LBVCIsVisibleInWindow(vc)) continue;
+        if (LBCatalogVCLooksLegado(vc)) return YES;
+    }
+    return NO;
+}
+
 static BOOL LBShouldSuppressWrongBookHud(void) {
     if (CFAbsoluteTimeGetCurrent() < sSuppressWrongBookHudUntil) return YES;
     // Legado 发现/搜索点开的目录：原生下拉刷新会空表并按 XBS 找书 → 必弹「错误的书本」
     if (LBCatalogLooksLegadoPending()) return YES;
+    if (sPendingCatalogChapters.count > 0) return YES;
+    if (LBAnyVisibleCatalogLooksLegado()) return YES;
     return NO;
+}
+
+/// 目录 VC 书链与 pending 是否可视为同书（允许多 host / 尾斜杠差异）
+static BOOL LBCatalogBookUrlMatchesPending(NSString *vcBu) {
+    if (vcBu.length == 0 || sPendingCatalogBookUrl.length == 0) return YES;
+    if ([vcBu isEqualToString:sPendingCatalogBookUrl]) return YES;
+    NSCharacterSet *slash = [NSCharacterSet characterSetWithCharactersInString:@"/"];
+    NSString *a = [vcBu stringByTrimmingCharactersInSet:slash];
+    NSString *b = [sPendingCatalogBookUrl stringByTrimmingCharactersInSet:slash];
+    if ([a isEqualToString:b]) return YES;
+    NSString *ap = a.lastPathComponent;
+    NSString *bp = b.lastPathComponent;
+    if (ap.length > 0 && bp.length > 0 && [ap isEqualToString:bp]) return YES;
+    return NO;
+}
+
+/// 原生下拉常先把 arrSource/arrBaseData 置空再查 XBS；Legado 书直接拒收空表
+static BOOL LBCatalogShouldBlockEmptyChapterClear(id selfObj, id arr) {
+    if (sCatalogInjectReentrant) return NO;
+    if (sPendingCatalogChapters.count == 0) return NO;
+    if (!LBCatalogLooksLegadoPending() && !LBCatalogVCLooksLegado(selfObj)) return NO;
+    BOOL empty = (!arr || ([arr isKindOfClass:[NSArray class]] && [(NSArray *)arr count] == 0));
+    BOOL notChapters = [arr isKindOfClass:[NSArray class]] &&
+                       [(NSArray *)arr count] > 0 &&
+                       !LBArrayLooksLikeChapters(arr);
+    if (!empty && !notChapters) return NO;
+    NSString *vcBu = nil;
+    @try {
+        id v = [selfObj valueForKey:@"bookUrl"];
+        if ([v isKindOfClass:[NSString class]]) vcBu = v;
+    } @catch (__unused NSException *e) {}
+    if (vcBu.length == 0) {
+        @try {
+            id dic = [selfObj valueForKey:@"dicBook"];
+            if ([dic isKindOfClass:[NSDictionary class]]) {
+                id v = dic[@"bookUrl"] ?: dic[@"url"];
+                if ([v isKindOfClass:[NSString class]]) vcBu = v;
+            }
+        } @catch (__unused NSException *e) {}
+    }
+    if (!LBCatalogBookUrlMatchesPending(vcBu)) return NO;
+    return YES;
+}
+
+static void LBCatalogRefuseEmptyAndRestore(id selfObj, SEL sel, void (*orig)(id, SEL, id), NSString *tag) {
+    sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 12.0;
+    NSArray *ch = [sPendingCatalogChapters copy];
+    BOOL prev = sCatalogInjectReentrant;
+    sCatalogInjectReentrant = YES;
+    // 全字段盖回（含 arrBaseData），避免只写 source 而行数仍空
+    LBWriteChaptersOntoObject(selfObj, ch);
+    if (orig) {
+        orig(selfObj, sel, ch);
+    }
+    sCatalogInjectReentrant = prev;
+    if ([selfObj isKindOfClass:[UIViewController class]]) {
+        LBReloadCatalogVC((UIViewController *)selfObj);
+    }
+    LBDismissWrongBookToast();
+    LBScheduleWrongBookToastDismissBurst();
+    LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject %@-refuseEmpty n=%lu on=%@",
+                          tag, (unsigned long)ch.count, NSStringFromClass([selfObj class])]);
 }
 
 static NSArray *LBCatalogLoadingPlaceholder(void) {
@@ -2395,38 +2500,63 @@ static void LBScheduleWrongBookToastDismissBurst(void) {
     }
 }
 
-/// 拦截原生 showHudText / showErrorView，吞掉「错误的书本」等（CatalogCon 空目录时弹出）
+/// 拦截原生 showHudText / showErrorView / showTip，吞掉「错误的书本」等（CatalogCon 空目录时弹出）
 static void LBInstallWrongBookHudSuppress(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+        void (^logSuppress)(NSString *, NSString *) = ^(NSString *api, NSString *text) {
+            [[NSString stringWithFormat:@"wrongBookHud suppressed %@ %@", api, text ?: @""]
+             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
+                          @"Documents/legado_wrong_book_hud.txt"]
+              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        };
         void (^tryHook)(Class, SEL, BOOL) = ^(Class cls, SEL sel, BOOL meta) {
             if (!cls || !sel) return;
             Method m = meta ? class_getClassMethod(cls, sel) : class_getInstanceMethod(cls, sel);
             if (!m) return;
+            if (!meta) {
+                Class owner = LBClassOwningInstanceMethod(cls, sel);
+                if (owner && owner != cls) return;
+            }
             IMP orig = method_getImplementation(m);
             NSString *sn = NSStringFromSelector(sel);
             if ([sn isEqualToString:@"showHudText:view:"]) {
                 IMP nh = imp_implementationWithBlock(^void(id selfObj, NSString *text, id view) {
-                    if (LBHudMessageIsWrongBook(text) && LBShouldSuppressWrongBookHud()) {
-                        [[NSString stringWithFormat:@"wrongBookHud suppressed showHudText:view: %@", text]
-                         writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
-                                      @"Documents/legado_wrong_book_hud.txt"]
-                          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                        return;
+                    if (LBHudMessageIsWrongBook(text)) {
+                        logSuppress(sn, text);
+                        if (LBShouldSuppressWrongBookHud()) return;
                     }
                     ((void (*)(id, SEL, id, id))orig)(selfObj, sel, text, view);
                 });
                 method_setImplementation(m, nh);
             } else if ([sn isEqualToString:@"showHudText:delay:view:"]) {
                 IMP nh = imp_implementationWithBlock(^void(id selfObj, NSString *text, id delay, id view) {
-                    if (LBHudMessageIsWrongBook(text) && LBShouldSuppressWrongBookHud()) {
-                        [[NSString stringWithFormat:@"wrongBookHud suppressed showHudText:delay:view: %@", text]
-                         writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
-                                      @"Documents/legado_wrong_book_hud.txt"]
-                          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                        return;
+                    if (LBHudMessageIsWrongBook(text)) {
+                        logSuppress(sn, text);
+                        if (LBShouldSuppressWrongBookHud()) return;
                     }
                     ((void (*)(id, SEL, id, id, id))orig)(selfObj, sel, text, delay, view);
+                });
+                method_setImplementation(m, nh);
+            } else if ([sn isEqualToString:@"showHudText:"]) {
+                IMP nh = imp_implementationWithBlock(^void(id selfObj, NSString *text) {
+                    if (LBHudMessageIsWrongBook(text)) {
+                        logSuppress(sn, text);
+                        if (LBShouldSuppressWrongBookHud()) return;
+                    }
+                    ((void (*)(id, SEL, id))orig)(selfObj, sel, text);
+                });
+                method_setImplementation(m, nh);
+            } else if ([sn isEqualToString:@"showTip:"] ||
+                       [sn isEqualToString:@"showMessage:"] ||
+                       [sn isEqualToString:@"showToast:"] ||
+                       [sn isEqualToString:@"toast:"]) {
+                IMP nh = imp_implementationWithBlock(^void(id selfObj, NSString *text) {
+                    if (LBHudMessageIsWrongBook(text)) {
+                        logSuppress(sn, text);
+                        if (LBShouldSuppressWrongBookHud()) return;
+                    }
+                    ((void (*)(id, SEL, id))orig)(selfObj, sel, text);
                 });
                 method_setImplementation(m, nh);
             } else if ([sn isEqualToString:@"showErrorView:"]) {
@@ -2438,12 +2568,9 @@ static void LBInstallWrongBookHudSuppress(void) {
                             if ([t isKindOfClass:[NSString class]]) text = t;
                         } @catch (__unused NSException *e) {}
                     }
-                    if (LBHudMessageIsWrongBook(text) && LBShouldSuppressWrongBookHud()) {
-                        [[NSString stringWithFormat:@"wrongBookHud suppressed showErrorView: %@", text]
-                         writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
-                                      @"Documents/legado_wrong_book_hud.txt"]
-                          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                        return;
+                    if (LBHudMessageIsWrongBook(text)) {
+                        logSuppress(sn, text);
+                        if (LBShouldSuppressWrongBookHud()) return;
                     }
                     ((void (*)(id, SEL, id))orig)(selfObj, sel, arg);
                 });
@@ -2452,12 +2579,9 @@ static void LBInstallWrongBookHudSuppress(void) {
                 IMP nh = imp_implementationWithBlock(^void(id selfObj, id a, id title, id del) {
                     NSString *text = [title isKindOfClass:[NSString class]] ? title : nil;
                     if (!text && [a isKindOfClass:[NSString class]]) text = a;
-                    if (LBHudMessageIsWrongBook(text) && LBShouldSuppressWrongBookHud()) {
-                        [[NSString stringWithFormat:@"wrongBookHud suppressed showErrorView:title: %@", text]
-                         writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
-                                      @"Documents/legado_wrong_book_hud.txt"]
-                          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                        return;
+                    if (LBHudMessageIsWrongBook(text)) {
+                        logSuppress(sn, text);
+                        if (LBShouldSuppressWrongBookHud()) return;
                     }
                     ((void (*)(id, SEL, id, id, id))orig)(selfObj, sel, a, title, del);
                 });
@@ -2467,22 +2591,28 @@ static void LBInstallWrongBookHudSuppress(void) {
 
         unsigned int n2 = 0;
         Class *list2 = objc_copyClassList(&n2);
-        SEL s1 = NSSelectorFromString(@"showHudText:view:");
-        SEL s1b = NSSelectorFromString(@"showHudText:delay:view:");
-        SEL s2 = NSSelectorFromString(@"showErrorView:");
-        SEL s2b = NSSelectorFromString(@"showErrorView:title:delegate:");
+        NSArray *sels = @[
+            @"showHudText:view:",
+            @"showHudText:delay:view:",
+            @"showHudText:",
+            @"showTip:",
+            @"showMessage:",
+            @"showToast:",
+            @"toast:",
+            @"showErrorView:",
+            @"showErrorView:title:delegate:"
+        ];
         NSMutableSet *done = [NSMutableSet set];
         for (unsigned int i = 0; i < n2; i++) {
             Class cls = list2[i];
             NSString *cn = NSStringFromClass(cls);
             if ([done containsObject:cn]) continue;
             BOOL hit = NO;
-            if (class_getInstanceMethod(cls, s1)) { tryHook(cls, s1, NO); hit = YES; }
-            if (class_getClassMethod(cls, s1)) { tryHook(object_getClass(cls), s1, YES); hit = YES; }
-            if (class_getInstanceMethod(cls, s1b)) { tryHook(cls, s1b, NO); hit = YES; }
-            if (class_getClassMethod(cls, s1b)) { tryHook(object_getClass(cls), s1b, YES); hit = YES; }
-            if (class_getInstanceMethod(cls, s2)) { tryHook(cls, s2, NO); hit = YES; }
-            if (class_getInstanceMethod(cls, s2b)) { tryHook(cls, s2b, NO); hit = YES; }
+            for (NSString *sn in sels) {
+                SEL s = NSSelectorFromString(sn);
+                if (class_getInstanceMethod(cls, s)) { tryHook(cls, s, NO); hit = YES; }
+                if (class_getClassMethod(cls, s)) { tryHook(object_getClass(cls), s, YES); hit = YES; }
+            }
             if (hit) [done addObject:cn];
         }
         free(list2);
@@ -2792,18 +2922,23 @@ static BOOL LBWriteChaptersOntoObject(id obj, NSArray *chapters) {
         } @catch (__unused NSException *e) {}
     }
     if (LBTrySetArrayKey(obj, @"arrSource", chapters)) wrote = YES;
-    // 禁止写 arrBaseData：那是发现/搜索书列表字段，章节灌进去会套封面 cell（暂无封面挤目录）
     for (NSString *key in @[@"arrCatalog", @"arrCpInfo", @"chapterList"]) {
         if (LBTrySetArrayKey(obj, key, chapters)) wrote = YES;
     }
-    // 若 arrBaseData 里已是章节脏数据，清掉以免广场 cell 误绘
-    @try {
-        id base = [obj valueForKey:@"arrBaseData"];
-        if (LBArrayLooksLikeChapters(base)) {
-            LBTrySetArrayKey(obj, @"arrBaseData", @[]);
-        }
-    } @catch (__unused NSException *e) {}
-    @try {
+    // CatalogCon 行数读 arrBaseData（Plain 基类）：目录上下文必须写入；发现/搜索勿写以免套封面
+    NSString *objCn = NSStringFromClass([obj class]);
+    BOOL catalogCtx = [objCn containsString:@"Catalog"] || LBVCIsCatalogTableContext(obj);
+    if (catalogCtx) {
+        if (LBTrySetArrayKey(obj, @"arrBaseData", chapters)) wrote = YES;
+    } else {
+        // 若 arrBaseData 里已是章节脏数据，清掉以免广场 cell 误绘
+        @try {
+            id base = [obj valueForKey:@"arrBaseData"];
+            if (LBArrayLooksLikeChapters(base)) {
+                LBTrySetArrayKey(obj, @"arrBaseData", @[]);
+            }
+        } @catch (__unused NSException *e) {}
+    }    @try {
         id cv = [obj valueForKey:@"catalogView"];
         if (cv && cv != obj) {
             if (LBWriteChaptersOntoObject(cv, chapters)) wrote = YES;
@@ -4316,95 +4451,39 @@ static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView
 }
 
 static void LBCatalogSetArrCatalog_IMP(id self, SEL _cmd, id arr) {
+    // 拒收空清：勿先调 orig(空)——原生会在同栈弹「错误的书本」
+    if (LBCatalogShouldBlockEmptyChapterClear(self, arr)) {
+        LBCatalogRefuseEmptyAndRestore(self, _cmd, LBOrig_setArrCatalog, @"setArrCatalog");
+        return;
+    }
     if (LBOrig_setArrCatalog) {
         LBOrig_setArrCatalog(self, _cmd, arr);
     }
-    if (sCatalogInjectReentrant) return;
-    BOOL empty = (!arr || ([arr isKindOfClass:[NSArray class]] && [arr count] == 0));
-    if (!empty || sPendingCatalogChapters.count == 0) return;
-    // 仅当 VC 书目与 pending 同书才盖回，避免换书后空目录被他书 pending 填回
-    NSString *vcBu = nil;
-    @try {
-        id v = [self valueForKey:@"bookUrl"];
-        if ([v isKindOfClass:[NSString class]]) vcBu = v;
-    } @catch (__unused NSException *e) {}
-    if (vcBu.length == 0) {
-        @try {
-            id dic = [self valueForKey:@"dicBook"];
-            if ([dic isKindOfClass:[NSDictionary class]]) {
-                id v = dic[@"bookUrl"] ?: dic[@"url"];
-                if ([v isKindOfClass:[NSString class]]) vcBu = v;
-            }
-        } @catch (__unused NSException *e) {}
-    }
-    if (vcBu.length > 0 && sPendingCatalogBookUrl.length > 0 &&
-        ![vcBu isEqualToString:sPendingCatalogBookUrl]) {
-        return;
-    }
-    // 原生异步回写空目录时，用 pending 盖回（含 ivar 强写）
-    NSArray *ch = [sPendingCatalogChapters copy];
-    NSString *pendingBu = [sPendingCatalogBookUrl copy];
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (sPendingCatalogChapters.count == 0) return;
-        if (pendingBu.length > 0 && sPendingCatalogBookUrl.length > 0 &&
-            ![pendingBu isEqualToString:sPendingCatalogBookUrl]) {
-            return;
-        }
-        sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 8.0;
-        LBWriteChaptersOntoObject(self, ch);
-        if ([self isKindOfClass:[UIViewController class]]) {
-            LBReloadCatalogVC((UIViewController *)self);
-        }
-        LBDismissWrongBookToast();
-        LBScheduleWrongBookToastDismissBurst();
-        LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject setArrCatalog-guard n=%lu on=%@",
-                              (unsigned long)ch.count, NSStringFromClass([self class])]);
-    });
 }
 
 static void (*LBOrig_setArrSource)(id, SEL, id) = NULL;
 
 static void LBCatalogSetArrSource_IMP(id self, SEL _cmd, id arr) {
+    if (LBCatalogShouldBlockEmptyChapterClear(self, arr)) {
+        LBCatalogRefuseEmptyAndRestore(self, _cmd, LBOrig_setArrSource, @"setArrSource");
+        return;
+    }
     if (LBOrig_setArrSource) {
         LBOrig_setArrSource(self, _cmd, arr);
     }
-    if (sCatalogInjectReentrant) return;
-    // 下拉刷新常先清空 arrSource → 原生弹「错误的书本」；Legado pending 盖回
-    BOOL empty = (!arr || ([arr isKindOfClass:[NSArray class]] && [arr count] == 0));
-    BOOL notChapters = [arr isKindOfClass:[NSArray class]] && !LBArrayLooksLikeChapters(arr);
-    if ((!empty && !notChapters) || sPendingCatalogChapters.count == 0) return;
-    if (!LBCatalogLooksLegadoPending()) return;
-    NSString *vcBu = nil;
-    @try {
-        id v = [self valueForKey:@"bookUrl"];
-        if ([v isKindOfClass:[NSString class]]) vcBu = v;
-    } @catch (__unused NSException *e) {}
-    if (vcBu.length == 0) {
-        @try {
-            id dic = [self valueForKey:@"dicBook"];
-            if ([dic isKindOfClass:[NSDictionary class]]) {
-                id v = dic[@"bookUrl"] ?: dic[@"url"];
-                if ([v isKindOfClass:[NSString class]]) vcBu = v;
-            }
-        } @catch (__unused NSException *e) {}
-    }
-    if (vcBu.length > 0 && sPendingCatalogBookUrl.length > 0 &&
-        ![vcBu isEqualToString:sPendingCatalogBookUrl]) {
+}
+
+static void (*LBOrig_setArrBaseData)(id, SEL, id) = NULL;
+
+static void LBCatalogSetArrBaseData_IMP(id self, SEL _cmd, id arr) {
+    // CatalogCon 行数读 arrBaseData；下拉空清走这条比 arrSource 更常见
+    if (LBCatalogShouldBlockEmptyChapterClear(self, arr)) {
+        LBCatalogRefuseEmptyAndRestore(self, _cmd, LBOrig_setArrBaseData, @"setArrBaseData");
         return;
     }
-    NSArray *ch = [sPendingCatalogChapters copy];
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (sPendingCatalogChapters.count == 0) return;
-        sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 8.0;
-        LBWriteChaptersOntoObject(self, ch);
-        if ([self isKindOfClass:[UIViewController class]]) {
-            LBReloadCatalogVC((UIViewController *)self);
-        }
-        LBDismissWrongBookToast();
-        LBScheduleWrongBookToastDismissBurst();
-        LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject setArrSource-guard n=%lu on=%@",
-                              (unsigned long)ch.count, NSStringFromClass([self class])]);
-    });
+    if (LBOrig_setArrBaseData) {
+        LBOrig_setArrBaseData(self, _cmd, arr);
+    }
 }
 
 /// 组装 openReader 所需书本字典（优先详情 dicBook，避免把章节 dict 当书）
@@ -11881,6 +11960,19 @@ void LBInstallCatalogUIAppearFlush(void) {
         if (setSrcM && !LBOrig_setArrSource) {
             LBOrig_setArrSource = (void (*)(id, SEL, id))method_getImplementation(setSrcM);
             method_setImplementation(setSrcM, (IMP)LBCatalogSetArrSource_IMP);
+        }
+        SEL setBase = @selector(setArrBaseData:);
+        Method setBaseM = class_getInstanceMethod(catalogCls, setBase);
+        if (setBaseM && !LBOrig_setArrBaseData) {
+            Class owner = LBClassOwningInstanceMethod(catalogCls, setBase);
+            LBOrig_setArrBaseData = (void (*)(id, SEL, id))method_getImplementation(setBaseM);
+            if (owner == catalogCls) {
+                method_setImplementation(setBaseM, (IMP)LBCatalogSetArrBaseData_IMP);
+            } else {
+                // 方法在 Plain 基类：只在 CatalogCon 加 override，勿改 BookList
+                const char *types = method_getTypeEncoding(setBaseM);
+                class_addMethod(catalogCls, setBase, (IMP)LBCatalogSetArrBaseData_IMP, types);
+            }
         }
         SEL getSel = @selector(arrCatalog);
         Method getM = class_getInstanceMethod(catalogCls, getSel);
