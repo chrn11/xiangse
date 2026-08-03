@@ -326,7 +326,8 @@ class WebBook {
             body: preparedBody,
             baseUrl: redirectUrl,
             rule: tocRule,
-            startIndex: 0
+            startIndex: 0,
+            source: source
         )
 
         var pendingPageUrls = tocParser.parseNextPageUrls(body: preparedBody, baseUrl: redirectUrl, rule: tocRule)

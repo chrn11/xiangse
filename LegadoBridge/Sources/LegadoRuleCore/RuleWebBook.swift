@@ -561,11 +561,14 @@ public enum RuleWebBook {
         guard !body.isEmpty else { throw WebBookError.emptyResponse }
 
         let preparedBody = applyPreUpdateJS(tocRule.preUpdateJs, body: body, baseUrl: redirectUrl)
+        // data:catalogUrl 规则须带 source，否则 getServerHost/java.ajax 无书源上下文
+        let ruleBaseUrl = tocUrl.hasPrefix("data:") ? tocUrl : redirectUrl
         var chapters = try tocParser.parseChapters(
             body: preparedBody,
-            baseUrl: redirectUrl,
+            baseUrl: ruleBaseUrl,
             rule: tocRule,
-            startIndex: 0
+            startIndex: 0,
+            source: source
         )
         // 真机：Documents/legado_catalog_body_probe.txt —— 区分「未拉到 TOC」与「拉到但解析 0 章」
         Self.writeCatalogBodyProbe(
@@ -604,7 +607,8 @@ public enum RuleWebBook {
                 body: preparedNext,
                 baseUrl: nextRedirectUrl,
                 rule: tocRule,
-                startIndex: chapters.count
+                startIndex: chapters.count,
+                source: source
             )
             chapters.append(contentsOf: nextChapters)
 

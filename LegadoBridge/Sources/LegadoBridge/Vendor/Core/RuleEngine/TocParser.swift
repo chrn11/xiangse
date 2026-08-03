@@ -12,12 +12,14 @@ final class TocParser {
         body: String,
         baseUrl: String,
         rule: TocRule,
-        startIndex: Int = 0
+        startIndex: Int = 0,
+        source: (any BridgeSourceProtocol)? = nil
     ) throws -> [WebChapter] {
         let elements = try ruleEngine.getElements(
             ruleStr: rule.bookList,
             body: body,
-            baseUrl: baseUrl
+            baseUrl: baseUrl,
+            source: source
         )
 
         var chapters: [WebChapter] = []
