@@ -1212,7 +1212,18 @@ public enum RuleWebBook {
                     .filter { !$0.isEmpty }
                     .joined(separator: ",")
             }
-            let parsedBookUrl = ruleEngine.getString(ruleStr: bookUrlRule, elementContext: el, baseUrl: baseUrl)
+            var parsedBookUrl = ruleEngine.getString(ruleStr: bookUrlRule, elementContext: el, baseUrl: baseUrl)
+            // 常见源写 a:nth-child(1)@href：当 a 不是父节点第 1 子时取空，列表有书名却点不进。
+            // 回退同元素内首个链接，避免「能看见书、点开 no bookUrl」。
+            if parsedBookUrl.isEmpty {
+                for fallback in ["a@href", "tag.a@href", "a@data-href"] {
+                    let u = ruleEngine.getString(ruleStr: fallback, elementContext: el, baseUrl: baseUrl)
+                    if !u.isEmpty {
+                        parsedBookUrl = u
+                        break
+                    }
+                }
+            }
             // 勿用列表页 baseUrl 填空 bookUrl：否则 10 条会去重成 1 条
             item.bookUrl = parsedBookUrl
             let parsedCover = ruleEngine.getString(ruleStr: coverUrlRule, elementContext: el, baseUrl: baseUrl)
@@ -1236,25 +1247,28 @@ public enum RuleWebBook {
                 results.append(item)
             }
         }
-        // 字段级对照：elements 数 vs 入选数（写在 parse 探针前由调用方汇总）
-        if results.count <= 1, elements.count > 1 {
+        // 有名无 URL 或规则异常：写字段探针（不限 kept<=1）
+        let emptyUrlNamed = results.filter { !$0.name.isEmpty && $0.bookUrl.isEmpty }
+        if results.count <= 1 && elements.count > 1 || !emptyUrlNamed.isEmpty {
             let path = (NSHomeDirectory() as NSString)
                 .appendingPathComponent("Documents/legado_search_field_probe.txt")
             var lines: [String] = [
                 "ts=\(Date())",
                 "elements=\(elements.count)",
                 "kept=\(results.count)",
+                "emptyUrlNamed=\(emptyUrlNamed.count)",
                 "nameRule=\(nameRule ?? "")",
                 "bookUrlRule=\(bookUrlRule ?? "")"
             ]
             for (idx, el) in elements.prefix(5).enumerated() {
                 let n = ruleEngine.getString(ruleStr: nameRule, elementContext: el, baseUrl: baseUrl)
                 let u = ruleEngine.getString(ruleStr: bookUrlRule, elementContext: el, baseUrl: baseUrl)
+                let u2 = ruleEngine.getString(ruleStr: "a@href", elementContext: el, baseUrl: baseUrl)
                 let kind: String
                 if el.element is Element { kind = "Element" }
                 else if el.element is String { kind = "String" }
                 else { kind = String(describing: type(of: el.element)) }
-                lines.append("[\(idx)] type=\(kind) name=\(n) url=\(u)")
+                lines.append("[\(idx)] type=\(kind) name=\(n) url=\(u) a@href=\(u2)")
             }
             try? (lines.joined(separator: "\n") + "\n").write(toFile: path, atomically: true, encoding: .utf8)
         }
