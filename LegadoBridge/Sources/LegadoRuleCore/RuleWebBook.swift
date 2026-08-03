@@ -431,6 +431,15 @@ public enum RuleWebBook {
         // data: 详情：规则里的 baseUrl.startsWith("data:") 须见原始 bookUrl，不能用 localhost
         let ruleBaseUrl = book.bookUrl.hasPrefix("data:") ? book.bookUrl : redirectUrl
 
+        // 诊断：init 未跑会导致 tocUrl 缺 url → 目录 0 章
+        do {
+            let path = (NSHomeDirectory() as NSString)
+                .appendingPathComponent("Documents/legado_bookinfo_init_probe.txt")
+            let initLen = infoRule.initRule?.count ?? -1
+            let line = "ts=\(ISO8601DateFormatter().string(from: Date())) initLen=\(initLen) ruleBase=\(ruleBaseUrl.prefix(60)) bodyLen=\(body.count) bodyHead=\(body.prefix(24))\n"
+            try? line.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+
         var elementCtx: ElementContext
         do {
             elementCtx = try makeElementContext(body: body, baseUrl: ruleBaseUrl)
@@ -442,7 +451,12 @@ public enum RuleWebBook {
 
         if let initRule = infoRule.initRule?.trimmingCharacters(in: .whitespacesAndNewlines),
            !initRule.isEmpty,
-           let initialized = try ruleEngine.getElements(ruleStr: initRule, body: body, baseUrl: ruleBaseUrl).first {
+           let initialized = try ruleEngine.getElements(
+            ruleStr: initRule,
+            body: body,
+            baseUrl: ruleBaseUrl,
+            source: source
+           ).first {
             elementCtx = initialized
         }
 
