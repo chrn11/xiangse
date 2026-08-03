@@ -2282,11 +2282,33 @@ static NSArray *LBCatalogLoadingPlaceholder(void) {
     ];
 }
 
+static NSString *LBViewCollectedText(UIView *v) {
+    if (!v) return nil;
+    NSMutableString *buf = [NSMutableString string];
+    if ([v isKindOfClass:[UILabel class]]) {
+        UILabel *lb = (UILabel *)v;
+        if (lb.text.length > 0) [buf appendString:lb.text];
+        if (lb.attributedText.string.length > 0) [buf appendString:lb.attributedText.string];
+    } else if ([v isKindOfClass:[UIButton class]]) {
+        NSString *t = [(UIButton *)v titleForState:UIControlStateNormal];
+        if (t.length > 0) [buf appendString:t];
+    } else if ([v respondsToSelector:@selector(text)]) {
+        @try {
+            id t = [v valueForKey:@"text"];
+            if ([t isKindOfClass:[NSString class]] && [(NSString *)t length] > 0) {
+                [buf appendString:(NSString *)t];
+            }
+        } @catch (__unused NSException *e) {}
+    }
+    return buf.length > 0 ? buf : nil;
+}
+
 static void LBDismissWrongBookToast(void) {
     if (![NSThread isMainThread]) {
         dispatch_async(dispatch_get_main_queue(), ^{ LBDismissWrongBookToast(); });
         return;
     }
+    BOOL suppress = LBShouldSuppressWrongBookHud();
     for (UIWindow *w in LBAllAppWindows()) {
         NSMutableArray *stack = [NSMutableArray arrayWithObject:w];
         while (stack.count > 0) {
@@ -2294,35 +2316,29 @@ static void LBDismissWrongBookToast(void) {
             [stack removeLastObject];
             // ReadErrorView / 自定义错误浮层：类名命中也摘
             NSString *cn = NSStringFromClass([cur class]);
-            if ([cn containsString:@"ReadError"] || [cn containsString:@"ErrorView"]) {
-                // 仅当子树含错误文案或处于 suppress 窗口
+            BOOL errorLike = [cn containsString:@"ReadError"] ||
+                             [cn containsString:@"ErrorView"] ||
+                             [cn containsString:@"ErrorTip"] ||
+                             ([cn containsString:@"Hud"] && [cn containsString:@"Error"]);
+            if (errorLike) {
                 BOOL hitText = NO;
                 NSMutableArray *sub = [NSMutableArray arrayWithObject:cur];
                 while (sub.count > 0) {
                     UIView *v = sub.lastObject;
                     [sub removeLastObject];
-                    if ([v isKindOfClass:[UILabel class]] &&
-                        LBHudMessageIsWrongBook([(UILabel *)v text])) {
+                    if (LBHudMessageIsWrongBook(LBViewCollectedText(v))) {
                         hitText = YES;
                         break;
                     }
                     for (UIView *s in v.subviews) [sub addObject:s];
                 }
-                if (hitText || LBShouldSuppressWrongBookHud()) {
+                if (hitText || suppress) {
                     cur.hidden = YES;
                     [cur removeFromSuperview];
                     continue;
                 }
             }
-            NSString *text = nil;
-            if ([cur isKindOfClass:[UILabel class]]) {
-                text = [(UILabel *)cur text];
-            } else if ([cur respondsToSelector:@selector(text)]) {
-                @try {
-                    id t = [cur valueForKey:@"text"];
-                    if ([t isKindOfClass:[NSString class]]) text = t;
-                } @catch (__unused NSException *e) {}
-            }
+            NSString *text = LBViewCollectedText(cur);
             if (LBHudMessageIsWrongBook(text)) {
                 UIView *victim = cur;
                 if (cur.superview && cur.superview.subviews.count <= 6) {
@@ -2342,9 +2358,16 @@ static void LBDismissWrongBookToast(void) {
 }
 
 static void LBScheduleWrongBookToastDismissBurst(void) {
-    // 0~2.5s 高频摘掉，挡住「晚半拍」弹出
-    for (int i = 0; i < 12; i++) {
-        double sec = 0.15 * i;
+    // 前 1s 每 50ms 摘一次（挡住闪一下），其后稀疏补摘到 ~2.5s
+    for (int i = 0; i < 20; i++) {
+        double sec = 0.05 * i;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(sec * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            LBDismissWrongBookToast();
+        });
+    }
+    for (int i = 1; i <= 6; i++) {
+        double sec = 1.0 + 0.25 * i;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(sec * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             LBDismissWrongBookToast();
@@ -2724,12 +2747,31 @@ static void LBDeliverCatalogNotify(id target, NSArray *chapters, NSString *bookU
     }
 }
 
-/// 写入 arrCatalog / arrBaseData / arrCpInfo，并尝试嵌套 catalogView + 通知
+/// 写入 arrSource（CatalogCon 真机展示字段）+ arrCatalog 等，并尝试嵌套 catalogView + 通知
 static BOOL LBWriteChaptersOntoObject(id obj, NSArray *chapters) {
     if (!obj || ![chapters isKindOfClass:[NSArray class]] || chapters.count == 0) return NO;
     BOOL wrote = NO;
     BOOL prev = sCatalogInjectReentrant;
     sCatalogInjectReentrant = YES;
+    // CatalogCon 空 arrSource 会弹「错误的书本」；必须先写 arrSource，勿只写 arrCatalog
+    @try {
+        if ([obj respondsToSelector:@selector(arrSource)]) {
+            id cur = ((id (*)(id, SEL))objc_msgSend)(obj, @selector(arrSource));
+            if ([cur isKindOfClass:[NSMutableArray class]]) {
+                [(NSMutableArray *)cur setArray:chapters];
+                wrote = YES;
+            }
+        }
+    } @catch (__unused NSException *e) {}
+    if (!wrote) {
+        @try {
+            if ([obj respondsToSelector:@selector(setArrSource:)]) {
+                ((void (*)(id, SEL, id))objc_msgSend)(obj, @selector(setArrSource:), chapters);
+                wrote = YES;
+            }
+        } @catch (__unused NSException *e) {}
+    }
+    if (LBTrySetArrayKey(obj, @"arrSource", chapters)) wrote = YES;
     for (NSString *key in @[@"arrCatalog", @"arrBaseData", @"arrCpInfo", @"chapterList"]) {
         if (LBTrySetArrayKey(obj, key, chapters)) wrote = YES;
     }
@@ -4698,14 +4740,22 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
                     if (title.length > 0) {
                         @try { targetVC.title = title; } @catch (__unused NSException *e) {}
                     }
-                    // 无缓存时先灌「目录加载中」占位，避免空表触发原生「错误的书本」
+                    // 无缓存时先灌「目录加载中」占位到 arrSource，避免空表触发原生「错误的书本」
                     NSArray *seed = sPendingCatalogChapters;
                     if (seed.count == 0) {
                         seed = LBCatalogLoadingPlaceholder();
                     }
                     LBWriteChaptersOntoObject(targetVC, seed);
+                    // 双保险：部分机型 setValue:arrSource 被忽略，显式走 setter
+                    @try {
+                        if ([targetVC respondsToSelector:@selector(setArrSource:)]) {
+                            ((void (*)(id, SEL, id))objc_msgSend)(targetVC, @selector(setArrSource:), seed);
+                        }
+                    } @catch (__unused NSException *e) {}
                     LBInstallCatalogUIAppearFlush();
                     LBInstallWrongBookHudSuppress();
+                    LBDismissWrongBookToast();
+                    LBScheduleWrongBookToastDismissBurst();
                 }
             } @catch (NSException *e) {
                 mark([NSString stringWithFormat:@"searchPush CatalogCon alloc fail: %@", e.reason ?: @""]);
@@ -11666,7 +11716,7 @@ void LBInstallCatalogUIAppearFlush(void) {
         const char *types = method_getTypeEncoding(m);
         IMP hook = imp_implementationWithBlock(^void(id selfObj, BOOL animated) {
             ((void (*)(id, SEL, BOOL))orig)(selfObj, sel, animated);
-            if (sPendingCatalogChapters.count == 0) return;
+            LBDismissWrongBookToast();
             NSString *vcBu = nil;
             @try {
                 id v = [selfObj valueForKey:@"bookUrl"];
@@ -11685,19 +11735,36 @@ void LBInstallCatalogUIAppearFlush(void) {
                 ![vcBu isEqualToString:sPendingCatalogBookUrl]) {
                 return;
             }
-            NSArray *ch = [sPendingCatalogChapters copy];
-            NSString *bu = [sPendingCatalogBookUrl copy];
+            // pending 尚未返回时也要灌占位进 arrSource，否则原生空表弹「错误的书本」
+            NSArray *ch = sPendingCatalogChapters.count > 0
+                ? [sPendingCatalogChapters copy]
+                : (LBShouldSuppressWrongBookHud() ? LBCatalogLoadingPlaceholder() : nil);
+            if (ch.count == 0) return;
+            NSString *bu = [sPendingCatalogBookUrl copy] ?: [vcBu copy];
+            BOOL placeholderOnly = (sPendingCatalogChapters.count == 0);
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (bu.length > 0 && sPendingCatalogBookUrl.length > 0 &&
                     ![bu isEqualToString:sPendingCatalogBookUrl]) {
                     return;
                 }
-                LBApplyPendingCatalogToVCs(ch, bu, @"appear");
-                LBScheduleCatalogReapply(ch, bu);
+                if (placeholderOnly && sPendingCatalogChapters.count > 0) {
+                    // 异步间隙里真目录已到，改灌真目录
+                    LBApplyPendingCatalogToVCs(sPendingCatalogChapters, bu, @"appear-real");
+                    LBScheduleCatalogReapply(sPendingCatalogChapters, bu);
+                } else if (placeholderOnly) {
+                    LBWriteChaptersOntoObject(selfObj, ch);
+                    LBReloadCatalogVC((UIViewController *)selfObj);
+                    LBDismissWrongBookToast();
+                } else {
+                    LBApplyPendingCatalogToVCs(ch, bu, @"appear");
+                    LBScheduleCatalogReapply(ch, bu);
+                }
+                LBDismissWrongBookToast();
             });
-            NSString *appear = [NSString stringWithFormat:@"catalogAppear %@ pending=%lu",
+            NSString *appear = [NSString stringWithFormat:@"catalogAppear %@ pending=%lu placeholder=%d",
                                 NSStringFromClass([selfObj class]),
-                                (unsigned long)ch.count];
+                                (unsigned long)(sPendingCatalogChapters.count),
+                                placeholderOnly ? 1 : 0];
             [appear writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_catalog_appear.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         });
