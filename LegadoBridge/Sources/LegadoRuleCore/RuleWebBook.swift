@@ -680,11 +680,16 @@ public enum RuleWebBook {
 
         if let nextContentUrlRule = contentRule.nextContentUrl, !nextContentUrlRule.isEmpty {
             var visitedUrls: Set<String> = [redirectUrl]
+            let firstPageUrl = redirectUrl
+            // 源常把「下一章」写成 nextContentUrl（如 text.下一页@href→read_2.html），
+            // 会连抓数十章直到外层 20s 超时；同目录数字章链不当分页。
             var pendingPages = extractNextContentUrls(rule: nextContentUrlRule, body: body, baseUrl: redirectUrl)
+                .filter { !isSequentialChapterSibling(current: firstPageUrl, next: $0) }
 
             while !pendingPages.isEmpty && visitedUrls.count < 50 {
                 let nextUrl = pendingPages.removeFirst()
                 guard !nextUrl.isEmpty, !visitedUrls.contains(nextUrl) else { continue }
+                if isSequentialChapterSibling(current: firstPageUrl, next: nextUrl) { continue }
 
                 let nextAnalyzedUrl = AnalyzeUrl.analyze(
                     ruleUrl: nextUrl,
@@ -709,7 +714,7 @@ public enum RuleWebBook {
                 if !nextContent.isEmpty { content += "\n" + nextContent }
 
                 for page in extractNextContentUrls(rule: nextContentUrlRule, body: nextBody, baseUrl: nextRedirectUrl)
-                where !visitedUrls.contains(page) {
+                where !visitedUrls.contains(page) && !isSequentialChapterSibling(current: firstPageUrl, next: page) {
                     pendingPages.append(page)
                 }
             }
@@ -1320,6 +1325,34 @@ public enum RuleWebBook {
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty } ?? ""
+    }
+
+    /// 同目录、同 stem、末段数字不同：如 `/87687/read_1.html`→`read_2.html`（章界）。
+    /// 真分页常为 `read_1_2.html`（stem 不同）或 `?page=2`，不在此列。
+    private static func isSequentialChapterSibling(current: String, next: String) -> Bool {
+        guard let cur = URL(string: current), let nxt = URL(string: next),
+              cur.scheme == nxt.scheme,
+              cur.host == nxt.host else { return false }
+        let curDir = (cur.path as NSString).deletingLastPathComponent
+        let nxtDir = (nxt.path as NSString).deletingLastPathComponent
+        guard curDir == nxtDir, !curDir.isEmpty else { return false }
+        let curFile = (cur.path as NSString).lastPathComponent
+        let nxtFile = (nxt.path as NSString).lastPathComponent
+        guard curFile != nxtFile else { return false }
+        func stemAndTrailingNumber(_ file: String) -> (stem: String, number: Int)? {
+            let ns = file as NSString
+            let base = ns.pathExtension.isEmpty ? file : ns.deletingPathExtension
+            guard let range = base.range(of: #"\d+$"#, options: .regularExpression) else { return nil }
+            guard let number = Int(base[range]) else { return nil }
+            let stem = String(base[..<range.lowerBound])
+            guard !stem.isEmpty else { return nil }
+            return (stem, number)
+        }
+        guard let a = stemAndTrailingNumber(curFile),
+              let b = stemAndTrailingNumber(nxtFile),
+              a.stem == b.stem,
+              a.number != b.number else { return false }
+        return true
     }
 
     private static func normalizeBookName(_ value: String) -> String {
