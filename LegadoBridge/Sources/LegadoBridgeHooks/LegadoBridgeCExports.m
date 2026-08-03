@@ -2292,6 +2292,28 @@ static void LBDismissWrongBookToast(void) {
         while (stack.count > 0) {
             UIView *cur = stack.lastObject;
             [stack removeLastObject];
+            // ReadErrorView / 自定义错误浮层：类名命中也摘
+            NSString *cn = NSStringFromClass([cur class]);
+            if ([cn containsString:@"ReadError"] || [cn containsString:@"ErrorView"]) {
+                // 仅当子树含错误文案或处于 suppress 窗口
+                BOOL hitText = NO;
+                NSMutableArray *sub = [NSMutableArray arrayWithObject:cur];
+                while (sub.count > 0) {
+                    UIView *v = sub.lastObject;
+                    [sub removeLastObject];
+                    if ([v isKindOfClass:[UILabel class]] &&
+                        LBHudMessageIsWrongBook([(UILabel *)v text])) {
+                        hitText = YES;
+                        break;
+                    }
+                    for (UIView *s in v.subviews) [sub addObject:s];
+                }
+                if (hitText || LBShouldSuppressWrongBookHud()) {
+                    cur.hidden = YES;
+                    [cur removeFromSuperview];
+                    continue;
+                }
+            }
             NSString *text = nil;
             if ([cur isKindOfClass:[UILabel class]]) {
                 text = [(UILabel *)cur text];
@@ -2314,8 +2336,19 @@ static void LBDismissWrongBookToast(void) {
                 [victim removeFromSuperview];
                 return;
             }
-            for (UIView *sub in cur.subviews) [stack addObject:sub];
+            for (UIView *subv in cur.subviews) [stack addObject:subv];
         }
+    }
+}
+
+static void LBScheduleWrongBookToastDismissBurst(void) {
+    // 0~2.5s 高频摘掉，挡住「晚半拍」弹出
+    for (int i = 0; i < 12; i++) {
+        double sec = 0.15 * i;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(sec * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            LBDismissWrongBookToast();
+        });
     }
 }
 
@@ -2372,6 +2405,20 @@ static void LBInstallWrongBookHudSuppress(void) {
                     ((void (*)(id, SEL, id))orig)(selfObj, sel, arg);
                 });
                 method_setImplementation(m, nh);
+            } else if ([sn isEqualToString:@"showErrorView:title:delegate:"]) {
+                IMP nh = imp_implementationWithBlock(^void(id selfObj, id a, id title, id del) {
+                    NSString *text = [title isKindOfClass:[NSString class]] ? title : nil;
+                    if (!text && [a isKindOfClass:[NSString class]]) text = a;
+                    if (LBHudMessageIsWrongBook(text) && LBShouldSuppressWrongBookHud()) {
+                        [[NSString stringWithFormat:@"wrongBookHud suppressed showErrorView:title: %@", text]
+                         writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
+                                      @"Documents/legado_wrong_book_hud.txt"]
+                          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                        return;
+                    }
+                    ((void (*)(id, SEL, id, id, id))orig)(selfObj, sel, a, title, del);
+                });
+                method_setImplementation(m, nh);
             }
         };
 
@@ -2380,6 +2427,7 @@ static void LBInstallWrongBookHudSuppress(void) {
         SEL s1 = NSSelectorFromString(@"showHudText:view:");
         SEL s1b = NSSelectorFromString(@"showHudText:delay:view:");
         SEL s2 = NSSelectorFromString(@"showErrorView:");
+        SEL s2b = NSSelectorFromString(@"showErrorView:title:delegate:");
         NSMutableSet *done = [NSMutableSet set];
         for (unsigned int i = 0; i < n2; i++) {
             Class cls = list2[i];
@@ -2391,6 +2439,7 @@ static void LBInstallWrongBookHudSuppress(void) {
             if (class_getInstanceMethod(cls, s1b)) { tryHook(cls, s1b, NO); hit = YES; }
             if (class_getClassMethod(cls, s1b)) { tryHook(object_getClass(cls), s1b, YES); hit = YES; }
             if (class_getInstanceMethod(cls, s2)) { tryHook(cls, s2, NO); hit = YES; }
+            if (class_getInstanceMethod(cls, s2b)) { tryHook(cls, s2b, NO); hit = YES; }
             if (hit) [done addObject:cn];
         }
         free(list2);
@@ -4719,12 +4768,7 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
           bu, su ?: @"", via, presentedWrap ? 1 : 0,
           nav ? NSStringFromClass([nav class]) : @"nil", forceBridge ? 1 : 0]);
     // 原生 CatalogCon 常在空目录时晚半拍弹「错误的书本」，多档摘掉
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{ LBDismissWrongBookToast(); });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{ LBDismissWrongBookToast(); });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{ LBDismissWrongBookToast(); });
+    LBScheduleWrongBookToastDismissBurst();
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         if (sPendingCatalogChapters.count > 0) {
