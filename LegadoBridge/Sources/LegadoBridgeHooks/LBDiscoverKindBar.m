@@ -385,6 +385,15 @@ static void LBDiscoverFireExploreForIndex(NSInteger index, NSString *titleHint) 
     // kinds 未就绪或该项无 URL：禁止 explore(nil)（会再跑顶层 JS，失败就盖「JS 未产出分类」）
     if (url.length == 0) {
         LBAppendNativeMarker(@"nativeExplore skip: empty kindUrl → warmup");
+        BOOL coolFail = NO;
+        if (core && [core respondsToSelector:@selector(isExploreKindsWarmFailedRecentlyForSourceUrl:)]) {
+            coolFail = ((BOOL (*)(id, SEL, NSString *))objc_msgSend)(
+                core, @selector(isExploreKindsWarmFailedRecentlyForSourceUrl:), src);
+        }
+        if (coolFail) {
+            LBAppendNativeMarker(@"nativeExplore skip: warmFail cooling keepFailHint");
+            return;
+        }
         if (core && [core respondsToSelector:@selector(warmupExploreKindsForSourceUrl:)]) {
             ((void (*)(id, SEL, NSString *))objc_msgSend)(
                 core, @selector(warmupExploreKindsForSourceUrl:), src);
@@ -4063,9 +4072,19 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
         }
     } else if (legadoUrl.length > 0) {
         // 顶层 JS exploreUrl：kinds 异步预热中，禁止立刻 explore(nil)
-        // （会同步再跑 12s JS，失败盖「exploreUrl JS 未产出分类」）
         deferExploreUntilKinds = YES;
-        LBShowDiscoverExploreEmptyHint(@"分类加载中，请稍后…");
+        BOOL coolFail = NO;
+        id coreWarm = LBKindCore();
+        if (coreWarm &&
+            [coreWarm respondsToSelector:@selector(isExploreKindsWarmFailedRecentlyForSourceUrl:)]) {
+            coolFail = ((BOOL (*)(id, SEL, NSString *))objc_msgSend)(
+                coreWarm, @selector(isExploreKindsWarmFailedRecentlyForSourceUrl:), legadoUrl);
+        }
+        if (coolFail) {
+            LBShowDiscoverExploreEmptyHint(@"分类加载失败，请稍后重试或切换书源");
+        } else {
+            LBShowDiscoverExploreEmptyHint(@"分类加载中，请稍后…");
+        }
     }
     LBAppendNativeMarker([NSString stringWithFormat:
                           @"nativeSwitch Legado kinds=%lu kind0=%@ sel=%ld surface=%d defer=%d",
@@ -4306,7 +4325,13 @@ void LBInstallDiscoverNativeUIHooks(void) {
             addObserverForName:@"LegadoExploreKindsDidUpdate"
                         object:nil
                          queue:[NSOperationQueue mainQueue]
-                    usingBlock:^(__unused NSNotification *note) {
+                    usingBlock:^(NSNotification *note) {
+            // 预热失败：Core 已盖失败文案；勿再 ForceRefresh（会空 kind→再刷「分类加载中」盖掉失败）
+            id failed = note.userInfo[@"failed"];
+            if ([failed respondsToSelector:@selector(boolValue)] && [failed boolValue]) {
+                LBAppendNativeMarker(@"kindsUpdate failed keepHint");
+                return;
+            }
             LBRefreshDiscoverKindBarForced();
         }];
         [@"discover native UI hooks installed"

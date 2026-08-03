@@ -850,6 +850,18 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         }
     }
 
+    /// 分类预热是否处于失败节流窗口（30s 内勿再盖「分类加载中」）
+    @objc(isExploreKindsWarmFailedRecentlyForSourceUrl:)
+    public func isExploreKindsWarmFailedRecently(forSourceUrl sourceUrl: String?) -> Bool {
+        let key = (sourceUrl?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
+            ?? resolveExploreSource(sourceUrl)?.bookSourceUrl
+        guard let key, !key.isEmpty else { return false }
+        return exploreKindsCacheQueue.sync {
+            guard let failedAt = exploreKindsWarmFailedAt[key] else { return false }
+            return Date().timeIntervalSince1970 - failedAt < 30
+        }
+    }
+
     /// 清除某源（或全部）分类缓存。
     @objc(invalidateExploreKindsCacheForSourceUrl:)
     public func invalidateExploreKindsCache(forSourceUrl sourceUrl: String?) {
@@ -1027,11 +1039,20 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                         if (kindForFetch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty,
                            RuleWebBook.isTopLevelExploreJS(source.exploreUrl ?? "") {
                             writeSearchMarker("explore defer JS kinds warming src=\(source.bookSourceUrl)")
-                            warmupExploreKinds(forSourceUrl: source.bookSourceUrl)
+                            let coolFail = self.isExploreKindsWarmFailedRecently(
+                                forSourceUrl: source.bookSourceUrl
+                            )
+                            if !coolFail {
+                                warmupExploreKinds(forSourceUrl: source.bookSourceUrl)
+                            }
                             await MainActor.run {
                                 guard generation == sExploreGeneration else { return }
                                 LBDismissDiscoverLoadingHUD()
-                                LBShowDiscoverExploreEmptyHint("分类加载中，请稍后…")
+                                if coolFail {
+                                    LBShowDiscoverExploreEmptyHint("分类加载失败，请稍后重试或切换书源")
+                                } else {
+                                    LBShowDiscoverExploreEmptyHint("分类加载中，请稍后…")
+                                }
                             }
                             continue
                         }
