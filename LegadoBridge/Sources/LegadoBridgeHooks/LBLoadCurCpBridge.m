@@ -2555,6 +2555,54 @@ static void LBLogHypothesisZFileProbe(NSString *tag, NSDictionary *book, NSStrin
                 (unsigned long)bodyLen]);
 }
 
+/// 解析阅读页书名/作者：Legado 正文或 bookUrl 换书时优先 payload，禁止落到斗破假默认。
+static void LBResolveBookIdentity(NSDictionary *payload, NSDictionary *dicBook,
+                                  NSString **outName, NSString **outAuthor) {
+    NSString *payloadBu = nil;
+    if ([payload[@"bookUrl"] isKindOfClass:[NSString class]]) payloadBu = payload[@"bookUrl"];
+    else if ([payload[@"url"] isKindOfClass:[NSString class]]) payloadBu = payload[@"url"];
+    NSString *dicBu = nil;
+    if ([dicBook[@"bookUrl"] isKindOfClass:[NSString class]]) dicBu = dicBook[@"bookUrl"];
+    else if ([dicBook[@"url"] isKindOfClass:[NSString class]]) dicBu = dicBook[@"url"];
+    BOOL fromBridge = NO;
+    id flb = payload[@"fromLegadoBridge"];
+    if ([flb respondsToSelector:@selector(boolValue)] && [flb boolValue]) fromBridge = YES;
+    if ([payload[@"legadoBridge"] isKindOfClass:[NSString class]] &&
+        [(NSString *)payload[@"legadoBridge"] length] > 0) fromBridge = YES;
+    if ([payload[@"chapterContent"] isKindOfClass:[NSString class]] &&
+        [(NSString *)payload[@"chapterContent"] length] > 0 && payloadBu.length > 0) {
+        fromBridge = YES;
+    }
+    BOOL urlMismatch = payloadBu.length > 0 && dicBu.length > 0 &&
+                       ![payloadBu isEqualToString:dicBu];
+    BOOL preferPayload = fromBridge || urlMismatch;
+
+    NSString *pName = nil;
+    if ([payload[@"bookName"] isKindOfClass:[NSString class]]) pName = payload[@"bookName"];
+    else if ([payload[@"name"] isKindOfClass:[NSString class]]) pName = payload[@"name"];
+    NSString *pAuthor = [payload[@"author"] isKindOfClass:[NSString class]] ? payload[@"author"] : nil;
+    NSString *dName = nil;
+    if ([dicBook[@"bookName"] isKindOfClass:[NSString class]]) dName = dicBook[@"bookName"];
+    else if ([dicBook[@"name"] isKindOfClass:[NSString class]]) dName = dicBook[@"name"];
+    else if ([dicBook[@"title"] isKindOfClass:[NSString class]]) dName = dicBook[@"title"];
+    NSString *dAuthor = [dicBook[@"author"] isKindOfClass:[NSString class]] ? dicBook[@"author"] : nil;
+
+    NSString *name = nil;
+    NSString *author = nil;
+    if (preferPayload) {
+        name = pName.length > 0 ? pName : dName;
+        author = pAuthor.length > 0 ? pAuthor : dAuthor;
+    } else {
+        name = dName.length > 0 ? dName : pName;
+        author = dAuthor.length > 0 ? dAuthor : pAuthor;
+    }
+    // 禁止再默认「斗破苍穹/天蚕土豆」——会把任意网文书写进旧 mock 目录
+    if (name.length == 0) name = @"书";
+    if (!author) author = @"";
+    if (outName) *outName = name;
+    if (outAuthor) *outAuthor = author;
+}
+
 /// confirmed 边界：dicContents / xsfolder / setCpCached（禁 UI / pageModel）
 static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArray *paths) {
     if (!reader || ![payload isKindOfClass:[NSDictionary class]]) return NO;
@@ -2573,24 +2621,18 @@ static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArra
     NSString *legacyKey = [dicBook[@"bookKey"] isKindOfClass:[NSString class]] ? dicBook[@"bookKey"] : nil;
     NSString *bookName = nil;
     NSString *author = nil;
-    if ([dicBook[@"bookName"] isKindOfClass:[NSString class]]) bookName = dicBook[@"bookName"];
-    else if ([dicBook[@"name"] isKindOfClass:[NSString class]]) bookName = dicBook[@"name"];
-    else if ([dicBook[@"title"] isKindOfClass:[NSString class]]) bookName = dicBook[@"title"];
-    if ([dicBook[@"author"] isKindOfClass:[NSString class]]) author = dicBook[@"author"];
-    if (bookName.length == 0 && [payload[@"bookName"] isKindOfClass:[NSString class]]) {
-        bookName = payload[@"bookName"];
-    }
-    if (author.length == 0 && [payload[@"author"] isKindOfClass:[NSString class]]) {
-        author = payload[@"author"];
-    }
-    if (bookName.length == 0) bookName = @"斗破苍穹";
-    if (author.length == 0) author = @"天蚕土豆";
+    LBResolveBookIdentity(payload, dicBook, &bookName, &author);
     NSMutableDictionary *keyBook = [NSMutableDictionary dictionary];
     if ([dicBook isKindOfClass:[NSDictionary class]]) {
         [keyBook addEntriesFromDictionary:dicBook];
     }
     keyBook[@"bookName"] = bookName;
     keyBook[@"author"] = author;
+    if ([payload[@"bookUrl"] isKindOfClass:[NSString class]] &&
+        [(NSString *)payload[@"bookUrl"] length] > 0) {
+        keyBook[@"bookUrl"] = payload[@"bookUrl"];
+        keyBook[@"url"] = payload[@"bookUrl"];
+    }
     NSString *bookKey = LBNativeBookKey(bookName, author, keyBook);
     if (bookKey.length == 0) {
         bookKey = legacyKey.length > 0 ? legacyKey : @"legado|bridge";
@@ -2600,11 +2642,12 @@ static BOOL LBSeedConfirmedCache(id reader, NSDictionary *payload, NSMutableArra
         sourceName = [payload[@"sourceName"] isKindOfClass:[NSString class]] ? payload[@"sourceName"] : @"本地静态测试源";
     }
     LBStateLog([NSString stringWithFormat:
-                @"hypothesis_Z native_bookKeyLen=%lu legacyKeyLen=%lu nameLen=%lu authorLen=%lu",
+                @"hypothesis_Z native_bookKeyLen=%lu legacyKeyLen=%lu nameLen=%lu authorLen=%lu name=%@",
                 (unsigned long)bookKey.length,
                 (unsigned long)legacyKey.length,
                 (unsigned long)bookName.length,
-                (unsigned long)author.length]);
+                (unsigned long)author.length,
+                bookName ?: @"-"]);
 
     // 1) dicContents
     @try {
@@ -3617,23 +3660,15 @@ static void LBEnsureLoadCurCpPrereqs(id reader, id container, NSDictionary *payl
         } @catch (__unused NSException *e) {}
         NSString *bookName = nil;
         NSString *author = nil;
-        if ([dicBook[@"bookName"] isKindOfClass:[NSString class]]) bookName = dicBook[@"bookName"];
-        else if ([dicBook[@"name"] isKindOfClass:[NSString class]]) bookName = dicBook[@"name"];
-        else if ([dicBook[@"title"] isKindOfClass:[NSString class]]) bookName = dicBook[@"title"];
-        if ([dicBook[@"author"] isKindOfClass:[NSString class]]) author = dicBook[@"author"];
-        if (bookName.length == 0 && [payload[@"bookName"] isKindOfClass:[NSString class]]) {
-            bookName = payload[@"bookName"];
-        }
-        if (author.length == 0 && [payload[@"author"] isKindOfClass:[NSString class]]) {
-            author = payload[@"author"];
-        }
-        if (bookName.length == 0) bookName = @"斗破苍穹";
-        if (author.length == 0) author = @"天蚕土豆";
-        if (![fat[@"bookName"] isKindOfClass:[NSString class]] || [fat[@"bookName"] length] == 0) {
-            fat[@"bookName"] = bookName;
-        }
-        if (![fat[@"author"] isKindOfClass:[NSString class]] || [fat[@"author"] length] == 0) {
-            fat[@"author"] = author;
+        LBResolveBookIdentity(payload, dicBook, &bookName, &author);
+        // 换书/桥接正文：覆盖 fat 里残留的斗破等旧身份
+        fat[@"bookName"] = bookName;
+        fat[@"author"] = author ?: @"";
+        fat[@"name"] = bookName;
+        if ([payload[@"bookUrl"] isKindOfClass:[NSString class]] &&
+            [(NSString *)payload[@"bookUrl"] length] > 0) {
+            fat[@"bookUrl"] = payload[@"bookUrl"];
+            fat[@"url"] = payload[@"bookUrl"];
         }
         id bk = nil;
         @try { bk = [reader valueForKey:@"bookKey"]; } @catch (__unused NSException *e) {}
@@ -4161,8 +4196,8 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
             NSDictionary *payload = sPendingPayload;
             NSInteger cpIndex = LBCpIndexFromPayload(payload, reader);
             NSUInteger bodyLen = LBBodyFromPayload(payload).length;
-            NSString *bookName = @"斗破苍穹";
-            NSString *author = @"天蚕土豆";
+            NSString *bookName = @"书";
+            NSString *author = @"";
             NSMutableDictionary *probeBook = [NSMutableDictionary dictionary];
             @try {
                 id fat = [reader valueForKey:@"dicFatBook"];
@@ -4172,6 +4207,16 @@ static void LBInvokeOriginalLoadCurCp(id reader, BOOL forceWithoutCurPage) {
                     if ([fat[@"author"] isKindOfClass:[NSString class]]) author = fat[@"author"];
                 }
             } @catch (__unused NSException *e) {}
+            if ([payload[@"bookName"] isKindOfClass:[NSString class]] &&
+                [(NSString *)payload[@"bookName"] length] > 0) {
+                bookName = payload[@"bookName"];
+            } else if ([payload[@"name"] isKindOfClass:[NSString class]] &&
+                       [(NSString *)payload[@"name"] length] > 0) {
+                bookName = payload[@"name"];
+            }
+            if ([payload[@"author"] isKindOfClass:[NSString class]]) {
+                author = payload[@"author"];
+            }
             probeBook[@"bookName"] = bookName;
             probeBook[@"author"] = author;
             NSString *bk = LBNativeBookKey(bookName, author, probeBook) ?: @"";

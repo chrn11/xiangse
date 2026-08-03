@@ -1521,15 +1521,29 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 guard let source = self.resolveEnabledSource(requested: sourceUrl, bookUrl: bookUrl) else {
                     throw LegadoBridgeError.sourceNotFound
                 }
-                let ensured = binding ?? BookBindingStore.shared.bind(
+                let cached = self.bookCache[bookUrl]
+                var ensured = binding ?? BookBindingStore.shared.bind(
                     bookUrl: bookUrl,
                     sourceUrl: source.bookSourceUrl,
                     sourceName: source.bookSourceName,
-                    name: self.bookCache[bookUrl]?.name ?? "",
-                    author: self.bookCache[bookUrl]?.author ?? "",
-                    coverUrl: self.bookCache[bookUrl]?.coverUrl ?? ""
+                    name: cached?.name ?? "",
+                    author: cached?.author ?? "",
+                    coverUrl: cached?.coverUrl ?? ""
                 )
-                let book = self.bookCache[bookUrl] ?? BridgeBook(
+                // 旧绑定可能无书名；正文 payload 必须带真名，否则 hooks 会落到斗破目录
+                if ensured.name.isEmpty, let cached, !cached.name.isEmpty {
+                    ensured = BookBindingStore.shared.bind(
+                        bookUrl: bookUrl,
+                        sourceUrl: ensured.sourceUrl.isEmpty ? source.bookSourceUrl : ensured.sourceUrl,
+                        sourceName: ensured.sourceName.isEmpty ? source.bookSourceName : ensured.sourceName,
+                        name: cached.name,
+                        author: ensured.author.isEmpty ? (cached.author) : ensured.author,
+                        coverUrl: ensured.coverUrl.isEmpty ? (cached.coverUrl ?? "") : ensured.coverUrl,
+                        bridgeToken: ensured.bridgeToken,
+                        sourceAvailable: ensured.sourceAvailable
+                    )
+                }
+                let book = cached ?? BridgeBook(
                     bookUrl: bookUrl,
                     sourceUrl: source.bookSourceUrl,
                     sourceName: source.bookSourceName

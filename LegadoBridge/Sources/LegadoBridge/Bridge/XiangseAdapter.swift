@@ -143,6 +143,14 @@ enum XiangseAdapter {
             payload["sourceUrl"] = binding.sourceUrl
             payload["sourceName"] = binding.sourceName
             payload[bridgeTokenKey] = binding.bridgeToken
+            // 阅读页 seed xsfolder 用 bookName_author；缺省会落到斗破假默认
+            if !binding.name.isEmpty {
+                payload["bookName"] = binding.name
+                payload["name"] = binding.name
+            }
+            if !binding.author.isEmpty {
+                payload["author"] = binding.author
+            }
         }
         return payload
     }
