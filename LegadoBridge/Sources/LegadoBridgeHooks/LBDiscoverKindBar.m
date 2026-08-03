@@ -84,6 +84,7 @@ static void LBDiscoverFireExploreForIndex(NSInteger index, NSString *titleHint);
 static NSArray *LBDonorTitlesFromHost(UIViewController *host, NSDictionary *prepared);
 static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles);
 static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *kinds, NSString *srcName);
+static NSInteger LBPreferredExploreKindIndex(NSArray *kinds);
 static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sourceName);
 static NSString *LBReadHostSourceName(UIViewController *host);
 static NSString *LBNameFromDicModel(id model);
