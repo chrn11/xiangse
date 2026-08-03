@@ -462,9 +462,33 @@ class JSBridge: JsEncodeUtils {
         }
         javaObject?.setObject(base64EncodeFlagsBlock, forKeyedSubscript: "base64Encode" as NSString)
 
-        let hexDecodeStrBlock: @convention(block) (String) -> String = { hex in
-            guard let data = hexToData(hex) else { return "" }
-            return String(data: data, encoding: .utf8) ?? ""
+        // 书山等源在 data: 已被 AnalyzeUrl base64 解码后仍写 hexDecodeToString。
+        // 真 hex 优先；已是 JSON 则透传；再试 base64。否则详情 init 失败 → tocUrl 缺 url → 目录 0 章。
+        let hexDecodeStrBlock: @convention(block) (String) -> String = { input in
+            if let data = hexToData(input),
+               let text = String(data: data, encoding: .utf8),
+               !text.isEmpty {
+                return text
+            }
+            let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
+                return input
+            }
+            if let data = Data(base64Encoded: input),
+               let text = String(data: data, encoding: .utf8),
+               !text.isEmpty {
+                return text
+            }
+            // URL-safe base64
+            let padded = input
+                .replacingOccurrences(of: "-", with: "+")
+                .replacingOccurrences(of: "_", with: "/")
+            if let data = Data(base64Encoded: padded),
+               let text = String(data: data, encoding: .utf8),
+               !text.isEmpty {
+                return text
+            }
+            return ""
         }
         javaObject?.setObject(hexDecodeStrBlock, forKeyedSubscript: "hexDecodeToString" as NSString)
 

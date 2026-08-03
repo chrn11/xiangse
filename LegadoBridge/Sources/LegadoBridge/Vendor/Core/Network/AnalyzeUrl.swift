@@ -1603,13 +1603,18 @@ class AnalyzeUrl {
     }
 
     /// 从 data: URI 提取 Base64 数据
+    /// 书山形如 `data:detailsUrl;base64,<payload>,{"type":"shushan"}`，须去掉尾部 `,{"type":…}`。
     private static func extractDataUri(_ url: String) -> Data? {
         guard url.hasPrefix("data:") else { return nil }
-        let pattern = try? NSRegularExpression(pattern: #"data:[^;]*;base64,(.*)"#)
+        let pattern = try? NSRegularExpression(pattern: #"data:[^;]*;base64,([^,]+)"#)
         let range = NSRange(url.startIndex..., in: url)
         guard let match = pattern?.firstMatch(in: url, range: range),
               let dataRange = Range(match.range(at: 1), in: url) else { return nil }
-        return Data(base64Encoded: String(url[dataRange]))
+        let b64 = String(url[dataRange])
+        if let data = Data(base64Encoded: b64) { return data }
+        // 容错：无 padding
+        let pad = String(repeating: "=", count: (4 - b64.count % 4) % 4)
+        return Data(base64Encoded: b64 + pad)
     }
 
     /// 构建变量 Map
