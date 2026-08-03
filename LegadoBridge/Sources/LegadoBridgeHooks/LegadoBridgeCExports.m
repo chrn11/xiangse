@@ -2271,15 +2271,18 @@ static BOOL LBHudMessageIsWrongBook(NSString *text) {
            [text containsString:@"目录加载失败"];
 }
 
+static BOOL LBCatalogLooksLegadoPending(void) {
+    NSString *bu = sPendingCatalogBookUrl;
+    if (bu.length == 0) return NO;
+    if ([bu hasPrefix:@"http://"] || [bu hasPrefix:@"https://"] || [bu hasPrefix:@"data:"]) return YES;
+    if ([bu containsString:@"vossc"]) return YES;
+    return NO;
+}
+
 static BOOL LBShouldSuppressWrongBookHud(void) {
     if (CFAbsoluteTimeGetCurrent() < sSuppressWrongBookHudUntil) return YES;
-    // Legado data: / 书山目录等待中
-    if (sPendingCatalogBookUrl.length > 0 &&
-        ([sPendingCatalogBookUrl hasPrefix:@"data:"] ||
-         [sPendingCatalogBookUrl containsString:@"vossc"] ||
-         [sPendingCatalogSourceUrl containsString:@"vossc"])) {
-        if (sPendingCatalogChapters.count == 0) return YES;
-    }
+    // Legado 发现/搜索点开的目录：原生下拉刷新会空表并按 XBS 找书 → 必弹「错误的书本」
+    if (LBCatalogLooksLegadoPending()) return YES;
     return NO;
 }
 
@@ -4347,11 +4350,59 @@ static void LBCatalogSetArrCatalog_IMP(id self, SEL _cmd, id arr) {
             ![pendingBu isEqualToString:sPendingCatalogBookUrl]) {
             return;
         }
+        sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 8.0;
         LBWriteChaptersOntoObject(self, ch);
         if ([self isKindOfClass:[UIViewController class]]) {
             LBReloadCatalogVC((UIViewController *)self);
         }
+        LBDismissWrongBookToast();
+        LBScheduleWrongBookToastDismissBurst();
         LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject setArrCatalog-guard n=%lu on=%@",
+                              (unsigned long)ch.count, NSStringFromClass([self class])]);
+    });
+}
+
+static void (*LBOrig_setArrSource)(id, SEL, id) = NULL;
+
+static void LBCatalogSetArrSource_IMP(id self, SEL _cmd, id arr) {
+    if (LBOrig_setArrSource) {
+        LBOrig_setArrSource(self, _cmd, arr);
+    }
+    if (sCatalogInjectReentrant) return;
+    // 下拉刷新常先清空 arrSource → 原生弹「错误的书本」；Legado pending 盖回
+    BOOL empty = (!arr || ([arr isKindOfClass:[NSArray class]] && [arr count] == 0));
+    BOOL notChapters = [arr isKindOfClass:[NSArray class]] && !LBArrayLooksLikeChapters(arr);
+    if ((!empty && !notChapters) || sPendingCatalogChapters.count == 0) return;
+    if (!LBCatalogLooksLegadoPending()) return;
+    NSString *vcBu = nil;
+    @try {
+        id v = [self valueForKey:@"bookUrl"];
+        if ([v isKindOfClass:[NSString class]]) vcBu = v;
+    } @catch (__unused NSException *e) {}
+    if (vcBu.length == 0) {
+        @try {
+            id dic = [self valueForKey:@"dicBook"];
+            if ([dic isKindOfClass:[NSDictionary class]]) {
+                id v = dic[@"bookUrl"] ?: dic[@"url"];
+                if ([v isKindOfClass:[NSString class]]) vcBu = v;
+            }
+        } @catch (__unused NSException *e) {}
+    }
+    if (vcBu.length > 0 && sPendingCatalogBookUrl.length > 0 &&
+        ![vcBu isEqualToString:sPendingCatalogBookUrl]) {
+        return;
+    }
+    NSArray *ch = [sPendingCatalogChapters copy];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (sPendingCatalogChapters.count == 0) return;
+        sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 8.0;
+        LBWriteChaptersOntoObject(self, ch);
+        if ([self isKindOfClass:[UIViewController class]]) {
+            LBReloadCatalogVC((UIViewController *)self);
+        }
+        LBDismissWrongBookToast();
+        LBScheduleWrongBookToastDismissBurst();
+        LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject setArrSource-guard n=%lu on=%@",
                               (unsigned long)ch.count, NSStringFromClass([self class])]);
     });
 }
@@ -11824,6 +11875,12 @@ void LBInstallCatalogUIAppearFlush(void) {
         if (setM && !LBOrig_setArrCatalog) {
             LBOrig_setArrCatalog = (void (*)(id, SEL, id))method_getImplementation(setM);
             method_setImplementation(setM, (IMP)LBCatalogSetArrCatalog_IMP);
+        }
+        SEL setSrc = @selector(setArrSource:);
+        Method setSrcM = class_getInstanceMethod(catalogCls, setSrc);
+        if (setSrcM && !LBOrig_setArrSource) {
+            LBOrig_setArrSource = (void (*)(id, SEL, id))method_getImplementation(setSrcM);
+            method_setImplementation(setSrcM, (IMP)LBCatalogSetArrSource_IMP);
         }
         SEL getSel = @selector(arrCatalog);
         Method getM = class_getInstanceMethod(catalogCls, getSel);
