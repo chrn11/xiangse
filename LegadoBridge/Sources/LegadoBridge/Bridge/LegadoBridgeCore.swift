@@ -1021,11 +1021,12 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                             continue
                         }
                     }
+                    let kindResolved = kindForFetch
                     // 与搜索同级的硬超时：explore 源挂起时禁止「章节加载中」卡死（验收发现页）
                     let results = try await Self.withTimeout(seconds: 20) {
                         try await BridgeWebBook.exploreBook(
                             source: source,
-                            url: kindForFetch,
+                            url: kindResolved,
                             page: max(page, 1)
                         )
                     }
