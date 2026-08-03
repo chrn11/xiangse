@@ -806,6 +806,7 @@ class RuleEngine {
         """)
 
         // 前缀：JSONPath / 其它列表规则 → result；无前缀则整段 body
+        // 真机禁止 setValue:forKey:（对 evaluateScript 不可见）；必须 bindGlobal / setObject。
         if !prefixRule.isEmpty {
             let prefixEls = try getElements(ruleStr: prefixRule, body: body, baseUrl: baseUrl, source: source)
             let arr = JSValue(newArrayIn: exec.jsContext)!
@@ -822,10 +823,15 @@ class RuleEngine {
             }
             arr.setValue(prefixEls.count, forKey: "length")
             exec.jsContext.setObject(arr, forKeyedSubscript: "result" as NSString)
+            exec.jsContext.globalObject?.setObject(arr, forKeyedSubscript: "result" as NSString)
         } else {
-            exec.jsContext.setValue(body, forKey: "result")
+            let bodyVal = JSValue(object: body, in: exec.jsContext)
+            exec.jsContext.setObject(bodyVal, forKeyedSubscript: "result" as NSString)
+            exec.jsContext.globalObject?.setObject(bodyVal, forKeyedSubscript: "result" as NSString)
         }
-        exec.jsContext.setValue(baseUrl, forKey: "baseUrl")
+        let baseVal = JSValue(object: baseUrl ?? "", in: exec.jsContext)
+        exec.jsContext.setObject(baseVal, forKeyedSubscript: "baseUrl" as NSString)
+        exec.jsContext.globalObject?.setObject(baseVal, forKeyedSubscript: "baseUrl" as NSString)
         // reinject 后再次确保 jsLib（source 可能在 lazy 之后才绑定）
         JSBridge.evaluateJsLib(of: source, into: exec.jsContext)
         JSBridge.installRhinoThisProxy(into: exec.jsContext)
