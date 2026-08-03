@@ -4393,6 +4393,10 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
               prevPendingBu ?: @"", bu]);
     }
     sPendingCatalogBookUrl = [bu copy];
+    // 进目录浏览：清掉遗留 deferred 开章，避免目录一到就误开章 → 原生弹「错误的书本」
+    sDeferredNativeOpenIdx = -1;
+    sDeferredNativeOpenBookUrl = nil;
+    sNativeReadChapterOpenStarted = NO;
     // 同书盘缓存可立刻灌入正确目录；换书后空列表等待网络，禁止他书 pending
     if (sPendingCatalogChapters.count == 0) {
         NSArray *cached = LBLoadCatalogCache(bu);
