@@ -2245,6 +2245,43 @@ static void LBCatalogWriteMarker(NSString *msg) {
 }
 
 /// 换书/灌目录时摘掉原生「错误的书本」浮层（CatalogCon 空目录时常见）
+static NSTimeInterval sSuppressWrongBookHudUntil = 0;
+
+static BOOL LBHudMessageIsWrongBook(NSString *text) {
+    if (![text isKindOfClass:[NSString class]] || text.length == 0) return NO;
+    return [text containsString:@"错误的书本"] ||
+           [text containsString:@"没有这本书"] ||
+           [text containsString:@"找不到目录数据"];
+}
+
+static BOOL LBShouldSuppressWrongBookHud(void) {
+    if (CFAbsoluteTimeGetCurrent() < sSuppressWrongBookHudUntil) return YES;
+    // Legado data: / 书山目录等待中
+    if (sPendingCatalogBookUrl.length > 0 &&
+        ([sPendingCatalogBookUrl hasPrefix:@"data:"] ||
+         [sPendingCatalogBookUrl containsString:@"vossc"] ||
+         [sPendingCatalogSourceUrl containsString:@"vossc"])) {
+        if (sPendingCatalogChapters.count == 0) return YES;
+    }
+    return NO;
+}
+
+static NSArray *LBCatalogLoadingPlaceholder(void) {
+    return @[
+        @{
+            @"cpTitle": @"目录加载中…",
+            @"title": @"目录加载中…",
+            @"name": @"目录加载中…",
+            @"chapterName": @"目录加载中…",
+            @"cpUrl": @"legado://catalog-loading",
+            @"chapterUrl": @"legado://catalog-loading",
+            @"url": @"legado://catalog-loading",
+            @"cpIndex": @0,
+            @"legadoLoadingPlaceholder": @YES
+        }
+    ];
+}
+
 static void LBDismissWrongBookToast(void) {
     if (![NSThread isMainThread]) {
         dispatch_async(dispatch_get_main_queue(), ^{ LBDismissWrongBookToast(); });
@@ -2264,7 +2301,7 @@ static void LBDismissWrongBookToast(void) {
                     if ([t isKindOfClass:[NSString class]]) text = t;
                 } @catch (__unused NSException *e) {}
             }
-            if ([text isKindOfClass:[NSString class]] && [text containsString:@"错误的书本"]) {
+            if (LBHudMessageIsWrongBook(text)) {
                 UIView *victim = cur;
                 if (cur.superview && cur.superview.subviews.count <= 6) {
                     victim = cur.superview;
@@ -2280,6 +2317,86 @@ static void LBDismissWrongBookToast(void) {
             for (UIView *sub in cur.subviews) [stack addObject:sub];
         }
     }
+}
+
+/// 拦截原生 showHudText / showErrorView，吞掉「错误的书本」等（CatalogCon 空目录时弹出）
+static void LBInstallWrongBookHudSuppress(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        void (^tryHook)(Class, SEL, BOOL) = ^(Class cls, SEL sel, BOOL meta) {
+            if (!cls || !sel) return;
+            Method m = meta ? class_getClassMethod(cls, sel) : class_getInstanceMethod(cls, sel);
+            if (!m) return;
+            IMP orig = method_getImplementation(m);
+            NSString *sn = NSStringFromSelector(sel);
+            if ([sn isEqualToString:@"showHudText:view:"]) {
+                IMP nh = imp_implementationWithBlock(^void(id selfObj, NSString *text, id view) {
+                    if (LBHudMessageIsWrongBook(text) && LBShouldSuppressWrongBookHud()) {
+                        [[NSString stringWithFormat:@"wrongBookHud suppressed showHudText:view: %@", text]
+                         writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
+                                      @"Documents/legado_wrong_book_hud.txt"]
+                          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                        return;
+                    }
+                    ((void (*)(id, SEL, id, id))orig)(selfObj, sel, text, view);
+                });
+                method_setImplementation(m, nh);
+            } else if ([sn isEqualToString:@"showHudText:delay:view:"]) {
+                IMP nh = imp_implementationWithBlock(^void(id selfObj, NSString *text, id delay, id view) {
+                    if (LBHudMessageIsWrongBook(text) && LBShouldSuppressWrongBookHud()) {
+                        [[NSString stringWithFormat:@"wrongBookHud suppressed showHudText:delay:view: %@", text]
+                         writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
+                                      @"Documents/legado_wrong_book_hud.txt"]
+                          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                        return;
+                    }
+                    ((void (*)(id, SEL, id, id, id))orig)(selfObj, sel, text, delay, view);
+                });
+                method_setImplementation(m, nh);
+            } else if ([sn isEqualToString:@"showErrorView:"]) {
+                IMP nh = imp_implementationWithBlock(^void(id selfObj, id arg) {
+                    NSString *text = [arg isKindOfClass:[NSString class]] ? arg : nil;
+                    if (!text && arg) {
+                        @try {
+                            id t = [arg valueForKey:@"title"];
+                            if ([t isKindOfClass:[NSString class]]) text = t;
+                        } @catch (__unused NSException *e) {}
+                    }
+                    if (LBHudMessageIsWrongBook(text) && LBShouldSuppressWrongBookHud()) {
+                        [[NSString stringWithFormat:@"wrongBookHud suppressed showErrorView: %@", text]
+                         writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
+                                      @"Documents/legado_wrong_book_hud.txt"]
+                          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                        return;
+                    }
+                    ((void (*)(id, SEL, id))orig)(selfObj, sel, arg);
+                });
+                method_setImplementation(m, nh);
+            }
+        };
+
+        unsigned int n2 = 0;
+        Class *list2 = objc_copyClassList(&n2);
+        SEL s1 = NSSelectorFromString(@"showHudText:view:");
+        SEL s1b = NSSelectorFromString(@"showHudText:delay:view:");
+        SEL s2 = NSSelectorFromString(@"showErrorView:");
+        NSMutableSet *done = [NSMutableSet set];
+        for (unsigned int i = 0; i < n2; i++) {
+            Class cls = list2[i];
+            NSString *cn = NSStringFromClass(cls);
+            if ([done containsObject:cn]) continue;
+            BOOL hit = NO;
+            if (class_getInstanceMethod(cls, s1)) { tryHook(cls, s1, NO); hit = YES; }
+            if (class_getClassMethod(cls, s1)) { tryHook(object_getClass(cls), s1, YES); hit = YES; }
+            if (class_getInstanceMethod(cls, s1b)) { tryHook(cls, s1b, NO); hit = YES; }
+            if (class_getClassMethod(cls, s1b)) { tryHook(object_getClass(cls), s1b, YES); hit = YES; }
+            if (class_getInstanceMethod(cls, s2)) { tryHook(cls, s2, NO); hit = YES; }
+            if (hit) [done addObject:cn];
+        }
+        free(list2);
+        NSLog(@"[LegadoBridge] wrongBookHud suppress hooked classes=%lu",
+              (unsigned long)done.count);
+    });
 }
 
 static void LBCatalogDumpVCTree(void) {
@@ -3388,6 +3505,10 @@ static void LBSwitchNativeChapterInPlace(NSString *bookUrl, NSString *sourceUrl,
         LBAppendOpenReaderTrace(@"switchInPlace skip noChUrl");
         return;
     }
+    if ([chUrl hasPrefix:@"legado://catalog-loading"]) {
+        LBAppendOpenReaderTrace(@"switchInPlace skip loadingPlaceholder");
+        return;
+    }
     if (![chTitle isKindOfClass:[NSString class]] || chTitle.length == 0) {
         chTitle = @"章节";
     }
@@ -3635,6 +3756,13 @@ static void LBOpenLegadoChapterAtIndexWithVia(NSInteger idx, NSString *via) {
         NSDictionary *d = (NSDictionary *)itemLocal;
         chUrl = d[@"cpUrl"] ?: d[@"chapterUrl"] ?: d[@"url"];
         chTitle = d[@"cpTitle"] ?: d[@"title"] ?: d[@"name"] ?: d[@"chapterName"];
+        if ([d[@"legadoLoadingPlaceholder"] boolValue] ||
+            ([chUrl isKindOfClass:[NSString class]] &&
+             [chUrl hasPrefix:@"legado://catalog-loading"])) {
+            LBAppendOpenReaderTrace([NSString stringWithFormat:
+                                     @"goStart skip loadingPlaceholder via=%@", via ?: @"?"]);
+            return;
+        }
     }
     bookUrl = sPendingCatalogBookUrl;
     item = itemLocal;
@@ -4478,6 +4606,8 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
     sDeferredNativeOpenIdx = -1;
     sDeferredNativeOpenBookUrl = nil;
     sNativeReadChapterOpenStarted = NO;
+    LBInstallWrongBookHudSuppress();
+    sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 10.0;
     // 同书盘缓存可立刻灌入正确目录；换书后空列表等待网络，禁止他书 pending
     if (sPendingCatalogChapters.count == 0) {
         NSArray *cached = LBLoadCatalogCache(bu);
@@ -4519,10 +4649,14 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
                     if (title.length > 0) {
                         @try { targetVC.title = title; } @catch (__unused NSException *e) {}
                     }
-                    if (sPendingCatalogChapters.count > 0) {
-                        LBWriteChaptersOntoObject(targetVC, sPendingCatalogChapters);
+                    // 无缓存时先灌「目录加载中」占位，避免空表触发原生「错误的书本」
+                    NSArray *seed = sPendingCatalogChapters;
+                    if (seed.count == 0) {
+                        seed = LBCatalogLoadingPlaceholder();
                     }
+                    LBWriteChaptersOntoObject(targetVC, seed);
                     LBInstallCatalogUIAppearFlush();
+                    LBInstallWrongBookHudSuppress();
                 }
             } @catch (NSException *e) {
                 mark([NSString stringWithFormat:@"searchPush CatalogCon alloc fail: %@", e.reason ?: @""]);
@@ -4541,6 +4675,8 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
             sPendingCatalogBookUrl.length > 0 &&
             [sPendingCatalogBookUrl isEqualToString:bu]) {
             list.chapters = sPendingCatalogChapters;
+        } else {
+            list.chapters = LBCatalogLoadingPlaceholder();
         }
         targetVC = list;
         via = @"LBLegadoCatalogListVC";
