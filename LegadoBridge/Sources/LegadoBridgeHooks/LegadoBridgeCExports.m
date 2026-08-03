@@ -1100,17 +1100,17 @@ static void LBHookedPlazaDidSelect(id self, SEL _cmd, UITableView *tv, NSIndexPa
 }
 
 static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictionary *book) {
-    // 对齐香色原生列表观感：浅底、深字、左封面右标题+副文（字数/最新章）
+    // 对齐香色原生列表观感：浅底深字 / 深色模式深底浅字，左封面右标题+副文（字数/最新章）
     static NSString *cid = @"LBDiscoverCoverCellV2";
     const CGFloat kPad = 12, kCoverW = 62, kCoverH = 84;
     UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:cid];
     UIImageView *cover;
     UILabel *title, *sub, *intro, *ph;
-    UIColor *bg = [UIColor whiteColor];
-    UIColor *titleC = [UIColor colorWithWhite:0.12 alpha:1];
-    UIColor *subC = [UIColor colorWithWhite:0.45 alpha:1];
-    UIColor *introC = [UIColor colorWithWhite:0.40 alpha:1];
-    UIColor *coverBg = [UIColor colorWithWhite:0.92 alpha:1];
+    UIColor *bg = LBDiscoverPageColor();
+    UIColor *titleC = LBDiscoverPrimaryTextColor();
+    UIColor *subC = LBDiscoverSecondaryTextColor();
+    UIColor *introC = LBDiscoverTertiaryTextColor();
+    UIColor *coverBg = LBDiscoverCoverBgColor();
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
                                       reuseIdentifier:cid];
@@ -1130,7 +1130,7 @@ static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictiona
         ph.textAlignment = NSTextAlignmentCenter;
         ph.numberOfLines = 2;
         ph.font = [UIFont systemFontOfSize:11];
-        ph.textColor = [UIColor colorWithWhite:0.55 alpha:1];
+        ph.textColor = LBDiscoverTertiaryTextColor();
         ph.text = @"暂无封面";
         [cover addSubview:ph];
 
@@ -1225,16 +1225,17 @@ static UITableViewCell *LBMakeLegadoDiscoverBookCell(UITableView *tv, NSDictiona
     if (ph) {
         ph.hidden = NO;
         ph.text = coverUrl.length > 0 ? @"" : @"暂无封面";
-        ph.textColor = [UIColor colorWithWhite:0.55 alpha:1];
+        ph.textColor = LBDiscoverTertiaryTextColor();
         if (coverUrl.length > 0) ph.hidden = YES;
     }
     objc_setAssociatedObject(cover, "lbCoverToken", coverUrl, OBJC_ASSOCIATION_COPY_NONATOMIC);
     LBLoadDiscoverCover(cover, coverUrl, coverUrl);
 
+    cover.backgroundColor = coverBg;
     cell.backgroundColor = bg;
     cell.contentView.backgroundColor = bg;
     UIView *sel = [[UIView alloc] init];
-    sel.backgroundColor = [UIColor colorWithWhite:0.94 alpha:1];
+    sel.backgroundColor = LBDiscoverCellSelectedColor();
     cell.selectedBackgroundView = sel;
 
     // 透明按钮：坐标点/无障碍常碰不到原生 didSelect（BookListCon 甚至无该方法）
@@ -1797,11 +1798,8 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
         UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, top, hb.size.width, hb.size.height - top)];
         box.tag = kLBExploreEmptyHintTag;
         box.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        if (@available(iOS 13.0, *)) {
-            box.backgroundColor = [UIColor systemBackgroundColor];
-        } else {
-            box.backgroundColor = [UIColor whiteColor];
-        }
+        // 跟随香色自有深色模式（systemBackground 不随 App 内深色切换）
+        box.backgroundColor = LBDiscoverPageColor();
         box.userInteractionEnabled = YES; // 挡住底层标签墙误点
 
         UILabel *lab = [[UILabel alloc] initWithFrame:CGRectZero];
@@ -1810,11 +1808,7 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
         lab.textAlignment = NSTextAlignmentCenter;
         lab.numberOfLines = 0;
         lab.font = [UIFont systemFontOfSize:15 weight:UIFontWeightRegular];
-        if (@available(iOS 13.0, *)) {
-            lab.textColor = [UIColor secondaryLabelColor];
-        } else {
-            lab.textColor = [UIColor darkGrayColor];
-        }
+        lab.textColor = LBDiscoverSecondaryTextColor();
         [box addSubview:lab];
 
         UIButton *loginBtn = nil;

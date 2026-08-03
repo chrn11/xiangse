@@ -48,6 +48,8 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     /// 发现分类缓存：sourceUrl → (exploreUrl 指纹, JSON)
     private var exploreKindsCache: [String: (fingerprint: String, json: String)] = [:]
     private var exploreKindsWarming: Set<String> = []
+    /// 预热失败（空分类）节流：sourceUrl → 失败时间；30s 内不重复预热
+    private var exploreKindsWarmFailedAt: [String: TimeInterval] = [:]
     private let exploreKindsCacheQueue = DispatchQueue(label: "com.xiangse.legado-bridge.explore-kinds")
     /// 分类预热完成（userInfo: sourceUrl）
     @objc public static let exploreKindsDidUpdateNotification = Notification.Name("LegadoExploreKindsDidUpdate")
@@ -774,7 +776,10 @@ private final class SearchOutcomeBox: @unchecked Sendable {
 
         let kinds = RuleWebBook.parseExploreKinds(raw, source: resolved, evaluateJS: false)
         let json = encodeExploreKindsJSON(kinds, baseUrl: resolved.bookSourceUrl)
-        storeExploreKindsCache(key: cacheKey, fingerprint: fingerprint, json: json)
+        // 空分类不写缓存：允许下次重试（避免一次性失败被永久缓存成「无分类」）
+        if !kinds.isEmpty {
+            storeExploreKindsCache(key: cacheKey, fingerprint: fingerprint, json: json)
+        }
         return json
     }
 
@@ -793,6 +798,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 return false
             }
             if exploreKindsWarming.contains(cacheKey) { return false }
+            // 失败节流：30s 内不重复预热（防刷新风暴反复跑 12s JS）
+            if let failedAt = exploreKindsWarmFailedAt[cacheKey],
+               Date().timeIntervalSince1970 - failedAt < 30 {
+                return false
+            }
             exploreKindsWarming.insert(cacheKey)
             return true
         }
@@ -810,6 +820,17 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 jsTimeoutSeconds: 12
             )
             let json = self.encodeExploreKindsJSON(kinds, baseUrl: resolved.bookSourceUrl)
+            // 空分类（JS 失败/超时）不写缓存也不发通知：通知会触发刷新→再预热→死循环；
+            // 记失败时间节流，下次进发现/切源/手动刷新时自然重试
+            guard !kinds.isEmpty else {
+                self.exploreKindsCacheQueue.sync {
+                    self.exploreKindsWarmFailedAt[cacheKey] = Date().timeIntervalSince1970
+                }
+                return
+            }
+            self.exploreKindsCacheQueue.sync {
+                _ = self.exploreKindsWarmFailedAt.removeValue(forKey: cacheKey)
+            }
             self.storeExploreKindsCache(key: cacheKey, fingerprint: fingerprint, json: json)
             DispatchQueue.main.async {
                 NotificationCenter.default.post(
@@ -828,9 +849,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
             if let sourceUrl, !sourceUrl.isEmpty {
                 exploreKindsCache.removeValue(forKey: sourceUrl)
                 exploreKindsWarming.remove(sourceUrl)
+                exploreKindsWarmFailedAt.removeValue(forKey: sourceUrl)
             } else {
                 exploreKindsCache.removeAll()
                 exploreKindsWarming.removeAll()
+                exploreKindsWarmFailedAt.removeAll()
             }
         }
     }

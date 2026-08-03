@@ -35,6 +35,9 @@ static BOOL sFeedingDiscoverHeader = NO;
 static BOOL sApplyingKinds = NO; // ForceTitles/ApplyKinds 期间禁 explore，防连环 clear
 static BOOL sDiscoverNativeXBSMode = YES; // fail-open：默认纯原生，避免进发现先毁壳
 static BOOL sHandlingDiscoverSwitch = NO; // 防止 openConfig ↔ Handle 重入
+/// 分类栏收起状态：阅读书源 kinds≤1（单 URL exploreUrl）时对齐阅读——不显示分类栏
+static BOOL sDiscoverTitleBarCollapsed = NO;
+static CGFloat sDiscoverTitleBarOrigH = 0;
 
 BOOL LBIsDiscoverNativeXBSMode(void) {
     return sDiscoverNativeXBSMode;
@@ -87,6 +90,9 @@ static NSString *LBNameFromDicModel(id model);
 static NSString *LBFindLegadoExploreUrlByName(NSString *name);
 static BOOL LBInvokeOpenConfigByName(id host, NSString *cfgName);
 static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceName);
+static void LBSetDiscoverTitleBarCollapsed(id titleView, BOOL collapsed);
+static UITableView *LBFindBestDiscoverTable(UIViewController *host, UIViewController **outOwner);
+static void LBRepairDiscoverTableFrame(UIViewController *host, UIViewController *listVC, UITableView *tv);
 static void LBRevealDiscoverTitleAndList(UIViewController *host);
 static void LBRevealDiscoverTitleAndListEx(UIViewController *host, BOOL force);
 static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot);
@@ -1012,6 +1018,11 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
             LBAppendNativeMarker([NSString stringWithFormat:
                                   @"xbsRestore skipAlreadyLive name=%@ bw=%lu",
                                   want, (unsigned long)bwN]);
+            // 回到纯原生：清 Legado 分类栏收起态
+            if (sDiscoverTitleBarCollapsed && [tv isKindOfClass:[UIView class]]) {
+                LBSetDiscoverTitleBarCollapsed((UIView *)tv, NO);
+            }
+            sDiscoverTitleBarCollapsed = NO;
             return YES;
         }
     } @catch (__unused NSException *e) {}
@@ -1022,6 +1033,8 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
     }
     if (opened) {
         LBAppendNativeMarker([NSString stringWithFormat:@"xbsRestore openCfg ok name=%@", want]);
+        sDiscoverTitleBarCollapsed = NO;
+        sDiscoverTitleBarOrigH = 0;
         return YES;
     }
 
@@ -1317,6 +1330,9 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
     }
     // T2：XBS 重建后不再排队软刷（会打断原生拉书）；只记 marker
     sXBSPendingNativeRefresh = NO;
+    // 回到纯原生：清 Legado 分类栏收起态（原生 resetContent 已重建分类条）
+    sDiscoverTitleBarCollapsed = NO;
+    sDiscoverTitleBarOrigH = 0;
     LBAppendNativeMarker([NSString stringWithFormat:
                           @"xbsRestore setDic=%d reset=%d rebuild=%d bw=%lu name=%@ noDeferredReload",
                           setOk ? 1 : 0, didReset ? 1 : 0, rebuiltChrome ? 1 : 0,
@@ -1603,8 +1619,26 @@ static BOOL LBColorLooksTooLight(UIColor *c) {
     return (luma > 0.85 && a > 0.5);
 }
 
+/// 深色模式下标题色检测：过深（近黑）在深底上不可见
+static BOOL LBColorLooksTooDark(UIColor *c) {
+    if (!c) return YES;
+    CGFloat r = 0, g = 0, b = 0, a = 1;
+    if (![c getRed:&r green:&g blue:&b alpha:&a]) {
+        CGFloat w = 1;
+        if ([c getWhite:&w alpha:&a]) {
+            return (w < 0.35 && a > 0.5);
+        }
+        return NO;
+    }
+    CGFloat luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    return (luma < 0.25 && a > 0.5);
+}
+
 static id LBDiscoverTitleConfigure(id donorConfigure) {
-    UIColor *fallbackNormal = [UIColor colorWithWhite:0.20 alpha:1];
+    // 标题色须与发现页底色对比：浅色模式禁过浅，深色模式禁过深
+    BOOL dark = LBAppDarkModeEnabled();
+    UIColor *fallbackNormal = dark ? [UIColor colorWithWhite:0.88 alpha:1]
+                                   : [UIColor colorWithWhite:0.20 alpha:1];
     UIColor *fallbackSelected = [UIColor colorWithRed:0.90 green:0.35 blue:0.10 alpha:1];
     id cfg = donorConfigure;
     Class cfgCls = NSClassFromString(@"SGPageTitleViewConfigure");
@@ -1624,19 +1658,22 @@ static id LBDiscoverTitleConfigure(id donorConfigure) {
     UIColor *selectedColor = nil;
     @try { titleColor = [cfg valueForKey:@"titleColor"]; } @catch (__unused NSException *e) {}
     @try { selectedColor = [cfg valueForKey:@"titleSelectedColor"]; } @catch (__unused NSException *e) {}
-    if (![titleColor isKindOfClass:[UIColor class]] || LBColorLooksTooLight(titleColor)) {
+    BOOL badNormal = dark ? LBColorLooksTooDark(titleColor) : LBColorLooksTooLight(titleColor);
+    if (![titleColor isKindOfClass:[UIColor class]] || badNormal) {
         @try { [cfg setValue:fallbackNormal forKey:@"titleColor"]; } @catch (__unused NSException *e) {}
         titleColor = fallbackNormal;
     }
-    if (![selectedColor isKindOfClass:[UIColor class]] || LBColorLooksTooLight(selectedColor)) {
+    BOOL badSel = dark ? LBColorLooksTooDark(selectedColor) : LBColorLooksTooLight(selectedColor);
+    if (![selectedColor isKindOfClass:[UIColor class]] || badSel) {
         @try { [cfg setValue:fallbackSelected forKey:@"titleSelectedColor"]; } @catch (__unused NSException *e) {}
         @try { [cfg setValue:fallbackSelected forKey:@"indicatorColor"]; } @catch (__unused NSException *e) {}
         selectedColor = fallbackSelected;
     }
-    LBAppendNativeMarker([NSString stringWithFormat:@"titleCfg cls=%@ fresh=%d lightFix=%d",
+    LBAppendNativeMarker([NSString stringWithFormat:@"titleCfg cls=%@ fresh=%d dark=%d fix=%d",
                           NSStringFromClass([cfg class]),
                           fresh ? 1 : 0,
-                          LBColorLooksTooLight(titleColor) ? 0 : 1]);
+                          dark ? 1 : 0,
+                          badNormal ? 1 : 0]);
     return cfg;
 }
 
@@ -1885,6 +1922,47 @@ static void LBInstallTitleKindTap(UIViewController *host, UIView *titleRoot) {
     } @catch (__unused NSException *e) {}
 }
 
+/// 收起/恢复分类栏：kinds≤1 时对齐阅读——不显示分类栏。
+/// 收起 = 隐藏 + 高度归零（列表 top 由 title maxY 推导，自动上移到导航下）。
+static void LBSetDiscoverTitleBarCollapsed(id titleView, BOOL collapsed) {
+    if (![titleView isKindOfClass:[UIView class]]) return;
+    UIView *tv = (UIView *)titleView;
+    CGRect f = tv.frame;
+    if (collapsed) {
+        if (f.size.height > 1.0) sDiscoverTitleBarOrigH = f.size.height;
+        if (f.size.height > 0.0) {
+            f.size.height = 0;
+            @try { tv.frame = f; } @catch (__unused NSException *e) {}
+        }
+        tv.hidden = YES;
+    } else {
+        CGFloat h = sDiscoverTitleBarOrigH > 1.0 ? sDiscoverTitleBarOrigH : 44.0;
+        if (f.size.height < h - 1.0) {
+            f.size.height = h;
+            @try { tv.frame = f; } @catch (__unused NSException *e) {}
+        }
+        tv.hidden = NO;
+        if (tv.alpha < 0.92) tv.alpha = 0.92;
+    }
+    BOOL stateChanged = (sDiscoverTitleBarCollapsed != collapsed);
+    sDiscoverTitleBarCollapsed = collapsed;
+    // 列表 top 由 title maxY 推导：收起/恢复后立刻重排一次，避免留下原栏高度的空档
+    if (stateChanged) {
+        @try {
+            UIResponder *r = [tv nextResponder];
+            while (r && ![r isKindOfClass:[UIViewController class]]) r = [r nextResponder];
+            UIViewController *host = [r isKindOfClass:[UIViewController class]] ? (UIViewController *)r : nil;
+            if (host && host.isViewLoaded && host.view) {
+                UIViewController *owner = nil;
+                UITableView *table = LBFindBestDiscoverTable(host, &owner);
+                if (table) {
+                    LBRepairDiscoverTableFrame(host, owner, table);
+                }
+            }
+        } @catch (__unused NSException *e) {}
+    }
+}
+
 static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
     if (![tv isKindOfClass:[UIView class]]) return;
     if (LBIsDiscoverNativeXBSMode()) {
@@ -1892,15 +1970,15 @@ static void LBPaintTitleLabels(id tv, NSInteger selectedIndex) {
         return;
     }
     UIView *root = (UIView *)tv;
-    // 浅底深字：黑内容区上分类条必须显眼
+    // 分类栏底色跟随香色深色模式；收起状态保持隐藏
     @try {
-        root.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
+        root.backgroundColor = LBDiscoverBarColor();
         root.opaque = YES;
-        root.hidden = NO;
+        if (!sDiscoverTitleBarCollapsed) root.hidden = NO;
         root.alpha = 1;
         root.clipsToBounds = NO;
     } @catch (__unused NSException *e) {}
-    UIColor *normal = [UIColor colorWithWhite:0.15 alpha:1];
+    UIColor *normal = LBDiscoverPrimaryTextColor();
     UIColor *selected = [UIColor colorWithRed:0.90 green:0.35 blue:0.10 alpha:1];
 
     NSMutableArray<UIButton *> *btns = [NSMutableArray array];
@@ -2100,6 +2178,8 @@ static void LBRevealDiscoverTitleAndListEx(UIViewController *host, BOOL force) {
     } @catch (__unused NSException *e) {}
 
     CGFloat titleBottom = title ? CGRectGetMaxY(title.frame) : 0;
+    // 分类栏收起：内容从栏顶位置开始（maxY 已塌缩，直接用栏顶 y）
+    if (sDiscoverTitleBarCollapsed) titleBottom = LBDiscoverTitleTopInHost(host);
     if (titleBottom < 2) titleBottom = LBDiscoverTitleTopInHost(host) + 44;
     if (titleBottom < 36) titleBottom = 44;
 
@@ -2122,9 +2202,12 @@ static void LBRevealDiscoverTitleAndListEx(UIViewController *host, BOOL force) {
 
     if (title) {
         if (!title.superview) [host.view addSubview:title];
-        title.hidden = NO;
-        title.alpha = 1;
-        title.backgroundColor = [UIColor colorWithWhite:0.97 alpha:1];
+        // 收起状态（kinds≤1）保持隐藏；否则显示并跟随深色模式底色
+        if (!sDiscoverTitleBarCollapsed) {
+            title.hidden = NO;
+            title.alpha = 1;
+        }
+        title.backgroundColor = LBDiscoverBarColor();
     }
 
     LBPinDiscoverContentToFirstPage(host);
@@ -2189,9 +2272,7 @@ static void LBRevealDiscoverTitleAndListEx(UIViewController *host, BOOL force) {
             overlay = [[UITableView alloc] initWithFrame:of style:UITableViewStylePlain];
             overlay.tag = kLBFO;
             overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            overlay.backgroundColor = [UIColor whiteColor];
             overlay.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
-            overlay.separatorColor = [UIColor colorWithWhite:0.90 alpha:1];
             overlay.rowHeight = 108;
             overlay.estimatedRowHeight = 108;
             overlay.allowsSelection = YES;
@@ -2201,6 +2282,9 @@ static void LBRevealDiscoverTitleAndListEx(UIViewController *host, BOOL force) {
         } else if (!CGRectEqualToRect(overlay.frame, of)) {
             overlay.frame = of;
         }
+        // 每次 reveal 同步深色模式配色（含历史已建 overlay）
+        overlay.backgroundColor = LBDiscoverPageColor();
+        overlay.separatorColor = LBDiscoverSeparatorColor();
         overlay.hidden = NO;
         overlay.alpha = 1;
         overlay.scrollEnabled = YES;
@@ -2239,6 +2323,14 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
     @try { tv = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
     if (!tv) {
         LBAppendNativeMarker(@"forceTitles no pageTitleView (will create)");
+    }
+
+    // kinds≤1（单 URL exploreUrl）：对齐阅读——收起分类栏；否则确保展开
+    BOOL wantCollapse = (titles.count <= 1);
+    if ([tv isKindOfClass:[UIView class]]) {
+        LBSetDiscoverTitleBarCollapsed((UIView *)tv, wantCollapse);
+    } else {
+        sDiscoverTitleBarCollapsed = wantCollapse;
     }
 
     BOOL applied = NO;
@@ -2286,8 +2378,10 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
             }
         } @catch (__unused NSException *e) {}
         BOOL tooLow = (winY > 0 && winY > 140); // 双重偏移：条跑到 nav 下很远
-        if (CGRectIsEmpty(frame) || frame.size.width < 2 || frame.size.height < 2
-            || fabs(frame.origin.y - top) > 2 || tooLow) {
+        // 收起状态跳过 frame 修正（高度归零是刻意的）
+        if (!sDiscoverTitleBarCollapsed &&
+            (CGRectIsEmpty(frame) || frame.size.width < 2 || frame.size.height < 2
+             || fabs(frame.origin.y - top) > 2 || tooLow)) {
             frame = CGRectMake(0, top, w, MAX(38, frame.size.height > 2 ? frame.size.height : 44));
             old.frame = frame;
             LBAppendNativeMarker([NSString stringWithFormat:
@@ -2389,10 +2483,12 @@ static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles)
             @try { [host.view addSubview:title]; } @catch (__unused NSException *e) {}
         }
         [host.view bringSubviewToFront:title];
-        title.hidden = NO;
-        title.alpha = 1;
+        if (!sDiscoverTitleBarCollapsed) {
+            title.hidden = NO;
+            title.alpha = 1;
+        }
         @try {
-            host.view.backgroundColor = [UIColor whiteColor];
+            host.view.backgroundColor = LBDiscoverPageColor();
         } @catch (__unused NSException *e) {}
     }
 
@@ -2481,7 +2577,18 @@ static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *ki
         @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
         @try { host.title = srcName; } @catch (__unused NSException *e) {}
     }
-    // 标题未变：跳过 ForceTitles（每次 Force 都会改层级 → 闪屏）
+    // kinds≤1（单 URL exploreUrl）：对齐阅读——收起分类栏。即使下方跳过 ForceTitles 也要执行
+    {
+        id tvNow = nil;
+        @try { tvNow = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
+        if ([tvNow isKindOfClass:[UIView class]]) {
+            LBSetDiscoverTitleBarCollapsed((UIView *)tvNow, titles.count <= 1);
+        } else {
+            sDiscoverTitleBarCollapsed = (titles.count <= 1);
+        }
+    }
+    // 标题未变：跳过 ForceTitles（每次 Force 都会改层级 → 闪屏）。
+    // 但要同时核对壳上当前标题：原生重建（createCons/resetContent）可能把标签刷回旧标题。
     NSArray *oldTitles = nil;
     if ([sCachedKinds isKindOfClass:[NSArray class]]) {
         NSMutableArray *ot = [NSMutableArray array];
@@ -2498,7 +2605,20 @@ static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *ki
             if (![oldTitles[i] isEqualToString:titles[i]]) { sameTitles = NO; break; }
         }
     }
-    if (!sameTitles) {
+    NSArray *shellTitles = nil;
+    @try {
+        id st = [host valueForKey:@"arrHeaderBtnTitle"];
+        if ([st isKindOfClass:[NSArray class]]) shellTitles = (NSArray *)st;
+    } @catch (__unused NSException *e) {}
+    BOOL shellMatch = (shellTitles.count == titles.count);
+    if (shellMatch) {
+        for (NSUInteger i = 0; i < titles.count; i++) {
+            id st = shellTitles[i];
+            NSString *s = [st isKindOfClass:[NSString class]] ? (NSString *)st : @"";
+            if (![s isEqualToString:titles[i]]) { shellMatch = NO; break; }
+        }
+    }
+    if (!sameTitles || !shellMatch) {
         LBForceLegadoTitlesOnChrome(host, titles);
     } else {
         LBAppendNativeMarker(@"applySrcKinds skip same titles");
@@ -2640,7 +2760,7 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         if (![item isKindOfClass:[NSDictionary class]]) continue;
         [titles addObject:item[@"title"] ?: @"分类"];
     }
-    if (titles.count == 0) [titles addObject:@"全部"];
+    if (titles.count == 0) [titles addObject:@"发现"];
 
     // 已建成原生 chrome：换源时仍刷新标题条为当前源 kinds
     if (sNativeChromeBuilt) {
@@ -2676,7 +2796,7 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                 LBFeedNativeDiscoverHeader(h, kinds, srcName);
             });
         }
-        // 仍先保证顶栏源名可见；顶栏大类留给 donor，勿写 Legado kinds
+        // 仍先保证顶栏源名可见；分类标题等窗口就绪后随 kinds 建栏
         if (srcName.length > 0) {
             @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
             @try { host.title = srcName; } @catch (__unused NSException *e) {}
@@ -2714,10 +2834,10 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                 @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
                 @try { host.title = srcName; } @catch (__unused NSException *e) {}
             }
-            if (donorTitles.count > 0) {
-                @try { [host setValue:donorTitles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+            if (titles.count > 0) {
+                @try { [host setValue:[titles copy] forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
             }
-            sCachedKinds = [kinds copy];
+            LBApplyLegadoSourceKindsToChrome(host, kinds, srcName);
             LBAppendNativeMarker([NSString stringWithFormat:
                                   @"shellFallback noDonorBW keys=%lu",
                                   (unsigned long)bwKeys]);
@@ -2731,8 +2851,8 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         LBInstallBookListSafeViewDidLoad();
 
         NSString *consName = sDiscoverUseSourceName.length ? sDiscoverUseSourceName : (srcName ?: @"");
-        if (donorTitles.count > 0) {
-            @try { [host setValue:donorTitles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+        if (titles.count > 0) {
+            @try { [host setValue:[titles copy] forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
         }
         @try { [host setValue:consName forKey:@"useSourceName"]; } @catch (__unused NSException *e) {}
         @try { [host setValue:consName forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
@@ -2775,25 +2895,15 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                               (unsigned long)childN, (unsigned long)scrollKids,
                               sBookListSafeVDLInstalled ? 1 : 0]);
 
-        // 对齐原版：顶栏用 donor bookWorld keys，禁止用 Legado kinds 覆盖
-        NSArray *postDonorTitles = LBDonorTitlesFromHost(host, prepared);
-        if (postDonorTitles.count == 0 && scrollKids > 0) {
-            // 已有子页时按子页数占位，勿塞 Legado 13 类
-            NSMutableArray *aligned = [NSMutableArray array];
-            for (NSUInteger i = 0; i < scrollKids; i++) {
-                [aligned addObject:[NSString stringWithFormat:@"分类%lu", (unsigned long)(i + 1)]];
-            }
-            postDonorTitles = aligned;
-        }
-        if (postDonorTitles.count > 0) {
-            donorTitles = postDonorTitles;
-            @try { [host setValue:donorTitles forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
-            LBAppendNativeMarker([NSString stringWithFormat:@"keepDonorTitles n=%lu sample=%@",
-                                  (unsigned long)donorTitles.count,
-                                  [[donorTitles subarrayWithRange:NSMakeRange(0, MIN((NSUInteger)4, donorTitles.count))]
+        // 顶栏 = 当前阅读书源 exploreUrl 分类（对齐阅读发现页），不再用 donor「男生/女频/出版」
+        if (titles.count > 0) {
+            @try { [host setValue:[titles copy] forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+            LBAppendNativeMarker([NSString stringWithFormat:@"keepLegadoTitles n=%lu sample=%@",
+                                  (unsigned long)titles.count,
+                                  [[titles subarrayWithRange:NSMakeRange(0, MIN((NSUInteger)4, titles.count))]
                                    componentsJoinedByString:@","]]);
         }
-        // 缓存 Legado kinds 供点标签/切页时 explore，但不改顶栏 UI
+        // 缓存 Legado kinds 供点标签/切页时 explore
         sCachedKinds = [kinds copy];
 
         if (srcName.length > 0) {
@@ -2862,9 +2972,9 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         }
 
         // createCons：reset 未挂子页时先造 cons，再交给原生 resetContent 挂页（禁手工 SGPage）
-        // 用 donor 大类标题，勿用 Legado 13 类摊平
-        NSArray *consTitles = donorTitles.count > 0 ? donorTitles : LBDonorTitlesFromHost(host, prepared);
-        if (consTitles.count == 0) consTitles = @[@"男生", @"女频", @"出版"];
+        // 标题 = 当前阅读书源 exploreUrl 分类（对齐阅读发现页）；createCons 会原地 addObject，必须给可变副本
+        NSMutableArray *consTitles = [titles mutableCopy];
+        if (consTitles.count == 0) consTitles = [NSMutableArray arrayWithObject:@"发现"];
         if (!sNativeChromeBuilt &&
             host.childViewControllers.count == 0 &&
             [host respondsToSelector:@selector(createCons:titles:sourceName:)]) {
@@ -2937,7 +3047,8 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
         }
 
         sCachedKinds = [kinds copy];
-        NSUInteger kindCap = donorTitles.count > 0 ? donorTitles.count : titles.count;
+        // 顶栏标题 = Legado kinds，选中索引按 kinds 数夹取
+        NSUInteger kindCap = titles.count;
         if (sSelectedKindIndex >= (NSInteger)kindCap && kindCap > 0) sSelectedKindIndex = 0;
 
         // 顶栏仍显示 Legado 源名（donor 只用于建壳）
@@ -2945,6 +3056,9 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
             @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
             @try { host.title = srcName; } @catch (__unused NSException *e) {}
         }
+
+        // 统一收口：收栏（kinds≤1）/重断言标题/选中态（幂等，标题未变时跳过 ForceTitles）
+        LBApplyLegadoSourceKindsToChrome(host, kinds, srcName);
 
         LBAppendNativeMarker([NSString stringWithFormat:@"nativeHeader host=%@ src=%@ donor=%lu legadoKinds=%lu sel=%ld",
                               NSStringFromClass([host class]), srcName ?: @"",
@@ -3151,7 +3265,7 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
             if (tv.backgroundColor == nil ||
                 CGColorGetAlpha(tv.backgroundColor.CGColor) < 0.05 ||
                 [tv.backgroundColor isEqual:[UIColor whiteColor]]) {
-                tv.backgroundColor = [UIColor whiteColor];
+                tv.backgroundColor = LBDiscoverPageColor();
             }
         } @catch (__unused NSException *e) {}
         NSUInteger arrN = 0;
@@ -3256,7 +3370,8 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
     UITableView *neu = [[UITableView alloc] initWithFrame:frame style:UITableViewStylePlain];
     neu.tag = kLBLT;
     neu.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    neu.backgroundColor = [UIColor whiteColor];
+    neu.backgroundColor = LBDiscoverPageColor();
+    neu.separatorColor = LBDiscoverSeparatorColor();
     neu.separatorStyle = UITableViewCellSeparatorStyleSingleLine;
     neu.rowHeight = 88;
     LBEnsurePlazaListTableHooks([listVC class]);
@@ -3268,7 +3383,7 @@ UITableView *LBEnsureDiscoverListSurface(UIViewController *host) {
         if (container.backgroundColor == nil ||
             [container.backgroundColor isEqual:[UIColor whiteColor]] ||
             [container.backgroundColor isEqual:[UIColor clearColor]]) {
-            container.backgroundColor = [UIColor whiteColor];
+            container.backgroundColor = LBDiscoverPageColor();
         }
     } @catch (__unused NSException *e) {}
     if (container == host.view) {
@@ -3766,7 +3881,7 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
         @try {
             if ([host.view.backgroundColor isEqual:[UIColor whiteColor]] ||
                 host.view.backgroundColor == nil) {
-                host.view.backgroundColor = [UIColor whiteColor];
+                host.view.backgroundColor = LBDiscoverPageColor();
             }
         } @catch (__unused NSException *e) {}
     }

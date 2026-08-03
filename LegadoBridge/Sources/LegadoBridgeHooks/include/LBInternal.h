@@ -137,6 +137,18 @@ void LBPresentBookReviewsJSON(NSString *bookUrl, NSString *json);
 NSString * _Nullable LBDecodeCoverURL(NSString *url, NSString * _Nullable sourceUrl);
 void LBPresentAudioPlayer(NSString *bookUrl, NSString *chapterUrl, NSString * _Nullable chapterTitle);
 
+/// 香色自有深色模式是否开启（ThemeManager.darkModel → tr_darkModel → tr_autoDarkModel+系统深色）
+BOOL LBAppDarkModeEnabled(void);
+/// 发现页动态配色（跟随香色深色模式，修复深色下白块/黑字不可见）
+UIColor *LBDiscoverPageColor(void);          // 页面底：浅色=白，深色=近黑
+UIColor *LBDiscoverBarColor(void);           // 分类条底：浅色=0.97 灰白，深色=深灰
+UIColor *LBDiscoverPrimaryTextColor(void);   // 主文字
+UIColor *LBDiscoverSecondaryTextColor(void); // 副文字
+UIColor *LBDiscoverTertiaryTextColor(void);  // 简介等更弱文字
+UIColor *LBDiscoverCellSelectedColor(void);  // cell 选中底色
+UIColor *LBDiscoverCoverBgColor(void);       // 封面占位底
+UIColor *LBDiscoverSeparatorColor(void);     // 分隔线
+
 NS_ASSUME_NONNULL_END
 
 #endif /* LBInternal_h */
