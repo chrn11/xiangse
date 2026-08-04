@@ -2328,6 +2328,18 @@ static BOOL LBShouldSuppressWrongBookHud(void) {
     if (LBCatalogLooksLegadoPending()) return YES;
     if (sPendingCatalogChapters.count > 0) return YES;
     if (LBAnyVisibleCatalogLooksLegado()) return YES;
+    // 可见 CatalogCon 且已有章节行：点「到底部」也会弹错书
+    for (UIViewController *vc in LBFindCatalogVCs()) {
+        if (!LBVCIsVisibleInWindow(vc)) continue;
+        NSString *cn = NSStringFromClass([vc class]);
+        if (![cn containsString:@"Catalog"]) continue;
+        @try {
+            id src = [vc valueForKey:@"arrSource"];
+            id base = [vc valueForKey:@"arrBaseData"];
+            if (LBArrayLooksLikeChapters(src) || LBArrayLooksLikeChapters(base)) return YES;
+        } @catch (__unused NSException *e) {}
+        if (sPendingCatalogChapters.count > 0) return YES;
+    }
     return NO;
 }
 
@@ -2438,49 +2450,77 @@ static void LBDismissWrongBookToast(void) {
         dispatch_async(dispatch_get_main_queue(), ^{ LBDismissWrongBookToast(); });
         return;
     }
-    BOOL suppress = LBShouldSuppressWrongBookHud();
     for (UIWindow *w in LBAllAppWindows()) {
         NSMutableArray *stack = [NSMutableArray arrayWithObject:w];
         while (stack.count > 0) {
             UIView *cur = stack.lastObject;
             [stack removeLastObject];
-            // ReadErrorView / 自定义错误浮层：类名命中也摘
+            if ([cur isKindOfClass:[UITableView class]] ||
+                [cur isKindOfClass:[UITableViewCell class]] ||
+                [cur isKindOfClass:[UINavigationBar class]]) {
+                // 不 recurse 进表格单元格树做摘除（避免误伤）
+                continue;
+            }
             NSString *cn = NSStringFromClass([cur class]);
+            NSString *ownText = LBViewCollectedText(cur);
+            BOOL selfHit = LBHudMessageIsWrongBook(ownText);
             BOOL errorLike = [cn containsString:@"ReadError"] ||
                              [cn containsString:@"ErrorView"] ||
                              [cn containsString:@"ErrorTip"] ||
-                             ([cn containsString:@"Hud"] && [cn containsString:@"Error"]);
-            if (errorLike) {
-                BOOL hitText = NO;
-                NSMutableArray *sub = [NSMutableArray arrayWithObject:cur];
-                while (sub.count > 0) {
-                    UIView *v = sub.lastObject;
-                    [sub removeLastObject];
-                    if (LBHudMessageIsWrongBook(LBViewCollectedText(v))) {
-                        hitText = YES;
-                        break;
-                    }
-                    for (UIView *s in v.subviews) [sub addObject:s];
-                }
-                if (hitText || suppress) {
-                    cur.hidden = YES;
-                    [cur removeFromSuperview];
-                    continue;
-                }
-            }
-            NSString *text = LBViewCollectedText(cur);
-            if (LBHudMessageIsWrongBook(text)) {
+                             [cn containsString:@"Toast"] ||
+                             [cn containsString:@"Hud"] ||
+                             [cn containsString:@"HUD"] ||
+                             [cn containsString:@"TipView"];
+            if (selfHit) {
                 UIView *victim = cur;
-                if (cur.superview && cur.superview.subviews.count <= 6) {
-                    victim = cur.superview;
-                }
-                if (victim.superview && victim.superview.subviews.count <= 4 &&
-                    ![victim.superview isKindOfClass:[UIWindow class]]) {
-                    victim = victim.superview;
+                // 上溯到小容器（灰底 toast），勿摘到 window/table
+                UIView *p = cur.superview;
+                int hops = 0;
+                while (p && hops < 4 &&
+                       ![p isKindOfClass:[UIWindow class]] &&
+                       ![p isKindOfClass:[UITableView class]] &&
+                       ![p isKindOfClass:[UITableViewCell class]] &&
+                       ![p isKindOfClass:[UINavigationBar class]] &&
+                       p.subviews.count <= 10 &&
+                       p.bounds.size.width <= 360 &&
+                       p.bounds.size.height <= 360) {
+                    victim = p;
+                    p = p.superview;
+                    hops++;
                 }
                 victim.hidden = YES;
                 [victim removeFromSuperview];
-                return;
+                [[NSString stringWithFormat:@"wrongBookHud dismissed selfHit %@ -> %@",
+                  cn, NSStringFromClass([victim class])]
+                 writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
+                              @"Documents/legado_wrong_book_hud.txt"]
+                  atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                continue;
+            }
+            if (errorLike) {
+                BOOL childHit = NO;
+                for (UIView *s in cur.subviews) {
+                    NSMutableArray *q = [NSMutableArray arrayWithObject:s];
+                    while (q.count > 0) {
+                        UIView *v = q.lastObject;
+                        [q removeLastObject];
+                        if (LBHudMessageIsWrongBook(LBViewCollectedText(v))) {
+                            childHit = YES;
+                            break;
+                        }
+                        for (UIView *c2 in v.subviews) [q addObject:c2];
+                    }
+                    if (childHit) break;
+                }
+                if (childHit) {
+                    cur.hidden = YES;
+                    [cur removeFromSuperview];
+                    [[NSString stringWithFormat:@"wrongBookHud dismissed errorLike %@", cn]
+                     writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
+                                  @"Documents/legado_wrong_book_hud.txt"]
+                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                    continue;
+                }
             }
             for (UIView *subv in cur.subviews) [stack addObject:subv];
         }
@@ -2503,6 +2543,25 @@ static void LBScheduleWrongBookToastDismissBurst(void) {
             LBDismissWrongBookToast();
         });
     }
+}
+
+/// 目录页「到底部」也会弹「错误的书本」：常驻看门狗摘掉，不依赖具体 toast API
+static void LBEnsureWrongBookWatchdog(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+                                                         dispatch_get_main_queue());
+        dispatch_source_set_timer(timer,
+                                  dispatch_time(DISPATCH_TIME_NOW, 0),
+                                  (uint64_t)(0.15 * NSEC_PER_SEC),
+                                  (uint64_t)(0.05 * NSEC_PER_SEC));
+        dispatch_source_set_event_handler(timer, ^{
+            if (!LBShouldSuppressWrongBookHud()) return;
+            LBDismissWrongBookToast();
+        });
+        dispatch_resume(timer);
+        NSLog(@"[LegadoBridge] wrongBookHud watchdog started");
+    });
 }
 
 /// 拦截原生 showHudText / showErrorView / showTip，吞掉「错误的书本」等（CatalogCon 空目录时弹出）
@@ -2622,6 +2681,7 @@ static void LBInstallWrongBookHudSuppress(void) {
         }
         free(list2);
         // 禁止 hook UILabel.setText：下拉刷新布局时 removeFromSuperview 会直接闪退
+        LBEnsureWrongBookWatchdog();
         NSLog(@"[LegadoBridge] wrongBookHud suppress hooked classes=%lu",
               (unsigned long)done.count);
     });
