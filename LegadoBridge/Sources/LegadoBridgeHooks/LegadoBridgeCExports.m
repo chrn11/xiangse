@@ -2434,6 +2434,8 @@ static NSString *LBViewCollectedText(UIView *v) {
     } else if ([v isKindOfClass:[UIButton class]]) {
         NSString *t = [(UIButton *)v titleForState:UIControlStateNormal];
         if (t.length > 0) [buf appendString:t];
+        NSAttributedString *at = [(UIButton *)v attributedTitleForState:UIControlStateNormal];
+        if (at.string.length > 0) [buf appendString:at.string];
     } else if ([v respondsToSelector:@selector(text)]) {
         @try {
             id t = [v valueForKey:@"text"];
@@ -2442,6 +2444,10 @@ static NSString *LBViewCollectedText(UIView *v) {
             }
         } @catch (__unused NSException *e) {}
     }
+    // 香色「错误的书本」浮层常只挂在 accessibility，不写 label.text
+    if (v.accessibilityLabel.length > 0) [buf appendString:v.accessibilityLabel];
+    if (v.accessibilityValue.length > 0) [buf appendString:v.accessibilityValue];
+    if (v.accessibilityHint.length > 0) [buf appendString:v.accessibilityHint];
     return buf.length > 0 ? buf : nil;
 }
 
@@ -2680,7 +2686,41 @@ static void LBInstallWrongBookHudSuppress(void) {
             if (hit) [done addObject:cn];
         }
         free(list2);
-        // 禁止 hook UILabel.setText：下拉刷新布局时 removeFromSuperview 会直接闪退
+        // addSubview 拦截：到底部弹出的灰底 toast 常不走 showHud*
+        {
+            Class viewCls = [UIView class];
+            SEL addSel = @selector(addSubview:);
+            Method am = class_getInstanceMethod(viewCls, addSel);
+            if (am) {
+                IMP origAdd = method_getImplementation(am);
+                IMP nh = imp_implementationWithBlock(^void(UIView *selfObj, UIView *sub) {
+                    ((void (*)(id, SEL, id))origAdd)(selfObj, addSel, sub);
+                    if (!sub || !LBShouldSuppressWrongBookHud()) return;
+                    // 仅检查新加视图小树，避免全窗扫描
+                    NSMutableArray *q = [NSMutableArray arrayWithObject:sub];
+                    BOOL hit = NO;
+                    while (q.count > 0) {
+                        UIView *v = q.lastObject;
+                        [q removeLastObject];
+                        if (LBHudMessageIsWrongBook(LBViewCollectedText(v))) {
+                            hit = YES;
+                            break;
+                        }
+                        if (q.count + v.subviews.count > 40) break;
+                        for (UIView *c in v.subviews) [q addObject:c];
+                    }
+                    if (!hit) return;
+                    UIView *victim = sub;
+                    if (sub.bounds.size.width <= 360 && sub.bounds.size.height <= 360) {
+                        victim = sub;
+                    }
+                    victim.hidden = YES;
+                    [victim removeFromSuperview];
+                    logSuppress(@"addSubview", @"错误的书本");
+                });
+                method_setImplementation(am, nh);
+            }
+        }
         LBEnsureWrongBookWatchdog();
         NSLog(@"[LegadoBridge] wrongBookHud suppress hooked classes=%lu",
               (unsigned long)done.count);
