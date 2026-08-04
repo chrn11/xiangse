@@ -2266,6 +2266,8 @@ static NSArray<UIViewController *> *LBFindCatalogVCs(void);
 static void LBReloadCatalogVC(UIViewController *vc);
 static BOOL LBTrySetArrayKey(id obj, NSString *key, NSArray *chapters);
 static BOOL LBWriteChaptersOntoObject(id obj, NSArray *chapters);
+static void LBDismissWrongBookToast(void);
+static void LBScheduleWrongBookToastDismissBurst(void);
 
 static BOOL LBHudMessageIsWrongBook(NSString *text) {
     if (![text isKindOfClass:[NSString class]] || text.length == 0) return NO;
