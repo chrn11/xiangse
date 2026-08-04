@@ -37,7 +37,6 @@ jobs:
         run: |
           set -euo pipefail
           swift package resolve
-          # 选用可用 iPhone 模拟器（Xcode 15.4 / macos-14 常见 iPhone 15）
           DEST=""
           for name in "iPhone 15" "iPhone 16" "iPhone 15 Pro" "iPhone SE (3rd generation)"; do
             if xcrun simctl list devices available | grep -F "$name (" >/dev/null; then
@@ -46,11 +45,8 @@ jobs:
             fi
           done
           if [[ -z "$DEST" ]]; then
-            # 回落：取第一个可用 iPhone
             name=$(xcrun simctl list devices available | sed -n 's/^[[:space:]]*\(iPhone [^()]*\).*/\1/p' | head -1 | sed 's/[[:space:]]*$//')
-            if [[ -n "$name" ]]; then
-              DEST="platform=iOS Simulator,name=${name}"
-            fi
+            [[ -n "$name" ]] && DEST="platform=iOS Simulator,name=${name}"
           fi
           if [[ -z "$DEST" ]]; then
             echo "无可用 iPhone Simulator" >&2
@@ -58,6 +54,7 @@ jobs:
             exit 1
           fi
           echo "==> destination: $DEST"
+          echo "==> schemes:"; xcodebuild -list 2>&1 | tee -a unit-xiangse-nativetool.log || true
           set -o pipefail
           xcodebuild test \
             -scheme LegadoRuleCore \
@@ -66,8 +63,8 @@ jobs:
             -derivedDataPath "$PWD/.build-test" \
             CODE_SIGNING_ALLOWED=NO \
             -skipPackagePluginValidation \
-            2>&1 | tee unit-xiangse-nativetool.log
-          grep -E 'Test Case .* (passed|failed)' unit-xiangse-nativetool.log || true
+            2>&1 | tee -a unit-xiangse-nativetool.log
+          grep -E 'Test Case .* (passed|failed)|TEST SUCCEEDED|TEST FAILED|error:' unit-xiangse-nativetool.log || true
 
       - uses: actions/upload-artifact@v4
         if: always()
