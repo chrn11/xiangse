@@ -12106,7 +12106,7 @@ void LBInstallCatalogUIAppearFlush(void) {
                 class_addMethod(catalogCls, setBase, (IMP)LBCatalogSetArrBaseData_IMP, types);
             }
         }
-        // 下拉松手：仅当空表时异步盖回；禁止在 delegate 回调里同步 reload（会闪退）
+        // 下拉松手 / 触底：异步摘 toast；禁止在 delegate 回调里同步 reload
         {
             SEL dragSel = @selector(scrollViewDidEndDragging:willDecelerate:);
             Method dragM = class_getInstanceMethod(catalogCls, dragSel);
@@ -12115,8 +12115,9 @@ void LBInstallCatalogUIAppearFlush(void) {
                 const char *types = method_getTypeEncoding(dragM);
                 IMP nh = imp_implementationWithBlock(^void(id selfObj, UIScrollView *sv, BOOL decel) {
                     ((void (*)(id, SEL, id, BOOL))origDrag)(selfObj, dragSel, sv, decel);
-                    if (!LBCatalogLooksLegadoPending() && !LBCatalogVCLooksLegado(selfObj)) return;
-                    if (sPendingCatalogChapters.count == 0) return;
+                    if (!LBCatalogLooksLegadoPending() && !LBCatalogVCLooksLegado(selfObj) &&
+                        sPendingCatalogChapters.count == 0) return;
+                    sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 30.0;
                     BOOL empty = NO;
                     @try {
                         id src = [selfObj valueForKey:@"arrSource"];
@@ -12126,12 +12127,11 @@ void LBInstallCatalogUIAppearFlush(void) {
                         if ([base isKindOfClass:[NSArray class]]) n = MAX(n, [(NSArray *)base count]);
                         empty = (n == 0);
                     } @catch (__unused NSException *e) { empty = YES; }
-                    sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 8.0;
-                    // 只异步摘 toast；空表才异步盖回，绝不在本回调里 reload
                     __weak id weakSelf = selfObj;
                     NSArray *ch = empty ? [sPendingCatalogChapters copy] : nil;
                     dispatch_async(dispatch_get_main_queue(), ^{
                         LBDismissWrongBookToast();
+                        LBScheduleWrongBookToastDismissBurst();
                         id strong = weakSelf;
                         if (!strong || ch.count == 0) return;
                         if (sPendingCatalogChapters.count == 0) return;
@@ -12149,6 +12149,30 @@ void LBInstallCatalogUIAppearFlush(void) {
                     method_setImplementation(dragM, nh);
                 } else {
                     class_addMethod(catalogCls, dragSel, nh, types);
+                }
+            }
+            SEL scrollSel = @selector(scrollViewDidScroll:);
+            Method scrollM = class_getInstanceMethod(catalogCls, scrollSel);
+            if (scrollM || class_getInstanceMethod(class_getSuperclass(catalogCls), scrollSel)) {
+                if (!scrollM) scrollM = class_getInstanceMethod(class_getSuperclass(catalogCls), scrollSel);
+                IMP origScroll = method_getImplementation(scrollM);
+                const char *types = method_getTypeEncoding(scrollM);
+                IMP nh = imp_implementationWithBlock(^void(id selfObj, UIScrollView *sv) {
+                    ((void (*)(id, SEL, id))origScroll)(selfObj, scrollSel, sv);
+                    if (sPendingCatalogChapters.count == 0 && !LBCatalogLooksLegadoPending()) return;
+                    if (!sv) return;
+                    CGFloat maxY = sv.contentSize.height - sv.bounds.size.height;
+                    // 触底或顶部过拉：拉长 suppress 并摘 toast（点「到底部」同路径）
+                    if (sv.contentOffset.y > maxY - 80 || sv.contentOffset.y < -20) {
+                        sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 30.0;
+                        LBDismissWrongBookToast();
+                    }
+                });
+                Class owner = LBClassOwningInstanceMethod(catalogCls, scrollSel);
+                if (owner == catalogCls) {
+                    method_setImplementation(scrollM, nh);
+                } else {
+                    class_addMethod(catalogCls, scrollSel, nh, types);
                 }
             }
         }
