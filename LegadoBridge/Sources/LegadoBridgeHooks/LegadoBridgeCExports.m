@@ -2621,6 +2621,7 @@ static void LBHideWrongBookToastHostAsync(UIView *seed) {
                ![p isKindOfClass:[UITableView class]] &&
                ![p isKindOfClass:[UITableViewCell class]] &&
                ![p isKindOfClass:[UINavigationBar class]] &&
+               ![p isKindOfClass:[UIScrollView class]] &&
                p.subviews.count <= 12) {
             CGSize sz = p.bounds.size;
             if (sz.width > 420 || sz.height > 420) break;
@@ -2628,8 +2629,178 @@ static void LBHideWrongBookToastHostAsync(UIView *seed) {
             p = p.superview;
             hops++;
         }
+        // 只藏不摘：removeFromSuperview 曾把宿主摘崩，真机点「到底部」后回桌面
         victim.hidden = YES;
-        [victim removeFromSuperview];
+        victim.alpha = 0;
+        victim.userInteractionEnabled = NO;
+    });
+}
+
+/// Legado 目录已有章节时，原生 loadMore/refresh 会空查 XBS →「错误的书本」
+static BOOL LBCatalogShouldSkipNativeRefreshLoad(id selfObj) {
+    if (!selfObj) return NO;
+    if (LBCatalogLooksLegadoPending()) return YES;
+    if (LBCatalogVCLooksLegado(selfObj)) return YES;
+    if (sPendingCatalogChapters.count > 0) return YES;
+    @try {
+        id src = [selfObj valueForKey:@"arrSource"];
+        id base = [selfObj valueForKey:@"arrBaseData"];
+        if (LBArrayLooksLikeChapters(src) || LBArrayLooksLikeChapters(base)) return YES;
+    } @catch (__unused NSException *e) {}
+    return NO;
+}
+
+static UITableView *LBCatalogFindTableView(id vc) {
+    if (!vc) return nil;
+    @try {
+        id tv = nil;
+        @try { tv = [vc valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
+        if (!tv) @try { tv = [vc valueForKey:@"tv"]; } @catch (__unused NSException *e) {}
+        if ([tv isKindOfClass:[UITableView class]]) return (UITableView *)tv;
+    } @catch (__unused NSException *e) {}
+    @try {
+        if (![vc isKindOfClass:[UIViewController class]]) return nil;
+        UIViewController *uivc = (UIViewController *)vc;
+        if (!uivc.isViewLoaded) return nil;
+        NSMutableArray *stack = [NSMutableArray arrayWithObject:uivc.view];
+        while (stack.count > 0) {
+            UIView *v = stack.lastObject;
+            [stack removeLastObject];
+            if ([v isKindOfClass:[UITableView class]]) return (UITableView *)v;
+            for (UIView *sub in v.subviews) [stack addObject:sub];
+        }
+    } @catch (__unused NSException *e) {}
+    return nil;
+}
+
+/// 点「到底部」：只滚到末行，不走原生分页/XBS
+static void LBCatalogScrollToBottomLocal(id selfObj) {
+    UITableView *tv = LBCatalogFindTableView(selfObj);
+    if (!tv) return;
+    @try {
+        NSInteger sections = [tv numberOfSections];
+        if (sections <= 0) return;
+        NSInteger rows = [tv numberOfRowsInSection:sections - 1];
+        if (rows > 0) {
+            NSIndexPath *ip = [NSIndexPath indexPathForRow:rows - 1 inSection:sections - 1];
+            [tv scrollToRowAtIndexPath:ip atScrollPosition:UITableViewScrollPositionBottom animated:NO];
+        } else {
+            CGFloat maxY = MAX(0, tv.contentSize.height - tv.bounds.size.height);
+            [tv setContentOffset:CGPointMake(0, maxY) animated:NO];
+        }
+        if ([tv.refreshControl respondsToSelector:@selector(endRefreshing)]) {
+            [tv.refreshControl endRefreshing];
+        }
+    } @catch (__unused NSException *e) {}
+}
+
+static void LBCatalogInstallSkipNativeLoadMore(Class catalogCls) {
+    (void)catalogCls;
+    static dispatch_once_t onceHook;
+    dispatch_once(&onceHook, ^{
+    Class cls = NSClassFromString(@"CatalogCon");
+    if (!cls) return;
+    NSArray *names = @[
+        @"refreshControl_onLoadMorePage",
+        @"refreshControl_onRefresh",
+        @"onLoadMorePage",
+        @"loadMorePage",
+        @"onRefresh",
+        @"scrollToBottom",
+        @"scrollToTop",
+        @"onScrollToBottom",
+        @"onScrollToTop",
+        @"btnBottomClick",
+        @"btnTopClick",
+        @"onBottom:",
+        @"onTop:",
+        @"gotoBottom",
+        @"gotoTop",
+    ];
+    NSMutableArray *hooked = [NSMutableArray array];
+    for (NSString *sn in names) {
+        SEL sel = NSSelectorFromString(sn);
+        Method m = class_getInstanceMethod(cls, sel);
+        if (!m) continue;
+        Class owner = LBClassOwningInstanceMethod(cls, sel);
+        IMP orig = method_getImplementation(m);
+        const char *types = method_getTypeEncoding(m);
+        NSString *snCopy = [sn copy];
+        NSUInteger nargs = method_getNumberOfArguments(m); // self,_cmd,[arg]
+        IMP nh = NULL;
+        if (nargs <= 2) {
+            nh = imp_implementationWithBlock(^void(id selfObj) {
+                if (LBCatalogShouldSkipNativeRefreshLoad(selfObj)) {
+                    sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 30.0;
+                    NSString *low = snCopy.lowercaseString;
+                    BOOL toBottom = [low containsString:@"bottom"] ||
+                                    [low containsString:@"more"] ||
+                                    [snCopy containsString:@"LoadMore"];
+                    BOOL toTop = [low containsString:@"top"] && !toBottom;
+                    if (toBottom) {
+                        LBCatalogScrollToBottomLocal(selfObj);
+                    } else if (toTop) {
+                        UITableView *tv = LBCatalogFindTableView(selfObj);
+                        if (tv) [tv setContentOffset:CGPointZero animated:NO];
+                    } else {
+                        UITableView *tv = LBCatalogFindTableView(selfObj);
+                        if (tv.refreshControl) [tv.refreshControl endRefreshing];
+                        if (sPendingCatalogChapters.count > 0) {
+                            LBWriteChaptersOntoObject(selfObj, sPendingCatalogChapters);
+                        }
+                    }
+                    LBDismissWrongBookToast();
+                    LBCatalogWriteMarker([NSString stringWithFormat:
+                                          @"uiInject skipNativeLoad %@ nPending=%lu",
+                                          snCopy, (unsigned long)sPendingCatalogChapters.count]);
+                    return;
+                }
+                ((void (*)(id, SEL))orig)(selfObj, sel);
+            });
+        } else {
+            nh = imp_implementationWithBlock(^void(id selfObj, id arg) {
+                if (LBCatalogShouldSkipNativeRefreshLoad(selfObj)) {
+                    sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 30.0;
+                    NSString *low = snCopy.lowercaseString;
+                    BOOL toBottom = [low containsString:@"bottom"] ||
+                                    [low containsString:@"more"] ||
+                                    [snCopy containsString:@"LoadMore"];
+                    BOOL toTop = [low containsString:@"top"] && !toBottom;
+                    if (toBottom) {
+                        LBCatalogScrollToBottomLocal(selfObj);
+                    } else if (toTop) {
+                        UITableView *tv = LBCatalogFindTableView(selfObj);
+                        if (tv) [tv setContentOffset:CGPointZero animated:NO];
+                    } else {
+                        UITableView *tv = LBCatalogFindTableView(selfObj);
+                        if (tv.refreshControl) [tv.refreshControl endRefreshing];
+                        if (sPendingCatalogChapters.count > 0) {
+                            LBWriteChaptersOntoObject(selfObj, sPendingCatalogChapters);
+                        }
+                    }
+                    LBDismissWrongBookToast();
+                    LBCatalogWriteMarker([NSString stringWithFormat:
+                                          @"uiInject skipNativeLoad %@ nPending=%lu",
+                                          snCopy, (unsigned long)sPendingCatalogChapters.count]);
+                    return;
+                }
+                ((void (*)(id, SEL, id))orig)(selfObj, sel, arg);
+            });
+        }
+        if (!nh) continue;
+        BOOL ok = NO;
+        if (owner == cls) {
+            method_setImplementation(m, nh);
+            ok = YES;
+        } else {
+            ok = class_addMethod(cls, sel, nh, types);
+        }
+        if (ok) [hooked addObject:snCopy];
+    }
+    LBCatalogWriteMarker([NSString stringWithFormat:@"uiInject skipNativeLoad hooked=%@",
+                          [hooked componentsJoinedByString:@","]]);
+    NSLog(@"[LegadoBridge] skipNativeLoadMore hooked=%@",
+          [hooked componentsJoinedByString:@","]);
     });
 }
 
@@ -2638,10 +2809,19 @@ static void LBInstallWrongBookHudSuppress(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         void (^logSuppress)(NSString *, NSString *) = ^(NSString *api, NSString *text) {
-            [[NSString stringWithFormat:@"wrongBookHud suppressed %@ %@", api, text ?: @""]
-             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
-                          @"Documents/legado_wrong_book_hud.txt"]
-              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:
+                              @"Documents/legado_wrong_book_hud.txt"];
+            NSString *line = [NSString stringWithFormat:@"%@ suppressed %@ %@\n",
+                              [NSDate date], api, text ?: @""];
+            NSMutableString *buf = [NSMutableString string];
+            NSString *old = [NSString stringWithContentsOfFile:path
+                                                      encoding:NSUTF8StringEncoding error:NULL];
+            if (old.length > 0) [buf appendString:old];
+            [buf appendString:line];
+            if (buf.length > 8000) {
+                [buf deleteCharactersInRange:NSMakeRange(0, buf.length - 8000)];
+            }
+            [buf writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         };
         void (^tryHook)(Class, SEL, BOOL) = ^(Class cls, SEL sel, BOOL meta) {
             if (!cls || !sel) return;
@@ -12292,6 +12472,8 @@ void LBInstallCatalogUIAppearFlush(void) {
                     class_addMethod(catalogCls, scrollSel, nh, types);
                 }
             }
+            // 点「到底部」/下拉：原生 refreshControl_onLoadMorePage 会空查 XBS → 错书
+            LBCatalogInstallSkipNativeLoadMore(catalogCls);
         }
         SEL getSel = @selector(arrCatalog);
         Method getM = class_getInstanceMethod(catalogCls, getSel);
