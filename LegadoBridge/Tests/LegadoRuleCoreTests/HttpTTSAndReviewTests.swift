@@ -1,7 +1,7 @@
 import XCTest
 @testable import LegadoRuleCore
 
-final class HttpTTSEngineTests: XCTestCase {
+final class HttpTTSEngineFromReviewFileTests: XCTestCase {
     func testBuildRequestURLReplacesSpeakText() {
         var cfg = HttpTTSConfig(name: "mock", url: "https://tts.example/say?q={{speakText}}&v={{voice}}")
         cfg.header = nil
