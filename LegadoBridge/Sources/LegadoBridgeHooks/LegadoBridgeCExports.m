@@ -2691,6 +2691,20 @@ static void LBCatalogScrollToBottomLocal(id selfObj) {
         if ([tv.refreshControl respondsToSelector:@selector(endRefreshing)]) {
             [tv.refreshControl endRefreshing];
         }
+        // MJRefresh 等第三方 footer：否则会一直「正在加载更多的数据...」
+        for (NSString *k in @[@"mj_footer", @"mj_header", @"footer", @"header",
+                              @"refreshFooter", @"refreshHeader", @"loadMoreView"]) {
+            @try {
+                id ctl = [tv valueForKey:k];
+                if (!ctl) continue;
+                if ([ctl respondsToSelector:@selector(endRefreshing)]) {
+                    ((void (*)(id, SEL))objc_msgSend)(ctl, @selector(endRefreshing));
+                }
+                if ([ctl respondsToSelector:@selector(noticeNoMoreData)]) {
+                    ((void (*)(id, SEL))objc_msgSend)(ctl, @selector(noticeNoMoreData));
+                }
+            } @catch (__unused NSException *e) {}
+        }
     } @catch (__unused NSException *e) {}
 }
 
