@@ -2584,19 +2584,18 @@ static void LBEnsureWrongBookWatchdog(void) {
     dispatch_once(&once, ^{
         dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
                                                          dispatch_get_main_queue());
+        // 50ms：触底闪一下也尽量压在一帧内
         dispatch_source_set_timer(timer,
                                   dispatch_time(DISPATCH_TIME_NOW, 0),
-                                  (uint64_t)(0.12 * NSEC_PER_SEC),
-                                  (uint64_t)(0.04 * NSEC_PER_SEC));
+                                  (uint64_t)(0.05 * NSEC_PER_SEC),
+                                  (uint64_t)(0.01 * NSEC_PER_SEC));
         dispatch_source_set_event_handler(timer, ^{
-            // 轻量：只要可见目录有章节/pending 就扫；不做重查询以外的事
             BOOL watch = (sPendingCatalogChapters.count > 0) ||
                          (CFAbsoluteTimeGetCurrent() < sSuppressWrongBookHudUntil);
             if (!watch) {
-                // 偶尔做一次完整判定，避免一直空转漏掉「到底部」
                 static CFAbsoluteTime sLastFull = 0;
                 CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-                if (now - sLastFull < 0.8) return;
+                if (now - sLastFull < 0.5) return;
                 sLastFull = now;
                 if (!LBShouldSuppressWrongBookHud()) return;
             }
@@ -2604,6 +2603,33 @@ static void LBEnsureWrongBookWatchdog(void) {
         });
         dispatch_resume(timer);
         NSLog(@"[LegadoBridge] wrongBookHud watchdog started");
+    });
+}
+
+static void LBHideWrongBookToastHostAsync(UIView *seed) {
+    if (!seed) return;
+    __weak UIView *weakSeed = seed;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIView *cur = weakSeed;
+        if (!cur) return;
+        cur.hidden = YES;
+        UIView *victim = cur;
+        UIView *p = cur.superview;
+        int hops = 0;
+        while (p && hops < 5 &&
+               ![p isKindOfClass:[UIWindow class]] &&
+               ![p isKindOfClass:[UITableView class]] &&
+               ![p isKindOfClass:[UITableViewCell class]] &&
+               ![p isKindOfClass:[UINavigationBar class]] &&
+               p.subviews.count <= 12) {
+            CGSize sz = p.bounds.size;
+            if (sz.width > 420 || sz.height > 420) break;
+            victim = p;
+            p = p.superview;
+            hops++;
+        }
+        victim.hidden = YES;
+        [victim removeFromSuperview];
     });
 }
 
@@ -2631,7 +2657,7 @@ static void LBInstallWrongBookHudSuppress(void) {
                 IMP nh = imp_implementationWithBlock(^void(id selfObj, NSString *text, id view) {
                     if (LBHudMessageIsWrongBook(text)) {
                         logSuppress(sn, text);
-                        if (LBShouldSuppressWrongBookHud()) return;
+                        return; // 一律吞掉，勿等 ShouldSuppress 竞态
                     }
                     ((void (*)(id, SEL, id, id))orig)(selfObj, sel, text, view);
                 });
@@ -2640,7 +2666,7 @@ static void LBInstallWrongBookHudSuppress(void) {
                 IMP nh = imp_implementationWithBlock(^void(id selfObj, NSString *text, id delay, id view) {
                     if (LBHudMessageIsWrongBook(text)) {
                         logSuppress(sn, text);
-                        if (LBShouldSuppressWrongBookHud()) return;
+                        return;
                     }
                     ((void (*)(id, SEL, id, id, id))orig)(selfObj, sel, text, delay, view);
                 });
@@ -2649,7 +2675,7 @@ static void LBInstallWrongBookHudSuppress(void) {
                 IMP nh = imp_implementationWithBlock(^void(id selfObj, NSString *text) {
                     if (LBHudMessageIsWrongBook(text)) {
                         logSuppress(sn, text);
-                        if (LBShouldSuppressWrongBookHud()) return;
+                        return;
                     }
                     ((void (*)(id, SEL, id))orig)(selfObj, sel, text);
                 });
@@ -2657,11 +2683,14 @@ static void LBInstallWrongBookHudSuppress(void) {
             } else if ([sn isEqualToString:@"showTip:"] ||
                        [sn isEqualToString:@"showMessage:"] ||
                        [sn isEqualToString:@"showToast:"] ||
-                       [sn isEqualToString:@"toast:"]) {
+                       [sn isEqualToString:@"toast:"] ||
+                       [sn isEqualToString:@"showFail:"] ||
+                       [sn isEqualToString:@"showError:"] ||
+                       [sn isEqualToString:@"showHud:"]) {
                 IMP nh = imp_implementationWithBlock(^void(id selfObj, NSString *text) {
                     if (LBHudMessageIsWrongBook(text)) {
                         logSuppress(sn, text);
-                        if (LBShouldSuppressWrongBookHud()) return;
+                        return;
                     }
                     ((void (*)(id, SEL, id))orig)(selfObj, sel, text);
                 });
@@ -2677,7 +2706,7 @@ static void LBInstallWrongBookHudSuppress(void) {
                     }
                     if (LBHudMessageIsWrongBook(text)) {
                         logSuppress(sn, text);
-                        if (LBShouldSuppressWrongBookHud()) return;
+                        return;
                     }
                     ((void (*)(id, SEL, id))orig)(selfObj, sel, arg);
                 });
@@ -2688,7 +2717,7 @@ static void LBInstallWrongBookHudSuppress(void) {
                     if (!text && [a isKindOfClass:[NSString class]]) text = a;
                     if (LBHudMessageIsWrongBook(text)) {
                         logSuppress(sn, text);
-                        if (LBShouldSuppressWrongBookHud()) return;
+                        return;
                     }
                     ((void (*)(id, SEL, id, id, id))orig)(selfObj, sel, a, title, del);
                 });
@@ -2702,10 +2731,13 @@ static void LBInstallWrongBookHudSuppress(void) {
             @"showHudText:view:",
             @"showHudText:delay:view:",
             @"showHudText:",
+            @"showHud:",
             @"showTip:",
             @"showMessage:",
             @"showToast:",
             @"toast:",
+            @"showFail:",
+            @"showError:",
             @"showErrorView:",
             @"showErrorView:title:delegate:"
         ];
@@ -2723,7 +2755,92 @@ static void LBInstallWrongBookHudSuppress(void) {
             if (hit) [done addObject:cn];
         }
         free(list2);
-        // 禁止全局 hook UIView.addSubview：每次 add 都跑 suppress 判定会拖死目录进页
+        // UILabel：文案写入时直接吞（勿同步 removeFromSuperview，防闪退）
+        {
+            Class lbl = [UILabel class];
+            SEL setText = @selector(setText:);
+            Method mt = class_getInstanceMethod(lbl, setText);
+            if (mt) {
+                IMP orig = method_getImplementation(mt);
+                IMP nh = imp_implementationWithBlock(^void(UILabel *selfObj, NSString *text) {
+                    if (LBHudMessageIsWrongBook(text)) {
+                        logSuppress(@"UILabel.setText:", text);
+                        ((void (*)(id, SEL, id))orig)(selfObj, setText, @"");
+                        selfObj.hidden = YES;
+                        LBHideWrongBookToastHostAsync(selfObj);
+                        return;
+                    }
+                    ((void (*)(id, SEL, id))orig)(selfObj, setText, text);
+                });
+                method_setImplementation(mt, nh);
+            }
+            SEL setAttr = @selector(setAttributedText:);
+            Method ma = class_getInstanceMethod(lbl, setAttr);
+            if (ma) {
+                IMP orig = method_getImplementation(ma);
+                IMP nh = imp_implementationWithBlock(^void(UILabel *selfObj, NSAttributedString *attr) {
+                    NSString *text = attr.string;
+                    if (LBHudMessageIsWrongBook(text)) {
+                        logSuppress(@"UILabel.setAttributedText:", text);
+                        ((void (*)(id, SEL, id))orig)(selfObj, setAttr, nil);
+                        selfObj.hidden = YES;
+                        LBHideWrongBookToastHostAsync(selfObj);
+                        return;
+                    }
+                    ((void (*)(id, SEL, id))orig)(selfObj, setAttr, attr);
+                });
+                method_setImplementation(ma, nh);
+            }
+        }
+        // accessibilityLabel 写入时吞（MCP/VoiceOver 能扫到的路径）
+        {
+            Class viewCls = [UIView class];
+            SEL setA11y = @selector(setAccessibilityLabel:);
+            Method am = class_getInstanceMethod(viewCls, setA11y);
+            if (am) {
+                IMP orig = method_getImplementation(am);
+                IMP nh = imp_implementationWithBlock(^void(UIView *selfObj, NSString *label) {
+                    if (LBHudMessageIsWrongBook(label)) {
+                        logSuppress(@"UIView.setAccessibilityLabel:", label);
+                        ((void (*)(id, SEL, id))orig)(selfObj, setA11y, @"");
+                        selfObj.hidden = YES;
+                        LBHideWrongBookToastHostAsync(selfObj);
+                        return;
+                    }
+                    ((void (*)(id, SEL, id))orig)(selfObj, setA11y, label);
+                });
+                method_setImplementation(am, nh);
+            }
+        }
+        // CatalogCon 方法名落盘，便于下次定位「到底部」
+        {
+            Class catalogCls = NSClassFromString(@"CatalogCon");
+            if (catalogCls) {
+                NSMutableArray *names = [NSMutableArray array];
+                unsigned int mn = 0;
+                Method *ms = class_copyMethodList(catalogCls, &mn);
+                for (unsigned int i = 0; i < mn; i++) {
+                    NSString *n = NSStringFromSelector(method_getName(ms[i]));
+                    if ([n.lowercaseString containsString:@"bottom"] ||
+                        [n.lowercaseString containsString:@"top"] ||
+                        [n.lowercaseString containsString:@"load"] ||
+                        [n.lowercaseString containsString:@"more"] ||
+                        [n.lowercaseString containsString:@"hud"] ||
+                        [n.lowercaseString containsString:@"error"] ||
+                        [n.lowercaseString containsString:@"toast"] ||
+                        [n.lowercaseString containsString:@"tip"] ||
+                        [n containsString:@"到底"] ||
+                        [n containsString:@"顶部"]) {
+                        [names addObject:n];
+                    }
+                }
+                free(ms);
+                [[names componentsJoinedByString:@"\n"]
+                 writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:
+                              @"Documents/legado_catalog_sels.txt"]
+                  atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            }
+        }
         LBEnsureWrongBookWatchdog();
         NSLog(@"[LegadoBridge] wrongBookHud suppress hooked classes=%lu",
               (unsigned long)done.count);
