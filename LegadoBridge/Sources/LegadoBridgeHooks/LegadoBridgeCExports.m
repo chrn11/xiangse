@@ -4996,7 +4996,8 @@ static BOOL LBPushLegadoBookDetailFromSearch(id searchVC, NSDictionary *bookDic)
     sDeferredNativeOpenBookUrl = nil;
     sNativeReadChapterOpenStarted = NO;
     LBInstallWrongBookHudSuppress();
-    sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 10.0;
+    // 目录停留期间一直允许看门狗摘「错误的书本」（点到底部也会弹）
+    sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 600.0;
     // 同书盘缓存可立刻灌入正确目录；换书后空列表等待网络，禁止他书 pending
     if (sPendingCatalogChapters.count == 0) {
         NSArray *cached = LBLoadCatalogCache(bu);
