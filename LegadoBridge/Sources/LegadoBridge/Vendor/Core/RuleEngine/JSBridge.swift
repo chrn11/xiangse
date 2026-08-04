@@ -30,6 +30,7 @@ class JSBridge: JsEncodeUtils {
         injectNetworkObject(into: jsContext)
         injectCacheObject(into: jsContext)
         injectOrgJsoup(into: jsContext)
+        XiangseNativeTool.inject(into: jsContext, encode: self)
         denyForbiddenNativeAPIs(into: jsContext)
         // 书源 jsLib：共享函数须在业务脚本之前落入同一上下文（对标 Android jsLib，只执行一次语义由调用方复用 context）
         Self.evaluateJsLib(of: context?.source, into: jsContext, headers: parseSourceHeaders())
@@ -42,6 +43,7 @@ class JSBridge: JsEncodeUtils {
         injectJavaObject(into: jsContext)
         injectSourceObject(into: jsContext)
         injectCookieObject(into: jsContext)
+        XiangseNativeTool.inject(into: jsContext, encode: self)
         denyForbiddenNativeAPIs(into: jsContext)
         Self.injectLegadoMapLookup(into: jsContext)
     }

@@ -713,6 +713,14 @@ class AnalyzeUrl {
         var page = \(pageLiteral);
         var result = \(resultSeedJSON);
         var url = '';
+        // 香色 requestInfo/@js: 兼容：params.keyWord / pageIndex / nativeTool
+        if (typeof params === 'undefined' || params === null || typeof params !== 'object') {
+          params = {};
+        }
+        params.keyWord = (typeof key !== 'undefined' && key !== undefined) ? key : '';
+        params.pageIndex = (typeof page !== 'undefined' && page !== undefined) ? page : 1;
+        if (typeof nativeTool !== 'undefined' && nativeTool) { params.nativeTool = nativeTool; }
+        if (typeof config === 'undefined' || config === null) { config = {}; }
         var __analyzeUrlEvalErrMsg = '';
         var __analyzeUrlEvalOut = undefined;
         try {
@@ -794,22 +802,37 @@ class AnalyzeUrl {
         }
 
         // 优先读脚本写入的 result / url（起点 searchUrl: result=url）
+        // 香色：return {url, POST, httpParams, httpHeaders} → 转成 Legado `url,{json}`
         for name in ["result", "url", "__analyzeUrlEvalOut"] {
             if let bound = jsContext.objectForKeyedSubscript(name),
-               !bound.isUndefined, !bound.isNull,
-               let str = bound.toString(),
-               Self.isUsableJSString(str),
-               !str.hasPrefix("@js:"),
-               !str.hasPrefix("<js>"),
-               !Self.looksLikeJSErrorText(str) {
-                if let sourceUrl = source?.bookSourceUrl {
-                    SourceSessionStore.merge(execContext.variables, for: sourceUrl)
+               !bound.isUndefined, !bound.isNull {
+                if let xiangse = Self.normalizeXiangseRequestObject(bound) {
+                    if let sourceUrl = source?.bookSourceUrl {
+                        SourceSessionStore.merge(execContext.variables, for: sourceUrl)
+                    }
+                    return xiangse
                 }
-                return str
+                if let str = bound.toString(),
+                   Self.isUsableJSString(str),
+                   str != "[object Object]",
+                   !str.hasPrefix("@js:"),
+                   !str.hasPrefix("<js>"),
+                   !Self.looksLikeJSErrorText(str) {
+                    if let sourceUrl = source?.bookSourceUrl {
+                        SourceSessionStore.merge(execContext.variables, for: sourceUrl)
+                    }
+                    return str
+                }
             }
         }
 
         if let value = evalResult, !value.isUndefined, !value.isNull {
+            if let xiangse = Self.normalizeXiangseRequestObject(value) {
+                if let sourceUrl = source?.bookSourceUrl {
+                    SourceSessionStore.merge(execContext.variables, for: sourceUrl)
+                }
+                return xiangse
+            }
             if value.isNumber {
                 return value.toNumber()?.stringValue
             }
@@ -832,6 +855,70 @@ class AnalyzeUrl {
             return nil
         }
         return result
+    }
+
+    /// 香色 `@js: return {url, POST, httpParams, httpHeaders, ...}` → Legado `url,{json}`
+    private static func normalizeXiangseRequestObject(_ value: JSValue) -> String? {
+        guard value.isObject, !value.isArray, !value.isString else { return nil }
+        guard let urlVal = value.objectForKeyedSubscript("url" as NSString),
+              !urlVal.isUndefined, !urlVal.isNull,
+              let url = urlVal.toString(),
+              isUsableJSString(url),
+              !url.hasPrefix("@js:") else {
+            return nil
+        }
+        var opt: [String: Any] = [:]
+        if let post = value.objectForKeyedSubscript("POST" as NSString), !post.isUndefined, !post.isNull {
+            if post.isBoolean, post.toBool() {
+                opt["method"] = "POST"
+            } else if let s = post.toString(), s.lowercased() == "true" || s == "1" {
+                opt["method"] = "POST"
+            }
+        }
+        if let headers = value.objectForKeyedSubscript("httpHeaders" as NSString),
+           headers.isObject, !headers.isArray,
+           let dict = headers.toObject() as? [String: Any] {
+            opt["headers"] = dict
+        }
+        if let params = value.objectForKeyedSubscript("httpParams" as NSString),
+           !params.isUndefined, !params.isNull {
+            if params.isObject, let dict = params.toObject() as? [String: Any] {
+                let pairs: [String] = dict.map { key, raw in
+                    let vs: String
+                    if let s = raw as? String {
+                        vs = s
+                    } else if let n = raw as? NSNumber {
+                        vs = n.stringValue
+                    } else {
+                        vs = String(describing: raw)
+                    }
+                    let ek = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+                    let ev = vs.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? vs
+                    return "\(ek)=\(ev)"
+                }
+                opt["body"] = pairs.joined(separator: "&")
+                if opt["method"] == nil { opt["method"] = "POST" }
+                if opt["headers"] == nil {
+                    opt["headers"] = ["Content-Type": "application/x-www-form-urlencoded"]
+                }
+            } else if let s = params.toString(), isUsableJSString(s) {
+                opt["body"] = s
+            }
+        }
+        if let ct = value.objectForKeyedSubscript("cacheTime" as NSString),
+           !ct.isUndefined, !ct.isNull,
+           let n = ct.toNumber() {
+            opt["cacheTime"] = n
+        }
+        if opt.isEmpty {
+            return url
+        }
+        guard JSONSerialization.isValidJSONObject(opt),
+              let data = try? JSONSerialization.data(withJSONObject: opt, options: [.sortedKeys]),
+              let json = String(data: data, encoding: .utf8) else {
+            return url
+        }
+        return "\(url),\(json)"
     }
 
     /// J2：识别误拼进 URL 的 JS 异常文案
