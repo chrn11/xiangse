@@ -20,6 +20,62 @@ jobs:
           python3 tools/ci/validate_hooks_gate.py
           python3 -m unittest discover -s tools/ci -p 'test_*.py'
 
+  # 香色 nativeTool / @js: 适配单测（iOS Simulator）
+  unit-tests:
+    needs: [fixture-gate]
+    runs-on: macos-14
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15.4'
+
+      - name: XiangseNativeToolTests
+        working-directory: LegadoBridge
+        run: |
+          set -euo pipefail
+          swift package resolve
+          # 选用可用 iPhone 模拟器（Xcode 15.4 / macos-14 常见 iPhone 15）
+          DEST=""
+          for name in "iPhone 15" "iPhone 16" "iPhone 15 Pro" "iPhone SE (3rd generation)"; do
+            if xcrun simctl list devices available | grep -F "$name (" >/dev/null; then
+              DEST="platform=iOS Simulator,name=${name}"
+              break
+            fi
+          done
+          if [[ -z "$DEST" ]]; then
+            # 回落：取第一个可用 iPhone
+            name=$(xcrun simctl list devices available | sed -n 's/^[[:space:]]*\(iPhone [^()]*\).*/\1/p' | head -1 | sed 's/[[:space:]]*$//')
+            if [[ -n "$name" ]]; then
+              DEST="platform=iOS Simulator,name=${name}"
+            fi
+          fi
+          if [[ -z "$DEST" ]]; then
+            echo "无可用 iPhone Simulator" >&2
+            xcrun simctl list devices available >&2 || true
+            exit 1
+          fi
+          echo "==> destination: $DEST"
+          set -o pipefail
+          xcodebuild test \
+            -scheme LegadoRuleCore \
+            -destination "$DEST" \
+            -only-testing:LegadoRuleCoreTests/XiangseNativeToolTests \
+            -derivedDataPath "$PWD/.build-test" \
+            CODE_SIGNING_ALLOWED=NO \
+            -skipPackagePluginValidation \
+            2>&1 | tee unit-xiangse-nativetool.log
+          grep -E 'Test Case .* (passed|failed)' unit-xiangse-nativetool.log || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: XiangseNativeTool-unit-logs
+          path: LegadoBridge/unit-xiangse-nativetool.log
+          if-no-files-found: warn
+
   build-bridge:
     needs: [fixture-gate]
     runs-on: macos-14

@@ -1,0 +1,17 @@
+{
+  "bookSourceUrl": "https://xiangse.local/nativetool-probe",
+  "bookSourceName": "香色nativeTool探针",
+  "bookSourceType": 0,
+  "enabled": true,
+  "enabledExplore": false,
+  "searchUrl": "@js:\nvar kw = params.keyWord;\nvar pg = params.pageIndex;\nvar md = params.nativeTool.md5Encode(kw);\nparams.nativeTool.setCache(\"nt_probe\", md + \"|\" + pg);\nresult = \"https://example.com/nt/\" + md + \"/p\" + pg + \".json\";\n",
+  "ruleSearch": {
+    "bookList": "$.list",
+    "name": "name",
+    "author": "author",
+    "bookUrl": "url"
+  },
+  "ruleBookInfo": {},
+  "ruleToc": {},
+  "ruleContent": {}
+}
