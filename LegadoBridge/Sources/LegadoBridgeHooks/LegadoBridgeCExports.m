@@ -2559,10 +2559,20 @@ static void LBEnsureWrongBookWatchdog(void) {
                                                          dispatch_get_main_queue());
         dispatch_source_set_timer(timer,
                                   dispatch_time(DISPATCH_TIME_NOW, 0),
-                                  (uint64_t)(0.15 * NSEC_PER_SEC),
-                                  (uint64_t)(0.05 * NSEC_PER_SEC));
+                                  (uint64_t)(0.12 * NSEC_PER_SEC),
+                                  (uint64_t)(0.04 * NSEC_PER_SEC));
         dispatch_source_set_event_handler(timer, ^{
-            if (!LBShouldSuppressWrongBookHud()) return;
+            // 轻量：只要可见目录有章节/pending 就扫；不做重查询以外的事
+            BOOL watch = (sPendingCatalogChapters.count > 0) ||
+                         (CFAbsoluteTimeGetCurrent() < sSuppressWrongBookHudUntil);
+            if (!watch) {
+                // 偶尔做一次完整判定，避免一直空转漏掉「到底部」
+                static CFAbsoluteTime sLastFull = 0;
+                CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+                if (now - sLastFull < 0.8) return;
+                sLastFull = now;
+                if (!LBShouldSuppressWrongBookHud()) return;
+            }
             LBDismissWrongBookToast();
         });
         dispatch_resume(timer);
@@ -2686,41 +2696,7 @@ static void LBInstallWrongBookHudSuppress(void) {
             if (hit) [done addObject:cn];
         }
         free(list2);
-        // addSubview 拦截：到底部弹出的灰底 toast 常不走 showHud*
-        {
-            Class viewCls = [UIView class];
-            SEL addSel = @selector(addSubview:);
-            Method am = class_getInstanceMethod(viewCls, addSel);
-            if (am) {
-                IMP origAdd = method_getImplementation(am);
-                IMP nh = imp_implementationWithBlock(^void(UIView *selfObj, UIView *sub) {
-                    ((void (*)(id, SEL, id))origAdd)(selfObj, addSel, sub);
-                    if (!sub || !LBShouldSuppressWrongBookHud()) return;
-                    // 仅检查新加视图小树，避免全窗扫描
-                    NSMutableArray *q = [NSMutableArray arrayWithObject:sub];
-                    BOOL hit = NO;
-                    while (q.count > 0) {
-                        UIView *v = q.lastObject;
-                        [q removeLastObject];
-                        if (LBHudMessageIsWrongBook(LBViewCollectedText(v))) {
-                            hit = YES;
-                            break;
-                        }
-                        if (q.count + v.subviews.count > 40) break;
-                        for (UIView *c in v.subviews) [q addObject:c];
-                    }
-                    if (!hit) return;
-                    UIView *victim = sub;
-                    if (sub.bounds.size.width <= 360 && sub.bounds.size.height <= 360) {
-                        victim = sub;
-                    }
-                    victim.hidden = YES;
-                    [victim removeFromSuperview];
-                    logSuppress(@"addSubview", @"错误的书本");
-                });
-                method_setImplementation(am, nh);
-            }
-        }
+        // 禁止全局 hook UIView.addSubview：每次 add 都跑 suppress 判定会拖死目录进页
         LBEnsureWrongBookWatchdog();
         NSLog(@"[LegadoBridge] wrongBookHud suppress hooked classes=%lu",
               (unsigned long)done.count);
