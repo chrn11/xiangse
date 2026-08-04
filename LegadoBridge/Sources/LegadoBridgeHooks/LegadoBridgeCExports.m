@@ -2618,7 +2618,50 @@ static void LBInstallWrongBookHudSuppress(void) {
             if (hit) [done addObject:cn];
         }
         free(list2);
-        NSLog(@"[LegadoBridge] wrongBookHud suppress hooked classes=%lu",
+        // UILabel 兜底：部分 toast 不走 showHud*，直接改 label.text
+        {
+            Class lbl = [UILabel class];
+            SEL setText = @selector(setText:);
+            Method mt = class_getInstanceMethod(lbl, setText);
+            if (mt) {
+                IMP orig = method_getImplementation(mt);
+                IMP nh = imp_implementationWithBlock(^void(UILabel *selfObj, NSString *text) {
+                    if (LBHudMessageIsWrongBook(text) && LBShouldSuppressWrongBookHud()) {
+                        logSuppress(@"UILabel.setText:", text);
+                        selfObj.hidden = YES;
+                        UIView *v = selfObj.superview;
+                        if (v && v.subviews.count <= 8) {
+                            v.hidden = YES;
+                            [v removeFromSuperview];
+                        }
+                        return;
+                    }
+                    ((void (*)(id, SEL, id))orig)(selfObj, setText, text);
+                });
+                method_setImplementation(mt, nh);
+            }
+            SEL setAttr = @selector(setAttributedText:);
+            Method ma = class_getInstanceMethod(lbl, setAttr);
+            if (ma) {
+                IMP orig = method_getImplementation(ma);
+                IMP nh = imp_implementationWithBlock(^void(UILabel *selfObj, NSAttributedString *attr) {
+                    NSString *text = attr.string;
+                    if (LBHudMessageIsWrongBook(text) && LBShouldSuppressWrongBookHud()) {
+                        logSuppress(@"UILabel.setAttributedText:", text);
+                        selfObj.hidden = YES;
+                        UIView *v = selfObj.superview;
+                        if (v && v.subviews.count <= 8) {
+                            v.hidden = YES;
+                            [v removeFromSuperview];
+                        }
+                        return;
+                    }
+                    ((void (*)(id, SEL, id))orig)(selfObj, setAttr, attr);
+                });
+                method_setImplementation(ma, nh);
+            }
+        }
+        NSLog(@"[LegadoBridge] wrongBookHud suppress hooked classes=%lu (+UILabel)",
               (unsigned long)done.count);
     });
 }
@@ -3061,14 +3104,31 @@ static NSInteger LBHookedCatalogNumberOfRows(id self, SEL _cmd, UITableView *tv,
         return 0;
     }
     // 目录：CatalogCon 真机展示字段是 arrSource；E-02/E-03 写 arrSource 后须优先读它
+    NSInteger live = 0;
     for (NSString *key in @[@"arrSource", @"arrCatalog", @"arrCpInfo", @"arrBaseData"]) {
         @try {
             id cur = [self valueForKey:key];
             if (!LBArrayLooksLikeChapters(cur)) continue;
-            return (NSInteger)[cur count];
+            live = (NSInteger)[cur count];
+            if (live > 0) return live;
         } @catch (__unused NSException *e) {}
     }
-    if (sPendingCatalogChapters.count > 0) {
+    // 原生下拉常 in-place removeAllObjects（不走 setter）→ 行数为 0 仍弹错书；有 pending 则同步盖回
+    if (sPendingCatalogChapters.count > 0 &&
+        (LBCatalogLooksLegadoPending() || LBCatalogVCLooksLegado(self))) {
+        static CFAbsoluteTime sLastRowsRestore = 0;
+        CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+        if (now - sLastRowsRestore > 0.2) {
+            sLastRowsRestore = now;
+            sSuppressWrongBookHudUntil = now + 12.0;
+            LBWriteChaptersOntoObject(self, sPendingCatalogChapters);
+            LBDismissWrongBookToast();
+            LBScheduleWrongBookToastDismissBurst();
+            LBCatalogWriteMarker([NSString stringWithFormat:
+                                  @"uiInject numberOfRows-restoreEmpty n=%lu on=%@",
+                                  (unsigned long)sPendingCatalogChapters.count,
+                                  NSStringFromClass([self class])]);
+        }
         return (NSInteger)sPendingCatalogChapters.count;
     }
     if (tv && tv.dataSource && tv.dataSource != self) {
@@ -11974,6 +12034,58 @@ void LBInstallCatalogUIAppearFlush(void) {
                 // 方法在 Plain 基类：只在 CatalogCon 加 override，勿改 BookList
                 const char *types = method_getTypeEncoding(setBaseM);
                 class_addMethod(catalogCls, setBase, (IMP)LBCatalogSetArrBaseData_IMP, types);
+            }
+        }
+        // 下拉松手：即便 in-place 清空，也盖回 pending 并摘 toast
+        {
+            SEL dragSel = @selector(scrollViewDidEndDragging:willDecelerate:);
+            Method dragM = class_getInstanceMethod(catalogCls, dragSel);
+            if (!dragM) {
+                // UIScrollViewDelegate 可能在基类
+                dragM = class_getInstanceMethod(class_getSuperclass(catalogCls), dragSel);
+            }
+            if (dragM) {
+                IMP origDrag = method_getImplementation(dragM);
+                const char *types = method_getTypeEncoding(dragM);
+                IMP nh = imp_implementationWithBlock(^void(id selfObj, UIScrollView *sv, BOOL decel) {
+                    ((void (*)(id, SEL, id, BOOL))origDrag)(selfObj, dragSel, sv, decel);
+                    if (!LBCatalogLooksLegadoPending() && !LBCatalogVCLooksLegado(selfObj)) return;
+                    if (sPendingCatalogChapters.count == 0) return;
+                    BOOL need = NO;
+                    @try {
+                        id src = [selfObj valueForKey:@"arrSource"];
+                        id base = [selfObj valueForKey:@"arrBaseData"];
+                        NSUInteger n = 0;
+                        if ([src isKindOfClass:[NSArray class]]) n = MAX(n, [(NSArray *)src count]);
+                        if ([base isKindOfClass:[NSArray class]]) n = MAX(n, [(NSArray *)base count]);
+                        if (n == 0) need = YES;
+                    } @catch (__unused NSException *e) { need = YES; }
+                    if (sv && sv.contentOffset.y < -20) need = YES;
+                    if (!need) {
+                        // 仍摘一次：刷新失败可能不空表也弹错书
+                        sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 8.0;
+                        LBDismissWrongBookToast();
+                        LBScheduleWrongBookToastDismissBurst();
+                        return;
+                    }
+                    sSuppressWrongBookHudUntil = CFAbsoluteTimeGetCurrent() + 12.0;
+                    LBWriteChaptersOntoObject(selfObj, sPendingCatalogChapters);
+                    if ([selfObj isKindOfClass:[UIViewController class]]) {
+                        LBReloadCatalogVC((UIViewController *)selfObj);
+                    }
+                    LBDismissWrongBookToast();
+                    LBScheduleWrongBookToastDismissBurst();
+                    LBCatalogWriteMarker([NSString stringWithFormat:
+                                          @"uiInject endDragging-restore n=%lu y=%.1f",
+                                          (unsigned long)sPendingCatalogChapters.count,
+                                          sv ? sv.contentOffset.y : 0]);
+                });
+                Class owner = LBClassOwningInstanceMethod(catalogCls, dragSel);
+                if (owner == catalogCls && dragM) {
+                    method_setImplementation(dragM, nh);
+                } else {
+                    class_addMethod(catalogCls, dragSel, nh, types);
+                }
             }
         }
         SEL getSel = @selector(arrCatalog);
