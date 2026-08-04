@@ -723,14 +723,32 @@ class AnalyzeUrl {
         if (typeof config === 'undefined' || config === null) { config = {}; }
         var __analyzeUrlEvalErrMsg = '';
         var __analyzeUrlEvalOut = undefined;
+        function __analyzeUrlShouldTakeOut(out, cur) {
+          if (out === undefined || out === null) return false;
+          if (typeof cur === 'undefined' || cur === null || cur === '') return true;
+          // analyzeJs 会把整段 @js: 原文当作 result 种子；有求值结果时覆盖
+          if (typeof cur === 'string') {
+            var head = cur.slice(0, 4).toLowerCase();
+            if (head === '@js:' || cur.indexOf('<js>') === 0) return true;
+          }
+          return false;
+        }
         try {
+          // 表达式 / result= 赋值：eval 即可（Legado 常见）
           __analyzeUrlEvalOut = eval(\(evalSourceJSON));
-          if (__analyzeUrlEvalOut !== undefined && __analyzeUrlEvalOut !== null
-              && (typeof result === 'undefined' || result === null || result === '')) {
+          if (__analyzeUrlShouldTakeOut(__analyzeUrlEvalOut, result)) {
             result = __analyzeUrlEvalOut;
           }
         } catch (__analyzeUrlEvalErr) {
-          __analyzeUrlEvalErrMsg = String(__analyzeUrlEvalErr);
+          try {
+            // 香色 requestInfo：`return {url, POST, httpParams}`；eval 遇 return 会 SyntaxError
+            __analyzeUrlEvalOut = (new Function(\(evalSourceJSON)))();
+            if (__analyzeUrlShouldTakeOut(__analyzeUrlEvalOut, result)) {
+              result = __analyzeUrlEvalOut;
+            }
+          } catch (__analyzeUrlEvalErr2) {
+            __analyzeUrlEvalErrMsg = String(__analyzeUrlEvalErr2);
+          }
         }
         """
 
