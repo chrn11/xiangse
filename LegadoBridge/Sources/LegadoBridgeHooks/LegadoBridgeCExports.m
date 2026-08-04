@@ -2444,10 +2444,42 @@ static NSString *LBViewCollectedText(UIView *v) {
             }
         } @catch (__unused NSException *e) {}
     }
-    // 香色「错误的书本」浮层常只挂在 accessibility，不写 label.text
+    // HUD 常见字段
+    for (NSString *k in @[@"label", @"detailsLabel", @"textLabel", @"message", @"title", @"msg"]) {
+        @try {
+            id o = [v valueForKey:k];
+            if ([o isKindOfClass:[UILabel class]]) {
+                UILabel *lb = (UILabel *)o;
+                if (lb.text.length > 0) [buf appendString:lb.text];
+                if (lb.attributedText.string.length > 0) [buf appendString:lb.attributedText.string];
+            } else if ([o isKindOfClass:[NSString class]] && [(NSString *)o length] > 0) {
+                [buf appendString:(NSString *)o];
+            }
+        } @catch (__unused NSException *e) {}
+    }
+    // 香色「错误的书本」浮层常只挂在 accessibility
     if (v.accessibilityLabel.length > 0) [buf appendString:v.accessibilityLabel];
     if (v.accessibilityValue.length > 0) [buf appendString:v.accessibilityValue];
     if (v.accessibilityHint.length > 0) [buf appendString:v.accessibilityHint];
+    // 容器内虚拟 AX 元素（非 UIView 子树）
+    @try {
+        if ([v respondsToSelector:@selector(accessibilityElementCount)] &&
+            [v respondsToSelector:@selector(accessibilityElementAtIndex:)]) {
+            NSInteger n = ((NSInteger (*)(id, SEL))objc_msgSend)(v, @selector(accessibilityElementCount));
+            if (n > 0 && n < 40) {
+                for (NSInteger i = 0; i < n; i++) {
+                    id el = ((id (*)(id, SEL, NSInteger))objc_msgSend)(
+                        v, @selector(accessibilityElementAtIndex:), i);
+                    if (!el) continue;
+                    if ([el respondsToSelector:@selector(accessibilityLabel)]) {
+                        NSString *al = ((NSString * (*)(id, SEL))objc_msgSend)(
+                            el, @selector(accessibilityLabel));
+                        if (al.length > 0) [buf appendString:al];
+                    }
+                }
+            }
+        }
+    } @catch (__unused NSException *e) {}
     return buf.length > 0 ? buf : nil;
 }
 
@@ -2461,35 +2493,23 @@ static void LBDismissWrongBookToast(void) {
         while (stack.count > 0) {
             UIView *cur = stack.lastObject;
             [stack removeLastObject];
-            if ([cur isKindOfClass:[UITableView class]] ||
-                [cur isKindOfClass:[UITableViewCell class]] ||
-                [cur isKindOfClass:[UINavigationBar class]]) {
-                // 不 recurse 进表格单元格树做摘除（避免误伤）
-                continue;
-            }
             NSString *cn = NSStringFromClass([cur class]);
             NSString *ownText = LBViewCollectedText(cur);
             BOOL selfHit = LBHudMessageIsWrongBook(ownText);
-            BOOL errorLike = [cn containsString:@"ReadError"] ||
-                             [cn containsString:@"ErrorView"] ||
-                             [cn containsString:@"ErrorTip"] ||
-                             [cn containsString:@"Toast"] ||
-                             [cn containsString:@"Hud"] ||
-                             [cn containsString:@"HUD"] ||
-                             [cn containsString:@"TipView"];
+            // 单元格标题不会是「错误的书本」；命中则仍摘（toast 可能误挂在 table 子树）
             if (selfHit) {
                 UIView *victim = cur;
-                // 上溯到小容器（灰底 toast），勿摘到 window/table
                 UIView *p = cur.superview;
                 int hops = 0;
-                while (p && hops < 4 &&
+                while (p && hops < 5 &&
                        ![p isKindOfClass:[UIWindow class]] &&
                        ![p isKindOfClass:[UITableView class]] &&
                        ![p isKindOfClass:[UITableViewCell class]] &&
                        ![p isKindOfClass:[UINavigationBar class]] &&
-                       p.subviews.count <= 10 &&
-                       p.bounds.size.width <= 360 &&
-                       p.bounds.size.height <= 360) {
+                       p.subviews.count <= 12) {
+                    CGSize sz = p.bounds.size;
+                    // 灰底 toast 通常不大；过大则停在当前 victim
+                    if (sz.width > 420 || sz.height > 420) break;
                     victim = p;
                     p = p.superview;
                     hops++;
@@ -2503,6 +2523,13 @@ static void LBDismissWrongBookToast(void) {
                   atomically:YES encoding:NSUTF8StringEncoding error:NULL];
                 continue;
             }
+            BOOL errorLike = [cn containsString:@"ReadError"] ||
+                             [cn containsString:@"ErrorView"] ||
+                             [cn containsString:@"ErrorTip"] ||
+                             [cn containsString:@"Toast"] ||
+                             [cn containsString:@"Hud"] ||
+                             [cn containsString:@"HUD"] ||
+                             [cn containsString:@"TipView"];
             if (errorLike) {
                 BOOL childHit = NO;
                 for (UIView *s in cur.subviews) {
