@@ -74,20 +74,32 @@ final class XiangseJSExecuteTests: XCTestCase {
     func testJavaScriptParserPath() throws {
         let engine = RuleEngine()
         let context = ExecutionContext()
+        context.ruleEngine = engine
         context.document = #"{"list":[{"title":"t1"},{"title":"t2"}]}"#
         context.baseURL = URL(string: "https://example.com/x")
         let rule = #"""
         @js:
         function functionName(config, params, result) {
+          if (!result || !result.list) {
+            return { err: "bad-result", t: typeof result, v: String(result).slice(0,80) };
+          }
           result.list.shift();
           return { list: result.list, url: params.responseUrl };
         }
         """#
-        let result = try engine.executeSingle(rule: rule, context: context)
+        let parser = JavaScriptParser()
+        let result: RuleResult
+        do {
+            result = try parser.execute(rule, context: context)
+        } catch {
+            XCTFail("JavaScriptParser 抛错: \(error)")
+            return
+        }
         guard case .string(let s) = result else {
             XCTFail("应为 string，实际 \(result)")
             return
         }
+        XCTAssertFalse(s.contains("bad-result"), "result 未正确注入: \(s)")
         XCTAssertTrue(s.contains("t2"), "实际: \(s)")
         XCTAssertFalse(s.contains("\"t1\""), "实际: \(s)")
         XCTAssertTrue(s.contains("example.com"), "应带 responseUrl，实际: \(s)")

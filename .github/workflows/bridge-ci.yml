@@ -65,7 +65,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -skipPackagePluginValidation \
             2>&1 | tee -a unit-xiangse-nativetool.log
-          grep -E 'Test Case .* (passed|failed)|TEST SUCCEEDED|TEST FAILED|error:' unit-xiangse-nativetool.log || true
+          grep -E 'Test Case .* (passed|failed)|TEST SUCCEEDED|TEST FAILED|error:|XCTAssert|实际:|抛错|bad-result' unit-xiangse-nativetool.log || true
 
       - uses: actions/upload-artifact@v4
         if: always()

@@ -2682,10 +2682,16 @@ class JavaScriptParser: RuleExecutor {
         let js = context.jsContext
         let baseStr = context.baseURL?.absoluteString ?? ""
 
+        // 清掉 lazy 注入的 result 函数，再写入数据
+        _ = ObjCExceptionCatch.evaluateScript(
+            "try { delete result; } catch (e) {}",
+            in: js,
+            error: nil
+        )
+
         // 列表项是 JSON 字典时，必须把 dict 注入为 result 对象。
         // 只注入字符串时 result.book_id 全空 → bookUrl 拼成同一 data: URL → dedupe 只剩 1 本。
         // 若链式规则已有非空 lastResult，优先用字符串（保持 @js 链语义）。
-        // 注意：lazy jsContext 曾把 result 注成 getter 函数；必须用 setObject 覆盖，勿靠 var result=。
         let priorText: String? = {
             if case .string(let s) = context.lastResult, !s.isEmpty { return s }
             if case .list(let vals) = context.lastResult, let first = vals.first, !first.isEmpty {
