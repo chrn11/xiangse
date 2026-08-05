@@ -152,15 +152,10 @@ enum XiangseNativeTool {
         }
         obj?.setObject(aesB64StrBlock, forKeyedSubscript: "dataByAesDecryptWithBase64StringWithKeyWithIv" as NSString)
 
-        // XPath：对齐香色 LCJSTool.XPathParserWithSource: → TFHpple
-        // JS: var doc = nativeTool.XPathParserWithSource(html);
-        //     doc.searchWithXPathQuery(xpath) / peekAtSearchWithXPathQuery / queryWithXPath
-        // 注意：JSC 对 @convention(block) 返回 JSValue 桥接不稳，须用 AnyObject?
+        // XPath：对齐香色 TFHpple 同名 JS 面（search/peek/query）
+        // 真机禁止 JSValue(object: TFHpple) 转发——会弄崩 JSC，@js 停在原文。
         let xpathBlock: @convention(block) (String) -> AnyObject? = { source in
-            if let forwarded = Self.forwardXPathDocument(source: source, into: jsContext) {
-                return forwarded
-            }
-            return Self.makeXPathDocument(source: source, in: jsContext)
+            Self.makeXPathDocument(source: source, in: jsContext)
         }
         obj?.setObject(xpathBlock, forKeyedSubscript: "XPathParserWithSource" as NSString)
 
@@ -168,16 +163,6 @@ enum XiangseNativeTool {
     }
 
     // MARK: - XPath (TFHpple 兼容壳)
-
-    /// 真机有 LCJSTool 时直接返回其 TFHpple（JSExport 已暴露查询方法）
-    private static func forwardXPathDocument(source: String, into jsContext: JSContext) -> JSValue? {
-        guard let tool = lcjsToolShared() else { return nil }
-        let sel = NSSelectorFromString("XPathParserWithSource:")
-        guard tool.responds(to: sel) else { return nil }
-        guard let unmanaged = tool.perform(sel, with: source) else { return nil }
-        let hpple = unmanaged.takeUnretainedValue()
-        return JSValue(object: hpple, in: jsContext)
-    }
 
     /// 纯 Swift：Kanna 实现与 TFHpple 同名的 JS 方法面
     private static func makeXPathDocument(source: String, in jsContext: JSContext) -> JSValue {
