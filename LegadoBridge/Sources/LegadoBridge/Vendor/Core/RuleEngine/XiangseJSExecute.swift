@@ -56,8 +56,9 @@ enum XiangseJSExecute {
             throw RuleError.executionFailed(jsError)
         }
 
-        // 若 result 是 JSON 文本，升成对象（香色样例常直接 result.list / result.posts）
-        promoteResultJSONIfNeeded(in: jsContext)
+        // 若 result 是 JSON 文本或 ObjC 桥接不可变对象，升成可变 JS 对象
+        // （香色样例常 result.list.shift() / result.posts.map）
+        ensureMutableResult(in: jsContext)
 
         let invoke = """
         (function () {
@@ -123,7 +124,7 @@ enum XiangseJSExecute {
         }
     }
 
-    /// 字符串 result 若为 JSON object/array，则替换为 JS 对象
+    /// 字符串 result 若为 JSON object/array，则替换为可变 JS 对象（勿用 NSArray 注入，否则 shift 等会失败）
     private static func promoteResultJSONIfNeeded(in jsContext: JSContext) {
         guard let bound = jsContext.objectForKeyedSubscript("result" as NSString),
               !bound.isUndefined, !bound.isNull,
@@ -131,20 +132,31 @@ enum XiangseJSExecute {
               let text = bound.toString()?.trimmingCharacters(in: .whitespacesAndNewlines),
               (text.hasPrefix("{") || text.hasPrefix("[")),
               let data = text.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data),
-              JSONSerialization.isValidJSONObject(obj) else {
+              (try? JSONSerialization.jsonObject(with: data)) != nil else {
             return
         }
-        let bridged: Any
-        if let arr = obj as? [Any] {
-            bridged = arr as NSArray
-        } else if let dict = obj as? [String: Any] {
-            bridged = dict as NSDictionary
-        } else {
+        var err: NSString?
+        var jsonErr: NSString?
+        guard let lit = ObjCExceptionCatch.jsonStringLiteral(text, error: &jsonErr) as String? else {
             return
         }
-        jsContext.setObject(bridged, forKeyedSubscript: "result" as NSString)
-        jsContext.globalObject?.setObject(bridged, forKeyedSubscript: "result" as NSString)
+        _ = ObjCExceptionCatch.evaluateScript(
+            "result = JSON.parse(\(lit));",
+            in: jsContext,
+            error: &err
+        )
+    }
+
+    /// 统一保证 result 可被 JS 原地修改
+    private static func ensureMutableResult(in jsContext: JSContext) {
+        promoteResultJSONIfNeeded(in: jsContext)
+        _ = ObjCExceptionCatch.evaluateScript("""
+        (function () {
+          if (typeof result === 'object' && result !== null) {
+            try { result = JSON.parse(JSON.stringify(result)); } catch (e) {}
+          }
+        })();
+        """, in: jsContext, error: nil)
     }
 
     static func stringify(_ value: JSValue?) -> String? {
