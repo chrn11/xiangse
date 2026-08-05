@@ -2679,11 +2679,13 @@ class JavaScriptParser: RuleExecutor {
     
     func execute(_ rule: String, context: ExecutionContext) throws -> RuleResult {
         let jsCode = extractJS(rule)
-        _ = context.jsContext
-        let baseLiteral = jsonLiteral(context.baseURL?.absoluteString ?? "")
+        let js = context.jsContext
+        let baseStr = context.baseURL?.absoluteString ?? ""
+
         // 列表项是 JSON 字典时，必须把 dict 注入为 result 对象。
         // 只注入字符串时 result.book_id 全空 → bookUrl 拼成同一 data: URL → dedupe 只剩 1 本。
         // 若链式规则已有非空 lastResult，优先用字符串（保持 @js 链语义）。
+        // 注意：lazy jsContext 曾把 result 注成 getter 函数；必须用 setObject 覆盖，勿靠 var result=。
         let priorText: String? = {
             if case .string(let s) = context.lastResult, !s.isEmpty { return s }
             if case .list(let vals) = context.lastResult, let first = vals.first, !first.isEmpty {
@@ -2692,27 +2694,30 @@ class JavaScriptParser: RuleExecutor {
             return nil
         }()
         if let priorText {
-            let resultLiteral = jsonLiteral(priorText)
-            context.jsContext.evaluateScript("var result = \(resultLiteral); var baseUrl = \(baseLiteral);")
+            js.setObject(priorText, forKeyedSubscript: "result" as NSString)
+            js.globalObject?.setObject(priorText, forKeyedSubscript: "result" as NSString)
         } else if injectJSONResult(into: context) {
-            context.jsContext.evaluateScript("var baseUrl = \(baseLiteral);")
+            // result 已由 injectJSONResult 写入
         } else {
             let resultText = (context.document as? String) ?? ""
-            let resultLiteral = jsonLiteral(resultText)
-            context.jsContext.evaluateScript("var result = \(resultLiteral); var baseUrl = \(baseLiteral);")
+            js.setObject(resultText, forKeyedSubscript: "result" as NSString)
+            js.globalObject?.setObject(resultText, forKeyedSubscript: "result" as NSString)
         }
-        JSBridge.evaluateJsLib(of: context.source, into: context.jsContext)
-        JSBridge.installRhinoThisProxy(into: context.jsContext)
+        js.setObject(baseStr, forKeyedSubscript: "baseUrl" as NSString)
+        js.globalObject?.setObject(baseStr, forKeyedSubscript: "baseUrl" as NSString)
+
+        JSBridge.evaluateJsLib(of: context.source, into: js)
+        JSBridge.installRhinoThisProxy(into: js)
 
         // 香色 JSParser：function functionName(config, params, result) → 定义后调用
         if XiangseJSExecute.looksLikeXiangseFunction(jsCode) {
             var extra: [String: Any] = [:]
-            if let base = context.baseURL?.absoluteString, !base.isEmpty {
-                extra["responseUrl"] = base
+            if !baseStr.isEmpty {
+                extra["responseUrl"] = baseStr
             }
             let out = try XiangseJSExecute.execute(
                 script: jsCode,
-                in: context.jsContext,
+                in: js,
                 config: context.source.map { ["bookSourceUrl": $0.bookSourceUrl, "bookSourceName": $0.bookSourceName] },
                 extraParams: extra.isEmpty ? nil : extra
             )
@@ -2720,8 +2725,8 @@ class JavaScriptParser: RuleExecutor {
         }
 
         var jsError: String?
-        context.jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
-        let jsValue = context.jsContext.evaluateScript(jsCode)
+        js.exceptionHandler = { _, ex in jsError = ex?.toString() }
+        let jsValue = js.evaluateScript(jsCode)
         if let jsError, !jsError.isEmpty {
             throw RuleError.executionFailed(jsError)
         }

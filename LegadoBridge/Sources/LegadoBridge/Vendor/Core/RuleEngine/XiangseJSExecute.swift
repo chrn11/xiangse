@@ -147,13 +147,22 @@ enum XiangseJSExecute {
         )
     }
 
-    /// 统一保证 result 可被 JS 原地修改
+    /// 统一保证 result 可被 JS 原地修改（并覆盖 lazy 注入的 result 函数）
     private static func ensureMutableResult(in jsContext: JSContext) {
         promoteResultJSONIfNeeded(in: jsContext)
         _ = ObjCExceptionCatch.evaluateScript("""
         (function () {
-          if (typeof result === 'object' && result !== null) {
-            try { result = JSON.parse(JSON.stringify(result)); } catch (e) {}
+          // lazy jsContext 可能把 result 注成函数；必须先变成数据
+          if (typeof result === 'function') {
+            try { result = result(); } catch (e) { result = ''; }
+          }
+          if (typeof result === 'string') {
+            var t = result.replace(/^\\s+/, '');
+            if (t.charAt(0) === '{' || t.charAt(0) === '[') {
+              try { result = JSON.parse(result); } catch (e2) {}
+            }
+          } else if (typeof result === 'object' && result !== null) {
+            try { result = JSON.parse(JSON.stringify(result)); } catch (e3) {}
           }
         })();
         """, in: jsContext, error: nil)
