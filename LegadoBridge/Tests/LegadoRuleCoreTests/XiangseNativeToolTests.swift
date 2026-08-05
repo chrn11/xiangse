@@ -121,4 +121,58 @@ final class XiangseNativeToolTests: XCTestCase {
             "nativeTool 未注入，实际: \(analyzed.url)"
         )
     }
+
+    func testXPathParserWithSourceSearch() {
+        let analyzed = AnalyzeUrl.analyze(
+            ruleUrl: #"""
+            @js:
+            var html = '<html><body><div id="a"><p class="t">萧炎</p><a href="/c1">第一章</a></div></body></html>';
+            var doc = params.nativeTool.XPathParserWithSource(html);
+            var nodes = doc.searchWithXPathQuery('//p[@class="t"]');
+            var a = doc.peekAtSearchWithXPathQuery('//a');
+            var href = a.objectForKey('href');
+            result = nodes[0].content + "|" + href + "|" + a.text;
+            """#,
+            key: nil,
+            page: 1,
+            baseUrl: "https://example.com",
+            source: nil
+        )
+        XCTAssertTrue(
+            analyzed.url.contains("萧炎"),
+            "应解析出正文，实际: \(analyzed.url)"
+        )
+        XCTAssertTrue(
+            analyzed.url.contains("/c1") || analyzed.url.contains("%2Fc1"),
+            "应解析出 href，实际: \(analyzed.url)"
+        )
+        XCTAssertTrue(
+            analyzed.url.contains("第一章") || analyzed.url.contains("%"),
+            "应解析出链接文本，实际: \(analyzed.url)"
+        )
+    }
+
+    func testXPathParserWithSourceQueryAliasAndTextNode() {
+        let analyzed = AnalyzeUrl.analyze(
+            ruleUrl: #"""
+            @js:
+            var html = '<html><body><p class="t">萧炎</p></body></html>';
+            var doc = params.nativeTool.XPathParserWithSource(html);
+            var nodes = doc.queryWithXPath('//p[@class="t"]/text()');
+            result = (typeof doc) + "|" + nodes.length + "|" + nodes[0].content;
+            """#,
+            key: nil,
+            page: 1,
+            baseUrl: "https://example.com",
+            source: nil
+        )
+        XCTAssertTrue(
+            analyzed.url.contains("object"),
+            "XPathParserWithSource 应返回对象，实际: \(analyzed.url)"
+        )
+        XCTAssertTrue(
+            analyzed.url.contains("萧炎"),
+            "text() 节点应有 content，实际: \(analyzed.url)"
+        )
+    }
 }

@@ -10,6 +10,7 @@ import Foundation
 import JavaScriptCore
 import CommonCrypto
 import LegadoObjCSupport
+import Kanna
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -151,11 +152,118 @@ enum XiangseNativeTool {
         }
         obj?.setObject(aesB64StrBlock, forKeyedSubscript: "dataByAesDecryptWithBase64StringWithKeyWithIv" as NSString)
 
-        // XPath：最小可用——返回空串；完整 DOM 解析仍走 RuleEngine
-        let xpathBlock: @convention(block) (String) -> String = { _ in "" }
+        // XPath：对齐香色 LCJSTool.XPathParserWithSource: → TFHpple
+        // JS: var doc = nativeTool.XPathParserWithSource(html);
+        //     doc.searchWithXPathQuery(xpath) / peekAtSearchWithXPathQuery / queryWithXPath
+        let xpathBlock: @convention(block) (String) -> JSValue = { source in
+            if let forwarded = Self.forwardXPathDocument(source: source, into: jsContext) {
+                return forwarded
+            }
+            return Self.makeXPathDocument(source: source, in: jsContext)
+        }
         obj?.setObject(xpathBlock, forKeyedSubscript: "XPathParserWithSource" as NSString)
 
         return obj
+    }
+
+    // MARK: - XPath (TFHpple 兼容壳)
+
+    /// 真机有 LCJSTool 时直接返回其 TFHpple（JSExport 已暴露查询方法）
+    private static func forwardXPathDocument(source: String, into jsContext: JSContext) -> JSValue? {
+        guard let tool = lcjsToolShared() else { return nil }
+        let sel = NSSelectorFromString("XPathParserWithSource:")
+        guard tool.responds(to: sel) else { return nil }
+        guard let unmanaged = tool.perform(sel, with: source) else { return nil }
+        let hpple = unmanaged.takeUnretainedValue()
+        return JSValue(object: hpple, in: jsContext)
+    }
+
+    /// 纯 Swift：Kanna 实现与 TFHpple 同名的 JS 方法面
+    private static func makeXPathDocument(source: String, in jsContext: JSContext) -> JSValue {
+        let docVal = JSValue(newObjectIn: jsContext) ?? JSValue(nullIn: jsContext)
+        let html = source
+
+        let searchBlock: @convention(block) (String) -> JSValue = { query in
+            Self.jsArray(from: Self.xpathNodes(in: html, query: query), context: jsContext)
+        }
+        docVal?.setObject(searchBlock, forKeyedSubscript: "searchWithXPathQuery" as NSString)
+        docVal?.setObject(searchBlock, forKeyedSubscript: "queryWithXPath" as NSString)
+
+        let peekBlock: @convention(block) (String) -> JSValue = { query in
+            let nodes = Self.xpathNodes(in: html, query: query)
+            guard let first = nodes.first else {
+                return JSValue(nullIn: jsContext)
+            }
+            return Self.makeXPathElement(first, in: jsContext)
+        }
+        docVal?.setObject(peekBlock, forKeyedSubscript: "peekAtSearchWithXPathQuery" as NSString)
+
+        return docVal ?? JSValue(nullIn: jsContext)
+    }
+
+    private static func xpathNodes(in html: String, query: String) -> [Kanna.XMLElement] {
+        guard let doc = try? Kanna.HTML(html: html, encoding: .utf8) else { return [] }
+        return Array(doc.xpath(query))
+    }
+
+    private static func jsArray(from nodes: [Kanna.XMLElement], context: JSContext) -> JSValue {
+        let arr = JSValue(newArrayIn: context) ?? JSValue(nullIn: context)
+        for (idx, node) in nodes.enumerated() {
+            arr?.setObject(makeXPathElement(node, in: context), atIndexedSubscript: UInt32(idx))
+        }
+        return arr ?? JSValue(nullIn: context)
+    }
+
+    private static func makeXPathElement(_ node: Kanna.XMLElement, in jsContext: JSContext) -> JSValue {
+        let el = JSValue(newObjectIn: jsContext) ?? JSValue(nullIn: jsContext)
+        let tag = node.tagName ?? ""
+        let content = nodeContent(node)
+        let text = node.text ?? content
+        let raw = node.toHTML ?? content
+
+        el?.setObject(content, forKeyedSubscript: "content" as NSString)
+        el?.setObject(text, forKeyedSubscript: "text" as NSString)
+        el?.setObject(tag, forKeyedSubscript: "tagName" as NSString)
+        el?.setObject(raw, forKeyedSubscript: "raw" as NSString)
+
+        var attrs: [String: String] = node.attributes
+        // 常见属性兜底（部分节点 attributes 可能不全）
+        for key in ["href", "src", "class", "id", "title"] {
+            if attrs[key] == nil, let v = node[key] {
+                attrs[key] = v
+            }
+        }
+        el?.setObject(attrs, forKeyedSubscript: "attributes" as NSString)
+
+        let objectForKeyBlock: @convention(block) (String) -> String = { key in
+            if let v = attrs[key] { return v }
+            return node[key] ?? ""
+        }
+        el?.setObject(objectForKeyBlock, forKeyedSubscript: "objectForKey" as NSString)
+
+        // 子树查询：以元素 outer HTML 为文档再 xpath（对齐 TFHppleElement.search*）
+        let frag = raw
+        let nestedSearch: @convention(block) (String) -> JSValue = { query in
+            Self.jsArray(from: Self.xpathNodes(in: frag, query: query), context: jsContext)
+        }
+        el?.setObject(nestedSearch, forKeyedSubscript: "searchWithXPathQuery" as NSString)
+        el?.setObject(nestedSearch, forKeyedSubscript: "queryWithXPath" as NSString)
+
+        let nestedPeek: @convention(block) (String) -> JSValue = { query in
+            let nodes = Self.xpathNodes(in: frag, query: query)
+            guard let first = nodes.first else { return JSValue(nullIn: jsContext) }
+            return Self.makeXPathElement(first, in: jsContext)
+        }
+        el?.setObject(nestedPeek, forKeyedSubscript: "peekAtSearchWithXPathQuery" as NSString)
+
+        return el ?? JSValue(nullIn: jsContext)
+    }
+
+    private static func nodeContent(_ node: Kanna.XMLElement) -> String {
+        // 文本节点 / 属性节点：优先 content；元素节点：text
+        if let c = node.content, !c.isEmpty { return c }
+        if let t = node.text, !t.isEmpty { return t }
+        return ""
     }
 
     // MARK: - helpers
