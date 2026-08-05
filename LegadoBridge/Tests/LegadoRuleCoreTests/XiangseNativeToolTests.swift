@@ -142,21 +142,21 @@ final class XiangseNativeToolTests: XCTestCase {
             baseUrl: "https://example.com",
             source: nil
         )
-        XCTAssertFalse(
-            analyzed.url.contains("ERR:"),
-            "XPath JS 抛错，实际: \(analyzed.url)"
+        let url = analyzed.url
+        let decoded = url.removingPercentEncoding ?? url
+        XCTAssertFalse(url.contains("ERR:"), "XPath JS 抛错，实际: \(url)")
+        // AnalyzeUrl 会相对 baseUrl 拼绝对路径并百分号编码
+        XCTAssertTrue(
+            decoded.contains("萧炎") || url.contains("%E8%90%A7%E7%82%8E"),
+            "应解析出正文，实际: \(url)"
         )
         XCTAssertTrue(
-            analyzed.url.contains("萧炎"),
-            "应解析出正文，实际: \(analyzed.url)"
+            decoded.contains("/c1") || url.contains("%2Fc1") || url.contains("/c1"),
+            "应解析出 href，实际: \(url)"
         )
         XCTAssertTrue(
-            analyzed.url.contains("/c1") || analyzed.url.contains("%2Fc1"),
-            "应解析出 href，实际: \(analyzed.url)"
-        )
-        XCTAssertTrue(
-            analyzed.url.contains("第一章") || analyzed.url.contains("%"),
-            "应解析出链接文本，实际: \(analyzed.url)"
+            decoded.contains("第一章") || url.contains("%E7%AC%AC%E4%B8%80%E7%AB%A0"),
+            "应解析出链接文本，实际: \(url)"
         )
     }
 
@@ -178,17 +178,16 @@ final class XiangseNativeToolTests: XCTestCase {
             baseUrl: "https://example.com",
             source: nil
         )
-        XCTAssertFalse(
-            analyzed.url.contains("ERR:"),
-            "XPath JS 抛错，实际: \(analyzed.url)"
+        let url = analyzed.url
+        let decoded = url.removingPercentEncoding ?? url
+        XCTAssertFalse(url.contains("ERR:"), "XPath JS 抛错，实际: \(url)")
+        XCTAssertTrue(
+            decoded.contains("object") || url.contains("object"),
+            "XPathParserWithSource 应返回对象，实际: \(url)"
         )
         XCTAssertTrue(
-            analyzed.url.contains("object"),
-            "XPathParserWithSource 应返回对象，实际: \(analyzed.url)"
-        )
-        XCTAssertTrue(
-            analyzed.url.contains("萧炎"),
-            "text() 节点应有 content，实际: \(analyzed.url)"
+            decoded.contains("萧炎") || url.contains("%E8%90%A7%E7%82%8E"),
+            "text() 节点应有 content，实际: \(url)"
         )
     }
 }
