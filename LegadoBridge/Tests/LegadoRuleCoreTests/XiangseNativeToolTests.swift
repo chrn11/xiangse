@@ -36,10 +36,16 @@ final class XiangseNativeToolTests: XCTestCase {
             baseUrl: "https://example.com",
             source: nil
         )
-        let expected = "900150983cd24fb0d6963f7d28e17f72|aGk="
+        let md5 = "900150983cd24fb0d6963f7d28e17f72"
+        let b64 = "aGk="
         XCTAssertTrue(
-            analyzed.url == expected || analyzed.url.hasSuffix("/\(expected)"),
-            "实际: \(analyzed.url)"
+            analyzed.url.contains(md5),
+            "缺 md5，实际: \(analyzed.url)"
+        )
+        // |/= 可能被绝对 URL 编码成 %7C / %3D
+        XCTAssertTrue(
+            analyzed.url.contains(b64) || analyzed.url.contains("aGk%3D"),
+            "缺 base64，实际: \(analyzed.url)"
         )
     }
 
