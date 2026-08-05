@@ -9,6 +9,7 @@ import Foundation
 import JavaScriptCore
 import SwiftSoup
 import Kanna
+import LegadoObjCSupport
 
 // MARK: - 辅助函数
 
