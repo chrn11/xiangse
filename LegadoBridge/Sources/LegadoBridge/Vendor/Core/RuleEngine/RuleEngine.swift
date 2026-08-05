@@ -2703,6 +2703,22 @@ class JavaScriptParser: RuleExecutor {
         }
         JSBridge.evaluateJsLib(of: context.source, into: context.jsContext)
         JSBridge.installRhinoThisProxy(into: context.jsContext)
+
+        // 香色 JSParser：function functionName(config, params, result) → 定义后调用
+        if XiangseJSExecute.looksLikeXiangseFunction(jsCode) {
+            var extra: [String: Any] = [:]
+            if let base = context.baseURL?.absoluteString, !base.isEmpty {
+                extra["responseUrl"] = base
+            }
+            let out = try XiangseJSExecute.execute(
+                script: jsCode,
+                in: context.jsContext,
+                config: context.source.map { ["bookSourceUrl": $0.bookSourceUrl, "bookSourceName": $0.bookSourceName] },
+                extraParams: extra.isEmpty ? nil : extra
+            )
+            return out.isEmpty ? .none : .string(out)
+        }
+
         var jsError: String?
         context.jsContext.exceptionHandler = { _, ex in jsError = ex?.toString() }
         let jsValue = context.jsContext.evaluateScript(jsCode)

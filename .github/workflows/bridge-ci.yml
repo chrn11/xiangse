@@ -60,6 +60,7 @@ jobs:
             -scheme LegadoRuleCore \
             -destination "$DEST" \
             -only-testing:LegadoRuleCoreTests/XiangseNativeToolTests \
+            -only-testing:LegadoRuleCoreTests/XiangseJSExecuteTests \
             -derivedDataPath "$PWD/.build-test" \
             CODE_SIGNING_ALLOWED=NO \
             -skipPackagePluginValidation \
