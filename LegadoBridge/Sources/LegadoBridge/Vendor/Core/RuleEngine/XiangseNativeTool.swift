@@ -155,7 +155,8 @@ enum XiangseNativeTool {
         // XPath：对齐香色 LCJSTool.XPathParserWithSource: → TFHpple
         // JS: var doc = nativeTool.XPathParserWithSource(html);
         //     doc.searchWithXPathQuery(xpath) / peekAtSearchWithXPathQuery / queryWithXPath
-        let xpathBlock: @convention(block) (String) -> JSValue = { source in
+        // 注意：JSC 对 @convention(block) 返回 JSValue 桥接不稳，须用 AnyObject?
+        let xpathBlock: @convention(block) (String) -> AnyObject? = { source in
             if let forwarded = Self.forwardXPathDocument(source: source, into: jsContext) {
                 return forwarded
             }
@@ -183,16 +184,16 @@ enum XiangseNativeTool {
         let docVal = JSValue(newObjectIn: jsContext) ?? JSValue(nullIn: jsContext)
         let html = source
 
-        let searchBlock: @convention(block) (String) -> JSValue = { query in
+        let searchBlock: @convention(block) (String) -> AnyObject? = { query in
             Self.jsArray(from: Self.xpathNodes(in: html, query: query), context: jsContext)
         }
         docVal?.setObject(searchBlock, forKeyedSubscript: "searchWithXPathQuery" as NSString)
         docVal?.setObject(searchBlock, forKeyedSubscript: "queryWithXPath" as NSString)
 
-        let peekBlock: @convention(block) (String) -> JSValue = { query in
+        let peekBlock: @convention(block) (String) -> AnyObject? = { query in
             let nodes = Self.xpathNodes(in: html, query: query)
             guard let first = nodes.first else {
-                return JSValue(nullIn: jsContext)
+                return NSNull()
             }
             return Self.makeXPathElement(first, in: jsContext)
         }
@@ -251,15 +252,15 @@ enum XiangseNativeTool {
 
         // 子树查询：以元素 outer HTML 为文档再 xpath（对齐 TFHppleElement.search*）
         let frag = raw
-        let nestedSearch: @convention(block) (String) -> JSValue = { query in
+        let nestedSearch: @convention(block) (String) -> AnyObject? = { query in
             Self.jsArray(from: Self.xpathNodes(in: frag, query: query), context: jsContext)
         }
         el?.setObject(nestedSearch, forKeyedSubscript: "searchWithXPathQuery" as NSString)
         el?.setObject(nestedSearch, forKeyedSubscript: "queryWithXPath" as NSString)
 
-        let nestedPeek: @convention(block) (String) -> JSValue = { query in
+        let nestedPeek: @convention(block) (String) -> AnyObject? = { query in
             let nodes = Self.xpathNodes(in: frag, query: query)
-            guard let first = nodes.first else { return JSValue(nullIn: jsContext) }
+            guard let first = nodes.first else { return NSNull() }
             return Self.makeXPathElement(first, in: jsContext)
         }
         el?.setObject(nestedPeek, forKeyedSubscript: "peekAtSearchWithXPathQuery" as NSString)

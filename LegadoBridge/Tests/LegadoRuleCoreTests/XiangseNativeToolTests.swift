@@ -126,17 +126,25 @@ final class XiangseNativeToolTests: XCTestCase {
         let analyzed = AnalyzeUrl.analyze(
             ruleUrl: #"""
             @js:
-            var html = '<html><body><div id="a"><p class="t">萧炎</p><a href="/c1">第一章</a></div></body></html>';
-            var doc = params.nativeTool.XPathParserWithSource(html);
-            var nodes = doc.searchWithXPathQuery('//p[@class="t"]');
-            var a = doc.peekAtSearchWithXPathQuery('//a');
-            var href = a.objectForKey('href');
-            result = nodes[0].content + "|" + href + "|" + a.text;
+            try {
+              var html = '<html><body><div id="a"><p class="t">萧炎</p><a href="/c1">第一章</a></div></body></html>';
+              var doc = params.nativeTool.XPathParserWithSource(html);
+              var nodes = doc.searchWithXPathQuery('//p[@class="t"]');
+              var a = doc.peekAtSearchWithXPathQuery('//a');
+              var href = a.objectForKey('href');
+              result = nodes[0].content + "|" + href + "|" + a.text;
+            } catch (e) {
+              result = "ERR:" + e;
+            }
             """#,
             key: nil,
             page: 1,
             baseUrl: "https://example.com",
             source: nil
+        )
+        XCTAssertFalse(
+            analyzed.url.contains("ERR:"),
+            "XPath JS 抛错，实际: \(analyzed.url)"
         )
         XCTAssertTrue(
             analyzed.url.contains("萧炎"),
@@ -156,15 +164,23 @@ final class XiangseNativeToolTests: XCTestCase {
         let analyzed = AnalyzeUrl.analyze(
             ruleUrl: #"""
             @js:
-            var html = '<html><body><p class="t">萧炎</p></body></html>';
-            var doc = params.nativeTool.XPathParserWithSource(html);
-            var nodes = doc.queryWithXPath('//p[@class="t"]/text()');
-            result = (typeof doc) + "|" + nodes.length + "|" + nodes[0].content;
+            try {
+              var html = '<html><body><p class="t">萧炎</p></body></html>';
+              var doc = params.nativeTool.XPathParserWithSource(html);
+              var nodes = doc.queryWithXPath('//p[@class="t"]/text()');
+              result = (typeof doc) + "|" + nodes.length + "|" + nodes[0].content;
+            } catch (e) {
+              result = "ERR:" + e;
+            }
             """#,
             key: nil,
             page: 1,
             baseUrl: "https://example.com",
             source: nil
+        )
+        XCTAssertFalse(
+            analyzed.url.contains("ERR:"),
+            "XPath JS 抛错，实际: \(analyzed.url)"
         )
         XCTAssertTrue(
             analyzed.url.contains("object"),
