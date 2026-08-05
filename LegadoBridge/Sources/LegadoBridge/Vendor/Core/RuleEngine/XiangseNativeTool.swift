@@ -209,7 +209,7 @@ enum XiangseNativeTool {
     private static func jsArray(from nodes: [Kanna.XMLElement], context: JSContext) -> JSValue {
         let arr = JSValue(newArrayIn: context) ?? JSValue(nullIn: context)
         for (idx, node) in nodes.enumerated() {
-            arr?.setObject(makeXPathElement(node, in: context), atIndexedSubscript: UInt32(idx))
+            arr?.setObject(makeXPathElement(node, in: context), atIndexedSubscript: idx)
         }
         return arr ?? JSValue(nullIn: context)
     }
@@ -226,11 +226,19 @@ enum XiangseNativeTool {
         el?.setObject(tag, forKeyedSubscript: "tagName" as NSString)
         el?.setObject(raw, forKeyedSubscript: "raw" as NSString)
 
-        var attrs: [String: String] = node.attributes
-        // 常见属性兜底（部分节点 attributes 可能不全）
-        for key in ["href", "src", "class", "id", "title"] {
-            if attrs[key] == nil, let v = node[key] {
+        // Kanna 5.2 无统一 attributes 属性，用下标收集常见键 + @* xpath
+        var attrs: [String: String] = [:]
+        for key in ["href", "src", "class", "id", "title", "name", "value", "type"] {
+            if let v = node[key], !v.isEmpty {
                 attrs[key] = v
+            }
+        }
+        for attr in node.xpath("@*") {
+            let name = attr.tagName ?? ""
+            guard !name.isEmpty else { continue }
+            let val = attr.content ?? attr.text ?? ""
+            if !val.isEmpty {
+                attrs[name] = val
             }
         }
         el?.setObject(attrs, forKeyedSubscript: "attributes" as NSString)
