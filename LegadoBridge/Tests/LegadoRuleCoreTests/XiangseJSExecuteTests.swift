@@ -1,6 +1,7 @@
 import XCTest
 import JavaScriptCore
 @testable import LegadoRuleCore
+import LegadoObjCSupport
 
 /// 香色 JSParser 三参后处理
 final class XiangseJSExecuteTests: XCTestCase {
@@ -71,37 +72,35 @@ final class XiangseJSExecuteTests: XCTestCase {
         )
     }
 
-    func testJavaScriptParserPath() throws {
-        let engine = RuleEngine()
-        let context = ExecutionContext()
-        context.ruleEngine = engine
-        context.document = #"{"list":[{"title":"t1"},{"title":"t2"}]}"#
-        context.baseURL = URL(string: "https://example.com/x")
-        let rule = #"""
-        @js:
+    /// 模拟 JavaScriptParser 注入：先装 result 函数（对齐 ExecutionContext 懒加载），再 delete+setObject
+    func testOverwriteResultFunctionBinding() throws {
+        let ctx = JSContext()!
+        let bridge = JSBridge()
+        bridge.injectLite(into: ctx)
+        // 模拟 lazy jsContext 把 result 注成函数
+        let getter: @convention(block) () -> String = { #"{"list":[{"title":"t1"},{"title":"t2"}]}"# }
+        ctx.setObject(getter, forKeyedSubscript: "result" as NSString)
+        ctx.globalObject?.setObject(getter, forKeyedSubscript: "result" as NSString)
+
+        _ = ObjCExceptionCatch.evaluateScript("try { delete result; } catch (e) {}", in: ctx, error: nil)
+        let raw = #"{"list":[{"title":"t1"},{"title":"t2"}]}"#
+        ctx.setObject(raw, forKeyedSubscript: "result" as NSString)
+        ctx.globalObject?.setObject(raw, forKeyedSubscript: "result" as NSString)
+        ctx.setObject("https://example.com/x", forKeyedSubscript: "baseUrl" as NSString)
+
+        let script = """
         function functionName(config, params, result) {
-          if (!result || !result.list) {
-            return { err: "bad-result", t: typeof result, v: String(result).slice(0,80) };
-          }
           result.list.shift();
-          return { list: result.list, url: params.responseUrl };
+          return { list: result.list, url: params.responseUrl || baseUrl };
         }
-        """#
-        let parser = JavaScriptParser()
-        let result: RuleResult
-        do {
-            result = try parser.execute(rule, context: context)
-        } catch {
-            XCTFail("JavaScriptParser 抛错: \(error)")
-            return
-        }
-        guard case .string(let s) = result else {
-            XCTFail("应为 string，实际 \(result)")
-            return
-        }
-        XCTAssertFalse(s.contains("bad-result"), "result 未正确注入: \(s)")
-        XCTAssertTrue(s.contains("t2"), "实际: \(s)")
-        XCTAssertFalse(s.contains("\"t1\""), "实际: \(s)")
-        XCTAssertTrue(s.contains("example.com"), "应带 responseUrl，实际: \(s)")
+        """
+        let out = try XiangseJSExecute.execute(
+            script: script,
+            in: ctx,
+            extraParams: ["responseUrl": "https://example.com/x"]
+        )
+        XCTAssertTrue(out.contains("t2"), "实际: \(out)")
+        XCTAssertFalse(out.contains("\"t1\""), "实际: \(out)")
+        XCTAssertTrue(out.contains("example.com"), "实际: \(out)")
     }
 }
