@@ -74,7 +74,8 @@ jobs:
           if-no-files-found: warn
 
   build-bridge:
-    needs: [fixture-gate]
+    # 单测不过不出 IPA，避免 unit-tests 红时仍上传可用包
+    needs: [fixture-gate, unit-tests]
     runs-on: macos-14
     timeout-minutes: 45
     steps:
@@ -168,7 +169,7 @@ jobs:
           retention-days: 7
 
   build-bridge-debug:
-    needs: [fixture-gate]
+    needs: [fixture-gate, unit-tests]
     runs-on: macos-14
     timeout-minutes: 45
     steps:
