@@ -1,0 +1,37 @@
+{
+  "id": "lingyu-explore-text",
+  "exactSourceUrl": "https://explore.example/lingyu",
+  "sourceNameSnapshot": "fixture-lingyu",
+  "exploreUrl": "玄幻奇幻::/fenlei/xuanhuan/{{page}}/\n武侠仙侠::/fenlei/wuxia/{{page}}/\n都市言情::/fenlei/dushi/{{page}}/\n历史军事::/fenlei/lishi/{{page}}/\n网游竞技::/fenlei/wangyou/{{page}}/\n科幻灵异::/fenlei/kehuan/{{page}}/\n女生频道::/fenlei/nvsheng/{{page}}/",
+  "expected": {
+    "channelCount": 1,
+    "nodeCount": 7,
+    "titles": [
+      "玄幻奇幻",
+      "武侠仙侠",
+      "都市言情",
+      "历史军事",
+      "网游竞技",
+      "科幻灵异",
+      "女生频道"
+    ],
+    "kinds": [
+      "url",
+      "url",
+      "url",
+      "url",
+      "url",
+      "url",
+      "url"
+    ],
+    "selectable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  }
+}

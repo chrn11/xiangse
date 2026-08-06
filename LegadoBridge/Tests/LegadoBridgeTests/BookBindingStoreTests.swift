@@ -3,24 +3,35 @@ import XCTest
 @testable import LegadoBridge
 import LegadoRuleCore
 
-/// BookBindingStore 确定性门禁：绑定 / 持久化 / 删源策略 / 不串源。
-/// 需在 macOS/CI 的 iOS 目标上执行：`swift test --package-path LegadoBridge`
-/// Windows 无 iOS SDK 时由 `.artifacts/test_tools/validate_baseline_and_tests.py` 校验本文件存在性与语义镜像。
+/// BookBindingStore 确定性门禁（v2）。测试注入 isolation root，不写真实 Documents。
 final class BookBindingStoreTests: XCTestCase {
-    private let store = BookBindingStore.shared
+    private var root: URL!
+    private var store: BookBindingStore!
 
     override func setUp() {
         super.setUp()
-        store.resetForTesting(clearPersistFile: true)
+        root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("lb-legacy-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        store = BookBindingStore(
+            persistenceRoot: root,
+            clock: { Date() },
+            fileWriter: DefaultBookBindingFileWriter(),
+            usesLegacyDocumentsV1Fallback: false
+        )
+        _ = store.restoreFromDiskIfNeeded()
     }
 
     override func tearDown() {
         store.resetForTesting(clearPersistFile: true)
+        try? FileManager.default.removeItem(at: root)
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? ""
+        XCTAssertFalse(root.path.hasPrefix(docs))
         super.tearDown()
     }
 
-    func testBindAndLookupByBookUrlAndToken() {
-        let binding = store.bind(
+    func testBindAndLookupByBookUrlAndToken() throws {
+        let binding = try store.bind(
             bookUrl: "https://book.example/a",
             sourceUrl: "https://source.example/a",
             sourceName: "源A",
@@ -28,77 +39,96 @@ final class BookBindingStoreTests: XCTestCase {
             author: "作者"
         )
         XCTAssertFalse(binding.bridgeToken.isEmpty)
+        XCTAssertTrue(binding.bridgeToken.hasPrefix("lb2_"))
         XCTAssertEqual(store.sourceUrl(forBookUrl: "https://book.example/a"), "https://source.example/a")
-        XCTAssertEqual(store.binding(forToken: binding.bridgeToken)?.bookUrl, "https://book.example/a")
+        switch store.binding(forToken: binding.bridgeToken) {
+        case .success(let hit):
+            XCTAssertEqual(hit.bookUrl, "https://book.example/a")
+        case .failure(let err):
+            XCTFail("\(err)")
+        }
         XCTAssertTrue(binding.sourceAvailable)
     }
 
-    func testPersistAcrossRestoreDoesNotMixSources() {
-        _ = store.bind(
+    func testPersistAcrossRestoreDoesNotMixSources() throws {
+        _ = try store.bind(
             bookUrl: "https://book.example/1",
             sourceUrl: "https://source.example/1",
             sourceName: "源1",
             name: "书1"
         )
-        _ = store.bind(
+        _ = try store.bind(
             bookUrl: "https://book.example/2",
             sourceUrl: "https://source.example/2",
             sourceName: "源2",
             name: "书2"
         )
 
-        store.resetForTesting(clearPersistFile: false)
-        XCTAssertEqual(store.allBindings().count, 0)
-
-        let restored = store.restoreFromDiskIfNeeded()
-        XCTAssertEqual(restored, 2)
-        XCTAssertEqual(store.sourceUrl(forBookUrl: "https://book.example/1"), "https://source.example/1")
-        XCTAssertEqual(store.sourceUrl(forBookUrl: "https://book.example/2"), "https://source.example/2")
-        XCTAssertNotEqual(
-            store.binding(forBookUrl: "https://book.example/1")?.bridgeToken,
-            store.binding(forBookUrl: "https://book.example/2")?.bridgeToken
+        let store2 = BookBindingStore(
+            persistenceRoot: root,
+            clock: { Date() },
+            fileWriter: DefaultBookBindingFileWriter(),
+            usesLegacyDocumentsV1Fallback: false
         )
+        let restored = store2.restoreFromDiskIfNeeded()
+        XCTAssertEqual(restored, 2)
+        XCTAssertEqual(store2.sourceUrl(forBookUrl: "https://book.example/1"), "https://source.example/1")
+        XCTAssertEqual(store2.sourceUrl(forBookUrl: "https://book.example/2"), "https://source.example/2")
     }
 
-    func testDeletePolicyKeepBooksMarkUnavailable() {
+    func testDeletePolicyKeepBooksMarkUnavailable() throws {
         BookBindingStore.deletePolicy = .keepBooksMarkUnavailable
-        _ = store.bind(
+        _ = try store.bind(
             bookUrl: "https://book.example/k",
             sourceUrl: "https://source.example/k",
             name: "保留书"
         )
         store.applySourceDeleted(sourceUrl: "https://source.example/k")
+        // apply 异步；同步标记
+        _ = store.markSourceAvailabilitySync(exactSourceUrl: "https://source.example/k", available: false)
         let binding = store.binding(forBookUrl: "https://book.example/k")
         XCTAssertNotNil(binding)
         XCTAssertEqual(binding?.sourceUrl, "https://source.example/k")
         XCTAssertFalse(binding?.sourceAvailable ?? true)
     }
 
-    func testDeletePolicyClearBridgeBindings() {
+    func testDeletePolicyClearBridgeBindingsStillKeepsBinding() throws {
+        // v2 合同：clear 也只标记不可用，不删 binding
         BookBindingStore.deletePolicy = .clearBridgeBindings
-        _ = store.bind(
+        _ = try store.bind(
             bookUrl: "https://book.example/c",
             sourceUrl: "https://source.example/c",
             name: "清除书"
         )
         store.applySourceDeleted(sourceUrl: "https://source.example/c")
-        XCTAssertNil(store.binding(forBookUrl: "https://book.example/c"))
+        _ = store.markSourceAvailabilitySync(exactSourceUrl: "https://source.example/c", available: false)
+        XCTAssertNotNil(store.binding(forBookUrl: "https://book.example/c"))
+        XCTAssertFalse(store.binding(forBookUrl: "https://book.example/c")?.sourceAvailable ?? true)
     }
 
-    func testRebindSameBookUrlUpdatesSource() {
-        _ = store.bind(
+    /// 原 testRebindSameBookUrlUpdatesSource：改为同 bookUrl 不同 source 并存。
+    func testSameBookUrlDifferentSourceCoexist() throws {
+        _ = try store.bind(
             bookUrl: "https://book.example/x",
             sourceUrl: "https://source.example/old",
             name: "旧"
         )
-        let newer = store.bind(
+        let newer = try store.bind(
             bookUrl: "https://book.example/x",
             sourceUrl: "https://source.example/new",
             name: "新"
         )
-        XCTAssertEqual(store.allBindings().count, 1)
-        XCTAssertEqual(store.sourceUrl(forBookUrl: "https://book.example/x"), "https://source.example/new")
-        XCTAssertEqual(store.binding(forToken: newer.bridgeToken)?.name, "新")
+        XCTAssertEqual(store.allBindings().count, 2)
+        switch store.uniqueLegacyBinding(forBookUrl: "https://book.example/x") {
+        case .failure(.ambiguous): break
+        default: XCTFail("expected ambiguous")
+        }
+        switch store.binding(forToken: newer.bridgeToken) {
+        case .success(let hit):
+            XCTAssertEqual(hit.name, "新")
+        case .failure(let err):
+            XCTFail("\(err)")
+        }
     }
 
     func testExactSourceDoesNotFallbackToActive() throws {
@@ -112,41 +142,34 @@ final class BookBindingStoreTests: XCTestCase {
 
         XCTAssertNil(registry.exactSource(forUrl: "https://source.example/missing"))
         XCTAssertEqual(registry.exactSource(forUrl: "https://source.example/a")?.bookSourceName, "A")
-        // 对比：宽松查找在缺失时会回退
         XCTAssertNotNil(registry.source(forUrl: "https://source.example/missing"))
     }
 
-    func testAdapterSearchDictCarriesBridgeToken() {
+    func testAdapterSearchDictCarriesBridgeTokenWithoutUpsert() throws {
         var r = SearchBookResult()
         r.name = "书"
         r.bookUrl = "https://book.example/s"
         r.sourceUrl = "https://source.example/s"
         r.sourceName = "源"
-        let binding = store.bind(bookUrl: r.bookUrl, sourceUrl: r.sourceUrl, sourceName: r.sourceName, name: r.name)
-        let dict = XiangseAdapter.searchBookDict(r, binding: binding)
-        XCTAssertEqual(dict[XiangseAdapter.bridgeTokenKey] as? String, binding.bridgeToken)
+        let before = store.durableCount
+        let dto = XiangseAdapter.ephemeralDTO(from: r)
+        let dict = XiangseAdapter.searchBookDict(r, ephemeral: dto)
+        XCTAssertEqual(store.durableCount, before)
+        XCTAssertEqual(dict[XiangseAdapter.bridgeTokenKey] as? String, dto?.bridgeToken)
         XCTAssertEqual(dict[XiangseAdapter.legadoMarkerKey] as? String, XiangseAdapter.legadoMarkerValue)
         XCTAssertEqual(dict["canAddBookShelf"] as? Bool, true)
         XCTAssertEqual(dict["sourceUrl"] as? String, r.sourceUrl)
     }
 
-    /// 回归：原生 onSearchBookSourceResponse 消费 queryBook（字典），
-    /// 旧实现把 [dict] 塞进 searchBook 会导致有引擎结果但列表空。
-    func testSearchNotifyPayloadUsesQueryBookDict() {
+    func testSearchNotifyPayloadUsesQueryBookDict() throws {
         var r = SearchBookResult()
         r.name = "斗破苍穹"
         r.author = "天蚕土豆"
         r.bookUrl = "http://mock.local/book/doupo.html"
         r.sourceUrl = "http://mock.local"
         r.sourceName = "本地静态测试源"
-        let binding = store.bind(
-            bookUrl: r.bookUrl,
-            sourceUrl: r.sourceUrl,
-            sourceName: r.sourceName,
-            name: r.name,
-            author: r.author
-        )
-        let book = XiangseAdapter.searchBookDict(r, binding: binding)
+        let dto = XiangseAdapter.ephemeralDTO(from: r)
+        let book = XiangseAdapter.searchBookDict(r, ephemeral: dto)
         let payload = XiangseAdapter.searchResultNotifyPayload(
             book: book,
             keyword: "斗破",
@@ -164,13 +187,12 @@ final class BookBindingStoreTests: XCTestCase {
             results: [r],
             keyword: "斗破",
             sourceUrl: r.sourceUrl,
-            bindings: [r.bookUrl: binding]
+            ephemeralByBookUrl: dto.map { [r.bookUrl: $0] } ?? [:]
         )
         XCTAssertTrue(batch["queryBook"] is [String: Any], "单本批量载荷的 queryBook 须为字典")
         XCTAssertTrue(batch["searchBook"] is [String: Any], "单本时 searchBook 须为字典而非数组")
         XCTAssertEqual(book["sourceType"] as? String, "text", "须对齐原生 filterSourceType=text")
 
-        // 多本批量：searchBook 仍须为字典（首本），禁止数组（真机 objectForKey 闪退）
         var r2 = r
         r2.bookUrl = "http://mock.local/book/doupo2.html"
         r2.name = "斗破苍穹2"
@@ -178,7 +200,7 @@ final class BookBindingStoreTests: XCTestCase {
             results: [r, r2],
             keyword: "斗破",
             sourceUrl: r.sourceUrl,
-            bindings: [r.bookUrl: binding]
+            ephemeralByBookUrl: dto.map { [r.bookUrl: $0] } ?? [:]
         )
         XCTAssertTrue(batch2["searchBook"] is [String: Any], "多本时 searchBook 仍须为字典")
         XCTAssertFalse(batch2["searchBook"] is [Any], "多本时 searchBook 禁止数组")

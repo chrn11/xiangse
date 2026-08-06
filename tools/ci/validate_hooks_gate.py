@@ -9,7 +9,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HOOKS_DIR = ROOT / "LegadoBridge" / "Sources" / "LegadoBridgeHooks"
-HOOKS_FILES = ("LegadoBridgeCExports.m", "LBReadingHooks.m", "LBBridgeReaderVC.m", "LBLoadCurCpBridge.m")
+HOOKS_FILES = (
+    "LegadoBridgeCExports.m",
+    "LBReadingHooks.m",
+    "LBBridgeReaderVC.m",
+    "LBLoadCurCpBridge.m",
+    "LBHookSiteRegistry.m",
+)
 
 READER_IVAR_PATTERN = re.compile(
     r"(?:object_setIvar|LBForceSetIvar)\(\s*readerVC\s*,\s*@\"("
@@ -46,6 +52,30 @@ SIGNAL_HANDLER = re.compile(
 )
 ASYNC_UNSAFE_IN_HANDLER = re.compile(
     r"@\"|@try|@catch|@synchronized|NSFileManager|objc_msgSend|objc_\w+\(",
+    re.MULTILINE,
+)
+
+# TC-02 setDicBook per-owner registry 硬门禁
+GLOBAL_LBORIG_SETDICBOOK = re.compile(
+    r"static\s+void\s*\(\s*\*\s*LBOrig_setDicBook\s*\)",
+    re.MULTILINE,
+)
+# 动态 self 查 original（禁止按 self class 再查 previous）
+DYNAMIC_SELF_ORIGINAL = re.compile(
+    r"(?:LBHookSiteRegistryPreviousIMP|method_getImplementation)\s*\(\s*"
+    r"(?:\[\s*self\s+class\s*\]|object_getClass\s*\(\s*self\s*\))",
+    re.MULTILINE,
+)
+# setter 内对 self 再发 setDicBook:（递归风险）
+SETTER_MSGSEND_SELF = re.compile(
+    r"objc_msgSend\s*\(\s*self\s*,\s*@selector\s*\(\s*setDicBook\s*:\s*\)",
+    re.MULTILINE,
+)
+# replacement→replacement previous：安装时 previous 取自另一 Bridge replacement 且未 fail-closed
+# 启发式：禁止在 Install 路径把 LBHookSiteRegistryReplacementIMP 赋给 previous
+REPLACEMENT_AS_PREVIOUS = re.compile(
+    r"(?:previousIMP|capturedPrevious|LBSetDicBookIMP[^\n]*=)[^\n]*"
+    r"LBHookSiteRegistryReplacementIMP",
     re.MULTILINE,
 )
 
@@ -135,6 +165,28 @@ def _check_overlay_guard(filename: str, text: str) -> list[str]:
     return errors
 
 
+def _check_setdicbook_registry(filename: str, text: str) -> list[str]:
+    """TC-02：禁止全局 LBOrig_setDicBook / 动态 self 查 original / setter 内 msgSend setDicBook。"""
+    errors: list[str] = []
+    for m in GLOBAL_LBORIG_SETDICBOOK.finditer(text):
+        errors.append(
+            f"{filename}:{_line_no(text, m.start())}: 禁止全局 LBOrig_setDicBook（须 per-owner registry）"
+        )
+    for m in DYNAMIC_SELF_ORIGINAL.finditer(text):
+        errors.append(
+            f"{filename}:{_line_no(text, m.start())}: 禁止动态 self 查 original"
+        )
+    for m in SETTER_MSGSEND_SELF.finditer(text):
+        errors.append(
+            f"{filename}:{_line_no(text, m.start())}: 禁止 setter 内 objc_msgSend(self,@selector(setDicBook:))"
+        )
+    for m in REPLACEMENT_AS_PREVIOUS.finditer(text):
+        errors.append(
+            f"{filename}:{_line_no(text, m.start())}: 禁止 replacement→replacement previous"
+        )
+    return errors
+
+
 def scan_hooks(sources: dict[str, str] | None = None) -> list[str]:
     sources = sources or _read_hooks()
     errors: list[str] = []
@@ -144,6 +196,7 @@ def scan_hooks(sources: dict[str, str] | None = None) -> list[str]:
         errors.extend(_check_kvc_page_model(filename, text))
         errors.extend(_check_signal_handlers(filename, text))
         errors.extend(_check_overlay_guard(filename, text))
+        errors.extend(_check_setdicbook_registry(filename, text))
     return errors
 
 

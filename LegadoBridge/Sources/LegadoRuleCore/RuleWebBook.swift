@@ -99,6 +99,7 @@ public enum RuleWebBook {
     // MARK: - 发现
 
     /// 发现分类项：标签名 + 请求 URL（对齐香色/Legado explore 分类标签）
+    /// - Note: 旧薄 API；新主路径请用 `parseExploreCatalog` / `ExploreCatalogSnapshot`。
     public struct ExploreKind: Equatable {
         public let title: String
         public let url: String
@@ -116,8 +117,65 @@ public enum RuleWebBook {
         return lower.hasPrefix("@js:") || lower.hasPrefix("<js>")
     }
 
+    /// 新主 API：结构化分类快照（保留空 URL 分组 / style / 稳定 ID）。
+    public static func parseExploreCatalog(
+        _ raw: String,
+        exactSourceUrl: String,
+        sourceNameSnapshot: String? = nil,
+        source: (any BridgeSourceProtocol)? = nil,
+        evaluateJS: Bool = true,
+        jsTimeoutSeconds: TimeInterval = 8,
+        runtimeContextEpoch: Int = 0
+    ) -> ExploreCatalogSnapshot {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return ExploreCatalogBuilder.build(
+                exactSourceUrl: exactSourceUrl,
+                sourceNameSnapshot: sourceNameSnapshot,
+                exploreRaw: "",
+                runtimeContextEpoch: runtimeContextEpoch
+            )
+        }
+
+        var text = trimmed
+        if evaluateJS, isTopLevelExploreJS(text) {
+            guard let evaluated = evaluateExploreUrlJS(
+                text,
+                source: source,
+                timeoutSeconds: jsTimeoutSeconds
+            ) else {
+                var snap = ExploreCatalogBuilder.build(
+                    exactSourceUrl: exactSourceUrl,
+                    sourceNameSnapshot: sourceNameSnapshot,
+                    exploreRaw: text,
+                    runtimeContextEpoch: runtimeContextEpoch
+                )
+                snap.diagnostics.codes.append("jsEvaluateFailed")
+                return snap
+            }
+            text = evaluated.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty || isTopLevelExploreJS(text) {
+                var snap = ExploreCatalogBuilder.build(
+                    exactSourceUrl: exactSourceUrl,
+                    sourceNameSnapshot: sourceNameSnapshot,
+                    exploreRaw: "",
+                    runtimeContextEpoch: runtimeContextEpoch
+                )
+                snap.diagnostics.codes.append("jsEvaluateEmpty")
+                return snap
+            }
+        }
+
+        return ExploreCatalogBuilder.build(
+            exactSourceUrl: exactSourceUrl,
+            sourceNameSnapshot: sourceNameSnapshot,
+            exploreRaw: text,
+            runtimeContextEpoch: runtimeContextEpoch
+        )
+    }
+
     /// 解析 exploreUrl 为全部分类（名::url 多行 / && 分隔 / JSON kinds / 单 URL）。
-    /// - Note: 无 `source` 时不执行顶层 JS，仅做结构解析（并跳过 `//` 注释行）。
+    /// - Note: 薄 adapter，委托 `parseExploreCatalog`；空 URL 分组保留为空 `url`。
     public static func parseExploreKinds(_ raw: String) -> [ExploreKind] {
         parseExploreKinds(raw, source: nil, evaluateJS: false)
     }
@@ -130,87 +188,65 @@ public enum RuleWebBook {
         evaluateJS: Bool = true,
         jsTimeoutSeconds: TimeInterval = 8
     ) -> [ExploreKind] {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
-
-        var text = trimmed
-        if evaluateJS, isTopLevelExploreJS(text) {
-            guard let evaluated = evaluateExploreUrlJS(
-                text,
-                source: source,
-                timeoutSeconds: jsTimeoutSeconds
-            ) else {
-                return []
-            }
-            text = evaluated.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty, !isTopLevelExploreJS(text) else { return [] }
-        }
-
-        return parseExploreKindsStructural(text)
-    }
-
-    /// 结构解析（JSON / 多行名::url / 单 URL）；跳过 `//`、`°`、`☆` 行。
-    public static func parseExploreKindsStructural(_ raw: String) -> [ExploreKind] {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
-
-        // JSON kinds：[{ "title":"…", "url":"/path/{{page}}.html", "style":{…} }, …]
-        // style 仅影响阅读 App 布局，这里只取 title/url（换源分类仍完整）
-        if trimmed.hasPrefix("[") {
-            var out: [ExploreKind] = []
-            if let data = trimmed.data(using: .utf8),
-               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-                for item in arr {
-                    let u = ((item["url"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !u.isEmpty else { continue }
-                    let tRaw = (item["title"] as? String)
-                        ?? (item["name"] as? String)
-                        ?? ""
-                    let t = tRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                    out.append(ExploreKind(title: t.isEmpty ? "分类\(out.count + 1)" : t, url: u))
-                }
-            }
-            return out
-        }
-
-        // 阅读官方格式一：可用换行或 && 分隔多条「名称::url」
-        let normalized = trimmed
-            .replacingOccurrences(of: "&&", with: "\n")
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-
-        if normalized.contains("::") && (normalized.contains("\n") || normalized != trimmed || trimmed.contains("&&")) {
-            var out: [ExploreKind] = []
-            for line in normalized.components(separatedBy: "\n") {
-                let l = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !l.isEmpty else { continue }
-                guard !l.hasPrefix("°"), !l.hasPrefix("☆"), !l.hasPrefix("//") else { continue }
-                guard let range = l.range(of: "::") else { continue }
-                let title = String(l[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-                let u = String(l[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !u.isEmpty else { continue }
-                out.append(ExploreKind(title: title.isEmpty ? "分类\(out.count + 1)" : title, url: u))
-            }
-            if !out.isEmpty { return out }
-        }
-
-        // 单行 名::url
-        if trimmed.contains("::"), !trimmed.lowercased().hasPrefix("http"), !trimmed.hasPrefix("/") {
-            if let range = trimmed.range(of: "::") {
-                let title = String(trimmed[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-                let u = String(trimmed[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !u.isEmpty, !title.hasPrefix("//") {
-                    return [ExploreKind(title: title.isEmpty ? "发现" : title, url: u)]
-                }
-            }
-        }
-
-        // 顶层 JS 原文不得塌缩成「发现」伪分类
-        if isTopLevelExploreJS(trimmed) {
+        let sourceUrl = source?.bookSourceUrl ?? ""
+        let snap = parseExploreCatalog(
+            raw,
+            exactSourceUrl: sourceUrl,
+            sourceNameSnapshot: source?.bookSourceName,
+            source: source,
+            evaluateJS: evaluateJS,
+            jsTimeoutSeconds: jsTimeoutSeconds
+        )
+        if snap.diagnostics.codes.contains("jsEvaluateFailed")
+            || snap.diagnostics.codes.contains("jsEvaluateEmpty")
+            || snap.diagnostics.codes.contains("topLevelJSUnevaluated")
+        {
             return []
         }
+        return exploreKinds(from: snap)
+    }
 
-        return [ExploreKind(title: "发现", url: trimmed)]
+    /// 结构解析（JSON / 多行名::url / 单 URL）；保留空 URL 分组。
+    public static func parseExploreKindsStructural(_ raw: String) -> [ExploreKind] {
+        let snap = ExploreCatalogBuilder.build(exactSourceUrl: "", exploreRaw: raw)
+        if snap.diagnostics.codes.contains("topLevelJSUnevaluated") {
+            return []
+        }
+        return exploreKinds(from: snap)
+    }
+
+    /// 从结构化快照投影旧 `ExploreKind` 列表（含空 URL 分组）。
+    public static func exploreKinds(from snapshot: ExploreCatalogSnapshot) -> [ExploreKind] {
+        var out: [ExploreKind] = []
+        func walk(_ nodes: [ExploreNode]) {
+            for n in nodes {
+                if !n.children.isEmpty {
+                    walk(n.children)
+                    continue
+                }
+                // group / url / action / unsupported：title+target；空 target 保留
+                if n.kind == .unsupported { continue }
+                out.append(ExploreKind(title: n.displayTitle, url: n.rawTarget))
+            }
+        }
+        for ch in snapshot.channels {
+            // 有节点时走节点；无节点空分组保留标题
+            if ch.nodes.isEmpty {
+                if !ch.displayTitle.isEmpty, ch.displayTitle != "发现" {
+                    out.append(ExploreKind(title: ch.displayTitle, url: ""))
+                }
+            } else {
+                walk(ch.nodes)
+            }
+        }
+        // 单 URL 无 :: 的退化：一个「发现」节点
+        if out.isEmpty,
+           let n = snapshot.channels.first?.nodes.first,
+           n.kind == .url
+        {
+            out.append(ExploreKind(title: n.displayTitle, url: n.rawTarget))
+        }
+        return out
     }
 
     /// 把 exploreUrl 收成可请求的单条地址（取 parseExploreKinds 第一项）。

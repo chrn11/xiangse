@@ -35,6 +35,7 @@ id LBLegadoCoreIfReady(void) {
 }
 
 NSArray *LBLegadoGetSourceNames(void) {
+    // 无原生名上下文时退回 display 名；合并路径请用 LBMergeLegadoNames。
     id core = LBLegadoCoreIfReady();
     if (!core || ![core respondsToSelector:@selector(allLegadoSourceNames)]) return @[];
 #pragma clang diagnostic push
@@ -42,6 +43,17 @@ NSArray *LBLegadoGetSourceNames(void) {
     NSArray *names = [core performSelector:@selector(allLegadoSourceNames)];
 #pragma clang diagnostic pop
     return names ?: @[];
+}
+
+/// TC-06：与 orig 冲突时返回 projectionKey，禁止新写 ·Legado。
+static NSArray *LBLegadoListKeysWithNativeNames(NSArray *orig) {
+    id core = LBLegadoCoreIfReady();
+    if (!core) return @[];
+    if ([core respondsToSelector:@selector(allLegadoListKeysWithNativeNames:)]) {
+        return ((NSArray * (*)(id, SEL, NSArray *))objc_msgSend)(
+            core, @selector(allLegadoListKeysWithNativeNames:), orig ?: @[]) ?: @[];
+    }
+    return LBLegadoGetSourceNames();
 }
 
 BOOL LBLegadoIsSourceName(NSString *name) {
@@ -58,19 +70,34 @@ NSDictionary *LBLegadoNativeModel(NSString *name) {
 }
 
 NSArray *LBMergeLegadoNames(NSArray *orig) {
-    NSArray *legadoNames = LBLegadoGetSourceNames();
-    if (legadoNames.count == 0) return orig ?: @[];
+    NSArray *legadoKeys = LBLegadoListKeysWithNativeNames(orig);
+    if (legadoKeys.count == 0) return orig ?: @[];
     NSMutableOrderedSet *merged = [NSMutableOrderedSet orderedSetWithArray:orig ?: @[]];
-    for (NSString *name in legadoNames) {
-        if (name.length == 0) continue;
-        // 原生 XBS 与 Legado 同名时保留原生键，Bridge 源使用消歧后缀；
-        // 否则 getter 合并会把原生 BookWorld 模型覆盖成 Legado 壳。
-        NSString *displayName = [orig containsObject:name]
-            ? [name stringByAppendingString:@"·Legado"]
-            : name;
-        [merged addObject:displayName];
+    for (NSString *key in legadoKeys) {
+        if (key.length == 0) continue;
+        [merged addObject:key];
     }
     return merged.array;
+}
+
+/// TC-06：列表键 → 可见标题；projectionKey / 旧 ·Legado 绝不作为 cell 文案。
+NSString *LBLegadoDisplayNameForListKey(NSString *key) {
+    if (key.length == 0) return key;
+    id core = LBLegadoCoreIfReady();
+    if (core && [core respondsToSelector:@selector(displayNameForLegadoListKey:)]) {
+        NSString *d = ((NSString * (*)(id, SEL, NSString *))objc_msgSend)(
+            core, @selector(displayNameForLegadoListKey:), key);
+        if (d.length > 0) return d;
+    }
+    if ([key hasPrefix:@"__lb_src_v2_"]) {
+        NSDictionary *m = LBLegadoNativeModel(key);
+        NSString *t = m[@"title"] ?: m[@"sourceName"] ?: m[@"bookSourceName"];
+        if ([t isKindOfClass:[NSString class]] && t.length > 0) return t;
+    }
+    if ([key hasSuffix:@"·Legado"]) {
+        return [key substringToIndex:key.length - @"·Legado".length];
+    }
+    return key;
 }
 
 /// AK：主线程弱缓存；bg 禁止任何 windows API（含 keyWindow / UIApplication.windows / scene.windows）
@@ -458,13 +485,30 @@ BOOL LBInstallInstanceHook(Class cls, SEL sel, const char *expectedHint,
     return YES;
 }
 
-#pragma mark - 阅读会话（进程内，非持久化）
+#pragma mark - 阅读会话（进程内，非持久化；按 token / pair 索引）
 
-static NSMutableDictionary<NSString *, NSString *> *LBReadingMap(void) {
+/// token → @{ sourceUrl, bookUrl, token }
+static NSMutableDictionary<NSString *, NSDictionary *> *LBReadingTokenMap(void) {
     static NSMutableDictionary *map;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ map = [NSMutableDictionary dictionary]; });
     return map;
+}
+
+/// bookUrl → 唯一 token；歧义时移除
+static NSMutableDictionary<NSString *, NSString *> *LBReadingBookUrlToToken(void) {
+    static NSMutableDictionary *map;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ map = [NSMutableDictionary dictionary]; });
+    return map;
+}
+
+/// 歧义 bookUrl 集合
+static NSMutableSet<NSString *> *LBReadingAmbiguousBookUrls(void) {
+    static NSMutableSet *set;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ set = [NSMutableSet set]; });
+    return set;
 }
 
 BOOL LBReadingDicLooksLegado(NSDictionary *dic) {
@@ -536,14 +580,44 @@ NSString *LBReadingSourceUrlFromDic(NSDictionary *dic) {
     return nil;
 }
 
+NSString *LBReadingTokenFromDic(NSDictionary *dic) {
+    if (![dic isKindOfClass:[NSDictionary class]]) return nil;
+    for (NSString *key in @[@"legadoBridgeToken", @"bridgeToken", @"token"]) {
+        id v = dic[key];
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) return v;
+    }
+    return nil;
+}
+
+void LBReadingRememberPair(NSString *sourceUrl, NSString *bookUrl, NSString *token) {
+    if (sourceUrl.length == 0 || bookUrl.length == 0) return;
+    NSString *tok = token.length > 0 ? token : [NSString stringWithFormat:@"pair:%@|%@", sourceUrl, bookUrl];
+    NSDictionary *pair = @{
+        @"sourceUrl": sourceUrl,
+        @"bookUrl": bookUrl,
+        @"token": tok
+    };
+    @synchronized (LBReadingTokenMap()) {
+        LBReadingTokenMap()[tok] = pair;
+        if ([LBReadingAmbiguousBookUrls() containsObject:bookUrl]) {
+            // 已歧义：不再写入 bookUrl→token
+        } else if (LBReadingBookUrlToToken()[bookUrl] &&
+                   ![LBReadingBookUrlToToken()[bookUrl] isEqualToString:tok]) {
+            [LBReadingBookUrlToToken() removeObjectForKey:bookUrl];
+            [LBReadingAmbiguousBookUrls() addObject:bookUrl];
+        } else {
+            LBReadingBookUrlToToken()[bookUrl] = tok;
+        }
+    }
+}
+
 void LBReadingRememberBook(NSDictionary *dicBook) {
     if (!LBReadingDicLooksLegado(dicBook)) return;
     NSString *bookUrl = LBReadingBookUrlFromDic(dicBook);
     NSString *sourceUrl = LBReadingSourceUrlFromDic(dicBook);
     if (bookUrl.length == 0 || sourceUrl.length == 0) return;
-    @synchronized (LBReadingMap()) {
-        LBReadingMap()[bookUrl] = sourceUrl;
-    }
+    NSString *token = LBReadingTokenFromDic(dicBook);
+    LBReadingRememberPair(sourceUrl, bookUrl, token);
     // 持久化到 BookBindingStore（经 Core），重启不串源
     id core = LBLegadoCoreIfReady();
     if ([core respondsToSelector:@selector(rememberBookBindingWithBookUrl:sourceUrl:sourceName:name:author:coverUrl:bridgeToken:)]) {
@@ -557,7 +631,6 @@ void LBReadingRememberBook(NSDictionary *dicBook) {
         if ([nm isKindOfClass:[NSString class]]) name = nm;
         NSString *author = [dicBook[@"author"] isKindOfClass:[NSString class]] ? dicBook[@"author"] : nil;
         NSString *cover = [dicBook[@"coverUrl"] isKindOfClass:[NSString class]] ? dicBook[@"coverUrl"] : nil;
-        NSString *token = [dicBook[@"legadoBridgeToken"] isKindOfClass:[NSString class]] ? dicBook[@"legadoBridgeToken"] : nil;
         ((NSString * (*)(id, SEL, NSString *, NSString *, NSString *, NSString *, NSString *, NSString *, NSString *))objc_msgSend)(
             core,
             @selector(rememberBookBindingWithBookUrl:sourceUrl:sourceName:name:author:coverUrl:bridgeToken:),
@@ -566,13 +639,43 @@ void LBReadingRememberBook(NSDictionary *dicBook) {
     }
 }
 
+NSString *LBReadingSourceUrlForToken(NSString *token) {
+    if (token.length == 0) return nil;
+    @synchronized (LBReadingTokenMap()) {
+        NSDictionary *pair = LBReadingTokenMap()[token];
+        NSString *src = pair[@"sourceUrl"];
+        if (src.length > 0) return src;
+    }
+    id core = LBLegadoCoreIfReady();
+    if ([core respondsToSelector:@selector(sourceUrlForBridgeToken:)]) {
+        return ((NSString * (*)(id, SEL, NSString *))objc_msgSend)(
+            core, @selector(sourceUrlForBridgeToken:), token
+        );
+    }
+    return nil;
+}
+
+NSDictionary *LBReadingPairForToken(NSString *token) {
+    if (token.length == 0) return nil;
+    @synchronized (LBReadingTokenMap()) {
+        return [LBReadingTokenMap()[token] copy];
+    }
+}
+
 NSString *LBReadingSourceUrlForBookUrl(NSString *bookUrl) {
     if (bookUrl.length == 0) return nil;
-    @synchronized (LBReadingMap()) {
-        NSString *mem = LBReadingMap()[bookUrl];
-        if (mem.length > 0) return mem;
+    @synchronized (LBReadingTokenMap()) {
+        if ([LBReadingAmbiguousBookUrls() containsObject:bookUrl]) {
+            return nil; // 歧义 fail-closed
+        }
+        NSString *tok = LBReadingBookUrlToToken()[bookUrl];
+        if (tok.length > 0) {
+            NSDictionary *pair = LBReadingTokenMap()[tok];
+            NSString *mem = pair[@"sourceUrl"];
+            if (mem.length > 0) return mem;
+        }
     }
-    // 回退持久绑定
+    // 回退持久绑定：仅唯一 legacy
     id core = LBLegadoCoreIfReady();
     if ([core respondsToSelector:@selector(sourceUrlForBookUrl:)]) {
         return ((NSString * (*)(id, SEL, NSString *))objc_msgSend)(

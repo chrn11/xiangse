@@ -190,4 +190,47 @@ final class XiangseNativeToolTests: XCTestCase {
             "text() 节点应有 content，实际: \(url)"
         )
     }
+
+    /// 香色 deviceIdWithTemplate：等长、保留分隔符、缓存稳定；不是 *→整段 deviceId
+    func testDeviceIdWithTemplateLengthAndCache() {
+        let tpl = "xs_ut_*-\(Int(Date().timeIntervalSince1970))"
+        let analyzed = AnalyzeUrl.analyze(
+            ruleUrl: """
+            @js:
+            var a = params.nativeTool.deviceIdWithTemplateWithSeparator("\(tpl)", "-");
+            var b = params.nativeTool.deviceIdWithTemplateWithSeparator("\(tpl)", "-");
+            var id = params.nativeTool.deviceId();
+            result = a.length + "|" + (a===b) + "|" + (a.indexOf(id)<0) + "|" + a;
+            """,
+            key: nil,
+            page: 1,
+            baseUrl: "https://example.com",
+            source: nil
+        )
+        let decoded = (analyzed.url.removingPercentEncoding ?? analyzed.url)
+        // 期望：长度|true|true|值
+        XCTAssertTrue(
+            decoded.contains("\(tpl.count)|true|true|") || analyzed.url.contains("%7Ctrue%7Ctrue%7C"),
+            "应等长+缓存命中+不含完整 deviceId，实际: \(analyzed.url)"
+        )
+    }
+
+    func testDeviceIdWithTemplateKeepsSeparator() {
+        let analyzed = AnalyzeUrl.analyze(
+            ruleUrl: #"""
+            @js:
+            var r = params.nativeTool.deviceIdWithTemplateWithSeparator("*-*-*", "-");
+            result = r.length + "|" + r.charAt(1) + "|" + r.charAt(3);
+            """#,
+            key: nil,
+            page: 1,
+            baseUrl: "https://example.com",
+            source: nil
+        )
+        let decoded = analyzed.url.removingPercentEncoding ?? analyzed.url
+        XCTAssertTrue(
+            decoded.contains("5|-|-") || analyzed.url.contains("5%7C-%7C-"),
+            "应保留模板中的 '-'，实际: \(analyzed.url)"
+        )
+    }
 }

@@ -1,5 +1,6 @@
 #import "LBInternal.h"
 #import "LBLoadCurCpBridge.h"
+#import "LBHookSiteRegistry.h"
 #import "LegadoBridge.h"
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
@@ -114,16 +115,21 @@ static BOOL LBReadingObjectIsLegado(id object, NSString **outBookUrl, NSString *
 
 #pragma mark - Production hooks
 
-static void (*LBOrig_setDicBook)(id, SEL, id) = NULL;
-static void LBSetDicBook_IMP(id self, SEL _cmd, id dicBook) {
+/// per-owner setDicBook: 公共体。replacement 只转发到此；恰好调用 capturedPrevious 一次。
+void LBSetDicBook_Invoke(id self, SEL sel, id dicBook, LBSetDicBookIMP previous) {
     NSDictionary *dic = nil;
     if ([dicBook isKindOfClass:[NSDictionary class]]) {
         dic = dicBook;
     } else {
         dic = LBReadingDicFromObject(dicBook) ?: LBReadingDicFromObject(self);
     }
-    // 重启后原生可能只留 bookUrl：用持久绑定补 sourceUrl 再记忆
-    if (!LBReadingDicLooksLegado(dic) && !LBReadingDicLooksExplicitNativeXBS(dic)) {
+    // native/XBS：显式标记则逐键原样透传（不做 enrichment）
+    if (LBReadingDicLooksExplicitNativeXBS(dic)) {
+        if (previous) previous(self, sel, dicBook);
+        return;
+    }
+    // 重启后原生可能只留 bookUrl：显式 Legado marker/token 或可绑定 pair 时 enrichment
+    if (!LBReadingDicLooksLegado(dic)) {
         NSString *bookUrl = LBReadingBookUrlFromDic(dic);
         NSString *persisted = LBReadingSourceUrlForBookUrl(bookUrl);
         if (persisted.length > 0) {
@@ -170,8 +176,9 @@ static void LBSetDicBook_IMP(id self, SEL _cmd, id dicBook) {
         dic = safe;
         passBook = safe;
     }
-    if (LBOrig_setDicBook) {
-        LBOrig_setDicBook(self, _cmd, passBook);
+    // nil book：仍恰好调用 previous 一次（透传 nil）
+    if (previous) {
+        previous(self, sel, passBook);
     }
     if (LBReadingDicLooksLegado(dic)) {
         LBReadingRememberBook(dic);
@@ -402,34 +409,28 @@ void LBInstallReadingHooks(void) {
     @try {
         NSMutableArray *installed = [NSMutableArray array];
 
-        // 1) setDicBook: — 生产锚点（详情 + 阅读页；按真正实现类去重，防把 hook 当 orig）
+        // 1) setDicBook: — per-owner registry（禁止单一全局 previous；仅声明 owner）
+        // 候选名来自合同 fixture/源列表；生产以 runtime 自声明（存在+声明方法+ABI）为准，不硬编码为当前 build owner。
         NSArray *dicBookOwners = @[
             @"BookDetailController", @"BookDetailVCBase",
             @"TextReadVC1", @"TextReadVC2", @"TextReadVC3",
             @"ReadVCBase1", @"ReadVCBase2"
         ];
-        SEL setDicSel = @selector(setDicBook:);
         NSString *enc = nil;
         NSString *reason = nil;
-        NSMutableSet *dicBookHooked = [NSMutableSet set];
-        for (NSString *cn in dicBookOwners) {
-            Class detailCls = NSClassFromString(cn);
-            if (!detailCls) continue;
-            Class owner = LBClassOwningInstanceMethod(detailCls, setDicSel) ?: detailCls;
-            NSString *ownerKey = NSStringFromClass(owner);
-            if ([dicBookHooked containsObject:ownerKey]) continue;
-            if (!LBValidateInstanceMethod(owner, setDicSel, "@16", &enc, &reason)) {
-                LBReadingDiagLog([NSString stringWithFormat:@"setDicBook skip %@: %@", ownerKey, reason ?: @""]);
-                continue;
-            }
-            Method m = class_getInstanceMethod(owner, setDicSel);
-            if (!m) continue;
-            if (!LBOrig_setDicBook) {
-                LBOrig_setDicBook = (void (*)(id, SEL, id))method_getImplementation(m);
-            }
-            method_setImplementation(m, (IMP)LBSetDicBook_IMP);
-            [dicBookHooked addObject:ownerKey];
-            [installed addObject:[NSString stringWithFormat:@"setDicBook@%@ enc=%@", ownerKey, enc ?: @""]];
+        NSMutableArray *setDicLabels = [NSMutableArray array];
+        NSUInteger setDicN = LBHookSiteRegistryInstallSetDicBookCandidates(
+            dicBookOwners,
+            LBSetDicBookExpectedEncodingABI,
+            LBSetDicBook_Invoke,
+            setDicLabels
+        );
+        for (NSString *lab in setDicLabels) {
+            [installed addObject:lab];
+            LBReadingDiagLog(lab);
+        }
+        if (setDicN == 0) {
+            LBReadingDiagLog(@"setDicBook: no declaring owners installed (runtime miss or ABI skip)");
         }
 
         // 2) loadCatalog:ignoringCache:

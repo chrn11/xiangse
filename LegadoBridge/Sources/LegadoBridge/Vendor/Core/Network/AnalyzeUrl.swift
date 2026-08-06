@@ -720,7 +720,13 @@ class AnalyzeUrl {
         params.keyWord = (typeof key !== 'undefined' && key !== undefined) ? key : '';
         params.pageIndex = (typeof page !== 'undefined' && page !== undefined) ? page : 1;
         if (typeof nativeTool !== 'undefined' && nativeTool) { params.nativeTool = nativeTool; }
-        if (typeof config === 'undefined' || config === null) { config = {}; }
+        // 香色 requestInfo：config.host / httpHeaders 等；未注入时用 baseUrl 兜底
+        if (typeof config === 'undefined' || config === null || typeof config !== 'object') {
+          config = {};
+        }
+        if (!config.host && typeof baseUrl === 'string' && baseUrl) {
+          config.host = baseUrl;
+        }
         var __analyzeUrlEvalErrMsg = '';
         var __analyzeUrlEvalOut = undefined;
         function __analyzeUrlShouldTakeOut(out, cur) {
@@ -788,6 +794,26 @@ class AnalyzeUrl {
         if let speakSpeed = speakSpeed { jsContext.setObject(speakSpeed, forKeyedSubscript: "speakSpeed" as NSString) }
         jsContext.setObject("", forKeyedSubscript: "result" as NSString)
         jsContext.setObject("", forKeyedSubscript: "url" as NSString)
+        // 香色 DomModelParser 的 config：至少带 host（书源 URL / baseUrl）
+        var xiangseConfig: [String: Any] = [:]
+        if let srcUrl = source?.bookSourceUrl, !srcUrl.isEmpty {
+            xiangseConfig["host"] = srcUrl
+            xiangseConfig["sourceUrl"] = srcUrl
+        } else if !baseUrl.isEmpty {
+            xiangseConfig["host"] = baseUrl
+        }
+        if let name = source?.bookSourceName, !name.isEmpty {
+            xiangseConfig["sourceName"] = name
+            xiangseConfig["title"] = name
+        }
+        if let infoMap {
+            for (k, v) in infoMap where xiangseConfig[k] == nil {
+                xiangseConfig[k] = v
+            }
+        }
+        if !xiangseConfig.isEmpty {
+            jsContext.setObject(xiangseConfig, forKeyedSubscript: "config" as NSString)
+        }
         jsContext.exceptionHandler = { _, exception in
             errBox.jsError = exception?.toString()
         }

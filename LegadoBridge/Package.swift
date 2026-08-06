@@ -123,6 +123,11 @@ let package = Package(
             name: "LegadoBridgeTests",
             dependencies: ["LegadoBridge"],
             path: "Tests/LegadoBridgeTests"
+        ),
+        .testTarget(
+            name: "LegadoBridgeHooksTests",
+            dependencies: ["LegadoBridgeHooks"],
+            path: "Tests/LegadoBridgeHooksTests"
         )
     ]
 )

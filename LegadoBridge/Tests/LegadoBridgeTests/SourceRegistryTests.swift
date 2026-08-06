@@ -78,6 +78,16 @@ final class SourceRegistryTests: XCTestCase {
         XCTAssertEqual(registry.allSources().count, 0)
     }
 
+    /// TC-06：Registry 删源只改本地表；不触碰 BookBindingStore（由 Core markAvailability 负责）。
+    func testRemoveSourceDoesNotClearOtherSources() throws {
+        let a = try Self.jsonData(Self.sampleSource(url: "https://example.com/a", name: "A"))
+        let b = try Self.jsonData(Self.sampleSource(url: "https://example.com/b", name: "B"))
+        XCTAssertEqual(try registry.importJSONData(a), 1)
+        XCTAssertEqual(try registry.importJSONData(b), 1)
+        registry.removeSource(url: "https://example.com/a")
+        XCTAssertEqual(registry.allSources().map(\.bookSourceUrl), ["https://example.com/b"])
+    }
+
     // MARK: - fixtures
 
     private static func sampleSource(url: String, name: String) -> [String: Any] {

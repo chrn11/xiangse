@@ -17,6 +17,8 @@ NSArray *LBLegadoGetSourceNames(void);
 BOOL LBLegadoIsSourceName(NSString * _Nullable name);
 NSDictionary * _Nullable LBLegadoNativeModel(NSString *name);
 NSArray *LBMergeLegadoNames(NSArray * _Nullable orig);
+/// 列表内部键 → 可见 displaySourceName（禁止展示 projectionKey / ·Legado）
+NSString *LBLegadoDisplayNameForListKey(NSString *key);
 
 UIWindow * _Nullable LBLegadoKeyWindow(void);
 void LBLegadoShowResult(NSString *msg);

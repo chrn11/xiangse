@@ -16,17 +16,24 @@ enum XiangseAdapter {
 
     /// 批量结果载荷（调试/兼容）。原生 `onSearchBookSourceResponse:` 实际消费的是
     /// **单本** `queryBook`（见 `searchResultNotifyPayload`）；批量场景请逐条 post。
+    /// bindings 仅作展示 token 覆盖；搜索路径应传 ephemeral，禁止为此 upsert。
     static func searchResultsPayload(
         results: [SearchBookResult],
         keyword: String,
         sourceUrl: String,
-        bindings: [String: BookBinding] = [:]
+        bindings: [String: BookBinding] = [:],
+        ephemeralByBookUrl: [String: EphemeralBookDTO] = [:]
     ) -> [String: Any] {
         let books = results.map { r -> [String: Any] in
-            searchBookDict(r, binding: bindings[r.bookUrl])
+            searchBookDict(
+                r,
+                binding: bindings[r.bookUrl],
+                ephemeral: ephemeralByBookUrl[r.bookUrl]
+            )
         }
         let sourceName = results.first?.sourceName
             ?? bindings.values.first?.sourceName
+            ?? ephemeralByBookUrl.values.first?.sourceName
             ?? ""
         var payload: [String: Any] = [
             "keyword": keyword,
@@ -164,14 +171,24 @@ enum XiangseAdapter {
         ]
     }
 
-    /// 搜索条目 → 香色原生详情/书架可消费字典（含 bridge token；进度/缓存仍由原生持有）
+    /// 搜索条目 → 香色字典。优先 ephemeral DTO（不 durable）；binding 仅在已落盘后覆盖。
     static func searchBookDict(
         _ r: SearchBookResult,
         binding: BookBinding? = nil,
+        ephemeral: EphemeralBookDTO? = nil,
         source: (any BridgeSourceProtocol)? = nil
     ) -> [String: Any] {
-        let token = binding?.bridgeToken
-            ?? BookBindingStore.makeToken(bookUrl: r.bookUrl, sourceUrl: r.sourceUrl)
+        let token: String = {
+            if let binding { return binding.bridgeToken }
+            if let ephemeral { return ephemeral.bridgeToken }
+            if let identity = try? BookIdentity(exactSourceUrl: r.sourceUrl, exactBookUrl: r.bookUrl) {
+                return identity.bridgeTokenV2
+            }
+            return ""
+        }()
+        let sourceName = binding?.sourceName.isEmpty == false
+            ? binding!.sourceName
+            : (ephemeral?.sourceName.isEmpty == false ? ephemeral!.sourceName : r.sourceName)
         var d: [String: Any] = [
             "name": r.name,
             "bookName": r.name,
@@ -179,8 +196,8 @@ enum XiangseAdapter {
             "bookUrl": r.bookUrl,
             "url": r.bookUrl,
             "sourceUrl": r.sourceUrl,
-            "sourceName": r.sourceName,
-            "bookSourceName": r.sourceName,
+            "sourceName": sourceName,
+            "bookSourceName": sourceName,
             // 原生搜索页 filterSourceType 默认 text；填 DOM 会被筛成空列表
             "sourceType": "text",
             legadoMarkerKey: legadoMarkerValue,
@@ -231,6 +248,10 @@ enum XiangseAdapter {
         ]
     }
 
+    static func detailDict(from v2: BookBindingV2) -> [String: Any] {
+        detailDict(from: BookBinding(from: v2))
+    }
+
     static func chapterDict(_ c: BridgeChapter) -> [String: Any] {
         // 香色原生目录/阅读大量读 cpTitle/cpUrl/cpIndex（非 title）
         [
@@ -259,5 +280,24 @@ enum XiangseAdapter {
             "enabled": true,
             legadoMarkerKey: legadoMarkerValue
         ]
+    }
+
+    /// 由搜索结果构造 ephemeral DTO（不写 store）。
+    static func ephemeralDTO(from r: SearchBookResult) -> EphemeralBookDTO? {
+        guard let identity = try? BookIdentity(exactSourceUrl: r.sourceUrl, exactBookUrl: r.bookUrl) else {
+            return nil
+        }
+        var dto = EphemeralBookDTO(
+            identity: identity,
+            displayName: r.name,
+            author: r.author,
+            sourceName: r.sourceName
+        )
+        dto.coverUrl = r.coverUrl
+        dto.intro = r.intro
+        dto.kind = r.kind
+        dto.lastChapter = r.lastChapter
+        dto.wordCount = r.wordCount
+        return dto
     }
 }

@@ -36,16 +36,19 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     @objc public static let shared = LegadoBridgeCore()
     @objc public static let bridgeVersion = "1.0.0-mvp"
 
-    private var bookCache: [String: BridgeBook] = [:]
+    /// 会话缓存按 BookIdentity 索引；禁止 bookUrl-only 猜源。
+    private var bookCache: [BookIdentity: BridgeBook] = [:]
     private let queue = DispatchQueue(label: "com.xiangse.legado-bridge", qos: .userInitiated)
     /// 搜索 marker 文件写锁（超时线程与搜索线程并发追加）
     private let searchMarkerLock = NSLock()
-    /// 并发 explore 世代号：后发请求作废先发的 clear/inject
+    /// 并发 explore 世代号：后发请求作废先发的 clear/inject（委托 SourceSessionCoordinator）。
     private var sExploreGeneration: UInt64 = 0
+    private var sExploreGenerationSourceUrl: String = ""
     /// explore 防抖：同源短时间只执行最后一次（切源回调+深链+原生回调并发触发）
     private var sLastExploreKey: String = ""
     private var sLastExploreAt: TimeInterval = 0
     /// 发现分类缓存：sourceUrl → (exploreUrl 指纹, JSON)
+    /// - Note: TC-05 起持久 last-good 由 ExploreCatalogStore 承担；此内存表仅作过渡 facade。
     private var exploreKindsCache: [String: (fingerprint: String, json: String)] = [:]
     private var exploreKindsWarming: Set<String> = []
     /// 预热失败（空分类）节流：sourceUrl → 失败时间；30s 内不重复预热
@@ -55,6 +58,14 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     @objc public static let exploreKindsDidUpdateNotification = Notification.Name("LegadoExploreKindsDidUpdate")
     /// ObjC / KVO 用通知名字符串
     @objc public static let exploreKindsDidUpdateNotificationName = "LegadoExploreKindsDidUpdate"
+
+    /// 注入用 ExploreCatalogStore（测试可替换）；默认 Application Support 子目录。
+    public var exploreCatalogStore: ExploreCatalogStore = {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let root = base.appendingPathComponent("LegadoBridge", isDirectory: true)
+        return ExploreCatalogStore(persistenceRoot: root)
+    }()
 
     private override init() {
         super.init()
@@ -85,7 +96,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
             let enabled = SourceRegistry.shared.allSources().filter {
                 SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl)
             }
-            // D0：延后 sync，等原生站点表就绪后再 merge；超时放弃而非空表 save
+            // D0/TC-06：禁止启动写 manager；只刷新 ephemeral projection
             NativeSourceInjector.syncToNativeManagerWhenReady(sources: enabled)
         }
         return count
@@ -101,7 +112,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
 
     // MARK: - 书籍绑定（native-flow）
 
-    /// 搜索/详情记住 bookUrl↔sourceUrl↔token；落盘后重启可反查
+    /// 搜索/详情记住 pair↔token；落盘后重启可反查。空 key 返回空串（typed error，不再 lb_invalid）。
     @objc(rememberBookBindingWithBookUrl:sourceUrl:sourceName:name:author:coverUrl:bridgeToken:)
     @discardableResult
     public func rememberBookBinding(
@@ -113,38 +124,63 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         coverUrl: String?,
         bridgeToken: String?
     ) -> String {
-        let binding = BookBindingStore.shared.bind(
-            bookUrl: bookUrl,
-            sourceUrl: sourceUrl,
-            sourceName: sourceName ?? "",
-            name: name ?? "",
-            author: author ?? "",
-            coverUrl: coverUrl ?? "",
-            bridgeToken: bridgeToken
-        )
-        let book = BridgeBook(
-            name: binding.name,
-            author: binding.author,
-            bookUrl: binding.bookUrl,
-            coverUrl: binding.coverUrl,
-            intro: "",
-            sourceUrl: binding.sourceUrl,
-            sourceName: binding.sourceName
-        )
-        bookCache[binding.bookUrl] = book
-        return binding.bridgeToken
+        do {
+            let identity = try BookIdentity(exactSourceUrl: sourceUrl, exactBookUrl: bookUrl)
+            let now = Date()
+            var v2 = BookBindingV2(
+                identity: identity,
+                bridgeToken: identity.bridgeTokenV2,
+                sourceNameSnapshot: sourceName,
+                name: name,
+                author: author,
+                coverUrl: coverUrl,
+                sourceAvailable: true,
+                createdAt: now,
+                updatedAt: now
+            )
+            if let token = bridgeToken, !token.isEmpty, token == identity.bridgeTokenV2 {
+                v2.bridgeToken = token
+            }
+            switch BookBindingStore.shared.upsertAndFlushSync(v2) {
+            case .success(let saved):
+                let book = BridgeBook(
+                    name: saved.name ?? "",
+                    author: saved.author ?? "",
+                    bookUrl: saved.bookUrl,
+                    coverUrl: saved.coverUrl ?? "",
+                    intro: "",
+                    sourceUrl: saved.sourceUrl,
+                    sourceName: saved.sourceNameSnapshot ?? ""
+                )
+                bookCache[identity] = book
+                return saved.bridgeToken
+            case .failure:
+                return ""
+            }
+        } catch {
+            return ""
+        }
     }
 
+    /// bookUrl-only：仅唯一 legacy 命中时返回；歧义失败。
     @objc(sourceUrlForBookUrl:)
     public func sourceUrl(forBookUrl bookUrl: String) -> String? {
-        // 优先返回「注册表里真实存在」的源，避免陈旧 binding（如错误端口）把正文打成 sourceNotFound
-        if let source = resolveEnabledSource(requested: nil, bookUrl: bookUrl) {
-            return source.bookSourceUrl
+        switch BookBindingStore.shared.uniqueLegacyBinding(forBookUrl: bookUrl) {
+        case .success(let binding):
+            return binding.sourceUrl
+        case .failure:
+            return nil
         }
-        if let url = BookBindingStore.shared.sourceUrl(forBookUrl: bookUrl) {
-            return url
+    }
+
+    @objc(sourceUrlForBridgeToken:)
+    public func sourceUrl(forBridgeToken token: String) -> String? {
+        switch BookBindingStore.shared.binding(forToken: token) {
+        case .success(let binding):
+            return binding.sourceUrl
+        case .failure:
+            return nil
         }
-        return bookCache[bookUrl]?.sourceUrl
     }
 
     /// 去掉空串/空白，避免 ObjC 传入 "" 时短路 `??` 回退链
@@ -155,71 +191,73 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         return trimmed
     }
 
-    /// 从 bookUrl / 任意 URL 取 scheme://host[:port]，用于 mock 源端口纠偏
-    private static func originURL(from raw: String?) -> String? {
-        guard let raw = nonEmptyURL(raw), let u = URL(string: raw),
-              let scheme = u.scheme, let host = u.host, !scheme.isEmpty, !host.isEmpty else {
+    /// §24.2 resolver：token → 显式 pair → legacy 唯一 bookUrl。禁止 originURL / bookCache-by-url / 活动源猜源。
+    private func resolveEnabledSource(
+        token: String? = nil,
+        requested: String?,
+        bookUrl: String
+    ) -> MemoryBridgeBookSource? {
+        let store = BookBindingStore.shared
+        switch store.resolveBinding(
+            token: token,
+            exactSourceUrl: requested,
+            bookUrl: bookUrl.isEmpty ? nil : bookUrl
+        ) {
+        case .success(let binding):
+            if let source = SourceRegistry.shared.exactSource(forUrl: binding.sourceUrl),
+               SourceRegistry.shared.isEnabled(url: source.bookSourceUrl) {
+                return source
+            }
+            return nil
+        case .failure(let err):
+            // 显式完整 pair 尚未 durable：用 pair 自身 sourceUrl 精确取源（非 fallback 猜源）
+            if err == .notFound || err == .storeNotReady,
+               let src = Self.nonEmptyURL(requested),
+               let book = Self.nonEmptyURL(bookUrl),
+               (try? BookIdentity(exactSourceUrl: src, exactBookUrl: book)) != nil,
+               let source = SourceRegistry.shared.exactSource(forUrl: src),
+               SourceRegistry.shared.isEnabled(url: source.bookSourceUrl) {
+                return source
+            }
             return nil
         }
-        if let port = u.port {
-            return "\(scheme)://\(host):\(port)"
-        }
-        return "\(scheme)://\(host)"
     }
 
-    /// 按候选顺序解析已启用书源：请求 > binding > 缓存 > bookUrl 源站
-    private func resolveEnabledSource(requested: String?, bookUrl: String) -> MemoryBridgeBookSource? {
-        let binding = BookBindingStore.shared.binding(forBookUrl: bookUrl)
-        var candidates: [String] = []
-        let rawList: [String?] = [
-            Self.nonEmptyURL(requested),
-            Self.nonEmptyURL(binding?.sourceUrl),
-            Self.nonEmptyURL(bookCache[bookUrl]?.sourceUrl),
-            Self.originURL(from: bookUrl),
-            Self.originURL(from: requested),
-            Self.originURL(from: binding?.sourceUrl),
-        ]
-        for item in rawList {
-            guard let item, !candidates.contains(item) else { continue }
-            candidates.append(item)
-        }
-        var hit: MemoryBridgeBookSource?
-        for url in candidates {
-            if let source = SourceRegistry.shared.exactSource(forUrl: url),
-               SourceRegistry.shared.isEnabled(url: source.bookSourceUrl) {
-                hit = source
-                break
-            }
-        }
-        let marker = [
-            "ts=\(ISO8601DateFormatter().string(from: Date()))",
-            "book=\(bookUrl)",
-            "requested=\(Self.nonEmptyURL(requested) ?? "-")",
-            "binding=\(Self.nonEmptyURL(binding?.sourceUrl) ?? "-")",
-            "candidates=\(candidates.joined(separator: ","))",
-            "hit=\(hit?.bookSourceUrl ?? "-")",
-            "regCount=\(SourceRegistry.shared.allSources().count)",
-        ].joined(separator: " ")
-        let path = (NSHomeDirectory() as NSString)
-            .appendingPathComponent("Documents/legado_source_resolve.txt")
-        try? marker.write(toFile: path, atomically: true, encoding: .utf8)
-        return hit
+    private func cachedBook(for identity: BookIdentity) -> BridgeBook? {
+        bookCache[identity]
+    }
+
+    /// 仅当该 bookUrl 在会话缓存中唯一 identity 时返回。
+    private func cachedBookUnique(forBookUrl bookUrl: String) -> BridgeBook? {
+        let hits = bookCache.filter { $0.key.bookUrl == bookUrl }
+        return hits.count == 1 ? hits.first?.value : nil
     }
 
     @objc(bridgeTokenForBookUrl:)
     public func bridgeToken(forBookUrl bookUrl: String) -> String? {
-        BookBindingStore.shared.binding(forBookUrl: bookUrl)?.bridgeToken
+        switch BookBindingStore.shared.uniqueLegacyBinding(forBookUrl: bookUrl) {
+        case .success(let b): return b.bridgeToken
+        case .failure: return nil
+        }
     }
 
     @objc(detailDictForBookUrl:)
     public func detailDict(forBookUrl bookUrl: String) -> NSDictionary? {
-        guard let binding = BookBindingStore.shared.binding(forBookUrl: bookUrl) else { return nil }
-        return XiangseAdapter.detailDict(from: binding) as NSDictionary
+        switch BookBindingStore.shared.uniqueLegacyBinding(forBookUrl: bookUrl) {
+        case .success(let binding):
+            return XiangseAdapter.detailDict(from: binding) as NSDictionary
+        case .failure:
+            return nil
+        }
     }
 
     @objc(isBookSourceAvailable:)
     public func isBookSourceAvailable(_ bookUrl: String) -> Bool {
-        BookBindingStore.shared.binding(forBookUrl: bookUrl)?.sourceAvailable ?? true
+        switch BookBindingStore.shared.uniqueLegacyBinding(forBookUrl: bookUrl) {
+        case .success(let b): return b.sourceAvailable
+        case .failure(.ambiguous): return false
+        case .failure: return true
+        }
     }
 
     /// 删源策略：0=保留书籍并标记不可用（默认）；1=清除桥接层绑定
@@ -254,7 +292,10 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         }
         // 重新导入同源后，恢复此前「书源不可用」标记的绑定
         for s in enabled {
-            BookBindingStore.shared.markSourceAvailable(sourceUrl: s.bookSourceUrl)
+            _ = BookBindingStore.shared.markSourceAvailabilitySync(
+                exactSourceUrl: s.bookSourceUrl,
+                available: true
+            )
         }
         NativeSourceInjector.syncToNativeManager(sources: enabled)
         postNotification(
@@ -268,7 +309,14 @@ private final class SearchOutcomeBox: @unchecked Sendable {
 
     @objc(allLegadoSourceNames)
     public func allLegadoSourceNames() -> [String] {
+        // 无原生上下文时退回 display 名；合并路径请用 allLegadoListKeysWithNativeNames:
         NativeSourceInjector.allLegadoSourceNames()
+    }
+
+    /// 列表合并键：与 nativeNames 冲突时用 projectionKey，禁止 ·Legado 徽章。
+    @objc(allLegadoListKeysWithNativeNames:)
+    public func allLegadoListKeys(withNativeNames nativeNames: [String]?) -> [String] {
+        NativeSourceInjector.listKeys(nativeNames: nativeNames ?? [])
     }
 
     @objc(isLegadoSourceName:)
@@ -282,6 +330,20 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         return model as NSDictionary
     }
 
+    @objc(displayNameForLegadoListKey:)
+    public func displayNameForLegadoListKey(_ key: String) -> String {
+        if let model = NativeSourceInjector.nativeModel(forSourceName: key),
+           let title = model["title"] as? String, !title.isEmpty {
+            return title
+        }
+        if NativeSourceListProjection.isProjectionKey(key) {
+            return NativeSourceInjector.enabledProjections()
+                .first(where: { $0.projectionKey == key })?
+                .displaySourceName ?? key
+        }
+        return key
+    }
+
     // MARK: - 书源管理（增删改）
 
     @objc(removeSource:)
@@ -290,11 +352,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
             .filter { $0.bookSourceUrl == url }
             .map(\.bookSourceName)
         SourceRegistry.shared.removeSource(url: url)
-        NativeSourceInjector.removeFromNativeManager(names: names)
-        // 删源策略：默认保留书籍绑定并标记书源不可用（待 iOS MCP 复核原版语义后可切换）
-        BookBindingStore.shared.applySourceDeleted(sourceUrl: url)
-        // 清内存缓存中依赖该源的书，避免继续用已删源拉目录
-        bookCache = bookCache.filter { $0.value.sourceUrl != url }
+        // TC-06：生产删源不写 manager；只失效投影
+        NativeSourceInjector.removeFromNativeManager(names: names, allowLegacyMigration: false)
+        // 删源策略：只标记 sourceAvailable；不删 binding。会话缓存可清该源条目。
+        _ = BookBindingStore.shared.markSourceAvailabilitySync(exactSourceUrl: url, available: false)
+        bookCache = bookCache.filter { $0.key.sourceUrl != url }
         resyncNativeList()
     }
 
@@ -302,6 +364,8 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     public func setSourceEnabled(_ url: String, enabled: Bool) {
         let wasEnabled = SourceRegistry.shared.isEnabled(url: url)
         SourceRegistry.shared.setEnabled(url: url, enabled: enabled)
+        // 停用只改 sourceAvailable；不删 binding
+        _ = BookBindingStore.shared.markSourceAvailabilitySync(exactSourceUrl: url, available: enabled)
         if wasEnabled != enabled {
             if enabled {
                 resyncNativeList()
@@ -309,7 +373,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 let names = SourceRegistry.shared.allSources()
                     .filter { $0.bookSourceUrl == url }
                     .map(\.bookSourceName)
-                NativeSourceInjector.removeFromNativeManager(names: names)
+                NativeSourceInjector.removeFromNativeManager(names: names, allowLegacyMigration: false)
             }
         }
     }
@@ -469,12 +533,18 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                       SourceRegistry.shared.isEnabled(url: source.bookSourceUrl) else {
                     throw LegadoBridgeError.sourceNotFound
                 }
-                let old = BookBindingStore.shared.binding(forBookUrl: oldBookUrl)
+                let oldCached = self.cachedBookUnique(forBookUrl: oldBookUrl)
+                let old: BookBinding? = {
+                    switch BookBindingStore.shared.uniqueLegacyBinding(forBookUrl: oldBookUrl) {
+                    case .success(let v2): return BookBinding(from: v2)
+                    case .failure: return nil
+                    }
+                }()
                 var book = BridgeBook(
-                    name: old?.name ?? bookCache[oldBookUrl]?.name ?? "",
-                    author: old?.author ?? bookCache[oldBookUrl]?.author ?? "",
+                    name: old?.name ?? oldCached?.name ?? "",
+                    author: old?.author ?? oldCached?.author ?? "",
                     bookUrl: newBookUrl,
-                    coverUrl: old?.coverUrl ?? bookCache[oldBookUrl]?.coverUrl ?? "",
+                    coverUrl: old?.coverUrl ?? oldCached?.coverUrl ?? "",
                     sourceUrl: source.bookSourceUrl,
                     sourceName: source.bookSourceName
                 )
@@ -485,21 +555,8 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     currentIndex: chapterIndex >= 0 ? chapterIndex : nil,
                     chapters: chapters
                 )
-                // 旧 bookUrl 与新不同时，保留旧记录但标记不可用，写入新绑定
-                if oldBookUrl != newBookUrl,
-                   let stale = BookBindingStore.shared.binding(forBookUrl: oldBookUrl) {
-                    _ = BookBindingStore.shared.bind(
-                        bookUrl: stale.bookUrl,
-                        sourceUrl: stale.sourceUrl,
-                        sourceName: stale.sourceName,
-                        name: stale.name,
-                        author: stale.author,
-                        coverUrl: stale.coverUrl,
-                        bridgeToken: stale.bridgeToken,
-                        sourceAvailable: false
-                    )
-                }
-                let binding = BookBindingStore.shared.bind(
+                // 换源成功：新增/更新新 pair，旧 pair 保留（不删、不强制不可用）
+                let binding = try BookBindingStore.shared.bind(
                     bookUrl: newBookUrl,
                     sourceUrl: source.bookSourceUrl,
                     sourceName: source.bookSourceName,
@@ -507,7 +564,9 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     author: book.author.isEmpty ? (old?.author ?? "") : book.author,
                     coverUrl: book.coverUrl.isEmpty ? (old?.coverUrl ?? "") : book.coverUrl
                 )
-                bookCache[newBookUrl] = book
+                if let identity = try? BookIdentity(exactSourceUrl: source.bookSourceUrl, exactBookUrl: newBookUrl) {
+                    bookCache[identity] = book
+                }
                 var info: [String: Any] = [
                     "oldBookUrl": oldBookUrl,
                     "newBookUrl": newBookUrl,
@@ -627,20 +686,10 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     currentIndex: chapterIndex >= 0 ? chapterIndex : nil,
                     chapters: chapters
                 )
-                if oldBookUrl != best.bookUrl,
-                   let stale = BookBindingStore.shared.binding(forBookUrl: oldBookUrl) {
-                    _ = BookBindingStore.shared.bind(
-                        bookUrl: stale.bookUrl,
-                        sourceUrl: stale.sourceUrl,
-                        sourceName: stale.sourceName,
-                        name: stale.name,
-                        author: stale.author,
-                        coverUrl: stale.coverUrl,
-                        bridgeToken: stale.bridgeToken,
-                        sourceAvailable: false
-                    )
+                if oldBookUrl != best.bookUrl {
+                    // 旧 pair 保留；新 pair 另写入
                 }
-                let binding = BookBindingStore.shared.bind(
+                let binding = try BookBindingStore.shared.bind(
                     bookUrl: book.bookUrl,
                     sourceUrl: source.bookSourceUrl,
                     sourceName: source.bookSourceName,
@@ -648,7 +697,9 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     author: book.author,
                     coverUrl: book.coverUrl
                 )
-                bookCache[book.bookUrl] = book
+                if let identity = try? BookIdentity(exactSourceUrl: source.bookSourceUrl, exactBookUrl: book.bookUrl) {
+                    bookCache[identity] = book
+                }
                 var info: [String: Any] = [
                     "oldBookUrl": oldBookUrl,
                     "newBookUrl": book.bookUrl,
@@ -953,12 +1004,36 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         }
         sLastExploreKey = debounceKey
         sLastExploreAt = now
-        // 并发 explore 用世代号丢弃过期结果，避免后发 clear 清掉先发 inject
-        sExploreGeneration &+= 1
-        let generation = sExploreGeneration
         let exploreUrlCopy = exploreUrl
         let sourceUrlCopy = sourceUrl
+        // 并发 explore：世代号归 SourceSessionCoordinator 所有；保留 sExploreGeneration 作兼容镜像
+        let srcKey = (sourceUrlCopy ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let sessionToken: SourceSessionToken
+        if srcKey.isEmpty {
+            sExploreGeneration &+= 1
+            sessionToken = SourceSessionToken(
+                exactSourceUrl: "",
+                uiGeneration: 0,
+                definitionGeneration: 0,
+                contentGeneration: sExploreGeneration,
+                page: max(page, 1)
+            )
+        } else if max(page, 1) <= 1 {
+            sessionToken = SourceSessionCoordinator.shared.apply(
+                .manualRefreshFirstPage(exactSourceUrl: srcKey)
+            )
+            sExploreGeneration = sessionToken.contentGeneration
+            sExploreGenerationSourceUrl = srcKey
+        } else {
+            sessionToken = SourceSessionCoordinator.shared.apply(
+                .loadMore(exactSourceUrl: srcKey, page: max(page, 1))
+            )
+            sExploreGeneration = sessionToken.contentGeneration
+            sExploreGenerationSourceUrl = srcKey
+        }
+        let generation = sessionToken.contentGeneration
         writeSearchMarker("explore start gen=\(generation) src=\(sourceUrl ?? "-") kind=\(exploreUrl ?? "-")")
+        _ = sessionToken // retain for future PublishPermit wiring in same Task
         // 已有明确 kind：清掉「分类加载中」占位，避免超时后仍盖住失败/列表
         if let exploreUrlCopy, !exploreUrlCopy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             DispatchQueue.main.async {
@@ -1067,7 +1142,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                         )
                     }
                     guard generation == sExploreGeneration else { return }
-                    var bindings: [String: BookBinding] = [:]
+                    var ephemeralByBookUrl: [String: EphemeralBookDTO] = [:]
                     for r in results {
                         let book = BridgeBook(
                             name: r.name,
@@ -1078,24 +1153,20 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                             sourceUrl: r.sourceUrl,
                             sourceName: r.sourceName
                         )
-                        bookCache[r.bookUrl] = book
-                        bindings[r.bookUrl] = BookBindingStore.shared.bind(
-                            bookUrl: r.bookUrl,
-                            sourceUrl: r.sourceUrl,
-                            sourceName: r.sourceName,
-                            name: r.name,
-                            author: r.author,
-                            coverUrl: r.coverUrl ?? ""
-                        )
+                        // 展示结果：仅 ephemeral DTO + 会话 cache；禁止 durable upsert
+                        if let dto = XiangseAdapter.ephemeralDTO(from: r) {
+                            ephemeralByBookUrl[r.bookUrl] = dto
+                            bookCache[dto.identity] = book
+                        }
                     }
                     total += results.count
                     // 批量灌入，避免逐本 merge 刷屏
                     let books: [[String: Any]] = results.map { r in
-                        XiangseAdapter.searchBookDict(r, binding: bindings[r.bookUrl])
+                        XiangseAdapter.searchBookDict(r, ephemeral: ephemeralByBookUrl[r.bookUrl])
                     }
                     if !books.isEmpty {
                         for r in results {
-                            let book = XiangseAdapter.searchBookDict(r, binding: bindings[r.bookUrl])
+                            let book = XiangseAdapter.searchBookDict(r, ephemeral: ephemeralByBookUrl[r.bookUrl])
                             var payload = XiangseAdapter.searchResultNotifyPayload(
                                 book: book,
                                 keyword: "explore",
@@ -1283,14 +1354,8 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     totalCount += results.count
                     // 通知/UI 一律异步，搜索循环绝不在此同步等待主线程
                     let books: [[String: Any]] = results.compactMap { r in
-                        let binding = BookBindingStore.shared.bind(
-                            bookUrl: r.bookUrl,
-                            sourceUrl: r.sourceUrl,
-                            sourceName: r.sourceName,
-                            name: r.name,
-                            author: r.author,
-                            coverUrl: r.coverUrl ?? ""
-                        )
+                        // 搜索列表 ephemeral：不调 durable upsert
+                        let dto = XiangseAdapter.ephemeralDTO(from: r)
                         let book = BridgeBook(
                             name: r.name,
                             author: r.author,
@@ -1300,8 +1365,10 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                             sourceUrl: r.sourceUrl,
                             sourceName: r.sourceName
                         )
-                        self.bookCache[r.bookUrl] = book
-                        let dict = XiangseAdapter.searchBookDict(r, binding: binding)
+                        if let identity = dto?.identity {
+                            self.bookCache[identity] = book
+                        }
+                        let dict = XiangseAdapter.searchBookDict(r, ephemeral: dto)
                         guard Self.isSafeSearchBookDict(dict) else { return nil }
                         return dict
                     }
@@ -1397,27 +1464,39 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     public func handleCatalogRequest(bookUrl: String, sourceUrl: String?) {
         Task {
             do {
-                let binding = BookBindingStore.shared.binding(forBookUrl: bookUrl)
-                if let binding, !binding.sourceAvailable {
+                let resolved = BookBindingStore.shared.resolveBinding(
+                    token: nil,
+                    exactSourceUrl: sourceUrl,
+                    bookUrl: bookUrl
+                )
+                let bindingV2: BookBindingV2? = {
+                    switch resolved {
+                    case .success(let b): return b
+                    case .failure: return nil
+                    }
+                }()
+                if let bindingV2, !bindingV2.sourceAvailable {
                     throw LegadoBridgeError.engineError("书源不可用，请重新导入或换源后重试")
                 }
                 guard let source = resolveEnabledSource(requested: sourceUrl, bookUrl: bookUrl) else {
                     throw LegadoBridgeError.sourceNotFound
                 }
-                // 目录请求侧再次落盘，防止仅内存映射丢失
-                let ensured = BookBindingStore.shared.bind(
+                // 目录请求 = 用户点开：导航前 upsert 一次
+                let cached = cachedBookUnique(forBookUrl: bookUrl)
+                    ?? (try? BookIdentity(exactSourceUrl: source.bookSourceUrl, exactBookUrl: bookUrl)).flatMap { bookCache[$0] }
+                let ensured = try BookBindingStore.shared.bind(
                     bookUrl: bookUrl,
                     sourceUrl: source.bookSourceUrl,
                     sourceName: {
-                        if let binding, !binding.sourceName.isEmpty { return binding.sourceName }
+                        if let bindingV2, let n = bindingV2.sourceNameSnapshot, !n.isEmpty { return n }
                         return source.bookSourceName
                     }(),
-                    name: binding?.name ?? bookCache[bookUrl]?.name ?? "",
-                    author: binding?.author ?? bookCache[bookUrl]?.author ?? "",
-                    coverUrl: binding?.coverUrl ?? bookCache[bookUrl]?.coverUrl ?? "",
-                    bridgeToken: binding?.bridgeToken
+                    name: bindingV2?.name ?? cached?.name ?? "",
+                    author: bindingV2?.author ?? cached?.author ?? "",
+                    coverUrl: bindingV2?.coverUrl ?? cached?.coverUrl ?? "",
+                    bridgeToken: bindingV2?.bridgeToken
                 )
-                var book = bookCache[bookUrl] ?? BridgeBook(
+                var book = cached ?? BridgeBook(
                     name: ensured.name,
                     author: ensured.author,
                     bookUrl: bookUrl,
@@ -1449,7 +1528,9 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     try await Task.sleep(nanoseconds: 700_000_000)
                     chapters = try await BridgeWebBook.getChapterList(source: source, book: book)
                 }
-                bookCache[bookUrl] = book
+                if let identity = try? BookIdentity(exactSourceUrl: source.bookSourceUrl, exactBookUrl: bookUrl) {
+                    bookCache[identity] = book
+                }
                 let tocOneLine = book.tocUrl
                     .components(separatedBy: .whitespacesAndNewlines)
                     .filter { !$0.isEmpty }
@@ -1514,25 +1595,41 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         // 与 await 互锁（真机只有 phase=enter / hop，无 didFinish）。
         Task.detached(priority: .userInitiated) {
             do {
-                let binding = BookBindingStore.shared.binding(forBookUrl: bookUrl)
-                if let binding, !binding.sourceAvailable {
+                let resolved = BookBindingStore.shared.resolveBinding(
+                    token: nil,
+                    exactSourceUrl: sourceUrl,
+                    bookUrl: bookUrl
+                )
+                let bindingV2: BookBindingV2? = {
+                    switch resolved {
+                    case .success(let b): return b
+                    case .failure: return nil
+                    }
+                }()
+                if let bindingV2, !bindingV2.sourceAvailable {
                     throw LegadoBridgeError.engineError("书源不可用，请重新导入或换源后重试")
                 }
                 guard let source = self.resolveEnabledSource(requested: sourceUrl, bookUrl: bookUrl) else {
                     throw LegadoBridgeError.sourceNotFound
                 }
-                let cached = self.bookCache[bookUrl]
-                var ensured = binding ?? BookBindingStore.shared.bind(
-                    bookUrl: bookUrl,
-                    sourceUrl: source.bookSourceUrl,
-                    sourceName: source.bookSourceName,
-                    name: cached?.name ?? "",
-                    author: cached?.author ?? "",
-                    coverUrl: cached?.coverUrl ?? ""
-                )
+                let cached = self.cachedBookUnique(forBookUrl: bookUrl)
+                    ?? (try? BookIdentity(exactSourceUrl: source.bookSourceUrl, exactBookUrl: bookUrl)).flatMap { self.bookCache[$0] }
+                var ensured = try {
+                    if let bindingV2 {
+                        return BookBinding(from: bindingV2)
+                    }
+                    return try BookBindingStore.shared.bind(
+                        bookUrl: bookUrl,
+                        sourceUrl: source.bookSourceUrl,
+                        sourceName: source.bookSourceName,
+                        name: cached?.name ?? "",
+                        author: cached?.author ?? "",
+                        coverUrl: cached?.coverUrl ?? ""
+                    )
+                }()
                 // 旧绑定可能无书名；正文 payload 必须带真名，否则 hooks 会落到斗破目录
                 if ensured.name.isEmpty, let cached, !cached.name.isEmpty {
-                    ensured = BookBindingStore.shared.bind(
+                    ensured = try BookBindingStore.shared.bind(
                         bookUrl: bookUrl,
                         sourceUrl: ensured.sourceUrl.isEmpty ? source.bookSourceUrl : ensured.sourceUrl,
                         sourceName: ensured.sourceName.isEmpty ? source.bookSourceName : ensured.sourceName,
@@ -1931,8 +2028,12 @@ private final class SearchOutcomeBox: @unchecked Sendable {
 
     @objc(fetchReviewsForBookUrl:completion:)
     public func fetchReviews(forBookUrl bookUrl: String, completion: @escaping (String) -> Void) {
-        let binding = BookBindingStore.shared.binding(forBookUrl: bookUrl)
-        let sourceUrl = binding?.sourceUrl
+        let sourceUrl: String? = {
+            switch BookBindingStore.shared.uniqueLegacyBinding(forBookUrl: bookUrl) {
+            case .success(let b): return b.sourceUrl
+            case .failure: return nil
+            }
+        }()
         Task {
             let json = fetchReviewsJSON(bookUrl: bookUrl, sourceUrl: sourceUrl)
             await MainActor.run { completion(json) }

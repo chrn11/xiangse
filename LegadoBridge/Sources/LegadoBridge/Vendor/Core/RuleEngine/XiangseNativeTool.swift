@@ -292,12 +292,54 @@ enum XiangseNativeTool {
         return md5Hex(raw)
     }
 
+    /// 对齐香色：`LCJSTool.deviceIdWithTemplate:withSeparator:` → `LCCommonTool.randomId:separator:cache:YES`
+    /// - 缓存键：`uuid_<template>`（不含 separator）
+    /// - 等长；`separator` 字符在模板中原样保留；其余位填随机字符
+    /// - 非「把 `*` 换成完整 deviceId」
     private static func deviceIdWithTemplate(_ template: String, separator: String) -> String {
-        let id = deviceId()
-        if template.isEmpty { return id }
-        // 模板里 `*` 替换为 deviceId 段（香色 deviceIdWithTemplate:withSeparator:）
-        return template.replacingOccurrences(of: "*", with: id)
-            .replacingOccurrences(of: " ", with: separator)
+        if template.isEmpty { return deviceId() }
+        // 真机有 LCJSTool 时直接转发（含 UserDefaults 持久化语义）
+        if let native = forwardLCJSToolTwo(
+            "deviceIdWithTemplate:withSeparator:",
+            a: template,
+            b: separator
+        ), !native.isEmpty {
+            return native
+        }
+        let cacheKey = "uuid_" + template
+        if let cached = UserDefaults.standard.string(forKey: cacheKey), cached.count == template.count {
+            return cached
+        }
+        let generated = randomId(template: template, separator: separator)
+        UserDefaults.standard.set(generated, forKey: cacheKey)
+        return generated
+    }
+
+    /// 对齐 `LCCommonTool.randomId:separator:cache:` 的生成面（cache miss）
+    private static func randomId(template: String, separator: String) -> String {
+        let sepChars = Set(separator)
+        let body = template.filter { !sepChars.contains($0) }
+        let alphabet: [Character]
+        if !body.isEmpty, body.allSatisfy({ $0 == "*" }) {
+            alphabet = Array("0123456789abcdef")
+        } else if body.contains(where: { $0.isUppercase }) && !body.contains(where: { $0.isLowercase }) {
+            alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        } else if body.contains(where: { $0.isLowercase }) {
+            alphabet = Array("0123456789abcdefghijklmnopqrstuvwxyz")
+        } else {
+            alphabet = Array("0123456789abcdef")
+        }
+        var out = String()
+        out.reserveCapacity(template.count)
+        for ch in template {
+            if sepChars.contains(ch) {
+                out.append(ch)
+            } else {
+                let idx = Int.random(in: 0..<alphabet.count)
+                out.append(alphabet[idx])
+            }
+        }
+        return out
     }
 
     private static func md5Hex(_ str: String) -> String {

@@ -1,7 +1,9 @@
 import Foundation
 import LegadoRuleCore
 
-/// 路线 A：将 Legado 书源转为香色闺阁完整 DOM 原生模型（基于 dicBaseModelTemplateDom）
+/// 将 Legado 书源转为香色 DOM 完整模型（基于 dicBaseModelTemplateDom）。
+/// TC-06：日常源列表禁止调用本 Converter；列表只用 `NativeSourceListProjection.ephemeralListDictionary()`。
+/// 本类型仅保留给发现/搜索等需要完整 DOM 模板的非列表路径（若仍有调用）。
 enum XiangseNativeModelConverter {
     static let sourceType = "DOM"
     static let legadoProxyScheme = "locallinkSearchBook://"

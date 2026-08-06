@@ -59,37 +59,35 @@ void LBInvalidateSourceListMergeCache(void) {
 
 static NSDictionary *LBBSM_dicModelList_IMP(id self, SEL _cmd) {
     NSDictionary *orig = LBOrig_BSM_dicModelList ? LBOrig_BSM_dicModelList(self, _cmd) : @{};
-    NSArray *legadoNames = LBLegadoGetSourceNames();
-    if (legadoNames.count == 0) return orig ?: @{};
+    // TC-06：用 projectionKey 消歧，禁止新写 ·Legado；title 仍为 displaySourceName。
+    NSArray *nativeNames = orig.allKeys ?: @[];
+    NSArray *legadoKeys = LBMergeLegadoNames(nativeNames);
+    // 仅取 Legado 侧新增键（去掉原生键）
+    NSMutableArray *legadoOnly = [NSMutableArray array];
+    NSSet *nativeSet = [NSSet setWithArray:nativeNames];
+    for (NSString *k in legadoKeys) {
+        if (![nativeSet containsObject:k]) {
+            [legadoOnly addObject:k];
+        }
+    }
+    if (legadoOnly.count == 0) return orig ?: @{};
 
-    // 性能：UI 会高频调 getter；同 orig 指针 + 同 Legado 名集时复用合并结果
     if (sCachedMerged && orig == sCachedOrig &&
-        sCachedLegadoNames.count == legadoNames.count &&
-        [sCachedLegadoNames isEqualToArray:legadoNames]) {
+        sCachedLegadoNames.count == legadoOnly.count &&
+        [sCachedLegadoNames isEqualToArray:legadoOnly]) {
         return sCachedMerged;
     }
 
     NSMutableDictionary *merged = [orig mutableCopy];
     if (!merged) merged = [NSMutableDictionary dictionary];
-    for (NSString *name in legadoNames) {
-        NSDictionary *model = LBLegadoNativeModel(name);
+    for (NSString *key in legadoOnly) {
+        NSDictionary *model = LBLegadoNativeModel(key);
         if (!model) continue;
-        NSString *key = name;
-        NSDictionary *existing = [merged[name] isKindOfClass:[NSDictionary class]]
-            ? merged[name] : nil;
-        id marker = existing[@"legadoBridge"];
-        if (existing && ![marker isEqual:@"1"] && ![marker isEqual:@1]) {
-            key = [name stringByAppendingString:@"·Legado"];
-            NSMutableDictionary *disambiguated = [model mutableCopy];
-            disambiguated[@"sourceName"] = key;
-            disambiguated[@"bookSourceName"] = key;
-            disambiguated[@"title"] = key;
-            model = disambiguated;
-        }
+        // 冲突键用 projectionKey；显示名留在 model[@"title"]，不改可见徽章
         merged[key] = model;
     }
     sCachedOrig = orig;
-    sCachedLegadoNames = [legadoNames copy];
+    sCachedLegadoNames = [legadoOnly copy];
     sCachedMerged = [merged copy];
     return sCachedMerged;
 }
@@ -117,43 +115,15 @@ static id (*LBOrig_Config_getGroupData)(id, SEL) = NULL;
 
 static id LBConfig_getGroupData_IMP(id self, SEL _cmd) {
     id orig = LBOrig_Config_getGroupData ? LBOrig_Config_getGroupData(self, _cmd) : nil;
-    NSArray *legadoNames = LBLegadoGetSourceNames();
-#if DEBUG
-    static dispatch_once_t onceDbg;
-    dispatch_once(&onceDbg, ^{
-        NSUInteger origNameCount = 0;
-        if ([orig isKindOfClass:[NSArray class]]) {
-            for (id section in (NSArray *)orig) {
-                if ([section isKindOfClass:[NSArray class]]) {
-                    origNameCount += [(NSArray *)section count];
-                }
-            }
-        }
-        NSString *dbg = [NSString stringWithFormat:@"origClass=%@ origNames=%lu legado=%lu",
-                         orig ? NSStringFromClass([orig class]) : @"(nil)",
-                         (unsigned long)origNameCount,
-                         (unsigned long)legadoNames.count];
-        [dbg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_getgroupdata_hook.txt"]
-              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    });
-#endif
-    if (legadoNames.count == 0) return orig;
-    // getGroupData 返回 5 段 NSArray（TOP/文本/图片/音频/视频），Legado DOM 源归入「文本/小说」段（index 1）
-    if ([orig isKindOfClass:[NSArray class]]) {
-        NSMutableArray *groups = [orig mutableCopy];
-        if (groups.count > 1) {
-            id section = groups[1];
-            NSMutableArray *names = [section isKindOfClass:[NSArray class]] ? [section mutableCopy] : [NSMutableArray array];
-            for (NSString *name in legadoNames) {
-                if (name.length > 0 && ![names containsObject:name]) {
-                    [names addObject:name];
-                }
-            }
-            groups[1] = names;
-        }
-        return groups;
+    if (![orig isKindOfClass:[NSArray class]]) return orig;
+    NSMutableArray *groups = [orig mutableCopy];
+    if (groups.count > 1) {
+        id section = groups[1];
+        NSArray *base = [section isKindOfClass:[NSArray class]] ? (NSArray *)section : @[];
+        // TC-06：用 LBMergeLegadoNames（含 projectionKey 消歧）
+        groups[1] = LBMergeLegadoNames(base);
     }
-    return orig;
+    return groups;
 }
 
 /// T3：切换站点右侧索引条含大量空串/"|" 垫片，原生把它们映射到 section0（TOP）。
@@ -237,20 +207,8 @@ static NSArray *LBConfig_getUseSourceNames_IMP(id self, SEL _cmd) {
         // 兼容：仅挂到单一类时的旧指针
         orig = LBOrig_Config_getUseSourceNames(self, _cmd) ?: @[];
     }
-    NSArray *legadoNames = LBLegadoGetSourceNames();
-    // 调试：记录 Hook 命中
-    NSString *dbg = [NSString stringWithFormat:@"orig=%lu legado=%lu", (unsigned long)orig.count, (unsigned long)legadoNames.count];
-    [dbg writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_getusesources_hook.txt"]
-          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    if (legadoNames.count == 0) return orig ?: @[];
-    NSMutableOrderedSet *merged = [NSMutableOrderedSet orderedSetWithArray:orig ?: @[]];
-    for (NSString *name in legadoNames) {
-        NSString *displayName = [orig containsObject:name]
-            ? [name stringByAppendingString:@"·Legado"]
-            : name;
-        [merged addObject:displayName];
-    }
-    return merged.array;
+    // TC-06：冲突用 projectionKey，禁止 ·Legado
+    return LBMergeLegadoNames(orig);
 }
 
 static void LBLegadoShowTapBlockedAlert(UIViewController *vc) {
@@ -267,9 +225,17 @@ static void LBLegadoOpenManagerForSourceName(NSString *name) {
         LBLegadoPresentManagerVC(nil);
         return;
     }
-    // 消歧后缀：原生键「笔趣读·Legado」→ Registry 名「笔趣读」
+    // TC-06：projectionKey / 旧 ·Legado / display 名均可解析
     NSString *lookup = name;
-    if ([name hasSuffix:@"·Legado"]) {
+    if ([name hasPrefix:@"__lb_src_v2_"]) {
+        NSDictionary *proj = LBLegadoNativeModel(name);
+        NSString *url = proj[@"bookSourceUrl"] ?: proj[@"sourceUrl"];
+        if ([url isKindOfClass:[NSString class]] && url.length > 0) {
+            LBLegadoPresentSourceEditor(url);
+            return;
+        }
+        lookup = proj[@"title"] ?: proj[@"sourceName"] ?: name;
+    } else if ([name hasSuffix:@"·Legado"]) {
         lookup = [name substringToIndex:name.length - @"·Legado".length];
     }
     id core = LBLegadoCoreIfReady();
@@ -296,26 +262,62 @@ static void LBLegadoOpenManagerForSourceName(NSString *name) {
     }
 }
 
-/// 剥掉 textByIndexPath 可能带的「(相对时间)」后缀，得到纯源名
+/// 剥掉 textByIndexPath 可能带的「(相对时间)」后缀；projectionKey 映射为可见名。
 static NSString *LBLegadoStripDisplaySuffix(NSString *name) {
     if (name.length == 0) return name;
+    // 解析身份时保留 projectionKey（选择/启停仍靠内部键）
+    BOOL keepKey = [name hasPrefix:@"__lb_src_v2_"];
     NSRange r = [name rangeOfString:@"(" options:NSBackwardsSearch];
     if (r.location != NSNotFound && r.location > 0) {
         name = [name substringToIndex:r.location];
     }
-    return [name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    name = [name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (keepKey) return name;
+    return name;
 }
 
-/// 从列表 VC 按 indexPath 解析源名：优先 textByIndexPath，失败则用 getUseSourceNames / getSortedSourceNames
-static NSString *LBLegadoSourceNameAtIndexPath(id self, NSIndexPath *indexPath) {
-    SEL textSel = @selector(textByIndexPath:);
-    if ([self respondsToSelector:textSel]) {
-        id text = ((id (*)(id, SEL, NSIndexPath *))objc_msgSend)(self, textSel, indexPath);
-        if ([text isKindOfClass:[NSString class]] && [(NSString *)text length] > 0) {
-            return LBLegadoStripDisplaySuffix((NSString *)text);
+/// 仅用于 cell 可见文案：永不展示 projectionKey / ·Legado。
+static NSString *LBLegadoVisibleTitle(NSString *listKeyOrText) {
+    if (listKeyOrText.length == 0) return listKeyOrText;
+    NSString *stripped = LBLegadoStripDisplaySuffix(listKeyOrText);
+    return LBLegadoDisplayNameForListKey(stripped);
+}
+
+static NSString * (*LBOrig_textByIndexPath)(id, SEL, NSIndexPath *) = NULL;
+static NSString *LB_textByIndexPath_IMP(id self, SEL _cmd, NSIndexPath *indexPath) {
+    NSString *raw = LBOrig_textByIndexPath ? LBOrig_textByIndexPath(self, _cmd, indexPath) : nil;
+    if ([raw isKindOfClass:[NSString class]] && raw.length > 0) {
+        return LBLegadoVisibleTitle(raw);
+    }
+    // 无原文时按行取合并键再映射可见标题（不调 SourceNameAtIndexPath，避免环）
+    NSInteger row = indexPath.row;
+    if (row < 0) return raw;
+    NSArray *names = nil;
+    if ([self respondsToSelector:@selector(getUseSourceNames)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        id v = [self performSelector:@selector(getUseSourceNames)];
+#pragma clang diagnostic pop
+        if ([v isKindOfClass:[NSArray class]]) names = (NSArray *)v;
+    }
+    if (!names && [self respondsToSelector:@selector(getSortedSourceNames)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        id v = [self performSelector:@selector(getSortedSourceNames)];
+#pragma clang diagnostic pop
+        if ([v isKindOfClass:[NSArray class]]) names = (NSArray *)v;
+    }
+    if (names && (NSUInteger)row < names.count) {
+        id item = names[(NSUInteger)row];
+        if ([item isKindOfClass:[NSString class]]) {
+            return LBLegadoVisibleTitle((NSString *)item);
         }
     }
+    return raw;
+}
 
+/// 从列表 VC 按 indexPath 解析内部列表键（可含 projectionKey）；优先 names 数组，不用可见文案。
+static NSString *LBLegadoSourceNameAtIndexPath(id self, NSIndexPath *indexPath) {
     NSInteger row = indexPath.row;
     if (row < 0) return nil;
 
@@ -344,6 +346,14 @@ static NSString *LBLegadoSourceNameAtIndexPath(id self, NSIndexPath *indexPath) 
             if ([item isKindOfClass:[NSString class]]) {
                 return LBLegadoStripDisplaySuffix((NSString *)item);
             }
+        }
+    }
+
+    // 最后才用原文（可能是 display）；仅作回退
+    if (LBOrig_textByIndexPath) {
+        NSString *text = LBOrig_textByIndexPath(self, @selector(textByIndexPath:), indexPath);
+        if ([text isKindOfClass:[NSString class]] && text.length > 0) {
+            return LBLegadoStripDisplaySuffix(text);
         }
     }
     return nil;
@@ -1140,6 +1150,30 @@ void LBInstallSourceListHooks(void) {
         LBOrig_BSM_sourceTypeTitleBySourceName = (NSString * (*)(id, SEL, NSString *))method_getImplementation(titleMethod);
         method_setImplementation(titleMethod, (IMP)LBBSM_sourceTypeTitleBySourceName_IMP);
         NSLog(@"[LegadoBridge] hooked BookSourceModelManager sourceTypeTitleBySourceName:");
+    }
+
+    // TC-06：可见文案映射 displaySourceName，禁止展示 projectionKey
+    {
+        SEL textSel = @selector(textByIndexPath:);
+        NSArray<NSString *> *textClasses = @[
+            @"BookSourceSwitchVC2",
+            @"ConfigSourceListBase",
+            @"ConfigSourceListCon",
+            @"ConfigSourceModelListCon"
+        ];
+        for (NSString *cn in textClasses) {
+            Class requested = NSClassFromString(cn);
+            if (!requested) continue;
+            Class owner = LBClassOwningInstanceMethod(requested, textSel);
+            if (!owner || LBOrig_textByIndexPath) continue;
+            Method m = class_getInstanceMethod(owner, textSel);
+            if (!m) continue;
+            LBOrig_textByIndexPath = (NSString * (*)(id, SEL, NSIndexPath *))method_getImplementation(m);
+            method_setImplementation(m, (IMP)LB_textByIndexPath_IMP);
+            NSLog(@"[LegadoBridge] hooked %@ textByIndexPath: (via %@)",
+                  NSStringFromClass(owner), cn);
+            break;
+        }
     }
 
     Class listBaseClass = NSClassFromString(@"ConfigSourceListBase");

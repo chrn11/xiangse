@@ -1,0 +1,6 @@
+{
+  "empty_url_style": "标题::::1",
+  "quoted_and": "\"a&&b\"::/x && 真实::/y",
+  "backtick": "`a::b`::/path",
+  "json_styles": "[{\"title\": \"A\", \"url\": \"/a\", \"style\": 1}, {\"title\": \"B\", \"url\": \"\", \"style\": {\"layout\": \"grid\"}}, {\"title\": \"G\", \"children\": [{\"title\": \"c\", \"url\": \"/c\"}]}]"
+}
