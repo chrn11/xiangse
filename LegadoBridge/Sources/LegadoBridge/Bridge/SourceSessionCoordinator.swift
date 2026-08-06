@@ -29,7 +29,7 @@ public struct SourceSessionToken: Equatable, Sendable {
     }
 }
 
-public enum PublishRejectReason: String, Equatable, Sendable {
+public enum PublishRejectReason: String, Error, Equatable, Sendable {
     case sourceMismatch
     case snapshotMismatch
     case uiGenerationMismatch

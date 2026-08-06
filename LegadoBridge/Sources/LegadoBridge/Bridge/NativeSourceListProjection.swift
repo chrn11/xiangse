@@ -22,7 +22,8 @@ public struct NativeSourceListProjection: Equatable, Sendable {
         displaySourceName: String,
         enabled: Bool,
         sourceType: String = sourceTypeLegado,
-        marker: String = XiangseAdapter.legadoMarkerValue,
+        // 默认值须为字面量：public 默认参数不能引用 internal XiangseAdapter
+        marker: String = "1",
         schema: String = schemaV2
     ) {
         self.projectionKey = projectionKey
@@ -39,7 +40,8 @@ public struct NativeSourceListProjection: Equatable, Sendable {
             projectionKey: projectionKey(for: exactSourceUrl),
             exactSourceUrl: exactSourceUrl,
             displaySourceName: displaySourceName,
-            enabled: enabled
+            enabled: enabled,
+            marker: XiangseAdapter.legadoMarkerValue
         )
     }
 
