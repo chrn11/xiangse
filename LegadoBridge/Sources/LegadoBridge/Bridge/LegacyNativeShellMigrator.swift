@@ -92,19 +92,20 @@ public enum LegacyNativeShellMigrator {
     // MARK: - 加载
 
     public static func loadBundledAllowlist() throws -> AllowlistDocument {
-        #if SWIFT_PACKAGE
-        guard let url = Bundle.module.url(forResource: "LegacyNativeShellAllowlist", withExtension: "json") else {
-            throw NSError(domain: "LegacyNativeShellMigrator", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "缺少 LegacyNativeShellAllowlist.json",
-            ])
+        // 不依赖 Bundle.module（部分 Xcode/SPM 组合不生成 resource_bundle_accessor）
+        let bridgeDir = URL(fileURLWithPath: #file).deletingLastPathComponent()
+        let candidates = [
+            bridgeDir.deletingLastPathComponent().appendingPathComponent("Resources/LegacyNativeShellAllowlist.json"),
+            bridgeDir.appendingPathComponent("LegacyNativeShellAllowlist.json"),
+        ]
+        for url in candidates {
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(AllowlistDocument.self, from: data)
         }
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(AllowlistDocument.self, from: data)
-        #else
-        let path = (#file as NSString).deletingLastPathComponent + "/LegacyNativeShellAllowlist.json"
-        let data = try Data(contentsOf: URL(fileURLWithPath: path))
-        return try JSONDecoder().decode(AllowlistDocument.self, from: data)
-        #endif
+        throw NSError(domain: "LegacyNativeShellMigrator", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "缺少 LegacyNativeShellAllowlist.json",
+        ])
     }
 
     // MARK: - dry-run

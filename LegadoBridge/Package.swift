@@ -99,14 +99,12 @@ let package = Package(
                 "Bridge/BridgeRuleTypes.swift",
                 "Bridge/BridgeBook.swift",
                 "Bridge/BridgeStubs.swift",
-                // 仅作 Bundle.module 资源，避免与 sources: Bridge 重复规则
-                "Bridge/LegacyNativeShellAllowlist.json",
             ],
             sources: [
                 "Bridge"
             ],
             resources: [
-                .copy("Bridge/LegacyNativeShellAllowlist.json"),
+                .copy("Resources/LegacyNativeShellAllowlist.json"),
             ],
             linkerSettings: [
                 .linkedFramework("Foundation"),
