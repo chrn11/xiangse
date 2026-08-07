@@ -179,8 +179,51 @@ BOOL LBXBSHandoffWriteHostDicModel(
         iv = LBXBSFindDicModelIvar(object_getClass(host));
     }
     if (!iv) {
-        LBXBSHandoffMark([NSString stringWithFormat:@"write missIvar host=%@",
-                          NSStringFromClass(hostCls) ?: @"-"]);
+        NSMutableString *ivarDump = [NSMutableString string];
+        NSMutableString *propDump = [NSMutableString string];
+        Class walk = hostCls;
+        int depth = 0;
+        while (walk && walk != [NSObject class] && depth < 6) {
+            unsigned int n = 0;
+            Ivar *ivars = class_copyIvarList(walk, &n);
+            for (unsigned int i = 0; i < n; i++) {
+                const char *nm = ivar_getName(ivars[i]);
+                if (nm) {
+                    if (ivarDump.length > 0) [ivarDump appendString:@","];
+                    [ivarDump appendFormat:@"%s", nm];
+                }
+            }
+            if (ivars) free(ivars);
+            unsigned int pn = 0;
+            objc_property_t *props = class_copyPropertyList(walk, &pn);
+            for (unsigned int i = 0; i < pn; i++) {
+                const char *pnamed = property_getName(props[i]);
+                if (pnamed) {
+                    if (propDump.length > 0) [propDump appendString:@","];
+                    [propDump appendFormat:@"%s", pnamed];
+                }
+            }
+            if (props) free(props);
+            walk = class_getSuperclass(walk);
+            depth += 1;
+        }
+        if (ivarDump.length > 1800) {
+            ivarDump = [[ivarDump substringToIndex:1800] mutableCopy];
+        }
+        if (propDump.length > 800) {
+            propDump = [[propDump substringToIndex:800] mutableCopy];
+        }
+        BOOL kvcReadable = NO;
+        @try {
+            id v = [host valueForKey:@"dicModel"];
+            kvcReadable = [v isKindOfClass:[NSDictionary class]];
+        } @catch (__unused NSException *e) {}
+        LBXBSHandoffMark([NSString stringWithFormat:
+                          @"write missIvar host=%@ kvcDic=%d ivars=%@ props=%@",
+                          NSStringFromClass(hostCls) ?: @"-",
+                          kvcReadable ? 1 : 0,
+                          ivarDump.length ? ivarDump : @"-",
+                          propDump.length ? propDump : @"-"]);
         if (error) {
             *error = [NSError errorWithDomain:@"LBXBSModelHandoff" code:3
                                      userInfo:@{NSLocalizedDescriptionKey: @"_dicModel ivar missing"}];
