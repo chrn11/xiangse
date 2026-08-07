@@ -654,7 +654,9 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                     [cols addObject:(UICollectionView *)v];
                                 }
                             }
-                            // pass2：隐藏全屏标签墙 collection，并压掉占位高度
+                            // pass2：标签墙改为紧凑顶栏（保留分类），禁止整块隐藏
+                            const CGFloat kTagBarH = 140.0; // 约 3～4 行标签，可内滚
+                            UICollectionView *tagCV = nil;
                             for (UICollectionView *cv in cols) {
                                 NSInteger items = 0;
                                 @try {
@@ -664,15 +666,22 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                 } @catch (__unused NSException *e) {}
                                 BOOL looksTagWall = (items >= 20 && cv.frame.size.height >= 200.0);
                                 if (looksTagWall && n2 > 0) {
+                                    tagCV = cv;
                                     @try {
-                                        cv.hidden = YES;
+                                        cv.hidden = NO;
+                                        cv.alpha = 1.0;
+                                        cv.scrollEnabled = YES;
                                         CGRect fr = cv.frame;
-                                        fr.size.height = 0;
+                                        fr.origin.y = 0;
+                                        fr.size.height = kTagBarH;
+                                        if (fr.size.width < 1.0 && vc.view) {
+                                            fr.size.width = vc.view.bounds.size.width;
+                                        }
                                         cv.frame = fr;
                                         for (NSLayoutConstraint *cn in cv.constraints) {
                                             if (cn.firstAttribute == NSLayoutAttributeHeight ||
                                                 cn.secondAttribute == NSLayoutAttributeHeight) {
-                                                cn.constant = 0;
+                                                cn.constant = kTagBarH;
                                             }
                                         }
                                         UIView *sup = cv.superview;
@@ -681,15 +690,16 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                                 if ((cn.firstItem == cv || cn.secondItem == cv) &&
                                                     (cn.firstAttribute == NSLayoutAttributeHeight ||
                                                      cn.secondAttribute == NSLayoutAttributeHeight)) {
-                                                    cn.constant = 0;
+                                                    cn.constant = kTagBarH;
                                                 }
                                             }
+                                            [sup bringSubviewToFront:cv];
                                             [sup setNeedsLayout];
                                             [sup layoutIfNeeded];
                                         }
                                     } @catch (__unused NSException *e) {}
                                     LBXBSHandoffMark([NSString stringWithFormat:
-                                                      @"wireKids hideCV idx=%ld items=%ld h=%.0f",
+                                                      @"wireKids compactCV idx=%ld items=%ld h=%.0f",
                                                       (long)idxMark, (long)items, cv.frame.size.height]);
                                 }
                                 LBXBSHandoffMark([NSString stringWithFormat:
@@ -699,24 +709,31 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                                   cv.frame.origin.x, cv.frame.origin.y,
                                                   (long)items, cv.hidden ? 1 : 0]);
                             }
-                            // pass3：刷表并提到最前，再读 visibleCells
+                            // pass3：书表接到标签栏下方，不再清掉分类 header
                             for (UITableView *tv in tables) {
                                 @try {
-                                    [tv.superview bringSubviewToFront:tv];
                                     tv.hidden = NO;
                                     tv.alpha = 1.0;
-                                    // 标签墙常挂在 header / inset，清掉以免大块黑区
-                                    UIView *hdr = tv.tableHeaderView;
-                                    if (hdr && hdr.bounds.size.height >= 120.0) {
-                                        CGRect hf = hdr.frame;
-                                        hf.size.height = 0;
-                                        hdr.frame = hf;
-                                        hdr.hidden = YES;
-                                        tv.tableHeaderView = hdr;
-                                        tv.tableHeaderView = nil;
+                                    CGFloat top = tagCV ? CGRectGetMaxY(tagCV.frame) : 0;
+                                    if (top < 1.0 && tagCV) top = kTagBarH;
+                                    UIView *sup = tv.superview ?: vc.view;
+                                    CGFloat fullH = sup.bounds.size.height;
+                                    if (fullH < 1.0) fullH = vc.view.bounds.size.height;
+                                    CGRect tfr = tv.frame;
+                                    tfr.origin.x = 0;
+                                    tfr.origin.y = top;
+                                    tfr.size.width = sup.bounds.size.width > 1 ? sup.bounds.size.width : tfr.size.width;
+                                    tfr.size.height = MAX(120.0, fullH - top);
+                                    tv.frame = tfr;
+                                    if (tagCV) {
+                                        [sup insertSubview:tv belowSubview:tagCV];
+                                        [sup bringSubviewToFront:tagCV];
+                                    } else {
+                                        [sup bringSubviewToFront:tv];
                                     }
+                                    // 仅清异常大的空白 inset，保留合理 header
                                     UIEdgeInsets inset = tv.contentInset;
-                                    if (inset.top >= 80.0) {
+                                    if (inset.top >= 200.0) {
                                         inset.top = 0;
                                         tv.contentInset = inset;
                                     }
