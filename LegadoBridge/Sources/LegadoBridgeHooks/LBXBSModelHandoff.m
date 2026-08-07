@@ -566,15 +566,65 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                 [views removeObjectAtIndex:0];
                                 for (UIView *sub in v.subviews) [views addObject:sub];
                                 if ([v isKindOfClass:[UITableView class]]) {
+                                    UITableView *tv = (UITableView *)v;
                                     @try {
-                                        [(UITableView *)v reloadData];
+                                        [tv reloadData];
                                         tvN += 1;
                                     } @catch (__unused NSException *e) {}
+                                    NSInteger rows = 0;
+                                    @try {
+                                        if ([tv numberOfSections] > 0) {
+                                            rows = [tv numberOfRowsInSection:0];
+                                        }
+                                    } @catch (__unused NSException *e) {}
+                                    NSString *cellTxt = @"-";
+                                    @try {
+                                        NSArray *cells = [tv visibleCells];
+                                        if (cells.count > 0) {
+                                            UIView *cell = cells.firstObject;
+                                            NSMutableArray *labs = [NSMutableArray array];
+                                            NSMutableArray *q = [NSMutableArray arrayWithObject:cell];
+                                            while (q.count > 0 && labs.count < 3) {
+                                                UIView *vv = q.firstObject;
+                                                [q removeObjectAtIndex:0];
+                                                for (UIView *s in vv.subviews) [q addObject:s];
+                                                if ([vv isKindOfClass:[UILabel class]]) {
+                                                    NSString *t = [(UILabel *)vv text];
+                                                    if (t.length > 0) [labs addObject:t];
+                                                }
+                                            }
+                                            if (labs.count) {
+                                                cellTxt = [labs componentsJoinedByString:@"|"];
+                                                if (cellTxt.length > 60) cellTxt = [cellTxt substringToIndex:60];
+                                            }
+                                        }
+                                    } @catch (__unused NSException *e) {}
+                                    LBXBSHandoffMark([NSString stringWithFormat:
+                                                      @"wireKids tvDump idx=%ld frame=%.0fx%.0f@%.0f,%.0f rows=%ld cells=%lu txt=%@",
+                                                      (long)idxMark,
+                                                      tv.frame.size.width, tv.frame.size.height,
+                                                      tv.frame.origin.x, tv.frame.origin.y,
+                                                      (long)rows,
+                                                      (unsigned long)tv.visibleCells.count,
+                                                      cellTxt]);
                                 } else if ([v isKindOfClass:[UICollectionView class]]) {
+                                    UICollectionView *cv = (UICollectionView *)v;
                                     @try {
-                                        [(UICollectionView *)v reloadData];
+                                        [cv reloadData];
                                         tvN += 1;
                                     } @catch (__unused NSException *e) {}
+                                    NSInteger items = 0;
+                                    @try {
+                                        if ([cv numberOfSections] > 0) {
+                                            items = [cv numberOfItemsInSection:0];
+                                        }
+                                    } @catch (__unused NSException *e) {}
+                                    LBXBSHandoffMark([NSString stringWithFormat:
+                                                      @"wireKids cvDump idx=%ld frame=%.0fx%.0f@%.0f,%.0f items=%ld",
+                                                      (long)idxMark,
+                                                      cv.frame.size.width, cv.frame.size.height,
+                                                      cv.frame.origin.x, cv.frame.origin.y,
+                                                      (long)items]);
                                 }
                             }
                         }
