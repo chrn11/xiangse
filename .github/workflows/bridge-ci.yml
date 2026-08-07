@@ -71,7 +71,9 @@ jobs:
         working-directory: LegadoBridge
         run: |
           set -euo pipefail
-          xcodebuild -list -packagePath . 2>&1 | tee ../spm-schemes.log
+          # SPM 包目录下直接 -list（Xcode 15 不支持 -list -packagePath）
+          xcodebuild -list 2>&1 | tee ../spm-schemes.log
+          grep -E 'LegadoRuleCore|LegadoBridge|LegadoBridgeHooks' ../spm-schemes.log
 
       - name: LegadoRuleCoreTests 全量
         working-directory: LegadoBridge
