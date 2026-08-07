@@ -202,19 +202,23 @@ class ExecutionContext {
         self.jsBridge = bridge
         bridge.inject(into: context)
 
-        // 注入getVar/setVar
-        context.setValue({ [weak self] (key: String) -> String in
+        // 真机/模拟器：setValue(_:forKey:) 对 JSContext 走 KVC，会抛 getVar 等 undefinedKey；
+        // 须 setObject:forKeyedSubscript:（与 JSBridge.bindGlobal 一致）。
+        let getVarBlock: @convention(block) (String) -> String = { [weak self] key in
             self?.variables[key] ?? ""
-        }, forKey: "getVar")
-
-        context.setValue({ [weak self] (key: String, value: String) in
+        }
+        let setVarBlock: @convention(block) (String, String) -> Void = { [weak self] key, value in
             self?.variables[key] = value
-        }, forKey: "setVar")
-
-        // 注入 result
-        context.setValue({ [weak self] () -> String? in
+        }
+        let resultBlock: @convention(block) () -> String? = { [weak self] in
             self?.lastResult.string
-        }, forKey: "result")
+        }
+        context.setObject(getVarBlock, forKeyedSubscript: "getVar" as NSString)
+        context.globalObject?.setObject(getVarBlock, forKeyedSubscript: "getVar" as NSString)
+        context.setObject(setVarBlock, forKeyedSubscript: "setVar" as NSString)
+        context.globalObject?.setObject(setVarBlock, forKeyedSubscript: "setVar" as NSString)
+        context.setObject(resultBlock, forKeyedSubscript: "result" as NSString)
+        context.globalObject?.setObject(resultBlock, forKeyedSubscript: "result" as NSString)
 
         return context
     }()
@@ -238,11 +242,18 @@ private final class SourceRuleContextAdapter: RuleExecutionContext {
     }
 
     func evalJS(_ jsCode: String, result: Any?) -> String? {
-        executionContext.jsContext.setValue(result, forKey: "result")
-        executionContext.jsContext.setValue(executionContext.baseURL?.absoluteString, forKey: "baseUrl")
+        let ctx = executionContext.jsContext
+        if let result {
+            ctx.setObject(result, forKeyedSubscript: "result" as NSString)
+            ctx.globalObject?.setObject(result, forKeyedSubscript: "result" as NSString)
+        }
+        if let base = executionContext.baseURL?.absoluteString {
+            ctx.setObject(base as NSString, forKeyedSubscript: "baseUrl" as NSString)
+            ctx.globalObject?.setObject(base as NSString, forKeyedSubscript: "baseUrl" as NSString)
+        }
         // 若 lazy 初始化时 source 尚未挂上，此处补注 jsLib
-        JSBridge.evaluateJsLib(of: executionContext.source, into: executionContext.jsContext)
-        return executionContext.jsContext.evaluateScript(jsCode)?.toString()
+        JSBridge.evaluateJsLib(of: executionContext.source, into: ctx)
+        return ctx.evaluateScript(jsCode)?.toString()
     }
 
     func resolveRule(_ rule: SourceRule) -> String? {
