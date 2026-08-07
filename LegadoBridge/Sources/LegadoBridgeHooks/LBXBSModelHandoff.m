@@ -529,10 +529,59 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                     @try {
                         id a2 = [c valueForKey:@"arrBaseData"];
                         if ([a2 isKindOfClass:[NSArray class]]) n2 = (NSInteger)[(NSArray *)a2 count];
+                        // dump 首项键，区分标签墙 vs 书行
+                        if ([a2 isKindOfClass:[NSArray class]] && [(NSArray *)a2 count] > 0) {
+                            id first = [(NSArray *)a2 firstObject];
+                            if ([first isKindOfClass:[NSDictionary class]]) {
+                                NSArray *ks = [(NSDictionary *)first allKeys];
+                                NSString *joined = [[ks componentsJoinedByString:@","] copy];
+                                if (joined.length > 180) joined = [joined substringToIndex:180];
+                                id bn = ((NSDictionary *)first)[@"bookName"]
+                                    ?: ((NSDictionary *)first)[@"name"]
+                                    ?: ((NSDictionary *)first)[@"title"];
+                                NSString *bnS = [bn isKindOfClass:[NSString class]] ? (NSString *)bn : @"-";
+                                if (bnS.length > 40) bnS = [bnS substringToIndex:40];
+                                LBXBSHandoffMark([NSString stringWithFormat:
+                                                  @"wireKids item0 idx=%ld keys=%@ name=%@",
+                                                  (long)idxMark, joined ?: @"-", bnS]);
+                            } else {
+                                LBXBSHandoffMark([NSString stringWithFormat:
+                                                  @"wireKids item0 idx=%ld cls=%@",
+                                                  (long)idxMark,
+                                                  NSStringFromClass([first class]) ?: @"-"]);
+                            }
+                        }
                     } @catch (__unused NSException *e) {}
                     LBXBSHandoffMark([NSString stringWithFormat:
                                       @"wireKids queryProbe idx=%ld ch=%@ arrN=%ld",
                                       (long)idxMark, chMark, (long)n2]);
+                    // 数据已在但 UI 仍是标签墙时：只软刷本子页表（不调 VC refresh/loadData）
+                    if (n2 > 0 && [c isKindOfClass:[UIViewController class]]) {
+                        UIViewController *vc = (UIViewController *)c;
+                        NSInteger tvN = 0;
+                        if (vc.isViewLoaded) {
+                            NSMutableArray<UIView *> *views = [NSMutableArray arrayWithObject:vc.view];
+                            while (views.count > 0) {
+                                UIView *v = views.firstObject;
+                                [views removeObjectAtIndex:0];
+                                for (UIView *sub in v.subviews) [views addObject:sub];
+                                if ([v isKindOfClass:[UITableView class]]) {
+                                    @try {
+                                        [(UITableView *)v reloadData];
+                                        tvN += 1;
+                                    } @catch (__unused NSException *e) {}
+                                } else if ([v isKindOfClass:[UICollectionView class]]) {
+                                    @try {
+                                        [(UICollectionView *)v reloadData];
+                                        tvN += 1;
+                                    } @catch (__unused NSException *e) {}
+                                }
+                            }
+                        }
+                        LBXBSHandoffMark([NSString stringWithFormat:
+                                          @"wireKids softReload idx=%ld ch=%@ tv=%ld",
+                                          (long)idxMark, chMark, (long)tvN]);
+                    }
                 });
             });
         } else {
