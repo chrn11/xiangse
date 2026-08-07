@@ -558,6 +558,45 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                     // 数据已在但 UI 仍是标签墙时：只软刷本子页表（不调 VC refresh/loadData）
                     if (n2 > 0 && [c isKindOfClass:[UIViewController class]]) {
                         UIViewController *vc = (UIViewController *)c;
+                        // 旁路状态：filter / cellClass / dataSource
+                        @try {
+                            id filt = [c valueForKey:@"arrFilterModel"];
+                            NSInteger fN = [filt isKindOfClass:[NSArray class]] ? (NSInteger)[(NSArray *)filt count] : -1;
+                            id cc = nil;
+                            @try { cc = [c valueForKey:@"cellClass"]; } @catch (__unused NSException *e) {}
+                            NSString *ccS = cc ? (NSStringFromClass([cc class]) ?: [cc description]) : @"-";
+                            if (ccS.length > 40) ccS = [ccS substringToIndex:40];
+                            id dsTV = nil;
+                            @try { dsTV = [c valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
+                            id dsObj = nil;
+                            if ([dsTV isKindOfClass:[UITableView class]]) {
+                                dsObj = [(UITableView *)dsTV dataSource];
+                            }
+                            LBXBSHandoffMark([NSString stringWithFormat:
+                                              @"wireKids state idx=%ld filterN=%ld cellClass=%@ tvDS=%@ selfDS=%d",
+                                              (long)idxMark, (long)fN, ccS,
+                                              dsObj ? NSStringFromClass([dsObj class]) : @"-",
+                                              (dsObj == c) ? 1 : 0]);
+                        } @catch (__unused NSException *e) {}
+                        // 扫描其它可能承载书列表的数组属性
+                        @try {
+                            NSArray *probeKeys = @[
+                                @"arrShowData", @"arrData", @"itemList", @"arrBooks",
+                                @"arrList", @"dataArray", @"arrResult", @"arrModels"
+                            ];
+                            NSMutableString *extra = [NSMutableString string];
+                            for (NSString *k in probeKeys) {
+                                id v = nil;
+                                @try { v = [c valueForKey:k]; } @catch (__unused NSException *e) {}
+                                if ([v isKindOfClass:[NSArray class]]) {
+                                    if (extra.length) [extra appendString:@","];
+                                    [extra appendFormat:@"%@=%lu", k, (unsigned long)[(NSArray *)v count]];
+                                }
+                            }
+                            if (extra.length == 0) [extra appendString:@"-"];
+                            LBXBSHandoffMark([NSString stringWithFormat:
+                                              @"wireKids arrays idx=%ld %@", (long)idxMark, extra]);
+                        } @catch (__unused NSException *e) {}
                         NSInteger tvN = 0;
                         if (vc.isViewLoaded) {
                             NSMutableArray<UIView *> *views = [NSMutableArray arrayWithObject:vc.view];
