@@ -372,12 +372,39 @@ static NSInteger LBXBSHandoffWireBookListChildren(
     if ([cons isKindOfClass:[NSArray class]]) {
         [children addObjectsFromArray:(NSArray *)cons];
     }
+    // 与 LBActiveDiscoverListVC 一致：子页挂在 pageContentScrollView，而非 host.childViewControllers
+    @try {
+        id scroll = [host valueForKey:@"pageContentScrollView"];
+        id cv = [scroll valueForKey:@"childViewControllers"];
+        if (![cv isKindOfClass:[NSArray class]] || [(NSArray *)cv count] == 0) {
+            cv = [scroll valueForKey:@"childVCs"];
+        }
+        if ([cv isKindOfClass:[NSArray class]]) {
+            for (id k in (NSArray *)cv) {
+                if (k && ![children containsObject:k]) [children addObject:k];
+            }
+        }
+    } @catch (__unused NSException *e) {}
     @try {
         NSArray *kids = host.childViewControllers;
         for (id k in kids) {
             if (k && ![children containsObject:k]) [children addObject:k];
         }
     } @catch (__unused NSException *e) {}
+    @try {
+        id list = [host valueForKey:@"listCon"];
+        if (list && ![children containsObject:list]) [children addObject:list];
+    } @catch (__unused NSException *e) {}
+
+    // 记录子类名便于对照
+    NSMutableString *clsDump = [NSMutableString string];
+    for (id ch in children) {
+        if (clsDump.length > 0) [clsDump appendString:@","];
+        [clsDump appendString:NSStringFromClass([ch class]) ?: @"?"];
+    }
+    if (clsDump.length > 400) clsDump = [[clsDump substringToIndex:400] mutableCopy];
+    LBXBSHandoffMark([NSString stringWithFormat:@"wireKids collect n=%lu classes=%@",
+                      (unsigned long)children.count, clsDump.length ? clsDump : @"-"]);
 
     Class blc = NSClassFromString(@"BookListCon");
     SEL setCfg = NSSelectorFromString(@"setDicConfig:");
