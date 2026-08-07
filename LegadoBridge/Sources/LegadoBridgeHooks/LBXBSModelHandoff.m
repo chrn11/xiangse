@@ -43,6 +43,8 @@ static BOOL LBXBSLooksThinThreeKeyShell(NSDictionary *model) {
     return keys.count <= 3;
 }
 
+static void LBXBSHandoffMark(NSString *line);
+
 LBXBSModelValidateResult LBValidateXBSModelShape(
     NSDictionary *model,
     NSString *expectedManagerKey,
