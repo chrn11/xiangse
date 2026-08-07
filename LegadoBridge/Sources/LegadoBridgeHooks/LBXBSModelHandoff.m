@@ -654,7 +654,7 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                     [cols addObject:(UICollectionView *)v];
                                 }
                             }
-                            // pass2：隐藏全屏标签墙 collection
+                            // pass2：隐藏全屏标签墙 collection，并压掉占位高度
                             for (UICollectionView *cv in cols) {
                                 NSInteger items = 0;
                                 @try {
@@ -664,7 +664,30 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                 } @catch (__unused NSException *e) {}
                                 BOOL looksTagWall = (items >= 20 && cv.frame.size.height >= 200.0);
                                 if (looksTagWall && n2 > 0) {
-                                    @try { cv.hidden = YES; } @catch (__unused NSException *e) {}
+                                    @try {
+                                        cv.hidden = YES;
+                                        CGRect fr = cv.frame;
+                                        fr.size.height = 0;
+                                        cv.frame = fr;
+                                        for (NSLayoutConstraint *cn in cv.constraints) {
+                                            if (cn.firstAttribute == NSLayoutAttributeHeight ||
+                                                cn.secondAttribute == NSLayoutAttributeHeight) {
+                                                cn.constant = 0;
+                                            }
+                                        }
+                                        UIView *sup = cv.superview;
+                                        if (sup) {
+                                            for (NSLayoutConstraint *cn in sup.constraints) {
+                                                if ((cn.firstItem == cv || cn.secondItem == cv) &&
+                                                    (cn.firstAttribute == NSLayoutAttributeHeight ||
+                                                     cn.secondAttribute == NSLayoutAttributeHeight)) {
+                                                    cn.constant = 0;
+                                                }
+                                            }
+                                            [sup setNeedsLayout];
+                                            [sup layoutIfNeeded];
+                                        }
+                                    } @catch (__unused NSException *e) {}
                                     LBXBSHandoffMark([NSString stringWithFormat:
                                                       @"wireKids hideCV idx=%ld items=%ld h=%.0f",
                                                       (long)idxMark, (long)items, cv.frame.size.height]);
@@ -682,6 +705,22 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                     [tv.superview bringSubviewToFront:tv];
                                     tv.hidden = NO;
                                     tv.alpha = 1.0;
+                                    // 标签墙常挂在 header / inset，清掉以免大块黑区
+                                    UIView *hdr = tv.tableHeaderView;
+                                    if (hdr && hdr.bounds.size.height >= 120.0) {
+                                        CGRect hf = hdr.frame;
+                                        hf.size.height = 0;
+                                        hdr.frame = hf;
+                                        hdr.hidden = YES;
+                                        tv.tableHeaderView = hdr;
+                                        tv.tableHeaderView = nil;
+                                    }
+                                    UIEdgeInsets inset = tv.contentInset;
+                                    if (inset.top >= 80.0) {
+                                        inset.top = 0;
+                                        tv.contentInset = inset;
+                                    }
+                                    tv.contentOffset = CGPointZero;
                                     if (tv.rowHeight <= 1.0 && tv.estimatedRowHeight <= 1.0) {
                                         tv.rowHeight = 88.0;
                                         tv.estimatedRowHeight = 88.0;
