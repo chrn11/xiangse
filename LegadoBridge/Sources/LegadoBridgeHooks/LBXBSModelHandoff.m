@@ -486,9 +486,62 @@ static NSInteger LBXBSHandoffWireBookListChildren(
         NSDictionary *copy = [[NSDictionary alloc] initWithDictionary:entry copyItems:YES];
         ((void (*)(id, SEL, id))objc_msgSend)(child, setCfg, copy);
         wired += 1;
-        LBXBSHandoffMark([NSString stringWithFormat:@"wireKids ok idx=%ld ch=%@ keys=%lu arrNBefore=%ld",
+        // 诊断：requestInfo/list 是否齐全（list 常为 JS 规则字符串）
+        NSUInteger riLen = 0;
+        NSString *listKind = @"-";
+        @try {
+            id ri = copy[@"requestInfo"];
+            if ([ri isKindOfClass:[NSString class]]) riLen = [(NSString *)ri length];
+            id lst = copy[@"list"];
+            if ([lst isKindOfClass:[NSString class]]) listKind = @"str";
+            else if ([lst isKindOfClass:[NSArray class]]) listKind = @"arr";
+            else if ([lst isKindOfClass:[NSDictionary class]]) listKind = @"dic";
+            else if (lst) listKind = NSStringFromClass([lst class]) ?: @"?";
+        } @catch (__unused NSException *e) {}
+        LBXBSHandoffMark([NSString stringWithFormat:
+                          @"wireKids ok idx=%ld ch=%@ keys=%lu arrNBefore=%ld riLen=%lu list=%@",
                           (long)idx, channel ?: @"-",
-                          (unsigned long)copy.count, (long)arrN]);
+                          (unsigned long)copy.count, (long)arrN,
+                          (unsigned long)riLen, listKind]);
+        // setDicConfig 只写配置；出书需原生 jsNetListQuery（禁止 refresh/loadData）
+        SEL qSel = NSSelectorFromString(@"jsNetListQuery:userInfo:");
+        if ([child respondsToSelector:qSel] && riLen > 0) {
+            __weak id weakChild = child;
+            NSDictionary *cfgForQuery = copy;
+            NSString *chMark = channel ?: @"-";
+            NSInteger idxMark = idx;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                id c = weakChild;
+                if (!c) return;
+                @try {
+                    ((void (*)(id, SEL, id, id))objc_msgSend)(c, qSel, cfgForQuery, nil);
+                    LBXBSHandoffMark([NSString stringWithFormat:
+                                      @"wireKids queryFire idx=%ld ch=%@",
+                                      (long)idxMark, chMark]);
+                } @catch (NSException *ex) {
+                    LBXBSHandoffMark([NSString stringWithFormat:
+                                      @"wireKids queryEX idx=%ld ch=%@ %@",
+                                      (long)idxMark, chMark, ex.reason ?: @""]);
+                }
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{
+                    NSInteger n2 = -1;
+                    @try {
+                        id a2 = [c valueForKey:@"arrBaseData"];
+                        if ([a2 isKindOfClass:[NSArray class]]) n2 = (NSInteger)[(NSArray *)a2 count];
+                    } @catch (__unused NSException *e) {}
+                    LBXBSHandoffMark([NSString stringWithFormat:
+                                      @"wireKids queryProbe idx=%ld ch=%@ arrN=%ld",
+                                      (long)idxMark, chMark, (long)n2]);
+                });
+            });
+        } else {
+            LBXBSHandoffMark([NSString stringWithFormat:
+                              @"wireKids noQuery idx=%ld ch=%@ resp=%d riLen=%lu",
+                              (long)idx, channel ?: @"-",
+                              [child respondsToSelector:qSel] ? 1 : 0,
+                              (unsigned long)riLen]);
+        }
         idx += 1;
     }
     LBXBSHandoffMark([NSString stringWithFormat:@"wireKids done key=%@ wired=%ld kids=%lu bw=%lu",
