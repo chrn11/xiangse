@@ -17,13 +17,6 @@ EXPECTED_TEST_TARGETS = (
     "LegadoBridgeHooksTests",
 )
 
-# SPM 自动 scheme 名通常与 library target 同名
-EXPECTED_SCHEMES = (
-    "LegadoRuleCore",
-    "LegadoBridge",
-    "LegadoBridgeHooks",
-)
-
 
 def _parse_test_targets(pkg_text: str) -> set[str]:
     found: set[str] = set()
@@ -59,13 +52,13 @@ def main() -> int:
             errors.append("bridge-ci.yml 仍含 unit-tests-smoke（须删除 -only-testing 冒烟 job）")
         if "-only-testing:" in wf:
             errors.append("bridge-ci.yml 仍含 -only-testing 过滤")
-        if "LegadoBridgeHooks-full.log" not in wf:
-            errors.append("bridge-ci.yml spm-full-tests 未跑 LegadoBridgeHooks scheme")
-        for scheme in EXPECTED_SCHEMES:
-            if scheme not in wf:
-                errors.append(f"bridge-ci.yml 未引用 scheme {scheme}")
+        # library scheme 无 test action；全量须用 SPM Package scheme
+        if "LegadoBridge-Package" not in wf:
+            errors.append("bridge-ci.yml 未用 LegadoBridge-Package 跑全量单测")
+        if "spm-package-full.log" not in wf:
+            errors.append("bridge-ci.yml 缺少 spm-package-full.log 产出")
         if "validate_test_file_manifest.py" not in wf:
-            errors.append("bridge-ci.yml fixture-gate 未调用 validate_test_file_manifest.py")
+            errors.append("bridge-ci.yml 未调用 validate_test_file_manifest.py")
         if "test_clone_packaging" not in wf and "test_clone_packaging.py" not in wf:
             errors.append("bridge-ci.yml 未包含 clone packaging 门禁")
 

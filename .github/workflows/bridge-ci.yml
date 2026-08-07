@@ -73,65 +73,35 @@ jobs:
           set -euo pipefail
           # SPM 包目录下直接 -list（Xcode 15 不支持 -list -packagePath）
           xcodebuild -list 2>&1 | tee ../spm-schemes.log
-          grep -E 'LegadoRuleCore|LegadoBridge|LegadoBridgeHooks' ../spm-schemes.log
+          # library scheme 无 test action；全量单测须用 *-Package
+          grep -F 'LegadoBridge-Package' ../spm-schemes.log
+          grep -E 'LegadoRuleCore|LegadoBridge' ../spm-schemes.log
 
-      - name: LegadoRuleCoreTests 全量
+      - name: SPM 全量单测（LegadoBridge-Package）
         working-directory: LegadoBridge
         run: |
           set -euo pipefail
+          # LegadoBridge / LegadoBridgeHooks library scheme 未配置 test action；
+          # SPM 自动生成的 LegadoBridge-Package 覆盖全部 testTarget。
           # 关闭并行：BookVariableStore / CookieManager 等共享落盘在 Clone 间会互相踩
           xcodebuild test \
-            -scheme LegadoRuleCore \
+            -scheme LegadoBridge-Package \
             -destination "${{ steps.dest.outputs.dest }}" \
-            -resultBundlePath "$PWD/LegadoRuleCore.xcresult" \
+            -resultBundlePath "$PWD/LegadoBridge-Package.xcresult" \
             -derivedDataPath "$PWD/.build-test-full" \
             -parallel-testing-enabled NO \
             -maximum-parallel-testing-workers 1 \
             CODE_SIGNING_ALLOWED=NO \
             -skipPackagePluginValidation \
-            2>&1 | tee ../LegadoRuleCore-full.log
-
-      - name: LegadoBridgeTests 全量
-        working-directory: LegadoBridge
-        run: |
-          set -euo pipefail
-          xcodebuild test \
-            -scheme LegadoBridge \
-            -destination "${{ steps.dest.outputs.dest }}" \
-            -resultBundlePath "$PWD/LegadoBridge.xcresult" \
-            -derivedDataPath "$PWD/.build-test-full" \
-            -parallel-testing-enabled NO \
-            -maximum-parallel-testing-workers 1 \
-            CODE_SIGNING_ALLOWED=NO \
-            -skipPackagePluginValidation \
-            2>&1 | tee ../LegadoBridge-full.log
-
-      - name: LegadoBridgeHooksTests 全量
-        working-directory: LegadoBridge
-        run: |
-          set -euo pipefail
-          xcodebuild test \
-            -scheme LegadoBridgeHooks \
-            -destination "${{ steps.dest.outputs.dest }}" \
-            -resultBundlePath "$PWD/LegadoBridgeHooks.xcresult" \
-            -derivedDataPath "$PWD/.build-test-full" \
-            -parallel-testing-enabled NO \
-            -maximum-parallel-testing-workers 1 \
-            CODE_SIGNING_ALLOWED=NO \
-            -skipPackagePluginValidation \
-            2>&1 | tee ../LegadoBridgeHooks-full.log
+            2>&1 | tee ../spm-package-full.log
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: SPM-full-test-logs
           path: |
-            LegadoBridge/LegadoRuleCore.xcresult
-            LegadoBridge/LegadoBridge.xcresult
-            LegadoBridge/LegadoBridgeHooks.xcresult
-            LegadoRuleCore-full.log
-            LegadoBridge-full.log
-            LegadoBridgeHooks-full.log
+            LegadoBridge/LegadoBridge-Package.xcresult
+            spm-package-full.log
             spm-schemes.log
           if-no-files-found: warn
 
