@@ -629,72 +629,88 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                         } @catch (__unused NSException *e) {}
                         NSInteger tvN = 0;
                         if (vc.isViewLoaded) {
+                            // pass1：收集表/集合
+                            NSMutableArray<UITableView *> *tables = [NSMutableArray array];
+                            NSMutableArray<UICollectionView *> *cols = [NSMutableArray array];
                             NSMutableArray<UIView *> *views = [NSMutableArray arrayWithObject:vc.view];
                             while (views.count > 0) {
                                 UIView *v = views.firstObject;
                                 [views removeObjectAtIndex:0];
                                 for (UIView *sub in v.subviews) [views addObject:sub];
                                 if ([v isKindOfClass:[UITableView class]]) {
-                                    UITableView *tv = (UITableView *)v;
-                                    @try {
-                                        [tv reloadData];
-                                        tvN += 1;
-                                    } @catch (__unused NSException *e) {}
-                                    NSInteger rows = 0;
-                                    @try {
-                                        if ([tv numberOfSections] > 0) {
-                                            rows = [tv numberOfRowsInSection:0];
-                                        }
-                                    } @catch (__unused NSException *e) {}
-                                    NSString *cellTxt = @"-";
-                                    @try {
-                                        NSArray *cells = [tv visibleCells];
-                                        if (cells.count > 0) {
-                                            UIView *cell = cells.firstObject;
-                                            NSMutableArray *labs = [NSMutableArray array];
-                                            NSMutableArray *q = [NSMutableArray arrayWithObject:cell];
-                                            while (q.count > 0 && labs.count < 3) {
-                                                UIView *vv = q.firstObject;
-                                                [q removeObjectAtIndex:0];
-                                                for (UIView *s in vv.subviews) [q addObject:s];
-                                                if ([vv isKindOfClass:[UILabel class]]) {
-                                                    NSString *t = [(UILabel *)vv text];
-                                                    if (t.length > 0) [labs addObject:t];
-                                                }
-                                            }
-                                            if (labs.count) {
-                                                cellTxt = [labs componentsJoinedByString:@"|"];
-                                                if (cellTxt.length > 60) cellTxt = [cellTxt substringToIndex:60];
-                                            }
-                                        }
-                                    } @catch (__unused NSException *e) {}
-                                    LBXBSHandoffMark([NSString stringWithFormat:
-                                                      @"wireKids tvDump idx=%ld frame=%.0fx%.0f@%.0f,%.0f rows=%ld cells=%lu txt=%@",
-                                                      (long)idxMark,
-                                                      tv.frame.size.width, tv.frame.size.height,
-                                                      tv.frame.origin.x, tv.frame.origin.y,
-                                                      (long)rows,
-                                                      (unsigned long)tv.visibleCells.count,
-                                                      cellTxt]);
+                                    [tables addObject:(UITableView *)v];
                                 } else if ([v isKindOfClass:[UICollectionView class]]) {
-                                    UICollectionView *cv = (UICollectionView *)v;
-                                    @try {
-                                        [cv reloadData];
-                                        tvN += 1;
-                                    } @catch (__unused NSException *e) {}
-                                    NSInteger items = 0;
-                                    @try {
-                                        if ([cv numberOfSections] > 0) {
-                                            items = [cv numberOfItemsInSection:0];
-                                        }
-                                    } @catch (__unused NSException *e) {}
-                                    LBXBSHandoffMark([NSString stringWithFormat:
-                                                      @"wireKids cvDump idx=%ld frame=%.0fx%.0f@%.0f,%.0f items=%ld",
-                                                      (long)idxMark,
-                                                      cv.frame.size.width, cv.frame.size.height,
-                                                      cv.frame.origin.x, cv.frame.origin.y,
-                                                      (long)items]);
+                                    [cols addObject:(UICollectionView *)v];
                                 }
+                            }
+                            // pass2：隐藏全屏标签墙 collection
+                            for (UICollectionView *cv in cols) {
+                                NSInteger items = 0;
+                                @try {
+                                    if ([cv numberOfSections] > 0) {
+                                        items = [cv numberOfItemsInSection:0];
+                                    }
+                                } @catch (__unused NSException *e) {}
+                                BOOL looksTagWall = (items >= 20 && cv.frame.size.height >= 200.0);
+                                if (looksTagWall && n2 > 0) {
+                                    @try { cv.hidden = YES; } @catch (__unused NSException *e) {}
+                                    LBXBSHandoffMark([NSString stringWithFormat:
+                                                      @"wireKids hideCV idx=%ld items=%ld h=%.0f",
+                                                      (long)idxMark, (long)items, cv.frame.size.height]);
+                                }
+                                LBXBSHandoffMark([NSString stringWithFormat:
+                                                  @"wireKids cvDump idx=%ld frame=%.0fx%.0f@%.0f,%.0f items=%ld hidden=%d",
+                                                  (long)idxMark,
+                                                  cv.frame.size.width, cv.frame.size.height,
+                                                  cv.frame.origin.x, cv.frame.origin.y,
+                                                  (long)items, cv.hidden ? 1 : 0]);
+                            }
+                            // pass3：刷表并提到最前，再读 visibleCells
+                            for (UITableView *tv in tables) {
+                                @try {
+                                    [tv.superview bringSubviewToFront:tv];
+                                    tv.hidden = NO;
+                                    tv.alpha = 1.0;
+                                    [tv reloadData];
+                                    [tv layoutIfNeeded];
+                                    tvN += 1;
+                                } @catch (__unused NSException *e) {}
+                                NSInteger rows = 0;
+                                @try {
+                                    if ([tv numberOfSections] > 0) {
+                                        rows = [tv numberOfRowsInSection:0];
+                                    }
+                                } @catch (__unused NSException *e) {}
+                                NSString *cellTxt = @"-";
+                                NSUInteger cellN = 0;
+                                @try {
+                                    NSArray *cells = [tv visibleCells];
+                                    cellN = cells.count;
+                                    if (cells.count > 0) {
+                                        UIView *cell = cells.firstObject;
+                                        NSMutableArray *labs = [NSMutableArray array];
+                                        NSMutableArray *q = [NSMutableArray arrayWithObject:cell];
+                                        while (q.count > 0 && labs.count < 3) {
+                                            UIView *vv = q.firstObject;
+                                            [q removeObjectAtIndex:0];
+                                            for (UIView *s in vv.subviews) [q addObject:s];
+                                            if ([vv isKindOfClass:[UILabel class]]) {
+                                                NSString *t = [(UILabel *)vv text];
+                                                if (t.length > 0) [labs addObject:t];
+                                            }
+                                        }
+                                        if (labs.count) {
+                                            cellTxt = [labs componentsJoinedByString:@"|"];
+                                            if (cellTxt.length > 60) cellTxt = [cellTxt substringToIndex:60];
+                                        }
+                                    }
+                                } @catch (__unused NSException *e) {}
+                                LBXBSHandoffMark([NSString stringWithFormat:
+                                                  @"wireKids tvDump idx=%ld frame=%.0fx%.0f@%.0f,%.0f rows=%ld cells=%lu txt=%@",
+                                                  (long)idxMark,
+                                                  tv.frame.size.width, tv.frame.size.height,
+                                                  tv.frame.origin.x, tv.frame.origin.y,
+                                                  (long)rows, (unsigned long)cellN, cellTxt]);
                             }
                         }
                         LBXBSHandoffMark([NSString stringWithFormat:
