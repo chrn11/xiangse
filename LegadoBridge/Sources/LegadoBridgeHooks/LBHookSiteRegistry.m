@@ -107,8 +107,22 @@ BOOL LBClassDeclaresInstanceMethod(Class cls, SEL sel) {
 static BOOL LBIMPLooksLikeBlockStub(IMP imp) {
     if (!imp) return NO;
     Dl_info info;
-    if (!dladdr((void *)imp, &info) || !info.dli_sname) return NO;
-    return strstr(info.dli_sname, "block_invoke") != NULL;
+    memset(&info, 0, sizeof(info));
+    if (!dladdr((void *)imp, &info)) {
+        // 无法解析的 IMP：按不可安全串联处理
+        return YES;
+    }
+    // 无名符号常见于 imp_implementationWithBlock trampoline（不可安全串联）
+    if (!info.dli_sname || info.dli_sname[0] == '\0') {
+        return YES;
+    }
+    if (strstr(info.dli_sname, "block_invoke") != NULL) return YES;
+    if (strstr(info.dli_sname, "_block_invoke") != NULL) return YES;
+    // imp_implementationWithBlock 常落在 libclosure
+    if (info.dli_fname && strstr(info.dli_fname, "libclosure") != NULL) {
+        return YES;
+    }
+    return NO;
 }
 
 BOOL LBHookSiteRegistryIsKnownReplacement(IMP imp) {

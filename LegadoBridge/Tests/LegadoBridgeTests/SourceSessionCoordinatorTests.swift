@@ -28,23 +28,14 @@ final class SourceSessionCoordinatorTests: XCTestCase {
 
     func testStalePublishRejected() {
         let c = SourceSessionCoordinator.shared
-        let tA = c.apply(.switchDiscoverSource(exactSourceUrl: "https://a"))
-        _ = c.apply(.switchDiscoverSource(exactSourceUrl: "https://b"))
-        let r = c.requestPublishPermit(for: tA, isFirstPage: true)
-        guard case .failure(let reason) = r else {
-            return XCTFail("expected failure")
-        }
-        // token A still matches session A generations, but after switch to B,
-        // session A still exists — switchDiscoverSource on B doesn't invalidate A.
-        // Re-test A→B on same url:
+        // 同 URL：switch 后再 manualRefresh 抬升 contentGeneration，旧 token 应被拒
         let t1 = c.apply(.switchDiscoverSource(exactSourceUrl: "https://x"))
         _ = c.apply(.manualRefreshFirstPage(exactSourceUrl: "https://x"))
         let stale = c.requestPublishPermit(for: t1, isFirstPage: true)
         guard case .failure(let r2) = stale else {
-            return XCTFail("expected content mismatch")
+            return XCTFail("expected content mismatch, got \(stale)")
         }
         XCTAssertEqual(r2, .contentGenerationMismatch)
-        _ = reason
     }
 
     func testPaginationContiguous() {

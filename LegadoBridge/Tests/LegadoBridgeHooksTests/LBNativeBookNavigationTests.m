@@ -104,6 +104,7 @@ static NSInteger gPushCount;
 - (void)testRejectsMissingMarker {
     LBFakeNavHost *host = [LBFakeNavHost new];
     host.forcedNav = [[LBCountingNav alloc] initWithRootViewController:host];
+    gPushCount = 0; // initWithRootViewController 可能内部 push，与业务 push 分开计数
     NSError *err = nil;
     NSDictionary *book = @{
         @"bookUrl": @"https://a/b",
@@ -117,6 +118,7 @@ static NSInteger gPushCount;
 - (void)testRejectsMissingPair {
     LBFakeNavHost *host = [LBFakeNavHost new];
     host.forcedNav = [[LBCountingNav alloc] initWithRootViewController:host];
+    gPushCount = 0;
     NSError *err = nil;
     NSDictionary *book = @{@"legadoBridge": @"1", @"bookUrl": @"https://a/b"};
     XCTAssertFalse(LBOpenLegadoBookDetail(host, book, @"search", &err));
@@ -126,6 +128,7 @@ static NSInteger gPushCount;
 - (void)testRejectsNativeOrXBSRow {
     LBFakeNavHost *host = [LBFakeNavHost new];
     host.forcedNav = [[LBCountingNav alloc] initWithRootViewController:host];
+    gPushCount = 0;
     NSError *err = nil;
     NSDictionary *book = @{
         @"_lb_sourceType": @"native",
@@ -140,6 +143,7 @@ static NSInteger gPushCount;
 - (void)testRejectsInvalidToken {
     LBFakeNavHost *host = [LBFakeNavHost new];
     host.forcedNav = [[LBCountingNav alloc] initWithRootViewController:host];
+    gPushCount = 0;
     NSMutableDictionary *book = [[self legadoBook] mutableCopy];
     book[@"legadoBridgeToken"] = @"not-a-token";
     NSError *err = nil;
@@ -151,6 +155,9 @@ static NSInteger gPushCount;
     LBFakeNavHost *host = [LBFakeNavHost new];
     LBCountingNav *nav = [[LBCountingNav alloc] initWithRootViewController:host];
     host.forcedNav = nav;
+    gPushCount = 0;
+    gNavOrder = [NSMutableArray array];
+    gCreateCount = gSetDicCount = gSetKeyCount = 0;
     NSError *err = nil;
     XCTAssertTrue(LBOpenLegadoBookDetail(host, [self legadoBook], @"BookListCon.didSelect", &err),
                   @"%@", err);
@@ -166,6 +173,7 @@ static NSInteger gPushCount;
 - (void)testDoublePushBlocked {
     LBFakeNavHost *host = [LBFakeNavHost new];
     host.forcedNav = [[LBCountingNav alloc] initWithRootViewController:host];
+    gPushCount = 0;
     NSError *err1 = nil;
     NSError *err2 = nil;
     XCTAssertTrue(LBOpenLegadoBookDetail(host, [self legadoBook], @"search", &err1));

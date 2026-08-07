@@ -166,7 +166,9 @@ public final class ExploreCatalogStore: @unchecked Sendable {
             let tmp = dir.appendingPathComponent("\(UUID().uuidString).tmp")
             try data.write(to: tmp, options: .atomic)
             let readBack = try Data(contentsOf: tmp)
-            let decoded = try JSONDecoder().decode(CacheEnvelope.self, from: readBack)
+            let dec = JSONDecoder()
+            dec.dateDecodingStrategy = .iso8601
+            let decoded = try dec.decode(CacheEnvelope.self, from: readBack)
             guard decoded.payloadSHA256 == payloadSHA else { throw StoreError.checksumMismatch }
             if fileManager.fileExists(atPath: url.path) {
                 try fileManager.removeItem(at: url)
@@ -192,7 +194,11 @@ public final class ExploreCatalogStore: @unchecked Sendable {
             }
             for url in files where url.pathExtension == "json" {
                 guard let data = try? Data(contentsOf: url),
-                      var env = try? JSONDecoder().decode(CacheEnvelope.self, from: data)
+                      var env = try? {
+                          let d = JSONDecoder()
+                          d.dateDecodingStrategy = .iso8601
+                          return try d.decode(CacheEnvelope.self, from: data)
+                      }()
                 else { continue }
                 let payloadSHA = SHA256.hash(data: env.payload).map { String(format: "%02x", $0) }.joined()
                 guard payloadSHA == env.payloadSHA256 else { continue }
@@ -227,7 +233,11 @@ public final class ExploreCatalogStore: @unchecked Sendable {
             }
             for url in files where url.pathExtension == "json" {
                 guard let data = try? Data(contentsOf: url),
-                      let env = try? JSONDecoder().decode(CacheEnvelope.self, from: data)
+                      let env = try? {
+                          let d = JSONDecoder()
+                          d.dateDecodingStrategy = .iso8601
+                          return try d.decode(CacheEnvelope.self, from: data)
+                      }()
                 else { continue }
                 entries.append((url, env.lastAccessAt, data.count))
             }
