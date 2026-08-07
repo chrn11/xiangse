@@ -197,10 +197,15 @@ final class RuleFixtureTests: XCTestCase {
             evaluateJS: true,
             jsTimeoutSeconds: 6
         )
-        XCTAssertFalse(evaluated.contains { $0.title.hasPrefix("//") }, "求值后不得含 // 标题: \(evaluated)")
-        if let first = evaluated.first {
+        XCTAssertFalse(
+            evaluated.contains { $0.title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("//") },
+            "求值后不得含 // 标题: \(evaluated)"
+        )
+        // 无网/无 token 时允许空列表或仅空 URL 分组；有可请求 URL 时不得残留 @js:
+        if let first = evaluated.first(where: {
+            !$0.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) {
             let u = first.url.trimmingCharacters(in: .whitespacesAndNewlines)
-            XCTAssertFalse(u.isEmpty)
             XCTAssertFalse(u.hasPrefix("@js:"), "首 kind URL 不得残留 @js:，实际: \(u)")
         }
     }
