@@ -1,0 +1,56 @@
+{
+  "id": "1751-explore-js-sanitized",
+  "exactSourceUrl": "https://explore.example/yckceo-1751",
+  "sourceNameSnapshot": "fixture-1751-sanitized",
+  "notes": [
+    "真实 fixtures/yckceo-batch/1751.json 含 Map(token) 等凭证，禁止入库原文",
+    "本夹具只保留结构：顶层 @js 未求值诊断 + 求值后空 URL group/children",
+    "source exploreUrl sha256=6220e4ee6a2472f375e993adcf1121d2311bba9927310d9ac259c38c87ca6306 len=20409",
+    "corpus markers: emptyUrl::::=268 colonColon=816"
+  ],
+  "unevaluatedExploreUrl": "@js:\n// sanitized stub — real body redacted\nJSON.stringify([])",
+  "expectedUnevaluated": {
+    "channelCount": 0,
+    "diagnosticCodes": [
+      "topLevelJSUnevaluated"
+    ]
+  },
+  "evaluatedJSON": "[{\"title\": \"分组A\", \"url\": \"\", \"style\": 1, \"children\": [{\"title\": \"子项1\", \"url\": \"/explore/a1?page={{page}}\"}, {\"title\": \"子项2\", \"url\": \"/explore/a2?page={{page}}\"}]}, {\"title\": \"分组B\", \"url\": \"\", \"children\": [{\"title\": \"子项3\", \"url\": \"/explore/b1?page={{page}}\"}, {\"title\": \"直链\", \"url\": \"/explore/direct?page={{page}}\", \"style\": {\"layout\": \"list\"}}]}]",
+  "expectedEvaluated": {
+    "channelCount": 2,
+    "nodeCount": 4,
+    "channelTitles": [
+      "分组A",
+      "分组B"
+    ],
+    "nodeTitles": [
+      "子项1",
+      "子项2",
+      "子项3",
+      "直链"
+    ],
+    "emptyUrlGroupTitles": [
+      "分组A",
+      "分组B"
+    ],
+    "kinds": [
+      "url",
+      "url",
+      "url",
+      "url"
+    ],
+    "selectable": [
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "sourceMeta": {
+    "path": "fixtures/yckceo-batch/1751.json",
+    "exploreUrlSHA256": "6220e4ee6a2472f375e993adcf1121d2311bba9927310d9ac259c38c87ca6306",
+    "exploreLen": 20409,
+    "hasEmptyUrlInCorpus": true,
+    "emptyUrlMarkerCount": 268
+  }
+}

@@ -57,6 +57,31 @@ void LBInvalidateSourceListMergeCache(void) {
     sCachedMerged = nil;
 }
 
+NSDictionary *LBBSMRawDicModelList(void) {
+    Class mgrCls = NSClassFromString(@"BookSourceModelManager");
+    id mgr = nil;
+    if (mgrCls && [mgrCls respondsToSelector:@selector(sharedInstance)]) {
+        mgr = ((id (*)(id, SEL))objc_msgSend)(mgrCls, @selector(sharedInstance));
+    }
+    if (!mgr) return @{};
+    if (LBOrig_BSM_dicModelList) {
+        NSDictionary *raw = LBOrig_BSM_dicModelList(mgr, @selector(dicModelList));
+        return [raw isKindOfClass:[NSDictionary class]] ? raw : @{};
+    }
+    @try {
+        id v = [mgr valueForKey:@"_dicModelList"];
+        if ([v isKindOfClass:[NSDictionary class]]) return (NSDictionary *)v;
+    } @catch (__unused NSException *e) {}
+    return @{};
+}
+
+NSDictionary *LBBSMRawDicModelForExactKey(NSString *exactKey) {
+    if (exactKey.length == 0) return nil;
+    NSDictionary *list = LBBSMRawDicModelList();
+    id obj = list[exactKey];
+    return [obj isKindOfClass:[NSDictionary class]] ? (NSDictionary *)obj : nil;
+}
+
 static NSDictionary *LBBSM_dicModelList_IMP(id self, SEL _cmd) {
     NSDictionary *orig = LBOrig_BSM_dicModelList ? LBOrig_BSM_dicModelList(self, _cmd) : @{};
     // TC-06：用 projectionKey 消歧，禁止新写 ·Legado；title 仍为 displaySourceName。

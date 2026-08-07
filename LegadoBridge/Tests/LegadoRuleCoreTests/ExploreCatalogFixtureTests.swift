@@ -50,4 +50,46 @@ final class ExploreCatalogFixtureTests: XCTestCase {
         // nested children → multi channel
         XCTAssertGreaterThanOrEqual(channels.count, 1)
     }
+
+    /// 1751：真实源含凭证，夹具仅脱敏结构（未求值 @js + 求值后空 URL group）。
+    func test1751SanitizedFixtureExactShape() throws {
+        let url = try XCTUnwrap(
+            Bundle.module.url(forResource: "1751-sanitized", withExtension: "json", subdirectory: "Fixtures/Explore")
+                ?? Bundle.module.url(forResource: "1751-sanitized", withExtension: "json")
+        )
+        let data = try Data(contentsOf: url)
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let sourceUrl = try XCTUnwrap(obj?["exactSourceUrl"] as? String)
+        let uneval = try XCTUnwrap(obj?["unevaluatedExploreUrl"] as? String)
+        let expectedU = try XCTUnwrap(obj?["expectedUnevaluated"] as? [String: Any])
+        let snapU = ExploreCatalogBuilder.build(exactSourceUrl: sourceUrl, exploreRaw: uneval)
+        XCTAssertEqual(snapU.channels.count, expectedU["channelCount"] as? Int)
+        XCTAssertTrue(snapU.diagnostics.codes.contains("topLevelJSUnevaluated"))
+        XCTAssertTrue(RuleWebBook.isTopLevelExploreJS(uneval))
+
+        let evaluatedJSON = try XCTUnwrap(obj?["evaluatedJSON"] as? String)
+        let expectedE = try XCTUnwrap(obj?["expectedEvaluated"] as? [String: Any])
+        var diag = ExploreCatalogDiagnostics()
+        let channels = ExploreCatalogBuilder.normalizeJSON(
+            text: evaluatedJSON,
+            sourceUrl: sourceUrl,
+            fingerprint: "fp-1751",
+            diagnostics: &diag
+        )
+        XCTAssertEqual(channels.count, expectedE["channelCount"] as? Int)
+        XCTAssertEqual(channels.map(\.displayTitle), expectedE["channelTitles"] as? [String])
+        let nodes = channels.flatMap(\.nodes)
+        XCTAssertEqual(nodes.count, expectedE["nodeCount"] as? Int)
+        XCTAssertEqual(nodes.map(\.displayTitle), expectedE["nodeTitles"] as? [String])
+        XCTAssertTrue(nodes.allSatisfy { $0.kind == .url && $0.selectable })
+        // 空 URL 只在 channel 层；子 node 必须有可请求 target
+        for n in nodes {
+            XCTAssertFalse(n.rawTarget.isEmpty)
+            XCTAssertTrue(n.rawTarget.contains("{{page}}"))
+        }
+        // 夹具不得夹带真实凭证片段
+        let blob = String(data: data, encoding: .utf8) ?? ""
+        XCTAssertFalse(blob.lowercased().contains("cookie"))
+        XCTAssertFalse(blob.contains("Map(\"token\")"))
+    }
 }

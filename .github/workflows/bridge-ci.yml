@@ -8,23 +8,35 @@ on:
   workflow_dispatch:
 
 jobs:
-  # 固定夹具硬门禁（不依赖网络 / 不依赖 Xcode）
+  # TC-11 stage 1：固定夹具（不依赖网络 / 不依赖 Xcode）
   fixture-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: 固定夹具与 Hooks 硬门禁
+      - name: fixture-gate
+        run: python3 tools/ci/validate_fixtures.py
+
+  # TC-11 stage 2：Python 静态 / gate 单测（前一 stage 失败则本 job 不跑）
+  python-gates:
+    needs: [fixture-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python static gates + unittest
         run: |
-          python3 tools/ci/validate_fixtures.py
+          set -euo pipefail
+          python3 tools/ci/validate_test_file_manifest.py
           python3 tools/ci/validate_hooks_gate.py
+          python3 tools/ci/validate_ci_test_targets.py
           python3 -m unittest discover -s tools/ci -p 'test_*.py'
 
-  # 香色 nativeTool / @js: 适配单测（iOS Simulator）
-  unit-tests:
-    needs: [fixture-gate]
+  # TC-11 stage 3–6：xcodebuild -list + 三 scheme 全量单测（无 -only-testing）
+  spm-full-tests:
+    needs: [python-gates]
     runs-on: macos-14
-    timeout-minutes: 25
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -32,7 +44,8 @@ jobs:
         with:
           xcode-version: '15.4'
 
-      - name: XiangseNativeToolTests
+      - name: 解析 Simulator destination
+        id: dest
         working-directory: LegadoBridge
         run: |
           set -euo pipefail
@@ -50,33 +63,82 @@ jobs:
           fi
           if [[ -z "$DEST" ]]; then
             echo "无可用 iPhone Simulator" >&2
-            xcrun simctl list devices available >&2 || true
             exit 1
           fi
-          echo "==> destination: $DEST"
-          echo "==> schemes:"; xcodebuild -list 2>&1 | tee -a unit-xiangse-nativetool.log || true
-          set -o pipefail
+          echo "dest=$DEST" >> "$GITHUB_OUTPUT"
+
+      - name: xcodebuild -list（验证 schemes/targets）
+        working-directory: LegadoBridge
+        run: |
+          set -euo pipefail
+          xcodebuild -list -packagePath . 2>&1 | tee ../spm-schemes.log
+
+      - name: LegadoRuleCoreTests 全量
+        working-directory: LegadoBridge
+        run: |
+          set -euo pipefail
           xcodebuild test \
             -scheme LegadoRuleCore \
-            -destination "$DEST" \
-            -only-testing:LegadoRuleCoreTests/XiangseNativeToolTests \
-            -only-testing:LegadoRuleCoreTests/XiangseJSExecuteTests \
-            -derivedDataPath "$PWD/.build-test" \
+            -destination "${{ steps.dest.outputs.dest }}" \
+            -resultBundlePath "$PWD/LegadoRuleCore.xcresult" \
+            -derivedDataPath "$PWD/.build-test-full" \
             CODE_SIGNING_ALLOWED=NO \
             -skipPackagePluginValidation \
-            2>&1 | tee -a unit-xiangse-nativetool.log
-          grep -E 'Test Case .* (passed|failed)|TEST SUCCEEDED|TEST FAILED|error:|XCTAssert|实际:|抛错|bad-result' unit-xiangse-nativetool.log || true
+            2>&1 | tee ../LegadoRuleCore-full.log
+
+      - name: LegadoBridgeTests 全量
+        working-directory: LegadoBridge
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -scheme LegadoBridge \
+            -destination "${{ steps.dest.outputs.dest }}" \
+            -resultBundlePath "$PWD/LegadoBridge.xcresult" \
+            -derivedDataPath "$PWD/.build-test-full" \
+            CODE_SIGNING_ALLOWED=NO \
+            -skipPackagePluginValidation \
+            2>&1 | tee ../LegadoBridge-full.log
+
+      - name: LegadoBridgeHooksTests 全量
+        working-directory: LegadoBridge
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -scheme LegadoBridgeHooks \
+            -destination "${{ steps.dest.outputs.dest }}" \
+            -resultBundlePath "$PWD/LegadoBridgeHooks.xcresult" \
+            -derivedDataPath "$PWD/.build-test-full" \
+            CODE_SIGNING_ALLOWED=NO \
+            -skipPackagePluginValidation \
+            2>&1 | tee ../LegadoBridgeHooks-full.log
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: XiangseNativeTool-unit-logs
-          path: LegadoBridge/unit-xiangse-nativetool.log
+          name: SPM-full-test-logs
+          path: |
+            LegadoBridge/LegadoRuleCore.xcresult
+            LegadoBridge/LegadoBridge.xcresult
+            LegadoBridge/LegadoBridgeHooks.xcresult
+            LegadoRuleCore-full.log
+            LegadoBridge-full.log
+            LegadoBridgeHooks-full.log
+            spm-schemes.log
           if-no-files-found: warn
 
+  # TC-11 stage 7：Release 隐私扫描（须在全量单测之后、出包之前）
+  privacy-scan:
+    needs: [spm-full-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release log / privacy scan
+        run: python3 tools/ci/validate_release_privacy.py
+
   build-bridge:
-    # 单测不过不出 IPA，避免 unit-tests 红时仍上传可用包
-    needs: [fixture-gate, unit-tests]
+    # 单测 / 隐私扫描不过不出 IPA
+    needs: [privacy-scan]
     runs-on: macos-14
     timeout-minutes: 45
     steps:
@@ -106,7 +168,7 @@ jobs:
           set -euo pipefail
           swift package resolve
           echo "==> xcodebuild -list:"
-          xcodebuild -list 2>&1 | tee -a spm-build.log || true
+          xcodebuild -list 2>&1 | tee -a spm-build.log
           xcodebuild \
             -scheme LegadoBridge \
             -destination 'generic/platform=iOS' \
@@ -124,7 +186,7 @@ jobs:
           if ! command -v insert_dylib; then
             git clone --depth 1 https://github.com/tyilo/insert_dylib /tmp/insert_dylib
             cd /tmp/insert_dylib && xcodebuild -configuration Release
-            sudo cp build/Release/insert_dylib /usr/local/bin/ || cp build/Release/insert_dylib "$HOME/bin/" || true
+            sudo cp build/Release/insert_dylib /usr/local/bin/ || cp build/Release/insert_dylib "$HOME/bin/"
             mkdir -p "$HOME/bin"
             export PATH="$HOME/bin:$PATH"
             echo "$HOME/bin" >> "$GITHUB_PATH"
@@ -135,20 +197,29 @@ jobs:
           set -euo pipefail
           chmod +x tools/repack/repack.sh tools/repack/verify_ipa.sh
           DYLIB=$(find LegadoBridge/.build -type f -name 'LegadoBridge' \
-            -path '*Release-iphoneos*' -not -path '*dSYM*' 2>/dev/null | head -1 || true)
+            -path '*Release-iphoneos*' -not -path '*dSYM*' 2>/dev/null | head -1)
           if [[ -z "$DYLIB" ]]; then
             DYLIB=$(find LegadoBridge/.build -type f -name 'libLegadoBridge.dylib' \
-              -path '*Release-iphoneos*' 2>/dev/null | head -1 || true)
+              -path '*Release-iphoneos*' 2>/dev/null | head -1)
           fi
-          echo "==> 选用 dylib: ${DYLIB:-（无，将仅写 manifest）}"
+          if [[ -z "$DYLIB" ]]; then
+            echo "未找到 Release-iphoneos LegadoBridge dylib" >&2
+            exit 1
+          fi
+          echo "==> 选用 dylib: $DYLIB"
           mkdir -p dist
           bash tools/repack/repack.sh \
             "ipa/香色闺阁2.56.1_未加密.ipa" \
-            "${DYLIB:-}" \
+            "$DYLIB" \
             "dist/StandarReader-legado-bridge.ipa"
           # repack.sh 末尾已调用 verify_ipa.sh（LC_LOAD_DYLIB / arm64 / Scheme / SHA256）
           ls -la dist/
           test -f dist/StandarReader-legado-bridge.ipa.sha256
+
+      - name: TC-11 clone packaging 结构门禁（夹具 selftest）
+        run: |
+          set -euo pipefail
+          python3 tools/ci/test_clone_packaging.py --mode selftest
 
       # 仅 Artifact，不创建 GitHub Release
       - uses: actions/upload-artifact@v4
@@ -170,7 +241,7 @@ jobs:
           retention-days: 7
 
   build-bridge-debug:
-    needs: [fixture-gate, unit-tests]
+    needs: [privacy-scan]
     runs-on: macos-14
     timeout-minutes: 45
     steps:
@@ -228,7 +299,7 @@ jobs:
           if ! command -v insert_dylib; then
             git clone --depth 1 https://github.com/tyilo/insert_dylib /tmp/insert_dylib
             cd /tmp/insert_dylib && xcodebuild -configuration Release
-            sudo cp build/Release/insert_dylib /usr/local/bin/ || cp build/Release/insert_dylib "$HOME/bin/" || true
+            sudo cp build/Release/insert_dylib /usr/local/bin/ || cp build/Release/insert_dylib "$HOME/bin/"
             mkdir -p "$HOME/bin"
             export PATH="$HOME/bin:$PATH"
             echo "$HOME/bin" >> "$GITHUB_PATH"
@@ -239,24 +310,28 @@ jobs:
           set -euo pipefail
           chmod +x tools/repack/repack_forensics.sh tools/repack/verify_forensics_ipa.sh
           DYLIB=$(find LegadoBridge/.build -type f -name 'LegadoBridge' \
-            -path '*Release-iphoneos*' -not -path '*dSYM*' 2>/dev/null | head -1 || true)
+            -path '*Release-iphoneos*' -not -path '*dSYM*' 2>/dev/null | head -1)
           if [[ -z "$DYLIB" ]]; then
             DYLIB=$(find LegadoBridge/.build -type f -name 'libLegadoBridge.dylib' \
-              -path '*Release-iphoneos*' 2>/dev/null | head -1 || true)
+              -path '*Release-iphoneos*' 2>/dev/null | head -1)
           fi
           DEBUG_DYLIB=$(find LegadoBridge/.build -type f -name 'LegadoBridgeDebug' \
-            -path '*Release-iphoneos*' -not -path '*dSYM*' 2>/dev/null | head -1 || true)
+            -path '*Release-iphoneos*' -not -path '*dSYM*' 2>/dev/null | head -1)
           if [[ -z "$DEBUG_DYLIB" ]]; then
             DEBUG_DYLIB=$(find LegadoBridge/.build -type f -name 'libLegadoBridgeDebug.dylib' \
-              -path '*Release-iphoneos*' 2>/dev/null | head -1 || true)
+              -path '*Release-iphoneos*' 2>/dev/null | head -1)
           fi
-          echo "==> 主 dylib: ${DYLIB:-（无）}"
+          if [[ -z "$DYLIB" ]]; then
+            echo "未找到主 dylib" >&2
+            exit 1
+          fi
+          echo "==> 主 dylib: $DYLIB"
           echo "==> 调试 dylib: ${DEBUG_DYLIB:-（无）}"
           mkdir -p dist
           bash tools/repack/repack_forensics.sh \
             legado-debug \
             "ipa/香色闺阁2.56.1_未加密.ipa" \
-            "${DYLIB:-}" \
+            "$DYLIB" \
             "${DEBUG_DYLIB:-}" \
             "dist/StandarReader-legado-bridge-debug.ipa"
           ls -la dist/

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -832,6 +833,187 @@ private final class SearchOutcomeBox: @unchecked Sendable {
             storeExploreKindsCache(key: cacheKey, fingerprint: fingerprint, json: json)
         }
         return json
+    }
+
+    /// TC-07 / §24.6：sanitized snapshot metadata JSON（无 raw target / Cookie / requestInfo）。
+    @objc(exploreSnapshotMetadataJSONForSourceUrl:)
+    public func exploreSnapshotMetadataJSON(forSourceUrl sourceUrl: String?) -> String {
+        let envelope: [String: Any]
+        defer {}
+        guard let resolved = resolveExploreSource(sourceUrl) else {
+            return Self.encodeSanitizedExploreMetadata(
+                sourceIdentityHash: "",
+                snapshot: nil,
+                state: ExploreCatalogStore.ExploreUIState.failedWithoutCache.rawValue
+            )
+        }
+        let exact = resolved.bookSourceUrl
+        let sourceHash = Self.stableSourceIdentityHash(exact)
+        guard let raw = resolved.exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return Self.encodeSanitizedExploreMetadata(
+                sourceIdentityHash: sourceHash,
+                snapshot: nil,
+                state: ExploreCatalogStore.ExploreUIState.emptySuccess.rawValue
+            )
+        }
+        // 同步结构解析；顶层 JS 未求值 → coldLoading（异步路径另发通知）
+        if RuleWebBook.isTopLevelExploreJS(raw) {
+            if let cached = exploreKindsCacheQueue.sync(execute: { exploreKindsCache[exact] }),
+               cached.fingerprint == raw,
+               let data = cached.json.data(using: .utf8),
+               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+               !arr.isEmpty {
+                // 旧薄缓存仅有 title/url：升成 sanitized（url 丢弃，仅保留 display title 占位 node）
+                let snap = Self.snapshotFromLegacyKinds(arr, exactSourceUrl: exact, exploreRaw: raw)
+                return Self.encodeSanitizedExploreMetadata(
+                    sourceIdentityHash: sourceHash,
+                    snapshot: snap,
+                    state: ExploreCatalogStore.ExploreUIState.ready.rawValue
+                )
+            }
+            return Self.encodeSanitizedExploreMetadata(
+                sourceIdentityHash: sourceHash,
+                snapshot: nil,
+                state: ExploreCatalogStore.ExploreUIState.coldLoading.rawValue
+            )
+        }
+        let snap = RuleWebBook.parseExploreCatalog(
+            raw,
+            exactSourceUrl: exact,
+            sourceNameSnapshot: resolved.bookSourceName,
+            source: resolved,
+            evaluateJS: false
+        )
+        let state: String
+        if snap.channels.isEmpty {
+            state = ExploreCatalogStore.ExploreUIState.emptySuccess.rawValue
+        } else {
+            state = ExploreCatalogStore.ExploreUIState.ready.rawValue
+        }
+        return Self.encodeSanitizedExploreMetadata(
+            sourceIdentityHash: sourceHash,
+            snapshot: snap,
+            state: state
+        )
+    }
+
+    private static func stableSourceIdentityHash(_ sourceUrl: String) -> String {
+        let digest = SHA256.hash(data: Data(sourceUrl.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func snapshotFromLegacyKinds(
+        _ kinds: [[String: Any]],
+        exactSourceUrl: String,
+        exploreRaw: String
+    ) -> ExploreCatalogSnapshot {
+        // 仅 display：丢弃 url；生成稳定占位 ID（不回写 raw）
+        var diagnostics = ExploreCatalogDiagnostics()
+        diagnostics.codes.append("legacyKindsSanitized")
+        let fingerprint = ExploreCatalogID.definitionFingerprint(
+            exactSourceUrl: exactSourceUrl,
+            exploreRaw: exploreRaw
+        )
+        let channelID = ExploreCatalogID.channelID(
+            sourceUrl: exactSourceUrl,
+            definitionFingerprint: fingerprint,
+            indexPath: [0],
+            rawTitle: ""
+        )
+        var nodes: [ExploreNode] = []
+        for (idx, item) in kinds.enumerated() {
+            let title = (item["title"] as? String) ?? ""
+            let nodeID = ExploreCatalogID.nodeID(
+                sourceUrl: exactSourceUrl,
+                definitionFingerprint: fingerprint,
+                channelID: channelID,
+                indexPath: [0, idx],
+                kind: .url,
+                rawTitle: title,
+                rawTarget: ""
+            )
+            nodes.append(
+                ExploreNode(
+                    nodeID: nodeID,
+                    kind: .url,
+                    rawTitle: title,
+                    displayTitle: title,
+                    rawTarget: "",
+                    originalOrder: idx,
+                    selectable: !title.isEmpty
+                )
+            )
+        }
+        var snap = ExploreCatalogSnapshot(
+            exactSourceUrl: exactSourceUrl,
+            sourceNameSnapshot: nil,
+            definitionFingerprint: fingerprint,
+            runtimeContextEpoch: 0,
+            snapshotID: "",
+            channels: [
+                ExploreChannel(
+                    channelID: channelID,
+                    rawTitle: "",
+                    displayTitle: "发现",
+                    rawStyle: nil,
+                    originalOrder: 0,
+                    nodes: nodes
+                )
+            ],
+            defaultChannelID: channelID,
+            defaultNodeID: nodes.first?.nodeID,
+            diagnostics: diagnostics
+        )
+        if let sid = try? ExploreCatalogID.snapshotID(for: snap) {
+            snap.snapshotID = sid
+        }
+        return snap
+    }
+
+    private static func encodeSanitizedExploreMetadata(
+        sourceIdentityHash: String,
+        snapshot: ExploreCatalogSnapshot?,
+        state: String
+    ) -> String {
+        var channels: [[String: Any]] = []
+        if let snapshot {
+            for ch in snapshot.channels {
+                var nodes: [[String: Any]] = []
+                for n in ch.nodes {
+                    nodes.append([
+                        "nodeID": n.nodeID,
+                        "title": n.displayTitle,
+                        "kind": n.kind.rawValue,
+                        "selectable": n.selectable,
+                    ])
+                }
+                var chObj: [String: Any] = [
+                    "channelID": ch.channelID,
+                    "title": ch.displayTitle,
+                    "nodes": nodes,
+                ]
+                if let style = ch.rawStyle {
+                    // 仅透传已结构化 styleHints 形态；ExploreJSONValue → 简表
+                    chObj["styleHints"] = ["layout": "native-default"]
+                    _ = style
+                }
+                channels.append(chObj)
+            }
+        }
+        let obj: [String: Any] = [
+            "schemaVersion": 1,
+            "sourceIdentityHash": sourceIdentityHash,
+            "snapshotID": snapshot?.snapshotID ?? "",
+            "state": state,
+            "channels": channels,
+        ]
+        guard JSONSerialization.isValidJSONObject(obj),
+              let data = try? JSONSerialization.data(withJSONObject: obj, options: []),
+              let s = String(data: data, encoding: .utf8) else {
+            return #"{"schemaVersion":1,"sourceIdentityHash":"","snapshotID":"","state":"failedWithoutCache","channels":[]}"#
+        }
+        return s
     }
 
     /// 异步预热某源分类缓存（切源时调用；完成后发 `exploreKindsDidUpdateNotification`）。
@@ -1756,33 +1938,12 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     LoginCredentialStore.putInfo(json, sourceUrl: src)
                 }
             }
-            let pathT = (NSHomeDirectory() as NSString)
-                .appendingPathComponent("Documents/legado_cookie_jar.txt")
-            let note = "tomato sessionid=\(sid.prefix(12))… targets=\(targets.count)\n"
-            if let data = note.data(using: .utf8), let handle = FileHandle(forWritingAtPath: pathT) {
-                handle.seekToEndOfFile()
-                handle.write(data)
-                try? handle.close()
-            }
             // 登录完成后自动重拉当前发现源
             let exploreSrc = selectedExploreSourceUrl ?? targets.first
             if let exploreSrc, !exploreSrc.isEmpty {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
                     self?.handleExploreRequest(sourceUrl: exploreSrc, exploreUrl: nil, page: 1)
                 }
-            }
-        }
-
-        let path = (NSHomeDirectory() as NSString)
-            .appendingPathComponent("Documents/legado_cookie_jar.txt")
-        let line = "save key=\(key) len=\(merged.count) src=\(url)\n"
-        if let data = line.data(using: .utf8) {
-            if let handle = FileHandle(forWritingAtPath: path) {
-                handle.seekToEndOfFile()
-                handle.write(data)
-                try? handle.close()
-            } else {
-                try? line.write(toFile: path, atomically: true, encoding: .utf8)
             }
         }
     }
@@ -1992,7 +2153,9 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         let act = (action ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !act.isEmpty else { return "空 action" }
         let msg = LoginUiExecutor.run(source: src, action: act, formJSON: formJSON, putInfoBeforeEval: true)
-        let line = "ts=\(ISO8601DateFormatter().string(from: Date())) src=\(sourceUrl) action=\(act.prefix(80)) result=\(msg.prefix(200))\n"
+        #if DEBUG
+        let redacted = BridgeDiagnosticRedactor.redact(.source(url: sourceUrl, name: src.bookSourceName))
+        let line = redacted.compactLine(tag: "loginUi")
         let path = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/legado_login_ui_action.txt")
         if let data = line.data(using: .utf8) {
             if FileManager.default.fileExists(atPath: path), let fh = FileHandle(forWritingAtPath: path) {
@@ -2001,6 +2164,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 try? data.write(to: URL(fileURLWithPath: path))
             }
         }
+        #endif
         return msg
     }
 

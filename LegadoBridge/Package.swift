@@ -103,6 +103,9 @@ let package = Package(
             sources: [
                 "Bridge"
             ],
+            resources: [
+                .copy("Bridge/LegacyNativeShellAllowlist.json"),
+            ],
             linkerSettings: [
                 .linkedFramework("Foundation"),
                 .linkedFramework("WebKit"),

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "contractID": "legacy-shell-identity",
+  "selectedBranch": "empty-unmarked-allowlist-noop",
+  "hashAlgorithm": "sha256-canonical-json-v1",
+  "firstSeenBuild": {
+    "appVersion": "2.56.1",
+    "nativeExecutableSHA256": "04f780eb59f86c9104f8c8c3c04fb24278f521d0a43e401b3773d2a47890dea7"
+  },
+  "evidencePath": ".artifacts/reverse-xiangse/locator-complete/gap_pack_GAP-08_locator-complete.json",
+  "evidenceSHA256": "b7c9baabe70ff8e9c1ce8cbdb5ea32df3dc9374f457e51b0ca43d3c9c5a3dafc",
+  "contractRef": ".artifacts/json/plan-inputs/legacy-shell-identity-contract.json",
+  "notes": "GAP-08 live unmarkedCount=0；空 items 时 dry-run / apply 均为 noop",
+  "items": []
+}

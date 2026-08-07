@@ -1,5 +1,8 @@
 #import "LBInternal.h"
 #import "LegadoBridge.h"
+#import "LBNativeExploreModelBuilder.h"
+#import "LBXBSModelHandoff.h"
+#import <objc/runtime.h>
 
 /// 发现页：香色原生 SGPageTitleView + BookListCon 子页；禁止 Bridge overlay 标签栏/表（tag LBKB/LBPV）。
 
@@ -90,6 +93,10 @@ static NSString *LBReadHostSourceName(UIViewController *host);
 static NSString *LBNameFromDicModel(id model);
 static NSString *LBFindLegadoExploreUrlByName(NSString *name);
 static BOOL LBInvokeOpenConfigByName(id host, NSString *cfgName);
+static NSDictionary *LBBuildLegadoAdapterModelFromCore(NSString *srcName);
+static NSDictionary *LBHostDicModelFromLegadoAdapter(NSDictionary *adapter);
+static BOOL LBWriteLegadoAdapterToHost(UIViewController *host, NSDictionary *adapter);
+static BOOL LBPerformSafeXBSHandoff(UIViewController *host, NSString *exactManagerKey);
 static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceName);
 static void LBSetDiscoverTitleBarCollapsed(id titleView, BOOL collapsed);
 static UITableView *LBFindBestDiscoverTable(UIViewController *host, UIViewController **outOwner);
@@ -768,7 +775,13 @@ static void LBAppendNativeHostState(UIViewController *host, NSString *tag) {
 }
 
 /// 从原生表挑一个带完整 bookWorld 的 donor（非 Legado）。outName 可空。
+/// TC-07：Release 生产路径不可达；仅 DEBUG 保留供对照。
 static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
+#if !DEBUG
+    (void)mgr;
+    if (outName) *outName = nil;
+    return nil;
+#else
     if (outName) *outName = nil;
     if (!mgr) return nil;
     id list = nil;
@@ -848,6 +861,7 @@ static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
     }
     LBAppendNativeMarker(@"bwDonor none (need keys>=6 weight>=60)");
     return nil;
+#endif
 }
 
 /// respondsToSelector 在部分宿主上对 openConfig 不可靠；沿继承链找 IMP
@@ -886,6 +900,7 @@ static BOOL LBInvokeOpenConfigByName(id host, NSString *cfgName) {
     return NO;
 }
 
+#if DEBUG
 static BOOL LBForceSetDicModel(UIViewController *host, NSDictionary *model) {
     if (!host || !model) return NO;
     SEL setSel = @selector(setDicModel:);
@@ -917,10 +932,14 @@ static BOOL LBForceSetDicModel(UIViewController *host, NSDictionary *model) {
         return NO;
     }
 }
+#endif
 
 /// 仅从 BookSourceModelManager 灌回本源 dicModel（不 resetContent）。
 /// 用于 sync 时 host.bookWorld 已空但 chrome 残留：点标签会「空列表」。
 static BOOL LBEnsureXBSDicModelOnly(UIViewController *host, NSString *sourceName) {
+#if !DEBUG
+    return LBPerformSafeXBSHandoff(host, sourceName);
+#else
     if (!host || sourceName.length == 0) return NO;
     NSString *want = LBNormalizeSourceDisplayName(sourceName) ?: sourceName;
     Class mgrCls = NSClassFromString(@"BookSourceModelManager");
@@ -1038,6 +1057,7 @@ static BOOL LBEnsureXBSDicModelOnly(UIViewController *host, NSString *sourceName
                           ok ? 1 : 0, via, (unsigned long)bwN, (unsigned long)afterN,
                           (unsigned long)afterNested, pickedName ?: want]);
     return ok && afterN >= 3;
+#endif
 }
 
 /// 诊断探针:统计 bookWorld 的 key 数 + 嵌套书项数(array 元素数 / dict 项数)
@@ -1061,8 +1081,126 @@ static void LBProbeBookWorldNested(UIViewController *host, NSString *tag) {
                           tag ?: @"-", (unsigned long)bwN, (unsigned long)nestedN]);
 }
 
+/// TC-07：Swift 24.6 sanitized metadata → 无状态 adapter model（禁 donor/raw target）。
+static NSDictionary *LBBuildLegadoAdapterModelFromCore(NSString *srcName) {
+    if (srcName.length == 0) return nil;
+    id core = LBKindCore();
+    if (!core) return nil;
+    NSString *url = LBFindLegadoExploreUrlByName(srcName);
+    if (url.length == 0) return nil;
+    NSString *metaJSON = nil;
+    if ([core respondsToSelector:@selector(exploreSnapshotMetadataJSONForSourceUrl:)]) {
+        metaJSON = ((NSString *(*)(id, SEL, NSString *))objc_msgSend)(
+            core, @selector(exploreSnapshotMetadataJSONForSourceUrl:), url);
+    }
+    if (metaJSON.length == 0) return nil;
+    NSData *data = [metaJSON dataUsingEncoding:NSUTF8StringEncoding];
+    NSError *err = nil;
+    NSDictionary *model = [LBNativeExploreModelBuilder adapterModelFromMetadataJSON:data error:&err];
+    if (err || model.count == 0) return nil;
+    return model;
+}
+
+/// adapter DTO → 宿主最小 dicModel：bookWorld 仅结构常量（无 requestInfo/list）。
+static NSDictionary *LBHostDicModelFromLegadoAdapter(NSDictionary *adapter) {
+    if (![adapter isKindOfClass:[NSDictionary class]] || adapter.count == 0) return nil;
+    if (![LBNativeExploreModelBuilder validateAdapterModel:adapter error:nil]) return nil;
+    NSArray *channels = [adapter[@"channels"] isKindOfClass:[NSArray class]] ? adapter[@"channels"] : @[];
+    NSMutableDictionary *bookWorld = [NSMutableDictionary dictionaryWithCapacity:channels.count];
+    NSMutableArray *headerTitles = [NSMutableArray arrayWithCapacity:channels.count];
+    for (id chObj in channels) {
+        if (![chObj isKindOfClass:[NSDictionary class]]) continue;
+        NSDictionary *ch = (NSDictionary *)chObj;
+        NSString *title = [ch[@"title"] isKindOfClass:[NSString class]] ? ch[@"title"] : @"";
+        if (title.length == 0) continue;
+        [headerTitles addObject:title];
+        bookWorld[title] = @{
+            @"actionID": LBNativeExploreStructureActionID,
+            @"parserID": LBNativeExploreStructureParserID,
+            @"_lb_channelID": ([ch[@"channelID"] isKindOfClass:[NSString class]] ? ch[@"channelID"] : @""),
+            @"_lb_tagTitles": ([ch[@"tagTitles"] isKindOfClass:[NSArray class]] ? ch[@"tagTitles"] : @[]),
+            @"_lb_tagNodeIDs": ([ch[@"tagNodeIDs"] isKindOfClass:[NSArray class]] ? ch[@"tagNodeIDs"] : @[]),
+        };
+    }
+    NSMutableDictionary *hostModel = [NSMutableDictionary dictionaryWithDictionary:adapter];
+    hostModel[@"bookWorld"] = [bookWorld copy];
+    hostModel[@"_lb_arrHeaderBtnTitle"] = [headerTitles copy];
+    return [hostModel copy];
+}
+
+/// TC-07：仅 ivar 写入 adapter 宿主模型；禁止 setDicModel:/KVC（Release gate）。
+static BOOL LBWriteLegadoAdapterToHost(UIViewController *host, NSDictionary *adapter) {
+    if (!host || ![adapter isKindOfClass:[NSDictionary class]] || adapter.count == 0) return NO;
+    NSDictionary *hostModel = LBHostDicModelFromLegadoAdapter(adapter);
+    if (!hostModel) return NO;
+    Class cls = object_getClass(host);
+    Ivar iv = NULL;
+    while (cls && cls != [NSObject class]) {
+        unsigned int count = 0;
+        Ivar *ivars = class_copyIvarList(cls, &count);
+        for (unsigned int i = 0; i < count; i++) {
+            const char *name = ivar_getName(ivars[i]);
+            if (name && strcmp(name, "_dicModel") == 0) {
+                iv = ivars[i];
+                break;
+            }
+        }
+        if (ivars) free(ivars);
+        if (iv) break;
+        cls = class_getSuperclass(cls);
+    }
+    if (!iv) {
+        LBAppendNativeMarker(@"legadoAdapterWrite missIvar=_dicModel");
+        return NO;
+    }
+    id previous = object_getIvar(host, iv);
+    NSDictionary *copy = [[NSDictionary alloc] initWithDictionary:hostModel copyItems:YES];
+    object_setIvar(host, iv, copy);
+    id readBack = object_getIvar(host, iv);
+    BOOL ok = [readBack isKindOfClass:[NSDictionary class]] &&
+              [((NSDictionary *)readBack)[LBNativeExploreAdapterMarkerKey] respondsToSelector:@selector(boolValue)] &&
+              [((NSDictionary *)readBack)[LBNativeExploreAdapterMarkerKey] boolValue] &&
+              [((NSDictionary *)readBack)[@"bookWorld"] isKindOfClass:[NSDictionary class]];
+    if (!ok) {
+        object_setIvar(host, iv, previous);
+        LBAppendNativeMarker(@"legadoAdapterWrite readbackFail restored");
+        return NO;
+    }
+    NSArray *headers = hostModel[@"_lb_arrHeaderBtnTitle"];
+    if ([headers isKindOfClass:[NSArray class]] && headers.count > 0) {
+        @try { [host setValue:[headers copy] forKey:@"arrHeaderBtnTitle"]; } @catch (__unused NSException *e) {}
+    }
+    LBAppendNativeMarker([NSString stringWithFormat:@"legadoAdapterWrite ok bw=%lu",
+                          (unsigned long)[((NSDictionary *)hostModel[@"bookWorld"]) count]]);
+    return YES;
+}
+
+/// TC-08：manager 同源完整模型 → host `_dicModel` ivar；禁 donor/setter/KVC/reset/createCons。
+static BOOL LBPerformSafeXBSHandoff(UIViewController *host, NSString *exactManagerKey) {
+    if (!host || exactManagerKey.length == 0) return NO;
+    NSDictionary *managerModel = LBBSMRawDicModelForExactKey(exactManagerKey);
+    if (!managerModel) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"xbsHandoff missManagerKey=%@", exactManagerKey]);
+        return NO;
+    }
+    LBXBSModelValidateResult mgrV = LBValidateXBSModelShape(managerModel, exactManagerKey, nil);
+    if (mgrV != LBXBSModelValidateValid) {
+        LBAppendNativeMarker([NSString stringWithFormat:@"xbsHandoff manager=%@",
+                              LBXBSModelValidateResultString(mgrV)]);
+        return NO;
+    }
+    NSError *err = nil;
+    BOOL ok = LBXBSHandoffWriteHostDicModel(host, managerModel, exactManagerKey, &err);
+    LBAppendNativeMarker([NSString stringWithFormat:@"xbsHandoff %@ key=%@ err=%@",
+                          ok ? @"ok" : @"fail", exactManagerKey, err.localizedDescription ?: @"-"]);
+    return ok;
+}
+
 /// openConfig 在 BookWorldHomeCon 上常无 IMP（noSel）：用 manager 模型 + resetContent 重建标签墙
 static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceName) {
+#if !DEBUG
+    return LBPerformSafeXBSHandoff(host, sourceName);
+#else
     if (!host || sourceName.length == 0) return NO;
     NSString *want = LBNormalizeSourceDisplayName(sourceName) ?: sourceName;
 
@@ -1408,11 +1546,17 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
                           setOk ? 1 : 0, didReset ? 1 : 0, rebuiltChrome ? 1 : 0,
                           (unsigned long)donorBW.count, title]);
     return setOk || didReset || rebuiltChrome;
+#endif
 }
 
 /// donor bookWorld 的 key 数决定 createCons 出多少子页。Legado 分类多于 donor 时，
 /// 以 donor 的抓取规则为模板扩到 titles.count 个 key（key 用 Legado 分类名）。
+/// TC-07：Release 禁用 expand-donor。
 static NSDictionary *LBExpandBookWorldToTitles(NSDictionary *donorBW, NSArray *titles) {
+#if !DEBUG
+    (void)titles;
+    return donorBW;
+#else
     if (![donorBW isKindOfClass:[NSDictionary class]] || donorBW.count == 0) return donorBW;
     if (titles.count <= donorBW.count) return donorBW;
 
@@ -1437,11 +1581,17 @@ static NSDictionary *LBExpandBookWorldToTitles(NSDictionary *donorBW, NSArray *t
     LBAppendNativeMarker([NSString stringWithFormat:@"bwExpand %lu -> %lu",
                           (unsigned long)donorBW.count, (unsigned long)out.count]);
     return out;
+#endif
 }
 
 /// 用真实 XBS donor 打开原生配置；成功后只改 titles，勿再 setDicModel 覆盖
 /// 返回含可用 bookWorld 的模型；无可用 donor 时返回 nil
+/// TC-07：Release 禁用 donor；DEBUG 才允许对照。
 static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString *srcName, NSArray *titles) {
+#if !DEBUG
+    (void)host; (void)srcName; (void)titles;
+    return nil;
+#else
     Class mgrCls = NSClassFromString(@"BookSourceModelManager");
     id mgr = nil;
     if (mgrCls && [mgrCls respondsToSelector:@selector(sharedInstance)]) {
@@ -1564,6 +1714,7 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
                           setOk ? @"ok" : @"fail", (unsigned long)donorBW.count]);
     // 以构造模型为准（KVC 读回可能丢 bookWorld）
     return model;
+#endif
 }
 
 /// 发现态：优先走原生 viewDidLoad（才能出标签墙）；崩了再退回空表兜底
@@ -2802,7 +2953,12 @@ static void LBApplyLegadoSourceKindsToChrome(UIViewController *host, NSArray *ki
 }
 
 /// 毁掉 BookListCon 子页，只留分类条（避免 viewDidLoad/拉网杀进程）
+/// TC-07：Release 禁止 destroy；DEBUG 保留对照。
 static void LBDestroyDiscoverListConsKeepTitle(UIViewController *host, id scroll) {
+#if !DEBUG
+    (void)host; (void)scroll;
+    return;
+#else
     NSArray *kids = nil;
     @try {
         id cv = [scroll valueForKey:@"childViewControllers"];
@@ -2861,10 +3017,16 @@ static void LBDestroyDiscoverListConsKeepTitle(UIViewController *host, id scroll
     }
     LBAppendNativeMarker([NSString stringWithFormat:@"destroyListCons killed=%lu keepTitle=1",
                           (unsigned long)killed]);
+#endif
 }
 
 /// 清空原生子页书数据，但不动 UI/table（sanitize 后立刻 reload 会把标签墙撑乱）
+/// TC-07：Release 禁止 sanitize-destroy 路径。
 static void LBSanitizeDiscoverListCons(UIViewController *host, id scroll) {
+#if !DEBUG
+    (void)host; (void)scroll;
+    return;
+#else
     NSMutableArray *kids = [NSMutableArray array];
     @try {
         for (NSString *k in @[@"childVCs", @"childViewControllers", @"arrChildVCs", @"vcs"]) {
@@ -2911,6 +3073,7 @@ static void LBSanitizeDiscoverListCons(UIViewController *host, id scroll) {
     }
     LBAppendNativeMarker([NSString stringWithFormat:@"sanitizeListCons soft n=%lu raw=%lu",
                           (unsigned long)n, (unsigned long)kids.count]);
+#endif
 }
 
 /// 用 Legado 分类灌原生发现：donor bookWorld + 一次性 resetContent（禁手工 SGPage）
@@ -2993,11 +3156,32 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
             return;
         }
 
+#if DEBUG
         NSDictionary *prepared = LBPrepareDiscoverDicModel(host, srcName, titles);
+#else
+        NSDictionary *prepared = nil;
+#endif
         id bwObj = prepared[@"bookWorld"];
         NSUInteger bwKeys = [bwObj isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)bwObj count] : 0;
+#if DEBUG
         NSArray *donorTitles = LBDonorTitlesFromHost(host, prepared);
+#else
+        NSArray *donorTitles = @[];
+#endif
         if (!prepared || bwKeys < 6) {
+            // TC-07 Release：sanitized adapter → 宿主 `_dicModel` ivar（禁 donor/reset/createCons/setDicModel）
+            NSDictionary *adapter = LBBuildLegadoAdapterModelFromCore(srcName);
+            BOOL wrote = NO;
+            if (adapter) {
+                wrote = LBWriteLegadoAdapterToHost(host, adapter);
+                LBAppendNativeMarker([NSString stringWithFormat:
+                                      @"legadoAdapter snapshot=%@ state=%@ wrote=%d",
+                                      adapter[@"snapshotID"] ?: @"-",
+                                      adapter[@"state"] ?: @"-",
+                                      wrote ? 1 : 0]);
+            } else {
+                LBAppendNativeMarker(@"legadoAdapter missing metadata");
+            }
             if (srcName.length > 0) {
                 @try { host.navigationItem.title = srcName; } @catch (__unused NSException *e) {}
                 @try { host.title = srcName; } @catch (__unused NSException *e) {}
@@ -3007,11 +3191,12 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
             }
             LBApplyLegadoSourceKindsToChrome(host, kinds, srcName);
             LBAppendNativeMarker([NSString stringWithFormat:
-                                  @"shellFallback noDonorBW keys=%lu",
-                                  (unsigned long)bwKeys]);
-            LBAppendNativeHostState(host, @"shellFallback");
+                                  @"shellFallback adapterPath keys=%lu wrote=%d",
+                                  (unsigned long)bwKeys, wrote ? 1 : 0]);
+            LBAppendNativeHostState(host, wrote ? @"adapterWired" : @"shellFallback");
             return;
         }
+#if DEBUG
         LBAppendNativeMarker([NSString stringWithFormat:@"preparedBW keys=%lu useReset=1 donorTitles=%lu",
                               (unsigned long)bwKeys, (unsigned long)donorTitles.count]);
 
@@ -3238,6 +3423,7 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
                               (unsigned long)donorTitles.count, (unsigned long)kinds.count,
                               (long)sSelectedKindIndex]);
         LBAppendNativeHostState(host, @"feedDone");
+#endif
     } @finally {
         sFeedingDiscoverHeader = NO;
     }

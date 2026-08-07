@@ -43,6 +43,10 @@ void LBLegadoShowImportAlert(void);
 void LBLegadoImportData(NSData *data);
 void LBLegadoFetchAndImport(NSURL *url);
 
+/// TC-08：未合并 Legado projection 的 manager dicModelList（exact key lookup 用）。
+NSDictionary *LBBSMRawDicModelList(void);
+NSDictionary * _Nullable LBBSMRawDicModelForExactKey(NSString *exactKey);
+
 /// 导入/启停后：清 dicModelList 合并缓存，并刷新可见的站点/书源列表 UI
 void LBInvalidateSourceListMergeCache(void);
 void LBRefreshVisibleSourceListUIs(void);

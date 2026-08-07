@@ -131,8 +131,11 @@ final class BookBindingResolverTests: XCTestCase {
         }
     }
 
-    func testShelfAdapterPersistedTokenAPI() throws {
-        XCTAssertEqual(ShelfIdentityAdapter.selectedStrategy, .persistedToken)
+    func testShelfAdapterAlignsTC03AUnsupportedBranch() throws {
+        XCTAssertEqual(ShelfIdentityAdapter.selectedStrategy, .unsupportedNativeBookKeyCollision)
+        XCTAssertEqual(ShelfIdentityAdapter.nativeKeyStrategy, "appConfigBookKey")
+        XCTAssertFalse(ShelfIdentityAdapter.implementationReady)
+        XCTAssertFalse(ShelfIdentityAdapter.nativeMultiSourceSameNameSupported)
         let id = try BookIdentity(exactSourceUrl: "https://s", exactBookUrl: "https://b")
         let binding = BookBindingV2(identity: id, name: "n")
         _ = store.upsertAndFlushSync(binding)

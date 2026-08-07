@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "cardID": "TC-11",
+  "note": "Ratchet 预算：违规计数不得高于此值；清理债务后须下调预算",
+  "budgets": {
+    "cexports_sensitive_legado_write": 15,
+    "cexports_total_legado_write": 60,
+    "cexports_lines": 12750,
+    "discover_kindbar_lines": 4850,
+    "discover_kindbar_lines_baseline": 4663,
+    "discover_kindbar_net_increase_max": 150,
+    "privacy_scan_findings": 100
+  }
+}

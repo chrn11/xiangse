@@ -271,7 +271,7 @@ class AcceptanceMatrixTests(unittest.TestCase):
 
 class HooksGateTests(unittest.TestCase):
     def test_production_hooks_scan_passes(self) -> None:
-        errors = scan_hooks()
+        errors, _metrics = scan_hooks()
         self.assertEqual(errors, [], errors)
 
     def test_gate_catches_un_guarded_overlay(self) -> None:
@@ -284,12 +284,12 @@ class HooksGateTests(unittest.TestCase):
             }
             """
         }
-        errors = scan_hooks(bad)
+        errors, _ = scan_hooks(bad)
         self.assertTrue(any("overlay92011" in e for e in errors))
 
     def test_gate_catches_reader_ivar_write(self) -> None:
         bad = {"Fake.m": 'LBForceSetIvar(readerVC, @"textViewL", tv);'}
-        errors = scan_hooks(bad)
+        errors, _ = scan_hooks(bad)
         self.assertTrue(any("textViewL" in e for e in errors))
 
 

@@ -212,9 +212,9 @@ struct BookBinding: Equatable {
     }
 }
 
-// MARK: - Shelf adapter（TC-03A selected branch 最小结构；调用留给 TC-09）
+// MARK: - Shelf adapter（对齐 TC-03A shelf-identity-design.json；接线留给 TC-09）
 
-/// 与 TC-03A 合同对齐的选型枚举。无设计产物时默认 `persistedToken`（token 即 Bridge 权威身份）。
+/// 与 TC-03A §25.3 选型枚举一致。
 enum NativeShelfIdentityStrategy: String, Codable, Sendable {
     case persistedToken
     case verifiedNativeRecordHandleSidecar
@@ -231,11 +231,16 @@ struct ShelfIdentitySidecar: Codable, Equatable, Sendable {
 }
 
 enum ShelfIdentityAdapter {
-    /// TC-03A 未产出 `shelf-identity-design.json` 时，按 token 权威路径提供 API，供 TC-09 接线。
-    static let selectedStrategy: NativeShelfIdentityStrategy = .persistedToken
+    /// 固定来自 `.artifacts/json/plan-inputs/shelf-identity-design.json`：
+    /// selectedBranch=unsupportedNativeBookKeyCollision，implementationReady=false。
+    static let selectedStrategy: NativeShelfIdentityStrategy = .unsupportedNativeBookKeyCollision
     static let nativeKeyStrategy = "appConfigBookKey"
-    static let implementationReady = true
+    /// 原生书架同名同作者多源并存不可实现；Bridge token 仍是 Bridge 侧权威身份。
+    static let implementationReady = false
+    /// 原生 shelf 不得宣称多源同名同作者可并存。
+    static let nativeMultiSourceSameNameSupported = false
 
+    /// Bridge 侧 sidecar 仅作 token↔identity 映射；不得当作原生主键或并存策略。
     static func makeSidecar(
         binding: BookBindingV2,
         nativeBookKey: String?,
