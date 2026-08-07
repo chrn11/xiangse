@@ -3,7 +3,8 @@ import XCTest
 
 final class CoverDecodeHelperTests: XCTestCase {
     func testDecodeJsReplacesCipherPrefix() {
-        let js = "result = src.replace('cipher:','https://');"
+        // 输入为 cipher://…；须替换完整 scheme，避免变成 https:////…
+        let js = "result = src.replace('cipher://','https://');"
         let out = CoverDecodeHelper.decodeCoverURL(
             "cipher://fixture.local/cover.jpg",
             decodeJs: js,

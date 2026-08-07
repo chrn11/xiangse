@@ -226,6 +226,11 @@ public enum RuleWebBook {
                 }
                 // group / url / action / unsupported：title+target；空 target 保留
                 if n.kind == .unsupported { continue }
+                let title = n.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                // 与 ExploreCatalogBuilder 一致：跳过 // 注释装饰行（防 JS 求值失败残留）
+                if title.hasPrefix("//") || title.hasPrefix("°") || title.hasPrefix("☆") {
+                    continue
+                }
                 out.append(ExploreKind(title: n.displayTitle, url: n.rawTarget))
             }
         }
