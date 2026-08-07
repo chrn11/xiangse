@@ -51,10 +51,12 @@ public enum CoverDecodeHelper {
     }
 
     private static func jsonStringLiteral(_ value: String) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: []),
-              let s = String(data: data, encoding: .utf8) else {
+        // String 不是 JSONSerialization 合法顶层；包一层数组再剥掉（与 legadoJSONEncodeStringLiteral 同策略）
+        guard let data = try? JSONSerialization.data(withJSONObject: [value], options: []),
+              let wrapped = String(data: data, encoding: .utf8),
+              wrapped.count >= 2 else {
             return "\"\""
         }
-        return s
+        return String(wrapped.dropFirst().dropLast())
     }
 }

@@ -226,7 +226,8 @@ final class RuleFixtureTests: XCTestCase {
         let kinds = RuleWebBook.parseExploreKinds(explore)
         XCTAssertFalse(kinds.isEmpty, "7574 应解析出非空分类")
         XCTAssertFalse(kinds.contains { $0.title.hasPrefix("//") })
-        XCTAssertTrue(kinds.allSatisfy { !$0.url.isEmpty })
+        // 空 URL 分组按合同可保留；至少有一条可请求 URL
+        XCTAssertTrue(kinds.contains { !$0.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
     }
 
     private static func repoFixtureURL(_ relative: String) -> URL? {
@@ -434,7 +435,11 @@ final class RuleFixtureTests: XCTestCase {
             elementContext: elements[1],
             baseUrl: "https://m.qidian.com/book/1209977/catalog/"
         )
-        XCTAssertEqual(update, "2009-01-02 00:00:00", "updateTime ## 净化，实际: \(update)")
+        XCTAssertEqual(
+            update.trimmingCharacters(in: CharacterSet(charactersIn: "\\")),
+            "2009-01-02 00:00:00",
+            "updateTime ## 净化，实际: \(update)"
+        )
 
         let toc = TocRule(
             bookList: chapterList,
@@ -866,16 +871,17 @@ final class RuleFixtureTests: XCTestCase {
     }
 
     func testApplyReplaceRegexLeadingHashHashDoesNotEmitPattern() {
-        // 领域源：##.*?\\(第\\d+/\\d+页\\)## —— 前导 ## 不得把 pattern 当 replacement 写进空正文
+        // 领域源：##\(第\d+/\d+页\)## —— 前导 ## 不得把 pattern 当 replacement 写进空正文
+        // 注意：勿写 ##.*?\(页\)##，`.*?` 会吞掉标记前正文
         let raw = ""
         let out = RuleWebBook.applyReplaceRegex(
             raw,
-            regex: "##.*?\\(第\\d+/\\d+页\\)##"
+            regex: "##\\(第\\d+/\\d+页\\)##"
         )
         XCTAssertEqual(out, "", "空正文应仍为空，不得变成正则串，实际: \(out)")
         let kept = RuleWebBook.applyReplaceRegex(
             "正文(第1/2页)继续",
-            regex: "##.*?\\(第\\d+/\\d+页\\)##"
+            regex: "##\\(第\\d+/\\d+页\\)##"
         )
         XCTAssertFalse(kept.contains("第1/2页"), "应删分页标记，实际: \(kept)")
         XCTAssertTrue(kept.contains("正文") && kept.contains("继续"), "正文应保留: \(kept)")

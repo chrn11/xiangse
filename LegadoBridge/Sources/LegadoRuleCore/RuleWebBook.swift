@@ -249,9 +249,11 @@ public enum RuleWebBook {
         return out
     }
 
-    /// 把 exploreUrl 收成可请求的单条地址（取 parseExploreKinds 第一项）。
+    /// 把 exploreUrl 收成可请求的单条地址（跳过空 URL 分组，取第一条非空）。
     public static func resolveExploreFetchURL(_ raw: String) -> String? {
-        parseExploreKinds(raw).first?.url
+        parseExploreKinds(raw)
+            .map(\.url)
+            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
     }
 
     /// 相对路径按 bookSourceUrl 拼绝对地址（泛化原 lysxh 硬编码）。

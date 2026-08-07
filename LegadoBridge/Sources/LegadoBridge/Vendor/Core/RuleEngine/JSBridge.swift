@@ -241,7 +241,6 @@ class JSBridge: JsEncodeUtils {
             }
             let out = JSValue(newArrayIn: jsContext)!
             guard let self, let urlsVal, !urlsVal.isUndefined, !urlsVal.isNull else {
-                out.setValue(0, forKey: "length")
                 return out
             }
             var urls: [String] = []
@@ -272,7 +271,6 @@ class JSBridge: JsEncodeUtils {
                 obj.setObject(urlFn, forKeyedSubscript: "url" as NSString)
                 out.setObject(obj, atIndexedSubscript: idx)
             }
-            out.setValue(pairs.count, forKey: "length")
             return out
         }
         javaObject?.setObject(ajaxAllBlock, forKeyedSubscript: "ajaxAll" as NSString)
@@ -361,7 +359,6 @@ class JSBridge: JsEncodeUtils {
                 return JSValue(nullIn: JSContext())!
             }
             let empty = JSValue(newArrayIn: jsContext)!
-            empty.setValue(0, forKey: "length")
             let emptyText: @convention(block) () -> String = { "" }
             empty.setObject(emptyText, forKeyedSubscript: "text" as NSString)
             guard let self = self else { return empty }
@@ -407,7 +404,7 @@ class JSBridge: JsEncodeUtils {
                     }
                 }
             }
-            arr.setValue(elements.count, forKey: "length")
+            // JS 数组 length 由 indexed 写入维护；禁止 setValue:forKey:（KVC 会崩）
             let textCapture = joinedText
             let textFn: @convention(block) () -> String = { textCapture }
             arr.setObject(textFn, forKeyedSubscript: "text" as NSString)
@@ -1139,7 +1136,7 @@ class JSBridge: JsEncodeUtils {
                 elsObj.setObject(attrFn, forKeyedSubscript: "attr" as NSString)
                 elsObj.setObject(htmlFn, forKeyedSubscript: "html" as NSString)
                 elsObj.setObject(outerFn, forKeyedSubscript: "outerHtml" as NSString)
-                elsObj.setValue(selected?.array().count ?? 0, forKey: "length")
+                elsObj.setObject(NSNumber(value: selected?.array().count ?? 0), forKeyedSubscript: "length" as NSString)
                 return elsObj
             }
             docObj.setObject(selectBlock, forKeyedSubscript: "select" as NSString)

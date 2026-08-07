@@ -102,9 +102,17 @@ public enum BookVariableStore {
     }
 
     private static func persistLocked() {
+        let url = persistFileURL
+        let dir = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         guard let data = try? JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted]) else {
             return
         }
-        try? data.write(to: persistFileURL, options: .atomic)
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            // 再试非 atomic（部分模拟器沙箱对 atomic 临时文件敏感）
+            try? data.write(to: url, options: [])
+        }
     }
 }

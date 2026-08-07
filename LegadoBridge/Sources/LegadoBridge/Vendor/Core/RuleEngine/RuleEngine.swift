@@ -833,7 +833,7 @@ class RuleEngine {
                     arr.setObject(String(describing: el.element), atIndexedSubscript: idx)
                 }
             }
-            arr.setValue(prefixEls.count, forKey: "length")
+            // JS 数组 length 由 indexed 写入维护；禁止 setValue:forKey:
             exec.jsContext.setObject(arr, forKeyedSubscript: "result" as NSString)
             exec.jsContext.globalObject?.setObject(arr, forKeyedSubscript: "result" as NSString)
         } else {
@@ -1088,6 +1088,13 @@ class RuleEngine {
         // `@@` = 绝对规则（从当前文档根起），去掉前缀再解析
         if rule.hasPrefix("@@") {
             rule = String(rule.dropFirst(2))
+        }
+        // `@css:` 模式前缀：列表规则须剥掉再交给 SwiftSoup（否则选择器非法 → 0 命中）
+        if rule.lowercased().hasPrefix("@css:") {
+            rule = String(rule.dropFirst(5))
+        }
+        if rule.lowercased().hasPrefix("@xpath:") {
+            rule = String(rule.dropFirst(7))
         }
 
         // 支持 XPath 和 CSS
@@ -1787,7 +1794,11 @@ class CSSParser: RuleExecutor {
             return try executeAtChain(trimmed, context: context)
         }
 
-        let (selector, attr) = parseSelector(trimmed)
+        var cssRule = trimmed
+        if cssRule.lowercased().hasPrefix("@css:") {
+            cssRule = String(cssRule.dropFirst(5))
+        }
+        let (selector, attr) = parseSelector(cssRule)
         let elements: [SwiftSoup.Element]
         let baseUrl = context.baseURL?.absoluteString
 
@@ -2651,31 +2662,50 @@ class RegexParser: RuleExecutor {
     }
     
     func execute(_ rule: String, context: ExecutionContext) throws -> RuleResult {
-        guard let input = context.lastResult.string ?? (context.document as? String) else {
+        let input: String
+        if case .string(let s) = context.lastResult, !s.isEmpty {
+            input = s
+        } else if case .list(let vals) = context.lastResult, let first = vals.first, !first.isEmpty {
+            input = vals.joined(separator: "\n")
+        } else if let s = context.document as? String {
+            input = s
+        } else if let el = context.document as? SwiftSoup.Element {
+            input = (try? el.outerHtml()) ?? ((try? el.html()) ?? "")
+        } else {
             throw RuleError.noDocument
         }
-        
-        let pattern = rule.replacingOccurrences(of: "regex:", with: "")
-        
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+
+        var pattern = rule.trimmingCharacters(in: .whitespacesAndNewlines)
+        if pattern.lowercased().hasPrefix("@regex:") {
+            pattern = String(pattern.dropFirst(7))
+        } else if pattern.lowercased().hasPrefix("regex:") {
+            pattern = String(pattern.dropFirst(6))
+        }
+
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else {
             throw RuleError.invalidRule("无效正则：\(pattern)")
         }
-        
+
         let range = NSRange(input.startIndex..., in: input)
         var results: [String] = []
-        
+
         for match in regex.matches(in: input, range: range) {
-            if let matchRange = Range(match.range, in: input) {
+            // 有捕获组时优先返回 $1（领域 @regex:夹具(.{1,4})）
+            if match.numberOfRanges > 1,
+               match.range(at: 1).location != NSNotFound,
+               let g1 = Range(match.range(at: 1), in: input) {
+                results.append(String(input[g1]))
+            } else if let matchRange = Range(match.range, in: input) {
                 results.append(String(input[matchRange]))
             }
         }
-        
+
         if results.count == 1 {
             return .string(results[0])
         } else if !results.isEmpty {
             return .list(results)
         }
-        
+
         return .none
     }
 }
