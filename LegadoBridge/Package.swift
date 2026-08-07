@@ -98,7 +98,9 @@ let package = Package(
                 "Bridge/BridgeSourceProtocol.swift",
                 "Bridge/BridgeRuleTypes.swift",
                 "Bridge/BridgeBook.swift",
-                "Bridge/BridgeStubs.swift"
+                "Bridge/BridgeStubs.swift",
+                // 仅作 Bundle.module 资源，避免与 sources: Bridge 重复规则
+                "Bridge/LegacyNativeShellAllowlist.json",
             ],
             sources: [
                 "Bridge"
