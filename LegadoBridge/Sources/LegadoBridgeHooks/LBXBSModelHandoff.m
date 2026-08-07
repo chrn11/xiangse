@@ -606,17 +606,7 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                                       @"wireKids rebindDS EX %@", ex.reason ?: @""]);
                                 }
                             }
-                            // cellClass 为空时 table rows>0 仍无 visibleCells（真机黑屏）
-                            Class wantCell = NSClassFromString(@"BookListCellBase");
-                            if (wantCell) {
-                                SEL setCC = NSSelectorFromString(@"setCellClass:");
-                                if ([c respondsToSelector:setCC]) {
-                                    ((void (*)(id, SEL, Class))objc_msgSend)(c, setCC, wantCell);
-                                    LBXBSHandoffMark([NSString stringWithFormat:
-                                                      @"wireKids setCellClass idx=%ld BookListCellBase",
-                                                      (long)idxMark]);
-                                }
-                            }
+                            // 禁止 setCellClass:BookListCellBase：会把书列表拧成白底，偏离原版深色
                         } @catch (__unused NSException *e) {}
                         // 只软刷 tableView.reloadData；禁止改 collection/frame（对齐原版自排版）
                         NSInteger tvN = 0;
