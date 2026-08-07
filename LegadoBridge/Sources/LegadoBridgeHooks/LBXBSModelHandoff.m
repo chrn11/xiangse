@@ -577,6 +577,36 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                               (long)idxMark, (long)fN, ccS,
                                               dsObj ? NSStringFromClass([dsObj class]) : @"-",
                                               (dsObj == c) ? 1 : 0]);
+                            // _UIFilteredDataSource + filterN>0 → rows=0；清 filter 让表露出 arrBaseData
+                            if (fN > 0) {
+                                SEL setAF = NSSelectorFromString(@"setArrFilterModel:");
+                                if ([c respondsToSelector:setAF]) {
+                                    ((void (*)(id, SEL, id))objc_msgSend)(c, setAF, @[]);
+                                }
+                                SEL setF = NSSelectorFromString(@"setFilter:");
+                                if ([c respondsToSelector:setF]) {
+                                    ((void (*)(id, SEL, id))objc_msgSend)(c, setF, nil);
+                                }
+                                @try { [c setValue:@[] forKey:@"arrFilterModel"]; } @catch (__unused NSException *e) {}
+                                LBXBSHandoffMark([NSString stringWithFormat:
+                                                  @"wireKids clearFilter idx=%ld was=%ld",
+                                                  (long)idxMark, (long)fN]);
+                            }
+                            // 若 tableView.dataSource 被换成 Filtered，尝试挂回 self
+                            if ([dsTV isKindOfClass:[UITableView class]] && dsObj && dsObj != c &&
+                                [c conformsToProtocol:@protocol(UITableViewDataSource)]) {
+                                @try {
+                                    [(UITableView *)dsTV setDataSource:(id<UITableViewDataSource>)c];
+                                    [(UITableView *)dsTV setDelegate:(id<UITableViewDelegate>)c];
+                                    LBXBSHandoffMark([NSString stringWithFormat:
+                                                      @"wireKids rebindDS idx=%ld from=%@",
+                                                      (long)idxMark,
+                                                      NSStringFromClass([dsObj class]) ?: @"-"]);
+                                } @catch (NSException *ex) {
+                                    LBXBSHandoffMark([NSString stringWithFormat:
+                                                      @"wireKids rebindDS EX %@", ex.reason ?: @""]);
+                                }
+                            }
                         } @catch (__unused NSException *e) {}
                         // 扫描其它可能承载书列表的数组属性
                         @try {
