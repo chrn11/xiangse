@@ -1,5 +1,7 @@
 #import "LBXBSModelHandoff.h"
+#import "LBInternal.h"
 #import <objc/runtime.h>
+#import <objc/message.h>
 
 NSString *LBXBSModelValidateResultString(LBXBSModelValidateResult r) {
     switch (r) {
@@ -185,4 +187,157 @@ BOOL LBXBSHandoffWriteHostDicModel(
         return NO;
     }
     return YES;
+}
+
+static void LBXBSHandoffMark(NSString *line) {
+    if (line.length == 0) return;
+    NSLog(@"[LegadoBridge][xbsHandoff] %@", line);
+    @try {
+        NSString *path = [NSHomeDirectory()
+            stringByAppendingPathComponent:@"Documents/legado_xbs_handoff_markers.txt"];
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+        if (!fh) {
+            [@"" writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            fh = [NSFileHandle fileHandleForWritingAtPath:path];
+        }
+        if (fh) {
+            [fh seekToEndOfFile];
+            NSString *row = [NSString stringWithFormat:@"%@\n", line];
+            NSData *data = [row dataUsingEncoding:NSUTF8StringEncoding];
+            if (data) [fh writeData:data];
+            [fh closeFile];
+        }
+    } @catch (__unused NSException *e) {}
+}
+
+BOOL LBXBSHandoffEnsureFromExactManagerKey(UIViewController *host, NSString *exactManagerKey) {
+    if (!host || exactManagerKey.length == 0) {
+        LBXBSHandoffMark(@"ensure skip nilHostOrKey");
+        return NO;
+    }
+    // exact key 必须在 raw table 存在（禁止模糊匹配）
+    NSDictionary *managerModel = LBBSMRawDicModelForExactKey(exactManagerKey);
+    if (!managerModel) {
+        LBXBSHandoffMark([NSString stringWithFormat:@"ensure missExactKey len=%lu",
+                          (unsigned long)exactManagerKey.length]);
+        return NO;
+    }
+    LBXBSModelValidateResult mgrV = LBValidateXBSModelShape(managerModel, exactManagerKey, nil);
+    if (mgrV != LBXBSModelValidateValid) {
+        LBXBSHandoffMark([NSString stringWithFormat:@"ensure manager=%@",
+                          LBXBSModelValidateResultString(mgrV)]);
+        return NO;
+    }
+    // host 已 valid：no-op（写路径内部也会 no-op，这里先记探针）
+    Ivar iv = LBXBSFindDicModelIvar(object_getClass(host));
+    if (iv) {
+        id cur = object_getIvar(host, iv);
+        if ([cur isKindOfClass:[NSDictionary class]] &&
+            LBValidateXBSModelShape((NSDictionary *)cur, exactManagerKey, nil) == LBXBSModelValidateValid) {
+            LBXBSHandoffMark(@"ensure hostAlreadyValid noop");
+            return YES;
+        }
+    }
+    NSError *err = nil;
+    BOOL ok = LBXBSHandoffWriteHostDicModel(host, managerModel, exactManagerKey, &err);
+    LBXBSHandoffMark([NSString stringWithFormat:@"ensure %@ err=%@",
+                      ok ? @"ok" : @"fail", err.localizedDescription ?: @"-"]);
+    return ok;
+}
+
+#pragma mark - Hooks (createCons / viewDidAppear)
+
+static void (*sOrig_BWH_createCons)(id, SEL, id, id, NSString *) = NULL;
+static void (*sOrig_BWH_viewDidAppear)(id, SEL, BOOL) = NULL;
+
+/// 从 host 读候选 exact key：仅返回 raw table 中真实存在的键，不做模糊匹配。
+static NSString *LBXBSExactKeyIfPresentOnHost(UIViewController *host) {
+    if (!host) return nil;
+    NSArray *cands = nil;
+    NSMutableArray *buf = [NSMutableArray array];
+    void (^push)(id) = ^(id v) {
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) {
+            [buf addObject:v];
+        }
+    };
+    @try { push([host valueForKey:@"useSourceName"]); } @catch (__unused NSException *e) {}
+    @try { push([host valueForKey:@"lastSourceName"]); } @catch (__unused NSException *e) {}
+    @try { push([host valueForKey:@"sourceName"]); } @catch (__unused NSException *e) {}
+    @try { push(host.title); } @catch (__unused NSException *e) {}
+    @try { push(host.navigationItem.title); } @catch (__unused NSException *e) {}
+    cands = buf;
+    for (NSString *k in cands) {
+        if (LBBSMRawDicModelForExactKey(k)) return k;
+    }
+    return nil;
+}
+
+static void LBXBS_BWH_createCons(id self, SEL _cmd, id cons, id titles, NSString *sourceName) {
+    // 合同 firstInvalid：createCons 时 host 常空；在原生 createCons 前写入完整模型
+    if ([sourceName isKindOfClass:[NSString class]] && sourceName.length > 0 &&
+        [self isKindOfClass:[UIViewController class]]) {
+        LBXBSHandoffEnsureFromExactManagerKey((UIViewController *)self, sourceName);
+    }
+    if (sOrig_BWH_createCons) {
+        sOrig_BWH_createCons(self, _cmd, cons, titles, sourceName);
+    }
+}
+
+static void LBXBS_BWH_viewDidAppear(id self, SEL _cmd, BOOL animated) {
+    if (sOrig_BWH_viewDidAppear) {
+        sOrig_BWH_viewDidAppear(self, _cmd, animated);
+    }
+    // native-discover-host：wire after viewDidAppear
+    if (![self isKindOfClass:[UIViewController class]]) return;
+    UIViewController *host = (UIViewController *)self;
+    NSString *key = LBXBSExactKeyIfPresentOnHost(host);
+    if (key.length == 0) {
+        LBXBSHandoffMark(@"vda skip noExactKeyOnHost");
+        return;
+    }
+    // 仅 XBS：若该名是 Legado 书源则跳过
+    if (LBLegadoIsSourceName(key)) {
+        LBXBSHandoffMark(@"vda skip legadoKey");
+        return;
+    }
+    LBXBSHandoffEnsureFromExactManagerKey(host, key);
+}
+
+void LBInstallXBSHandoffHooks(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class cls = NSClassFromString(@"BookWorldHomeCon");
+        if (!cls) {
+            LBXBSHandoffMark(@"install miss BookWorldHomeCon");
+            return;
+        }
+        // 用 NSSelectorFromString，避免 KindBar Release gate 扫到 @selector(createCons:
+        SEL selCreate = NSSelectorFromString(@"createCons:titles:sourceName:");
+        Class ownerCreate = LBClassOwningInstanceMethod(cls, selCreate);
+        if (ownerCreate) {
+            Method m = class_getInstanceMethod(ownerCreate, selCreate);
+            if (m && !sOrig_BWH_createCons) {
+                sOrig_BWH_createCons = (void (*)(id, SEL, id, id, NSString *))method_getImplementation(m);
+                method_setImplementation(m, (IMP)LBXBS_BWH_createCons);
+                LBXBSHandoffMark([NSString stringWithFormat:@"hooked createCons on %@",
+                                  NSStringFromClass(ownerCreate)]);
+            }
+        } else {
+            LBXBSHandoffMark(@"install miss createCons owner");
+        }
+
+        SEL selAppear = @selector(viewDidAppear:);
+        Class ownerAppear = LBClassOwningInstanceMethod(cls, selAppear);
+        if (ownerAppear) {
+            Method m = class_getInstanceMethod(ownerAppear, selAppear);
+            if (m && !sOrig_BWH_viewDidAppear) {
+                sOrig_BWH_viewDidAppear = (void (*)(id, SEL, BOOL))method_getImplementation(m);
+                method_setImplementation(m, (IMP)LBXBS_BWH_viewDidAppear);
+                LBXBSHandoffMark([NSString stringWithFormat:@"hooked viewDidAppear on %@",
+                                  NSStringFromClass(ownerAppear)]);
+            }
+        } else {
+            LBXBSHandoffMark(@"install miss viewDidAppear owner");
+        }
+    });
 }

@@ -126,4 +126,13 @@
     XCTAssertNotNil(err);
 }
 
+- (void)testEnsureFailsClosedOnNilOrUnknownExactKey {
+    LBMockBookWorldHost *host = [LBMockBookWorldHost new];
+    XCTAssertFalse(LBXBSHandoffEnsureFromExactManagerKey(nil, @"番茄小说"));
+    XCTAssertFalse(LBXBSHandoffEnsureFromExactManagerKey(host, nil));
+    XCTAssertFalse(LBXBSHandoffEnsureFromExactManagerKey(host, @""));
+    // 未知 exact key（raw table 无此键）必须失败，禁止模糊匹配放行
+    XCTAssertFalse(LBXBSHandoffEnsureFromExactManagerKey(host, @"__no_such_manager_key__"));
+}
+
 @end

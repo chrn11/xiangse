@@ -36,6 +36,15 @@ FOUNDATION_EXPORT BOOL LBXBSHandoffWriteHostDicModel(
     NSString *_Nullable expectedManagerKey,
     NSError *_Nullable *_Nullable error);
 
+/// TC-08：用 **exact manager key** 从原始 dicModelList 取模并写入 host。
+/// 禁止 containsString / cf_title / 最短名猜测；key 必须在 raw table 中精确存在。
+FOUNDATION_EXPORT BOOL LBXBSHandoffEnsureFromExactManagerKey(
+    UIViewController *_Nullable host,
+    NSString *_Nullable exactManagerKey);
+
+/// 安装 BookWorldHomeCon createCons / viewDidAppear 交接钩（合同 firstInvalid + viewDidAppear wiring）。
+FOUNDATION_EXPORT void LBInstallXBSHandoffHooks(void);
+
 NS_ASSUME_NONNULL_END
 
 #endif /* LBXBSModelHandoff_h */

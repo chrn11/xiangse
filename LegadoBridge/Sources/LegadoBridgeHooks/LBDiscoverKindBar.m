@@ -1177,23 +1177,7 @@ static BOOL LBWriteLegadoAdapterToHost(UIViewController *host, NSDictionary *ada
 
 /// TC-08：manager 同源完整模型 → host `_dicModel` ivar；禁 donor/setter/KVC/reset/createCons。
 static BOOL LBPerformSafeXBSHandoff(UIViewController *host, NSString *exactManagerKey) {
-    if (!host || exactManagerKey.length == 0) return NO;
-    NSDictionary *managerModel = LBBSMRawDicModelForExactKey(exactManagerKey);
-    if (!managerModel) {
-        LBAppendNativeMarker([NSString stringWithFormat:@"xbsHandoff missManagerKey=%@", exactManagerKey]);
-        return NO;
-    }
-    LBXBSModelValidateResult mgrV = LBValidateXBSModelShape(managerModel, exactManagerKey, nil);
-    if (mgrV != LBXBSModelValidateValid) {
-        LBAppendNativeMarker([NSString stringWithFormat:@"xbsHandoff manager=%@",
-                              LBXBSModelValidateResultString(mgrV)]);
-        return NO;
-    }
-    NSError *err = nil;
-    BOOL ok = LBXBSHandoffWriteHostDicModel(host, managerModel, exactManagerKey, &err);
-    LBAppendNativeMarker([NSString stringWithFormat:@"xbsHandoff %@ key=%@ err=%@",
-                          ok ? @"ok" : @"fail", exactManagerKey, err.localizedDescription ?: @"-"]);
-    return ok;
+    return LBXBSHandoffEnsureFromExactManagerKey(host, exactManagerKey);
 }
 
 /// openConfig 在 BookWorldHomeCon 上常无 IMP（noSel）：用 manager 模型 + resetContent 重建标签墙
@@ -4506,6 +4490,7 @@ void LBInstallDiscoverNativeUIHooks(void) {
             LBHookDiscoverNativeUIOnClass(NSClassFromString(cn));
         }
         LBInstallBookListSafeViewDidLoad();
+        LBInstallXBSHandoffHooks();
         // 顶层 JS exploreUrl 异步预热完成后重刷分类条
         [[NSNotificationCenter defaultCenter]
             addObserverForName:@"LegadoExploreKindsDidUpdate"
@@ -4585,9 +4570,16 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
         } else {
             name = LBReadHostSourceName(host);
         }
-        // 关键：XBS syncMode 零副作用（不 ensure / 不 restore）。
-        // ensureDic 真机 after=0 无效；restore 会 setDic+reset 杀拉书。
-        // 切源重建只留 nativeSwitch（Notify / 切源面板）。
+        // TC-08：XBS syncMode 在 host 空/薄壳时做 exact-key ivar 交接（禁 reset/createCons/donor）。
+        // key 必须在 raw manager 表精确存在；禁止模糊名。
+        if (host && name.length > 0 && LBBSMRawDicModelForExactKey(name)) {
+            BOOL handed = LBPerformSafeXBSHandoff(host, name);
+            LBAppendNativeMarker([NSString stringWithFormat:
+                                  @"syncMode XBS ensure exactKey handed=%d",
+                                  handed ? 1 : 0]);
+        } else if (host && name.length > 0) {
+            LBAppendNativeMarker(@"syncMode XBS skip ensure (name not exact manager key)");
+        }
         NSInteger arrN = -1;
         NSUInteger bwN = 0;
         @try {
@@ -4601,7 +4593,7 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
             }
         } @catch (__unused NSException *e) {}
         LBAppendNativeMarker([NSString stringWithFormat:
-                              @"syncMode XBS=1 handsOff host=%@ name=%@ arrN=%ld bw=%lu",
+                              @"syncMode XBS=1 host=%@ name=%@ arrN=%ld bw=%lu",
                               host ? NSStringFromClass([host class]) : @"-",
                               name ?: @"-", (long)arrN, (unsigned long)bwN]);
     } else {
