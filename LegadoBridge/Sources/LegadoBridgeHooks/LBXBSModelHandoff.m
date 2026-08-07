@@ -557,7 +557,6 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                       (long)idxMark, chMark, (long)n2]);
                     // 数据已在但 UI 仍是标签墙时：只软刷本子页表（不调 VC refresh/loadData）
                     if (n2 > 0 && [c isKindOfClass:[UIViewController class]]) {
-                        UIViewController *vc = (UIViewController *)c;
                         // 旁路状态：filter / cellClass / dataSource
                         @try {
                             id filt = [c valueForKey:@"arrFilterModel"];
@@ -619,179 +618,15 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                 }
                             }
                         } @catch (__unused NSException *e) {}
-                        // 扫描其它可能承载书列表的数组属性
-                        @try {
-                            NSArray *probeKeys = @[
-                                @"arrShowData", @"arrData", @"itemList", @"arrBooks",
-                                @"arrList", @"dataArray", @"arrResult", @"arrModels"
-                            ];
-                            NSMutableString *extra = [NSMutableString string];
-                            for (NSString *k in probeKeys) {
-                                id v = nil;
-                                @try { v = [c valueForKey:k]; } @catch (__unused NSException *e) {}
-                                if ([v isKindOfClass:[NSArray class]]) {
-                                    if (extra.length) [extra appendString:@","];
-                                    [extra appendFormat:@"%@=%lu", k, (unsigned long)[(NSArray *)v count]];
-                                }
-                            }
-                            if (extra.length == 0) [extra appendString:@"-"];
-                            LBXBSHandoffMark([NSString stringWithFormat:
-                                              @"wireKids arrays idx=%ld %@", (long)idxMark, extra]);
-                        } @catch (__unused NSException *e) {}
+                        // 只软刷 tableView.reloadData；禁止改 collection/frame（对齐原版自排版）
                         NSInteger tvN = 0;
-                        if (vc.isViewLoaded) {
-                            // pass1：收集表/集合
-                            NSMutableArray<UITableView *> *tables = [NSMutableArray array];
-                            NSMutableArray<UICollectionView *> *cols = [NSMutableArray array];
-                            NSMutableArray<UIView *> *views = [NSMutableArray arrayWithObject:vc.view];
-                            while (views.count > 0) {
-                                UIView *v = views.firstObject;
-                                [views removeObjectAtIndex:0];
-                                for (UIView *sub in v.subviews) [views addObject:sub];
-                                if ([v isKindOfClass:[UITableView class]]) {
-                                    [tables addObject:(UITableView *)v];
-                                } else if ([v isKindOfClass:[UICollectionView class]]) {
-                                    [cols addObject:(UICollectionView *)v];
-                                }
-                            }
-                            // pass2：标签墙改为紧凑顶栏（保留分类），禁止整块隐藏
-                            const CGFloat kTagBarH = 168.0; // 约 4 行标签，深色底上需看得见
-                            UICollectionView *tagCV = nil;
-                            for (UICollectionView *cv in cols) {
-                                NSInteger items = 0;
-                                @try {
-                                    if ([cv numberOfSections] > 0) {
-                                        items = [cv numberOfItemsInSection:0];
-                                    }
-                                } @catch (__unused NSException *e) {}
-                                BOOL looksTagWall = (items >= 20); // 高度会被压到 140，不能再靠 h>=200 判定
-                                if (looksTagWall && n2 > 0) {
-                                    tagCV = cv;
-                                    @try {
-                                        cv.hidden = NO;
-                                        cv.alpha = 1.0;
-                                        cv.scrollEnabled = YES;
-                                        CGRect fr = cv.frame;
-                                        fr.origin.y = 0;
-                                        fr.size.height = kTagBarH;
-                                        if (fr.size.width < 1.0 && vc.view) {
-                                            fr.size.width = vc.view.bounds.size.width;
-                                        }
-                                        cv.frame = fr;
-                                        for (NSLayoutConstraint *cn in cv.constraints) {
-                                            if (cn.firstAttribute == NSLayoutAttributeHeight ||
-                                                cn.secondAttribute == NSLayoutAttributeHeight) {
-                                                cn.constant = kTagBarH;
-                                            }
-                                        }
-                                        UIView *sup = cv.superview;
-                                        if (sup) {
-                                            for (NSLayoutConstraint *cn in sup.constraints) {
-                                                if ((cn.firstItem == cv || cn.secondItem == cv) &&
-                                                    (cn.firstAttribute == NSLayoutAttributeHeight ||
-                                                     cn.secondAttribute == NSLayoutAttributeHeight)) {
-                                                    cn.constant = kTagBarH;
-                                                }
-                                            }
-                                            [sup bringSubviewToFront:cv];
-                                            [sup setNeedsLayout];
-                                            [sup layoutIfNeeded];
-                                        }
-                                        [cv reloadData];
-                                        [cv setContentOffset:CGPointZero animated:NO];
-                                        [cv layoutIfNeeded];
-                                        // dump 可见标签文案（深色模式下确认二级分类是否真在）
-                                        NSMutableArray *tagTxt = [NSMutableArray array];
-                                        @try {
-                                            for (UICollectionViewCell *cell in cv.visibleCells) {
-                                                if (tagTxt.count >= 6) break;
-                                                NSMutableArray *q = [NSMutableArray arrayWithObject:cell];
-                                                while (q.count > 0 && tagTxt.count < 6) {
-                                                    UIView *vv = q.firstObject;
-                                                    [q removeObjectAtIndex:0];
-                                                    for (UIView *s in vv.subviews) [q addObject:s];
-                                                    if ([vv isKindOfClass:[UILabel class]]) {
-                                                        NSString *t = [(UILabel *)vv text];
-                                                        if (t.length > 0) [tagTxt addObject:t];
-                                                    } else if ([vv isKindOfClass:[UIButton class]]) {
-                                                        NSString *t = [(UIButton *)vv currentTitle];
-                                                        if (t.length > 0) [tagTxt addObject:t];
-                                                    }
-                                                }
-                                            }
-                                        } @catch (__unused NSException *e) {}
-                                        NSString *joined = tagTxt.count
-                                            ? [tagTxt componentsJoinedByString:@","] : @"-";
-                                        if (joined.length > 80) joined = [joined substringToIndex:80];
-                                        LBXBSHandoffMark([NSString stringWithFormat:
-                                                          @"wireKids tagTxt idx=%ld nVis=%lu %@",
-                                                          (long)idxMark,
-                                                          (unsigned long)cv.visibleCells.count,
-                                                          joined]);
-                                    } @catch (__unused NSException *e) {}
-                                    LBXBSHandoffMark([NSString stringWithFormat:
-                                                      @"wireKids compactCV idx=%ld items=%ld h=%.0f",
-                                                      (long)idxMark, (long)items, cv.frame.size.height]);
-                                }
-                                LBXBSHandoffMark([NSString stringWithFormat:
-                                                  @"wireKids cvDump idx=%ld frame=%.0fx%.0f@%.0f,%.0f items=%ld hidden=%d",
-                                                  (long)idxMark,
-                                                  cv.frame.size.width, cv.frame.size.height,
-                                                  cv.frame.origin.x, cv.frame.origin.y,
-                                                  (long)items, cv.hidden ? 1 : 0]);
-                            }
-                            // pass3：书表接到标签栏下方，不再清掉分类 header
-                            for (UITableView *tv in tables) {
-                                @try {
-                                    tv.hidden = NO;
-                                    tv.alpha = 1.0;
-                                    CGFloat top = tagCV ? CGRectGetMaxY(tagCV.frame) : 0;
-                                    if (top < 1.0 && tagCV) top = kTagBarH;
-                                    UIView *sup = tv.superview ?: vc.view;
-                                    CGFloat fullH = sup.bounds.size.height;
-                                    if (fullH < 1.0) fullH = vc.view.bounds.size.height;
-                                    CGRect tfr = tv.frame;
-                                    tfr.origin.x = 0;
-                                    tfr.origin.y = top;
-                                    tfr.size.width = sup.bounds.size.width > 1 ? sup.bounds.size.width : tfr.size.width;
-                                    tfr.size.height = MAX(120.0, fullH - top);
-                                    tv.frame = tfr;
-                                    if (tagCV) {
-                                        [sup insertSubview:tv belowSubview:tagCV];
-                                        [sup bringSubviewToFront:tagCV];
-                                    } else {
-                                        [sup bringSubviewToFront:tv];
-                                    }
-                                    // 仅清异常大的空白 inset，保留合理 header
-                                    UIEdgeInsets inset = tv.contentInset;
-                                    if (inset.top >= 200.0) {
-                                        inset.top = 0;
-                                        tv.contentInset = inset;
-                                    }
-                                    tv.contentOffset = CGPointZero;
-                                    if (tv.rowHeight <= 1.0 && tv.estimatedRowHeight <= 1.0) {
-                                        tv.rowHeight = 88.0;
-                                        tv.estimatedRowHeight = 88.0;
-                                    }
-                                    [tv reloadData];
-                                    [tv layoutIfNeeded];
-                                    if ([tv numberOfSections] > 0 &&
-                                        [tv numberOfRowsInSection:0] > 0) {
-                                        NSIndexPath *ip =
-                                            [NSIndexPath indexPathForRow:0 inSection:0];
-                                        [tv scrollToRowAtIndexPath:ip
-                                                  atScrollPosition:UITableViewScrollPositionTop
-                                                          animated:NO];
-                                    }
-                                    tvN += 1;
-                                } @catch (__unused NSException *e) {}
-                                // 表布局后再置顶标签栏，防止二次 wire 盖住分类
-                                if (tagCV) {
-                                    @try {
-                                        [tagCV.superview bringSubviewToFront:tagCV];
-                                        tagCV.hidden = NO;
-                                    } @catch (__unused NSException *e) {}
-                                }
+                        @try {
+                            id dsTV = [c valueForKey:@"tableView"];
+                            if ([dsTV isKindOfClass:[UITableView class]]) {
+                                UITableView *tv = (UITableView *)dsTV;
+                                [tv reloadData];
+                                [tv layoutIfNeeded];
+                                tvN = 1;
                                 NSInteger rows = 0;
                                 @try {
                                     if ([tv numberOfSections] > 0) {
@@ -818,21 +653,20 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                         }
                                         if (labs.count) {
                                             cellTxt = [labs componentsJoinedByString:@"|"];
-                                            if (cellTxt.length > 60) cellTxt = [cellTxt substringToIndex:60];
+                                            if (cellTxt.length > 60) {
+                                                cellTxt = [cellTxt substringToIndex:60];
+                                            }
                                         }
                                     }
                                 } @catch (__unused NSException *e) {}
                                 LBXBSHandoffMark([NSString stringWithFormat:
-                                                  @"wireKids tvDump idx=%ld frame=%.0fx%.0f@%.0f,%.0f rows=%ld cells=%lu rh=%.0f txt=%@",
-                                                  (long)idxMark,
-                                                  tv.frame.size.width, tv.frame.size.height,
-                                                  tv.frame.origin.x, tv.frame.origin.y,
-                                                  (long)rows, (unsigned long)cellN,
-                                                  tv.rowHeight, cellTxt]);
+                                                  @"wireKids tvDump idx=%ld rows=%ld cells=%lu txt=%@",
+                                                  (long)idxMark, (long)rows,
+                                                  (unsigned long)cellN, cellTxt]);
                             }
-                        }
+                        } @catch (__unused NSException *e) {}
                         LBXBSHandoffMark([NSString stringWithFormat:
-                                          @"wireKids softReload idx=%ld ch=%@ tv=%ld",
+                                          @"wireKids softReload idx=%ld ch=%@ tv=%ld noLayoutHack",
                                           (long)idxMark, chMark, (long)tvN]);
                     }
                 });
