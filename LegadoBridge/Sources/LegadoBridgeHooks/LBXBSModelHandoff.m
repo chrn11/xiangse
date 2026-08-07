@@ -113,21 +113,38 @@ LBXBSModelValidateResult LBValidateXBSModelShape(
 }
 
 static Ivar LBXBSFindDicModelIvar(Class cls) {
+    if (!cls) return NULL;
+    // class_getInstanceVariable 会沿超类查找；优先精确名
+    Ivar exact = class_getInstanceVariable(cls, "_dicModel");
+    if (exact) return exact;
     while (cls && cls != [NSObject class]) {
         unsigned int count = 0;
         Ivar *ivars = class_copyIvarList(cls, &count);
+        Ivar fuzzy = NULL;
         for (unsigned int i = 0; i < count; i++) {
             const char *name = ivar_getName(ivars[i]);
-            if (name && strcmp(name, "_dicModel") == 0) {
+            if (!name) continue;
+            if (strcmp(name, "_dicModel") == 0) {
                 Ivar found = ivars[i];
                 free(ivars);
                 return found;
             }
+            // 兼容非 `_dicModel` 命名但含 dicModel 的后备 ivar（仍只走 object_setIvar，禁 KVC）
+            if (!fuzzy && strstr(name, "dicModel")) {
+                fuzzy = ivars[i];
+            }
         }
         if (ivars) free(ivars);
+        if (fuzzy) return fuzzy;
         cls = class_getSuperclass(cls);
     }
     return NULL;
+}
+
+/// 仅 BookWorldHomeCon（及其子类）可写；基类 viewDidAppear 挂钩时必须过滤。
+static BOOL LBXBSHostIsBookWorldHome(id obj) {
+    Class bwh = NSClassFromString(@"BookWorldHomeCon");
+    return bwh && [obj isKindOfClass:bwh];
 }
 
 BOOL LBXBSHandoffWriteHostDicModel(
@@ -154,8 +171,14 @@ BOOL LBXBSHandoffWriteHostDicModel(
         }
         return NO;
     }
-    Ivar iv = LBXBSFindDicModelIvar(object_getClass(host));
+    Class hostCls = [host class];
+    Ivar iv = LBXBSFindDicModelIvar(hostCls);
     if (!iv) {
+        iv = LBXBSFindDicModelIvar(object_getClass(host));
+    }
+    if (!iv) {
+        LBXBSHandoffMark([NSString stringWithFormat:@"write missIvar host=%@",
+                          NSStringFromClass(hostCls) ?: @"-"]);
         if (error) {
             *error = [NSError errorWithDomain:@"LBXBSModelHandoff" code:3
                                      userInfo:@{NSLocalizedDescriptionKey: @"_dicModel ivar missing"}];
@@ -213,6 +236,11 @@ static void LBXBSHandoffMark(NSString *line) {
 BOOL LBXBSHandoffEnsureFromExactManagerKey(UIViewController *host, NSString *exactManagerKey) {
     if (!host || exactManagerKey.length == 0) {
         LBXBSHandoffMark(@"ensure skip nilHostOrKey");
+        return NO;
+    }
+    if (!LBXBSHostIsBookWorldHome(host)) {
+        LBXBSHandoffMark([NSString stringWithFormat:@"ensure skip notBWH host=%@",
+                          NSStringFromClass([host class]) ?: @"-"]);
         return NO;
     }
     // exact key 必须在 raw table 存在（禁止模糊匹配）
@@ -275,7 +303,7 @@ static NSString *LBXBSExactKeyIfPresentOnHost(UIViewController *host) {
 static void LBXBS_BWH_createCons(id self, SEL _cmd, id cons, id titles, NSString *sourceName) {
     // 合同 firstInvalid：createCons 时 host 常空；在原生 createCons 前写入完整模型
     if ([sourceName isKindOfClass:[NSString class]] && sourceName.length > 0 &&
-        [self isKindOfClass:[UIViewController class]]) {
+        LBXBSHostIsBookWorldHome(self)) {
         LBXBSHandoffEnsureFromExactManagerKey((UIViewController *)self, sourceName);
     }
     if (sOrig_BWH_createCons) {
@@ -287,8 +315,8 @@ static void LBXBS_BWH_viewDidAppear(id self, SEL _cmd, BOOL animated) {
     if (sOrig_BWH_viewDidAppear) {
         sOrig_BWH_viewDidAppear(self, _cmd, animated);
     }
-    // native-discover-host：wire after viewDidAppear
-    if (![self isKindOfClass:[UIViewController class]]) return;
+    // owner 可能是 LCViewControllerBase：必须只处理 BookWorldHomeCon
+    if (!LBXBSHostIsBookWorldHome(self)) return;
     UIViewController *host = (UIViewController *)self;
     NSString *key = LBXBSExactKeyIfPresentOnHost(host);
     if (key.length == 0) {
