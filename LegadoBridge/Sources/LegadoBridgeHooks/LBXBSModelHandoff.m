@@ -664,7 +664,7 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                         items = [cv numberOfItemsInSection:0];
                                     }
                                 } @catch (__unused NSException *e) {}
-                                BOOL looksTagWall = (items >= 20 && cv.frame.size.height >= 200.0);
+                                BOOL looksTagWall = (items >= 20); // 高度会被压到 140，不能再靠 h>=200 判定
                                 if (looksTagWall && n2 > 0) {
                                     tagCV = cv;
                                     @try {
@@ -754,6 +754,13 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                     }
                                     tvN += 1;
                                 } @catch (__unused NSException *e) {}
+                                // 表布局后再置顶标签栏，防止二次 wire 盖住分类
+                                if (tagCV) {
+                                    @try {
+                                        [tagCV.superview bringSubviewToFront:tagCV];
+                                        tagCV.hidden = NO;
+                                    } @catch (__unused NSException *e) {}
+                                }
                                 NSInteger rows = 0;
                                 @try {
                                     if ([tv numberOfSections] > 0) {
