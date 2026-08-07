@@ -655,7 +655,7 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                 }
                             }
                             // pass2：标签墙改为紧凑顶栏（保留分类），禁止整块隐藏
-                            const CGFloat kTagBarH = 140.0; // 约 3～4 行标签，可内滚
+                            const CGFloat kTagBarH = 168.0; // 约 4 行标签，深色底上需看得见
                             UICollectionView *tagCV = nil;
                             for (UICollectionView *cv in cols) {
                                 NSInteger items = 0;
@@ -697,6 +697,37 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                             [sup setNeedsLayout];
                                             [sup layoutIfNeeded];
                                         }
+                                        [cv reloadData];
+                                        [cv setContentOffset:CGPointZero animated:NO];
+                                        [cv layoutIfNeeded];
+                                        // dump 可见标签文案（深色模式下确认二级分类是否真在）
+                                        NSMutableArray *tagTxt = [NSMutableArray array];
+                                        @try {
+                                            for (UICollectionViewCell *cell in cv.visibleCells) {
+                                                if (tagTxt.count >= 6) break;
+                                                NSMutableArray *q = [NSMutableArray arrayWithObject:cell];
+                                                while (q.count > 0 && tagTxt.count < 6) {
+                                                    UIView *vv = q.firstObject;
+                                                    [q removeObjectAtIndex:0];
+                                                    for (UIView *s in vv.subviews) [q addObject:s];
+                                                    if ([vv isKindOfClass:[UILabel class]]) {
+                                                        NSString *t = [(UILabel *)vv text];
+                                                        if (t.length > 0) [tagTxt addObject:t];
+                                                    } else if ([vv isKindOfClass:[UIButton class]]) {
+                                                        NSString *t = [(UIButton *)vv currentTitle];
+                                                        if (t.length > 0) [tagTxt addObject:t];
+                                                    }
+                                                }
+                                            }
+                                        } @catch (__unused NSException *e) {}
+                                        NSString *joined = tagTxt.count
+                                            ? [tagTxt componentsJoinedByString:@","] : @"-";
+                                        if (joined.length > 80) joined = [joined substringToIndex:80];
+                                        LBXBSHandoffMark([NSString stringWithFormat:
+                                                          @"wireKids tagTxt idx=%ld nVis=%lu %@",
+                                                          (long)idxMark,
+                                                          (unsigned long)cv.visibleCells.count,
+                                                          joined]);
                                     } @catch (__unused NSException *e) {}
                                     LBXBSHandoffMark([NSString stringWithFormat:
                                                       @"wireKids compactCV idx=%ld items=%ld h=%.0f",
