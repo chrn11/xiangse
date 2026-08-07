@@ -606,57 +606,203 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                                       @"wireKids rebindDS EX %@", ex.reason ?: @""]);
                                 }
                             }
-                            // 禁止 setCellClass:BookListCellBase：会把书列表拧成白底，偏离原版深色
-                        } @catch (__unused NSException *e) {}
-                        // 只软刷 tableView.reloadData；禁止改 collection/frame（对齐原版自排版）
-                        NSInteger tvN = 0;
-                        @try {
-                            id dsTV = [c valueForKey:@"tableView"];
-                            if ([dsTV isKindOfClass:[UITableView class]]) {
-                                UITableView *tv = (UITableView *)dsTV;
-                                [tv reloadData];
-                                [tv layoutIfNeeded];
-                                tvN = 1;
-                                NSInteger rows = 0;
-                                @try {
-                                    if ([tv numberOfSections] > 0) {
-                                        rows = [tv numberOfRowsInSection:0];
-                                    }
-                                } @catch (__unused NSException *e) {}
-                                NSString *cellTxt = @"-";
-                                NSUInteger cellN = 0;
-                                @try {
-                                    NSArray *cells = [tv visibleCells];
-                                    cellN = cells.count;
-                                    if (cells.count > 0) {
-                                        UIView *cell = cells.firstObject;
-                                        NSMutableArray *labs = [NSMutableArray array];
-                                        NSMutableArray *q = [NSMutableArray arrayWithObject:cell];
-                                        while (q.count > 0 && labs.count < 3) {
-                                            UIView *vv = q.firstObject;
-                                            [q removeObjectAtIndex:0];
-                                            for (UIView *s in vv.subviews) [q addObject:s];
-                                            if ([vv isKindOfClass:[UILabel class]]) {
-                                                NSString *t = [(UILabel *)vv text];
-                                                if (t.length > 0) [labs addObject:t];
-                                            }
-                                        }
-                                        if (labs.count) {
-                                            cellTxt = [labs componentsJoinedByString:@"|"];
-                                            if (cellTxt.length > 60) {
-                                                cellTxt = [cellTxt substringToIndex:60];
-                                            }
-                                        }
-                                    }
-                                } @catch (__unused NSException *e) {}
-                                LBXBSHandoffMark([NSString stringWithFormat:
-                                                  @"wireKids tvDump idx=%ld rows=%ld cells=%lu txt=%@",
-                                                  (long)idxMark, (long)rows,
-                                                  (unsigned long)cellN, cellTxt]);
+                            // cellClass 空 → rows>0 仍无 cell；BookListCellBase 用系统色，App 内深色下仍浅
+                            Class wantCell = NSClassFromString(@"BookListCellBase");
+                            if (wantCell) {
+                                SEL setCC = NSSelectorFromString(@"setCellClass:");
+                                if ([c respondsToSelector:setCC]) {
+                                    ((void (*)(id, SEL, Class))objc_msgSend)(c, setCC, wantCell);
+                                    LBXBSHandoffMark([NSString stringWithFormat:
+                                                      @"wireKids setCellClass idx=%ld BookListCellBase",
+                                                      (long)idxMark]);
+                                }
                             }
                         } @catch (__unused NSException *e) {}
+                        // 对齐原版：分类顶栏（约 8 行）+ 下方书表；书行按 ThemeManager 深色染色
+                        NSInteger tvN = 0;
+                        if ([c isKindOfClass:[UIViewController class]]) {
+                            UIViewController *vc = (UIViewController *)c;
+                            if (vc.isViewLoaded) {
+                                NSMutableArray<UITableView *> *tables = [NSMutableArray array];
+                                NSMutableArray<UICollectionView *> *cols = [NSMutableArray array];
+                                NSMutableArray<UIView *> *views = [NSMutableArray arrayWithObject:vc.view];
+                                while (views.count > 0) {
+                                    UIView *v = views.firstObject;
+                                    [views removeObjectAtIndex:0];
+                                    for (UIView *sub in v.subviews) [views addObject:sub];
+                                    if ([v isKindOfClass:[UITableView class]]) {
+                                        [tables addObject:(UITableView *)v];
+                                    } else if ([v isKindOfClass:[UICollectionView class]]) {
+                                        [cols addObject:(UICollectionView *)v];
+                                    }
+                                }
+                                // 原版首屏约 8～9 行标签后接书；禁止整块 hideCV
+                                const CGFloat kTagBarH = 300.0;
+                                UICollectionView *tagCV = nil;
+                                for (UICollectionView *cv in cols) {
+                                    NSInteger items = 0;
+                                    @try {
+                                        if ([cv numberOfSections] > 0) {
+                                            items = [cv numberOfItemsInSection:0];
+                                        }
+                                    } @catch (__unused NSException *e) {}
+                                    if (items >= 20 && n2 > 0) {
+                                        tagCV = cv;
+                                        @try {
+                                            cv.hidden = NO;
+                                            cv.alpha = 1.0;
+                                            cv.scrollEnabled = YES;
+                                            CGRect fr = cv.frame;
+                                            fr.origin.y = 0;
+                                            fr.size.height = kTagBarH;
+                                            if (fr.size.width < 1.0 && vc.view) {
+                                                fr.size.width = vc.view.bounds.size.width;
+                                            }
+                                            cv.frame = fr;
+                                            for (NSLayoutConstraint *cn in cv.constraints) {
+                                                if (cn.firstAttribute == NSLayoutAttributeHeight ||
+                                                    cn.secondAttribute == NSLayoutAttributeHeight) {
+                                                    cn.constant = kTagBarH;
+                                                }
+                                            }
+                                            UIView *sup = cv.superview;
+                                            if (sup) {
+                                                for (NSLayoutConstraint *cn in sup.constraints) {
+                                                    if ((cn.firstItem == cv || cn.secondItem == cv) &&
+                                                        (cn.firstAttribute == NSLayoutAttributeHeight ||
+                                                         cn.secondAttribute == NSLayoutAttributeHeight)) {
+                                                        cn.constant = kTagBarH;
+                                                    }
+                                                }
+                                                [sup bringSubviewToFront:cv];
+                                                [sup setNeedsLayout];
+                                                [sup layoutIfNeeded];
+                                            }
+                                            [cv reloadData];
+                                            [cv setContentOffset:CGPointZero animated:NO];
+                                            [cv layoutIfNeeded];
+                                        } @catch (__unused NSException *e) {}
+                                        LBXBSHandoffMark([NSString stringWithFormat:
+                                                          @"wireKids compactCV idx=%ld items=%ld h=%.0f",
+                                                          (long)idxMark, (long)items, cv.frame.size.height]);
+                                    }
+                                }
+                                BOOL dark = LBAppDarkModeEnabled();
+                                UIColor *pageBg = LBDiscoverPageColor();
+                                UIColor *titleC = LBDiscoverPrimaryTextColor();
+                                UIColor *subC = LBDiscoverSecondaryTextColor();
+                                for (UITableView *tv in tables) {
+                                    @try {
+                                        tv.hidden = NO;
+                                        tv.alpha = 1.0;
+                                        CGFloat top = tagCV ? CGRectGetMaxY(tagCV.frame) : 0;
+                                        if (top < 1.0 && tagCV) top = kTagBarH;
+                                        UIView *sup = tv.superview ?: vc.view;
+                                        CGFloat fullH = sup.bounds.size.height;
+                                        if (fullH < 1.0) fullH = vc.view.bounds.size.height;
+                                        CGRect tfr = tv.frame;
+                                        tfr.origin.x = 0;
+                                        tfr.origin.y = top;
+                                        tfr.size.width = sup.bounds.size.width > 1
+                                            ? sup.bounds.size.width : tfr.size.width;
+                                        tfr.size.height = MAX(120.0, fullH - top);
+                                        tv.frame = tfr;
+                                        if (tagCV) {
+                                            [sup insertSubview:tv belowSubview:tagCV];
+                                            [sup bringSubviewToFront:tagCV];
+                                        }
+                                        if (tv.rowHeight <= 1.0 && tv.estimatedRowHeight <= 1.0) {
+                                            tv.rowHeight = 88.0;
+                                            tv.estimatedRowHeight = 88.0;
+                                        }
+                                        if (dark) {
+                                            tv.backgroundColor = pageBg;
+                                            tv.separatorColor = LBDiscoverSeparatorColor();
+                                            if ([tv respondsToSelector:@selector(setSectionIndexBackgroundColor:)]) {
+                                                @try { tv.sectionIndexBackgroundColor = pageBg; } @catch (__unused NSException *e) {}
+                                            }
+                                        }
+                                        [tv reloadData];
+                                        [tv layoutIfNeeded];
+                                        if (dark) {
+                                            for (UITableViewCell *cell in tv.visibleCells) {
+                                                cell.backgroundColor = pageBg;
+                                                cell.contentView.backgroundColor = pageBg;
+                                                if ([cell respondsToSelector:@selector(setBackgroundView:)]) {
+                                                    UIView *bv = [[UIView alloc] init];
+                                                    bv.backgroundColor = pageBg;
+                                                    cell.backgroundView = bv;
+                                                }
+                                                NSMutableArray *q = [NSMutableArray arrayWithObject:cell.contentView];
+                                                while (q.count > 0) {
+                                                    UIView *vv = q.firstObject;
+                                                    [q removeObjectAtIndex:0];
+                                                    for (UIView *s in vv.subviews) [q addObject:s];
+                                                    if ([vv isKindOfClass:[UILabel class]]) {
+                                                        UILabel *lb = (UILabel *)vv;
+                                                        UIFont *f = lb.font;
+                                                        CGFloat ps = f ? f.pointSize : 12;
+                                                        lb.textColor = (ps >= 15.0) ? titleC : subC;
+                                                    } else if (![vv isKindOfClass:[UIImageView class]] &&
+                                                               vv.backgroundColor) {
+                                                        CGFloat r = 0, g = 0, b = 0, a = 0;
+                                                        if ([vv.backgroundColor getRed:&r green:&g blue:&b alpha:&a] &&
+                                                            a > 0.05 && (r + g + b) / 3.0 > 0.85) {
+                                                            vv.backgroundColor = pageBg;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (tagCV) {
+                                            @try {
+                                                [tagCV.superview bringSubviewToFront:tagCV];
+                                                tagCV.hidden = NO;
+                                            } @catch (__unused NSException *e) {}
+                                        }
+                                        tvN += 1;
+                                        NSInteger rows = 0;
+                                        @try {
+                                            if ([tv numberOfSections] > 0) {
+                                                rows = [tv numberOfRowsInSection:0];
+                                            }
+                                        } @catch (__unused NSException *e) {}
+                                        NSString *cellTxt = @"-";
+                                        NSUInteger cellN = 0;
+                                        @try {
+                                            NSArray *cells = [tv visibleCells];
+                                            cellN = cells.count;
+                                            if (cells.count > 0) {
+                                                UIView *cell = cells.firstObject;
+                                                NSMutableArray *labs = [NSMutableArray array];
+                                                NSMutableArray *q = [NSMutableArray arrayWithObject:cell];
+                                                while (q.count > 0 && labs.count < 3) {
+                                                    UIView *vv = q.firstObject;
+                                                    [q removeObjectAtIndex:0];
+                                                    for (UIView *s in vv.subviews) [q addObject:s];
+                                                    if ([vv isKindOfClass:[UILabel class]]) {
+                                                        NSString *t = [(UILabel *)vv text];
+                                                        if (t.length > 0) [labs addObject:t];
+                                                    }
+                                                }
+                                                if (labs.count) {
+                                                    cellTxt = [labs componentsJoinedByString:@"|"];
+                                                    if (cellTxt.length > 60) {
+                                                        cellTxt = [cellTxt substringToIndex:60];
+                                                    }
+                                                }
+                                            }
+                                        } @catch (__unused NSException *e) {}
+                                        LBXBSHandoffMark([NSString stringWithFormat:
+                                                          @"wireKids tvDump idx=%ld rows=%ld cells=%lu dark=%d txt=%@",
+                                                          (long)idxMark, (long)rows,
+                                                          (unsigned long)cellN, dark ? 1 : 0, cellTxt]);
+                                    } @catch (__unused NSException *e) {}
+                                }
+                            }
+                        }
                         LBXBSHandoffMark([NSString stringWithFormat:
-                                          @"wireKids softReload idx=%ld ch=%@ tv=%ld noLayoutHack",
+                                          @"wireKids softReload idx=%ld ch=%@ tv=%ld darkPaint",
                                           (long)idxMark, chMark, (long)tvN]);
                     }
                 });
