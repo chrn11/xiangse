@@ -74,8 +74,8 @@ final class PostCoreBridgeTests: XCTestCase {
         XCTAssertEqual(LegadoBridgeCore.shared.replaceRulesCount, 1)
     }
 
-    func testSwitchRebindsBookSource() {
-        let old = BookBindingStore.shared.bind(
+    func testSwitchRebindsBookSource() throws {
+        let old = try BookBindingStore.shared.bind(
             bookUrl: "https://book/old",
             sourceUrl: "https://src/old",
             sourceName: "旧源",
@@ -84,7 +84,7 @@ final class PostCoreBridgeTests: XCTestCase {
         )
         XCTAssertTrue(old.sourceAvailable)
         // 模拟换源后的新绑定（网络路径由真机测；此处验 Store 语义）
-        _ = BookBindingStore.shared.bind(
+        _ = try BookBindingStore.shared.bind(
             bookUrl: "https://book/old",
             sourceUrl: "https://src/old",
             sourceName: "旧源",
@@ -93,7 +93,7 @@ final class PostCoreBridgeTests: XCTestCase {
             bridgeToken: old.bridgeToken,
             sourceAvailable: false
         )
-        let neu = BookBindingStore.shared.bind(
+        let neu = try BookBindingStore.shared.bind(
             bookUrl: "https://book/new",
             sourceUrl: "https://src/new",
             sourceName: "新源",
