@@ -32,17 +32,65 @@ final class SourceRegistry {
     private let lock = NSLock()
     private var didRestoreFromDisk = false
 
-    private static var persistFileURL: URL {
+    /// 与 ObjC `LBImportHooks` 的 JSON Hook 重入键一致：解析阶段置位，避免
+    /// `JSONObjectWithData` Hook 再走 `Core.import` 写共享 Documents。
+    private static let jsonHookReentryKey = "LegadoBridge.JSONHook.Reentry"
+
+    /// 测试可注入独立落盘路径，避免多用例抢 `Documents/legado_bridge_sources.json`。
+    var persistFileURLOverride: URL?
+
+    private static var defaultPersistFileURL: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents")
         return docs.appendingPathComponent("legado_bridge_sources.json")
     }
 
+    private var persistFileURL: URL {
+        persistFileURLOverride ?? Self.defaultPersistFileURL
+    }
+
     private init() {}
 
-    /// 启动时从磁盘恢复；可重复调用，仅首次生效。
+    /// 在 JSON Hook 重入保护下执行，防止 `importJSONData` 解析时触发二次导入。
+    private func withJSONHookSuppressed<T>(_ body: () throws -> T) rethrows -> T {
+        let td = Thread.current.threadDictionary
+        let had = td[Self.jsonHookReentryKey] != nil
+        if !had {
+            td[Self.jsonHookReentryKey] = true
+        }
+        defer {
+            if !had {
+                td.removeObject(forKey: Self.jsonHookReentryKey)
+            }
+        }
+        return try body()
+    }
+
+    /// 启动时从磁盘恢复；成功或确认文件不可用后闩锁；文件尚不存在时允许稍后重试。
     @discardableResult
     func restoreFromDiskIfNeeded() -> Int {
+        lock.lock()
+        if didRestoreFromDisk {
+            let n = sourcesByUrl.count
+            lock.unlock()
+            return n
+        }
+        lock.unlock()
+
+        let url = persistFileURL
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else {
+            writeDebugMarker("restore=0 missing")
+            // 不置 didRestore：测试/晚到落盘仍可再次恢复
+            return 0
+        }
+        // 空数组 `[]`：视为尚无源，不闩锁、不抛「非 Legado 格式」
+        if let arr = try? withJSONHookSuppressed({
+            try JSONSerialization.jsonObject(with: data)
+        }) as? [Any], arr.isEmpty {
+            writeDebugMarker("restore=0 empty")
+            return 0
+        }
+
         lock.lock()
         if didRestoreFromDisk {
             let n = sourcesByUrl.count
@@ -52,11 +100,6 @@ final class SourceRegistry {
         didRestoreFromDisk = true
         lock.unlock()
 
-        let url = Self.persistFileURL
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else {
-            writeDebugMarker("restore=0 missing")
-            return 0
-        }
         do {
             // 磁盘恢复：直接信任落盘的 enabled / 订阅元数据 / 远端缺失标记
             let count = try importJSONData(
@@ -93,7 +136,9 @@ final class SourceRegistry {
         subscriptionUrl: String? = nil,
         clearRemoteMissing: Bool = true
     ) throws -> Int {
-        let object = try JSONSerialization.jsonObject(with: data)
+        let object = try withJSONHookSuppressed {
+            try JSONSerialization.jsonObject(with: data)
+        }
         var count = 0
         if let dict = object as? [String: Any], Self.isLegadoSource(dict) {
             _ = register(
@@ -358,8 +403,13 @@ final class SourceRegistry {
             writeDebugMarker("persist=fail encode")
             return
         }
+        let url = persistFileURL
         do {
-            try data.write(to: Self.persistFileURL, options: .atomic)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: url, options: .atomic)
             writeDebugMarker("persist=\(values.count) ok")
         } catch {
             writeDebugMarker("persist=fail \(error.localizedDescription)")
@@ -615,7 +665,7 @@ final class SourceRegistry {
         didRestoreFromDisk = false
         lock.unlock()
         if clearPersistFile {
-            try? FileManager.default.removeItem(at: Self.persistFileURL)
+            try? FileManager.default.removeItem(at: persistFileURL)
         }
     }
 }

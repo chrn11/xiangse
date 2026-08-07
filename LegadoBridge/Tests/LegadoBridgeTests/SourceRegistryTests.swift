@@ -7,14 +7,23 @@ import XCTest
 /// Windows 无 iOS SDK 时由 `.artifacts/test_tools/validate_baseline_and_tests.py` 校验本文件与 Package 结构。
 final class SourceRegistryTests: XCTestCase {
     private let registry = SourceRegistry.shared
+    private var isolationRoot: URL!
 
     override func setUp() {
         super.setUp()
+        isolationRoot = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("sr-test-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: isolationRoot, withIntermediateDirectories: true)
+        registry.persistFileURLOverride = isolationRoot.appendingPathComponent("legado_bridge_sources.json")
         registry.resetForTesting(clearPersistFile: true)
     }
 
     override func tearDown() {
         registry.resetForTesting(clearPersistFile: true)
+        registry.persistFileURLOverride = nil
+        if let isolationRoot {
+            try? FileManager.default.removeItem(at: isolationRoot)
+        }
         super.tearDown()
     }
 
