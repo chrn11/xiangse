@@ -417,6 +417,8 @@ static NSInteger LBXBSHandoffWireBookListChildren(
             continue;
         }
         if (![child respondsToSelector:setCfg]) {
+            LBXBSHandoffMark([NSString stringWithFormat:@"wireKids noSel setDicConfig idx=%ld cls=%@",
+                              (long)idx, NSStringFromClass([child class]) ?: @"-"]);
             idx += 1;
             continue;
         }
@@ -451,25 +453,42 @@ static NSInteger LBXBSHandoffWireBookListChildren(
             idx += 1;
             continue;
         }
-        // 已有非空 config 则不覆盖
+        // 已有 requestInfo 且 arrBaseData 已有书 → 不覆盖；空列表则强制重写
+        BOOL force = YES;
+        NSInteger arrN = -1;
+        @try {
+            id a = [child valueForKey:@"arrBaseData"];
+            if ([a isKindOfClass:[NSArray class]]) arrN = (NSInteger)[(NSArray *)a count];
+        } @catch (__unused NSException *e) {}
         if ([child respondsToSelector:getCfg]) {
             @try {
                 id cur = ((id (*)(id, SEL))objc_msgSend)(child, getCfg);
                 if ([cur isKindOfClass:[NSDictionary class]] && [(NSDictionary *)cur count] > 0) {
                     id ri = ((NSDictionary *)cur)[@"requestInfo"];
-                    if ([ri isKindOfClass:[NSString class]] && [(NSString *)ri length] > 0) {
-                        idx += 1;
-                        continue;
+                    if ([ri isKindOfClass:[NSString class]] && [(NSString *)ri length] > 0 && arrN > 0) {
+                        LBXBSHandoffMark([NSString stringWithFormat:
+                                          @"wireKids skipExisting idx=%ld ch=%@ arrN=%ld",
+                                          (long)idx, channel ?: @"-", (long)arrN]);
+                        force = NO;
+                    } else {
+                        LBXBSHandoffMark([NSString stringWithFormat:
+                                          @"wireKids rewrite idx=%ld ch=%@ arrN=%ld curKeys=%lu",
+                                          (long)idx, channel ?: @"-", (long)arrN,
+                                          (unsigned long)[(NSDictionary *)cur count]]);
                     }
                 }
             } @catch (__unused NSException *e) {}
         }
+        if (!force) {
+            idx += 1;
+            continue;
+        }
         NSDictionary *copy = [[NSDictionary alloc] initWithDictionary:entry copyItems:YES];
         ((void (*)(id, SEL, id))objc_msgSend)(child, setCfg, copy);
         wired += 1;
-        LBXBSHandoffMark([NSString stringWithFormat:@"wireKids ok idx=%ld ch=%@ keys=%lu",
+        LBXBSHandoffMark([NSString stringWithFormat:@"wireKids ok idx=%ld ch=%@ keys=%lu arrNBefore=%ld",
                           (long)idx, channel ?: @"-",
-                          (unsigned long)copy.count]);
+                          (unsigned long)copy.count, (long)arrN]);
         idx += 1;
     }
     LBXBSHandoffMark([NSString stringWithFormat:@"wireKids done key=%@ wired=%ld kids=%lu bw=%lu",
