@@ -44,6 +44,12 @@ static BOOL LBXBSLooksThinThreeKeyShell(NSDictionary *model) {
 }
 
 static void LBXBSHandoffMark(NSString *line);
+static NSInteger LBXBSHandoffWireBookListChildren(
+    UIViewController *host,
+    id cons,
+    id titles,
+    NSString *exactManagerKey
+);
 
 LBXBSModelValidateResult LBValidateXBSModelShape(
     NSDictionary *model,
@@ -313,15 +319,138 @@ BOOL LBXBSHandoffEnsureFromExactManagerKey(UIViewController *host, NSString *exa
     }
     NSError *err = nil;
     BOOL ok = LBXBSHandoffWriteHostDicModel(host, managerModel, exactManagerKey, &err);
-    LBXBSHandoffMark([NSString stringWithFormat:@"ensure %@ err=%@",
-                      ok ? @"ok" : @"fail", err.localizedDescription ?: @"-"]);
-    return ok;
+    if (ok) {
+        LBXBSHandoffMark(@"ensure ok");
+        // host 有 ivar 时仍接线子页，避免仅有壳模型
+        LBXBSHandoffWireBookListChildren(host, nil, nil, exactManagerKey);
+        return YES;
+    }
+    // 2.56.1：无 host ivar 时改接线 BookListCon.dicConfig（合同 prefer manager；子页才是出书面）
+    NSInteger wired = LBXBSHandoffWireBookListChildren(host, nil, nil, exactManagerKey);
+    LBXBSHandoffMark([NSString stringWithFormat:@"ensure hostWriteFail→wireKids wired=%ld err=%@",
+                      (long)wired, err.localizedDescription ?: @"-"]);
+    return wired > 0;
 }
 
 #pragma mark - Hooks (createCons / viewDidAppear)
 
 static void (*sOrig_BWH_createCons)(id, SEL, id, id, NSString *) = NULL;
 static void (*sOrig_BWH_viewDidAppear)(id, SEL, BOOL) = NULL;
+
+/// 2.56.1 真机：BookWorldHomeCon 无 `_dicModel` ivar/KVC；书单在子页 BookListCon.dicConfig。
+/// createCons 后按 title/index 把 manager.bookWorld[channel] 写入各 BookListCon。
+static NSInteger LBXBSHandoffWireBookListChildren(
+    UIViewController *host,
+    id cons,
+    id titles,
+    NSString *exactManagerKey
+) {
+    if (!host || exactManagerKey.length == 0) return 0;
+    NSDictionary *managerModel = LBBSMRawDicModelForExactKey(exactManagerKey);
+    if (![managerModel isKindOfClass:[NSDictionary class]]) {
+        LBXBSHandoffMark(@"wireKids skip noManagerModel");
+        return 0;
+    }
+    id bwObj = managerModel[@"bookWorld"];
+    if (![bwObj isKindOfClass:[NSDictionary class]] || [(NSDictionary *)bwObj count] == 0) {
+        LBXBSHandoffMark(@"wireKids skip emptyBookWorld");
+        return 0;
+    }
+    NSDictionary *bookWorld = (NSDictionary *)bwObj;
+
+    NSArray *titleArr = nil;
+    if ([titles isKindOfClass:[NSArray class]]) {
+        titleArr = (NSArray *)titles;
+    } else if ([titles isKindOfClass:[NSString class]]) {
+        titleArr = @[(NSString *)titles];
+    }
+    if (titleArr.count == 0) {
+        titleArr = bookWorld.allKeys;
+    }
+
+    NSMutableArray *children = [NSMutableArray array];
+    if ([cons isKindOfClass:[NSArray class]]) {
+        [children addObjectsFromArray:(NSArray *)cons];
+    }
+    @try {
+        NSArray *kids = host.childViewControllers;
+        for (id k in kids) {
+            if (k && ![children containsObject:k]) [children addObject:k];
+        }
+    } @catch (__unused NSException *e) {}
+
+    Class blc = NSClassFromString(@"BookListCon");
+    SEL setCfg = NSSelectorFromString(@"setDicConfig:");
+    SEL getCfg = NSSelectorFromString(@"dicConfig");
+    NSInteger wired = 0;
+    NSInteger idx = 0;
+    for (id child in children) {
+        if (blc && ![child isKindOfClass:blc]) {
+            idx += 1;
+            continue;
+        }
+        if (![child respondsToSelector:setCfg]) {
+            idx += 1;
+            continue;
+        }
+        NSString *channel = nil;
+        @try {
+            id t = [child valueForKey:@"title"];
+            if ([t isKindOfClass:[NSString class]] && [(NSString *)t length] > 0) channel = t;
+        } @catch (__unused NSException *e) {}
+        if (channel.length == 0 && idx < (NSInteger)titleArr.count) {
+            id t2 = titleArr[(NSUInteger)idx];
+            if ([t2 isKindOfClass:[NSString class]]) channel = (NSString *)t2;
+        }
+        NSDictionary *entry = nil;
+        if (channel.length > 0) {
+            id e = bookWorld[channel];
+            if ([e isKindOfClass:[NSDictionary class]]) entry = (NSDictionary *)e;
+        }
+        // 标题对不上时按 allKeys 顺序兜底
+        if (!entry && idx < (NSInteger)bookWorld.count) {
+            NSArray *keys = bookWorld.allKeys;
+            if (idx < (NSInteger)keys.count) {
+                id e2 = bookWorld[keys[(NSUInteger)idx]];
+                if ([e2 isKindOfClass:[NSDictionary class]]) {
+                    entry = (NSDictionary *)e2;
+                    channel = keys[(NSUInteger)idx];
+                }
+            }
+        }
+        if (!entry) {
+            LBXBSHandoffMark([NSString stringWithFormat:@"wireKids missEntry idx=%ld ch=%@",
+                              (long)idx, channel ?: @"-"]);
+            idx += 1;
+            continue;
+        }
+        // 已有非空 config 则不覆盖
+        if ([child respondsToSelector:getCfg]) {
+            @try {
+                id cur = ((id (*)(id, SEL))objc_msgSend)(child, getCfg);
+                if ([cur isKindOfClass:[NSDictionary class]] && [(NSDictionary *)cur count] > 0) {
+                    id ri = ((NSDictionary *)cur)[@"requestInfo"];
+                    if ([ri isKindOfClass:[NSString class]] && [(NSString *)ri length] > 0) {
+                        idx += 1;
+                        continue;
+                    }
+                }
+            } @catch (__unused NSException *e) {}
+        }
+        NSDictionary *copy = [[NSDictionary alloc] initWithDictionary:entry copyItems:YES];
+        ((void (*)(id, SEL, id))objc_msgSend)(child, setCfg, copy);
+        wired += 1;
+        LBXBSHandoffMark([NSString stringWithFormat:@"wireKids ok idx=%ld ch=%@ keys=%lu",
+                          (long)idx, channel ?: @"-",
+                          (unsigned long)copy.count]);
+        idx += 1;
+    }
+    LBXBSHandoffMark([NSString stringWithFormat:@"wireKids done key=%@ wired=%ld kids=%lu bw=%lu",
+                      exactManagerKey, (long)wired,
+                      (unsigned long)children.count,
+                      (unsigned long)bookWorld.count]);
+    return wired;
+}
 
 /// 从 host 读候选 exact key：仅返回 raw table 中真实存在的键，不做模糊匹配。
 static NSString *LBXBSExactKeyIfPresentOnHost(UIViewController *host) {
@@ -346,13 +475,17 @@ static NSString *LBXBSExactKeyIfPresentOnHost(UIViewController *host) {
 }
 
 static void LBXBS_BWH_createCons(id self, SEL _cmd, id cons, id titles, NSString *sourceName) {
-    // 合同 firstInvalid：createCons 时 host 常空；在原生 createCons 前写入完整模型
+    // 合同 firstInvalid：createCons 前尽量写 host；2.56.1 无 ivar 时在 createCons 后接线子页
     if ([sourceName isKindOfClass:[NSString class]] && sourceName.length > 0 &&
         LBXBSHostIsBookWorldHome(self)) {
         LBXBSHandoffEnsureFromExactManagerKey((UIViewController *)self, sourceName);
     }
     if (sOrig_BWH_createCons) {
         sOrig_BWH_createCons(self, _cmd, cons, titles, sourceName);
+    }
+    if ([sourceName isKindOfClass:[NSString class]] && sourceName.length > 0 &&
+        LBXBSHostIsBookWorldHome(self)) {
+        LBXBSHandoffWireBookListChildren((UIViewController *)self, cons, titles, sourceName);
     }
 }
 
