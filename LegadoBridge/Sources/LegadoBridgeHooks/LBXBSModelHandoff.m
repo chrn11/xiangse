@@ -607,6 +607,17 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                                       @"wireKids rebindDS EX %@", ex.reason ?: @""]);
                                 }
                             }
+                            // cellClass 为空时 table rows>0 仍无 visibleCells（真机黑屏）
+                            Class wantCell = NSClassFromString(@"BookListCellBase");
+                            if (wantCell) {
+                                SEL setCC = NSSelectorFromString(@"setCellClass:");
+                                if ([c respondsToSelector:setCC]) {
+                                    ((void (*)(id, SEL, Class))objc_msgSend)(c, setCC, wantCell);
+                                    LBXBSHandoffMark([NSString stringWithFormat:
+                                                      @"wireKids setCellClass idx=%ld BookListCellBase",
+                                                      (long)idxMark]);
+                                }
+                            }
                         } @catch (__unused NSException *e) {}
                         // 扫描其它可能承载书列表的数组属性
                         @try {
@@ -671,8 +682,20 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                     [tv.superview bringSubviewToFront:tv];
                                     tv.hidden = NO;
                                     tv.alpha = 1.0;
+                                    if (tv.rowHeight <= 1.0 && tv.estimatedRowHeight <= 1.0) {
+                                        tv.rowHeight = 88.0;
+                                        tv.estimatedRowHeight = 88.0;
+                                    }
                                     [tv reloadData];
                                     [tv layoutIfNeeded];
+                                    if ([tv numberOfSections] > 0 &&
+                                        [tv numberOfRowsInSection:0] > 0) {
+                                        NSIndexPath *ip =
+                                            [NSIndexPath indexPathForRow:0 inSection:0];
+                                        [tv scrollToRowAtIndexPath:ip
+                                                  atScrollPosition:UITableViewScrollPositionTop
+                                                          animated:NO];
+                                    }
                                     tvN += 1;
                                 } @catch (__unused NSException *e) {}
                                 NSInteger rows = 0;
@@ -706,11 +729,12 @@ static NSInteger LBXBSHandoffWireBookListChildren(
                                     }
                                 } @catch (__unused NSException *e) {}
                                 LBXBSHandoffMark([NSString stringWithFormat:
-                                                  @"wireKids tvDump idx=%ld frame=%.0fx%.0f@%.0f,%.0f rows=%ld cells=%lu txt=%@",
+                                                  @"wireKids tvDump idx=%ld frame=%.0fx%.0f@%.0f,%.0f rows=%ld cells=%lu rh=%.0f txt=%@",
                                                   (long)idxMark,
                                                   tv.frame.size.width, tv.frame.size.height,
                                                   tv.frame.origin.x, tv.frame.origin.y,
-                                                  (long)rows, (unsigned long)cellN, cellTxt]);
+                                                  (long)rows, (unsigned long)cellN,
+                                                  tv.rowHeight, cellTxt]);
                             }
                         }
                         LBXBSHandoffMark([NSString stringWithFormat:
