@@ -11,13 +11,14 @@ final class ExploreCatalogParserTests: XCTestCase {
     }
 
     func testTopLevelAndInsideQuotesNotSplit() {
-        let items = ExploreCatalogLexer.splitItems("\"a&&b\"::/x && 真实::/y")
+        // 不含 && 两侧空白，避免与「rawTarget 不 trim」合同打架
+        let items = ExploreCatalogLexer.splitItems("\"a&&b\"::/x&&真实::/y")
         XCTAssertEqual(items.count, 2)
         XCTAssertTrue(items[0].contains("a&&b"))
         let p0 = ExploreCatalogLexer.parseItem(items[0])
         XCTAssertEqual(p0.rawTarget, "/x")
         let p1 = ExploreCatalogLexer.parseItem(items[1])
-        XCTAssertEqual(p1.rawTitle.trimmingCharacters(in: .whitespaces), "真实")
+        XCTAssertEqual(p1.rawTitle, "真实")
         XCTAssertEqual(p1.rawTarget, "/y")
     }
 

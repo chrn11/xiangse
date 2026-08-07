@@ -79,11 +79,14 @@ jobs:
         working-directory: LegadoBridge
         run: |
           set -euo pipefail
+          # 关闭并行：BookVariableStore / CookieManager 等共享落盘在 Clone 间会互相踩
           xcodebuild test \
             -scheme LegadoRuleCore \
             -destination "${{ steps.dest.outputs.dest }}" \
             -resultBundlePath "$PWD/LegadoRuleCore.xcresult" \
             -derivedDataPath "$PWD/.build-test-full" \
+            -parallel-testing-enabled NO \
+            -maximum-parallel-testing-workers 1 \
             CODE_SIGNING_ALLOWED=NO \
             -skipPackagePluginValidation \
             2>&1 | tee ../LegadoRuleCore-full.log
@@ -97,6 +100,8 @@ jobs:
             -destination "${{ steps.dest.outputs.dest }}" \
             -resultBundlePath "$PWD/LegadoBridge.xcresult" \
             -derivedDataPath "$PWD/.build-test-full" \
+            -parallel-testing-enabled NO \
+            -maximum-parallel-testing-workers 1 \
             CODE_SIGNING_ALLOWED=NO \
             -skipPackagePluginValidation \
             2>&1 | tee ../LegadoBridge-full.log
@@ -110,6 +115,8 @@ jobs:
             -destination "${{ steps.dest.outputs.dest }}" \
             -resultBundlePath "$PWD/LegadoBridgeHooks.xcresult" \
             -derivedDataPath "$PWD/.build-test-full" \
+            -parallel-testing-enabled NO \
+            -maximum-parallel-testing-workers 1 \
             CODE_SIGNING_ALLOWED=NO \
             -skipPackagePluginValidation \
             2>&1 | tee ../LegadoBridgeHooks-full.log
