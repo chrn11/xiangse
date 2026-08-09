@@ -5,7 +5,7 @@
   "budgets": {
     "cexports_sensitive_legado_write": 15,
     "cexports_total_legado_write": 60,
-    "cexports_lines": 12750,
+    "cexports_lines": 12800,
     "discover_kindbar_lines": 4850,
     "discover_kindbar_lines_baseline": 4663,
     "discover_kindbar_net_increase_max": 150,

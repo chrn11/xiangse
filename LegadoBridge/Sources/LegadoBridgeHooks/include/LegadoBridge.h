@@ -82,4 +82,15 @@ FOUNDATION_EXPORT void LBPresentBookReviewsJSON(NSString *bookUrl, NSString *jso
 /// 打开听书播控（直链章节 URL）
 FOUNDATION_EXPORT void LBOpenTTS(NSString *bookUrl, NSString *chapterUrl, NSString * _Nullable chapterTitle);
 
+/// TC-08I：共享 SourceSession 路由桥（SourceSessionCoordinator / LBSharedSourceRouter）
+FOUNDATION_EXPORT void LBSharedRouterBumpManagerGeneration(void);
+FOUNDATION_EXPORT void LBSharedRouterBumpRegistryGeneration(void);
+FOUNDATION_EXPORT NSDictionary * _Nullable LBSharedRouterApplySelection(NSInteger sourceKind,
+                                                                        NSString *canonicalID,
+                                                                        NSString * _Nullable displayName,
+                                                                        NSString * _Nullable ownerIdentity,
+                                                                        BOOL isReselect);
+FOUNDATION_EXPORT NSDictionary *LBSharedRouterRequestPublishPermit(NSDictionary *token, BOOL isFirstPage);
+FOUNDATION_EXPORT NSDictionary * _Nullable LBSharedRouterCurrentToken(NSInteger sourceKind, NSString *canonicalID);
+
 #endif /* LegadoBridge_h */

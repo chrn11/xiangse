@@ -774,14 +774,13 @@ static void LBAppendNativeHostState(UIViewController *host, NSString *tag) {
                           childNames.count ? [childNames componentsJoinedByString:@","] : @"-"]);
 }
 
-/// 从原生表挑一个带完整 bookWorld 的 donor（非 Legado）。outName 可空。
-/// TC-07：Release 生产路径不可达；仅 DEBUG 保留供对照。
-static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
-#if !DEBUG
+/// TC-08L W2：donor bookWorld 永久不可达（Release+Debug）；禁止借 XBS 污染 Legado。
+/// 历史实现保留在 #if 0，仅供审计，不参与编译。
+__attribute__((unused)) static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
     (void)mgr;
     if (outName) *outName = nil;
     return nil;
-#else
+#if 0 // historical TC-07 DEBUG donor search — compile-unreachable
     if (outName) *outName = nil;
     if (!mgr) return nil;
     id list = nil;
@@ -863,6 +862,7 @@ static NSDictionary *LBFindDonorBookWorld(id mgr, NSString **outName) {
     return nil;
 #endif
 }
+
 
 /// respondsToSelector 在部分宿主上对 openConfig 不可靠；沿继承链找 IMP
 static BOOL LBInvokeOpenConfigByName(id host, NSString *cfgName) {
@@ -1180,11 +1180,10 @@ static BOOL LBPerformSafeXBSHandoff(UIViewController *host, NSString *exactManag
     return LBXBSHandoffEnsureFromExactManagerKey(host, exactManagerKey);
 }
 
-/// openConfig 在 BookWorldHomeCon 上常无 IMP（noSel）：用 manager 模型 + resetContent 重建标签墙
+/// TC-08L：XBS chrome 恢复仅 exact-manager safe handoff；donor/setDic/persist 永久移除。
 static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceName) {
-#if !DEBUG
     return LBPerformSafeXBSHandoff(host, sourceName);
-#else
+#if 0 // historical DEBUG donor restore+persist — compile-unreachable
     if (!host || sourceName.length == 0) return NO;
     NSString *want = LBNormalizeSourceDisplayName(sourceName) ?: sourceName;
 
@@ -1533,14 +1532,12 @@ static BOOL LBRestoreNativeXBSChrome(UIViewController *host, NSString *sourceNam
 #endif
 }
 
-/// donor bookWorld 的 key 数决定 createCons 出多少子页。Legado 分类多于 donor 时，
-/// 以 donor 的抓取规则为模板扩到 titles.count 个 key（key 用 Legado 分类名）。
-/// TC-07：Release 禁用 expand-donor。
-static NSDictionary *LBExpandBookWorldToTitles(NSDictionary *donorBW, NSArray *titles) {
-#if !DEBUG
+
+/// TC-08L：expand-donor 永久禁用；原样返回（调用方亦应不可达）。
+__attribute__((unused)) static NSDictionary *LBExpandBookWorldToTitles(NSDictionary *donorBW, NSArray *titles) {
     (void)titles;
     return donorBW;
-#else
+#if 0 // historical DEBUG expand-donor — compile-unreachable
     if (![donorBW isKindOfClass:[NSDictionary class]] || donorBW.count == 0) return donorBW;
     if (titles.count <= donorBW.count) return donorBW;
 
@@ -1568,14 +1565,12 @@ static NSDictionary *LBExpandBookWorldToTitles(NSDictionary *donorBW, NSArray *t
 #endif
 }
 
-/// 用真实 XBS donor 打开原生配置；成功后只改 titles，勿再 setDicModel 覆盖
-/// 返回含可用 bookWorld 的模型；无可用 donor 时返回 nil
-/// TC-07：Release 禁用 donor；DEBUG 才允许对照。
+
+/// TC-08L W2：禁止 donor 打开发现配置；永久返回 nil（Release+Debug）。
 static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString *srcName, NSArray *titles) {
-#if !DEBUG
     (void)host; (void)srcName; (void)titles;
     return nil;
-#else
+#if 0 // historical DEBUG donor prepare — compile-unreachable
     Class mgrCls = NSClassFromString(@"BookSourceModelManager");
     id mgr = nil;
     if (mgrCls && [mgrCls respondsToSelector:@selector(sharedInstance)]) {
@@ -1700,6 +1695,7 @@ static NSDictionary *LBPrepareDiscoverDicModel(UIViewController *host, NSString 
     return model;
 #endif
 }
+
 
 /// 发现态：优先走原生 viewDidLoad（才能出标签墙）；崩了再退回空表兜底
 static void LBBookList_safeViewDidLoad(id self, SEL _cmd) {
@@ -3140,11 +3136,8 @@ static void LBFeedNativeDiscoverHeader(UIViewController *host, NSArray *kinds, N
             return;
         }
 
-#if DEBUG
+        // TC-08L：Donor prepare 永久不可达
         NSDictionary *prepared = LBPrepareDiscoverDicModel(host, srcName, titles);
-#else
-        NSDictionary *prepared = nil;
-#endif
         id bwObj = prepared[@"bookWorld"];
         NSUInteger bwKeys = [bwObj isKindOfClass:[NSDictionary class]] ? [(NSDictionary *)bwObj count] : 0;
 #if DEBUG
@@ -3520,14 +3513,16 @@ static UITableView *LBFindBestDiscoverTable(UIViewController *host, UIViewContro
     return best;
 }
 
-/// 把零尺寸原生表拉回可见区域；去掉盖在 host 上的空 LBLT
+/// TC-08X：禁止 Bridge 改 table frame/hierarchy。仅允许摘掉错误挂在 host 上的空 LBLT overlay。
 static void LBRepairDiscoverTableFrame(UIViewController *host, UIViewController *listVC, UITableView *tv) {
-    if (!host || !tv) return;
+    (void)listVC;
+    (void)tv;
+    if (!host) return;
     static const NSInteger kLBLT = 0x4C424C54;
     if (host.isViewLoaded && host.view) {
         NSMutableArray *junk = [NSMutableArray array];
         for (UIView *sub in host.view.subviews) {
-            if ([sub isKindOfClass:[UITableView class]] && sub.tag == kLBLT && sub != tv) {
+            if ([sub isKindOfClass:[UITableView class]] && sub.tag == kLBLT) {
                 [junk addObject:sub];
             }
         }
@@ -3536,41 +3531,7 @@ static void LBRepairDiscoverTableFrame(UIViewController *host, UIViewController 
             LBAppendNativeMarker(@"ensureListSurface remove host LBLT");
         }
     }
-
-    CGRect fr = tv.frame;
-    BOOL bad = (fr.size.width < 2 || fr.size.height < 2);
-    if (!bad) return;
-
-    UIView *container = tv.superview;
-    if (!container && listVC.isViewLoaded) container = listVC.view;
-    CGRect target = container ? container.bounds : CGRectZero;
-    if (target.size.width < 2 || target.size.height < 2) {
-        id scroll = nil;
-        @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
-        if ([scroll isKindOfClass:[UIView class]]) target = [(UIView *)scroll bounds];
-    }
-    if (target.size.width < 2 || target.size.height < 2) {
-        if (host.isViewLoaded) {
-            CGFloat top = 132;
-            id titleView = nil;
-            @try { titleView = [host valueForKey:@"pageTitleView"]; } @catch (__unused NSException *e) {}
-            if ([titleView isKindOfClass:[UIView class]]) {
-                top = MAX(top, CGRectGetMaxY([(UIView *)titleView frame]));
-            }
-            target = CGRectMake(0, 0, host.view.bounds.size.width,
-                                MAX(200, host.view.bounds.size.height - top));
-        }
-    }
-    if (target.size.width < 2 || target.size.height < 2) return;
-    tv.frame = target;
-    tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    tv.hidden = NO;
-    tv.alpha = 1;
-    if (tv.superview) [tv.superview setNeedsLayout];
-    LBAppendNativeMarker([NSString stringWithFormat:
-                          @"repairTV frame %.0fx%.0f owner=%@",
-                          target.size.width, target.size.height,
-                          listVC ? NSStringFromClass([listVC class]) : @"-"]);
+    LBAppendNativeMarker(@"repairTableFrame skipped TC-08X no-frame-takeover");
 }
 
 /// 优先修复 BookListCon 原生表；仅无子页时才建 LBLT（禁止盖住分类条的全屏脏表）

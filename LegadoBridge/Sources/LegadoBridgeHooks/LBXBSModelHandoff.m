@@ -365,7 +365,9 @@ static NSInteger LBXBSHandoffWireBookListChildren(
         titleArr = @[(NSString *)titles];
     }
     if (titleArr.count == 0) {
-        titleArr = bookWorld.allKeys;
+        // TC-08X：禁止 bookWorld.allKeys 作频道序；无 createCons titles 则不接线。
+        LBXBSHandoffMark(@"wireKids skip noCreateConsTitles (forbid allKeys fallback)");
+        return 0;
     }
 
     NSMutableArray *children = [NSMutableArray array];
@@ -436,17 +438,7 @@ static NSInteger LBXBSHandoffWireBookListChildren(
             id e = bookWorld[channel];
             if ([e isKindOfClass:[NSDictionary class]]) entry = (NSDictionary *)e;
         }
-        // 标题对不上时按 allKeys 顺序兜底
-        if (!entry && idx < (NSInteger)bookWorld.count) {
-            NSArray *keys = bookWorld.allKeys;
-            if (idx < (NSInteger)keys.count) {
-                id e2 = bookWorld[keys[(NSUInteger)idx]];
-                if ([e2 isKindOfClass:[NSDictionary class]]) {
-                    entry = (NSDictionary *)e2;
-                    channel = keys[(NSUInteger)idx];
-                }
-            }
-        }
+        // TC-08X：禁止 allKeys 顺序兜底；频道必须与 createCons titles / 子页 title 精确对应。
         if (!entry) {
             LBXBSHandoffMark([NSString stringWithFormat:@"wireKids missEntry idx=%ld ch=%@",
                               (long)idx, channel ?: @"-"]);
@@ -519,7 +511,8 @@ static NSInteger LBXBSHandoffWireBookListChildren(
     return wired;
 }
 
-/// 从 host 读候选 exact key：仅返回 raw table 中真实存在的键，不做模糊匹配。
+/// 从 host 读 exact manager key：仅 useSourceName / lastSourceName 精确命中 raw table。
+/// TC-08X：禁止 title / navigationTitle / sourceName 多候选 first-hit。
 static NSString *LBXBSExactKeyIfPresentOnHost(UIViewController *host) {
     if (!host) return nil;
     NSArray *cands = nil;
@@ -531,9 +524,6 @@ static NSString *LBXBSExactKeyIfPresentOnHost(UIViewController *host) {
     };
     @try { push([host valueForKey:@"useSourceName"]); } @catch (__unused NSException *e) {}
     @try { push([host valueForKey:@"lastSourceName"]); } @catch (__unused NSException *e) {}
-    @try { push([host valueForKey:@"sourceName"]); } @catch (__unused NSException *e) {}
-    @try { push(host.title); } @catch (__unused NSException *e) {}
-    @try { push(host.navigationItem.title); } @catch (__unused NSException *e) {}
     cands = buf;
     for (NSString *k in cands) {
         if (LBBSMRawDicModelForExactKey(k)) return k;
@@ -576,192 +566,11 @@ static void LBXBS_BWH_viewDidAppear(id self, SEL _cmd, BOOL animated) {
     LBXBSHandoffEnsureFromExactManagerKey(host, key);
 }
 
-/// TC-08F2：原生已出书但标签墙占满屏时，仅压标签栏高度并软刷书表（不盲发 query）。
+/// TC-08X：已删除 UI 旁路（compactCV / clearFilter / setFilter nil / rebindDS / frame）。
+/// 保留空壳仅用于历史调用点编译；调用方应已改为只观测。
 static void LBXBSRevealBookTableIfNeeded(UIViewController *vc) {
-    if (![vc isKindOfClass:[UIViewController class]] || !vc.isViewLoaded) return;
-    NSInteger arrN = 0;
-    @try {
-        id a = [vc valueForKey:@"arrBaseData"];
-        if ([a isKindOfClass:[NSArray class]]) arrN = (NSInteger)[(NSArray *)a count];
-    } @catch (__unused NSException *e) {}
-    if (arrN <= 0) return;
-
-    NSMutableArray<UITableView *> *tables = [NSMutableArray array];
-    NSMutableArray<UICollectionView *> *cols = [NSMutableArray array];
-    NSMutableArray<UIView *> *q = [NSMutableArray arrayWithObject:vc.view];
-    while (q.count > 0) {
-        UIView *v = q.firstObject;
-        [q removeObjectAtIndex:0];
-        for (UIView *sub in v.subviews) [q addObject:sub];
-        if ([v isKindOfClass:[UITableView class]]) [tables addObject:(UITableView *)v];
-        else if ([v isKindOfClass:[UICollectionView class]]) [cols addObject:(UICollectionView *)v];
-    }
-    // 番茄等源标签墙极高；压到约两行，并裁切，避免盖住书表。
-    const CGFloat kTagBarH = 112.0;
-    UICollectionView *tagCV = nil;
-    for (UICollectionView *cv in cols) {
-        NSInteger items = 0;
-        @try {
-            if ([cv numberOfSections] > 0) items = [cv numberOfItemsInSection:0];
-        } @catch (__unused NSException *e) {}
-        // 取最高的标签墙；书表 CV 通常 item 少或不在此路径
-        CGFloat h = cv.frame.size.height;
-        if (items >= 8 && h >= 160.0) {
-            if (!tagCV || h > tagCV.frame.size.height) tagCV = cv;
-        }
-    }
-    if (tagCV) {
-        UICollectionView *cv = tagCV;
-        @try {
-            NSInteger itemsN = 0;
-            @try {
-                if ([cv numberOfSections] > 0) itemsN = [cv numberOfItemsInSection:0];
-            } @catch (__unused NSException *e) {}
-            CGFloat hBefore = cv.frame.size.height;
-            cv.hidden = NO;
-            cv.alpha = 1.0;
-            cv.clipsToBounds = YES;
-            cv.scrollEnabled = YES;
-            CGRect fr = cv.frame;
-            // 保持原 y（频道条下方），只压高度
-            fr.size.height = kTagBarH;
-            if (fr.size.width < 1.0) fr.size.width = vc.view.bounds.size.width;
-            cv.frame = fr;
-            for (NSLayoutConstraint *cn in cv.constraints) {
-                if (cn.firstAttribute == NSLayoutAttributeHeight ||
-                    cn.secondAttribute == NSLayoutAttributeHeight) {
-                    cn.constant = kTagBarH;
-                    cn.active = YES;
-                }
-            }
-            UIView *sup = cv.superview;
-            if (sup) {
-                for (NSLayoutConstraint *cn in sup.constraints) {
-                    if ((cn.firstItem == cv || cn.secondItem == cv) &&
-                        (cn.firstAttribute == NSLayoutAttributeHeight ||
-                         cn.secondAttribute == NSLayoutAttributeHeight)) {
-                        cn.constant = kTagBarH;
-                        cn.active = YES;
-                    }
-                }
-                [sup setNeedsLayout];
-                [sup layoutIfNeeded];
-            }
-            // layout 后又被撑高时强制回写
-            if (cv.frame.size.height > kTagBarH + 1.0) {
-                CGRect fr2 = cv.frame;
-                fr2.size.height = kTagBarH;
-                cv.frame = fr2;
-            }
-            LBXBSHandoffMark([NSString stringWithFormat:
-                              @"reveal compactCV items=%ld h=%.0f->%.0f",
-                              (long)itemsN, hBefore, cv.frame.size.height]);
-        } @catch (__unused NSException *e) {}
-    }
-
-    // 有书但 filter DS 导致 rows=0：临时清空 filter 露出 arrBaseData（不改请求语义）
-    @try {
-        id filt = [vc valueForKey:@"arrFilterModel"];
-        NSInteger fN = [filt isKindOfClass:[NSArray class]] ? (NSInteger)[(NSArray *)filt count] : 0;
-        if (fN > 0) {
-            SEL setAF = NSSelectorFromString(@"setArrFilterModel:");
-            if ([vc respondsToSelector:setAF]) {
-                ((void (*)(id, SEL, id))objc_msgSend)(vc, setAF, @[]);
-            }
-            @try { [vc setValue:@[] forKey:@"arrFilterModel"]; } @catch (__unused NSException *e) {}
-            LBXBSHandoffMark([NSString stringWithFormat:@"reveal clearFilterDisp was=%ld arrN=%ld",
-                              (long)fN, (long)arrN]);
-        }
-    } @catch (__unused NSException *e) {}
-
-    // TC-12 C11：对 Filtered DS 尝试常见 filter 清空（避免 rows=0 触发 rebindDS）
-    for (UITableView *tv in tables) {
-        @try {
-            id ds = tv.dataSource;
-            NSString *dsN = NSStringFromClass([ds class]) ?: @"";
-            if (!ds || ![dsN containsString:@"Filtered"]) continue;
-            SEL setFilter = NSSelectorFromString(@"setFilter:");
-            SEL filter = NSSelectorFromString(@"filter:");
-            if ([ds respondsToSelector:setFilter]) {
-                ((void (*)(id, SEL, id))objc_msgSend)(ds, setFilter, nil);
-                LBXBSHandoffMark([NSString stringWithFormat:@"reveal ds setFilter:nil %@", dsN]);
-            } else if ([ds respondsToSelector:filter]) {
-                ((void (*)(id, SEL, id))objc_msgSend)(ds, filter, nil);
-                LBXBSHandoffMark([NSString stringWithFormat:@"reveal ds filter:nil %@", dsN]);
-            }
-        } @catch (__unused NSException *e) {}
-    }
-
-    NSInteger tvN = 0;
-    for (UITableView *tv in tables) {
-        @try {
-            tv.hidden = NO;
-            tv.alpha = 1.0;
-            CGFloat top = tagCV ? CGRectGetMaxY(tagCV.frame) : 0;
-            if (top < 1.0 && tagCV) top = kTagBarH;
-            UIView *sup = tv.superview ?: vc.view;
-            CGFloat fullH = sup.bounds.size.height;
-            if (fullH < 1.0) fullH = vc.view.bounds.size.height;
-            CGRect tfr = tv.frame;
-            tfr.origin.y = top;
-            tfr.size.width = sup.bounds.size.width > 1 ? sup.bounds.size.width : tfr.size.width;
-            tfr.size.height = MAX(160.0, fullH - top);
-            tv.frame = tfr;
-            if (tv.rowHeight <= 1.0 && tv.estimatedRowHeight <= 1.0) {
-                tv.rowHeight = 88.0;
-                tv.estimatedRowHeight = 88.0;
-            }
-            // Filtered DS：先清 filter 再 reload；仅当 rows 仍为 0 才短暂挂回 self。
-            // 无条件 rebindDS 会导致 didSelect 崩溃/点书无效（TC-12 C11）。
-            id ds = tv.dataSource;
-            BOOL didRebind = NO;
-            NSInteger rowsProbe = 0;
-            @try {
-                [tv reloadData];
-                if ([tv numberOfSections] > 0) rowsProbe = [tv numberOfRowsInSection:0];
-            } @catch (__unused NSException *e) {}
-            if (rowsProbe <= 0 && ds && ds != vc &&
-                [vc conformsToProtocol:@protocol(UITableViewDataSource)]) {
-                NSString *dsN = NSStringFromClass([ds class]) ?: @"";
-                if ([dsN containsString:@"Filtered"]) {
-                    tv.dataSource = (id<UITableViewDataSource>)vc;
-                    if ([vc conformsToProtocol:@protocol(UITableViewDelegate)]) {
-                        // 保留原 delegate（点书逻辑常在上面）；只改 dataSource
-                    }
-                    didRebind = YES;
-                    LBXBSHandoffMark([NSString stringWithFormat:@"reveal rebindDS from=%@ (rows0)", dsN]);
-                }
-            }
-            tv.userInteractionEnabled = YES;
-            tv.allowsSelection = YES;
-            [tv reloadData];
-            [tv layoutIfNeeded];
-            tvN += 1;
-            NSInteger rows = 0;
-            @try {
-                if ([tv numberOfSections] > 0) rows = [tv numberOfRowsInSection:0];
-            } @catch (__unused NSException *e) {}
-            LBXBSHandoffMark([NSString stringWithFormat:
-                              @"reveal tv arrN=%ld rows=%ld fh=%.0f top=%.0f rebind=%d",
-                              (long)arrN, (long)rows, tv.frame.size.height, top, didRebind ? 1 : 0]);
-        } @catch (__unused NSException *e) {}
-    }
-    // 书表必须在标签墙之上可点；禁止把 tagCV bringToFront 盖住 rows。
-    for (UITableView *tv in tables) {
-        @try {
-            UIView *sup = tv.superview;
-            if (sup) [sup bringSubviewToFront:tv];
-            tv.userInteractionEnabled = YES;
-        } @catch (__unused NSException *e) {}
-    }
-    if (tagCV) {
-        @try {
-            // 标签栏可点，但不盖住书表命中区
-            tagCV.userInteractionEnabled = YES;
-        } @catch (__unused NSException *e) {}
-    }
-    LBXBSHandoffMark([NSString stringWithFormat:@"reveal done arrN=%ld tv=%ld tag=%d",
-                      (long)arrN, (long)tvN, tagCV ? 1 : 0]);
+    (void)vc;
+    LBXBSHandoffMark(@"reveal skipped TC-08X no-ui-takeover");
 }
 
 static void (*sOrig_BLC_queryFinish)(id, SEL, id, id, id) = NULL;
@@ -769,19 +578,14 @@ static void LBXBS_BLC_queryFinish(id self, SEL _cmd, id finishArg, id config, id
     if (sOrig_BLC_queryFinish) {
         sOrig_BLC_queryFinish(self, _cmd, finishArg, config, userInfo);
     }
+    // TC-08X：仅观测 arrN；禁止 delayed Reveal / UI 接管。
     if (![self isKindOfClass:[UIViewController class]]) return;
-    __weak UIViewController *weakVC = (UIViewController *)self;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIViewController *vc = weakVC;
-        if (!vc) return;
-        LBXBSRevealBookTableIfNeeded(vc);
-        // 再延迟一帧，等原生 filter UI 布局完成后再压一次
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            UIViewController *vc2 = weakVC;
-            if (vc2) LBXBSRevealBookTableIfNeeded(vc2);
-        });
-    });
+    NSInteger arrN = -1;
+    @try {
+        id a = [(UIViewController *)self valueForKey:@"arrBaseData"];
+        if ([a isKindOfClass:[NSArray class]]) arrN = (NSInteger)[(NSArray *)a count];
+    } @catch (__unused NSException *e) {}
+    LBXBSHandoffMark([NSString stringWithFormat:@"queryFinish observe-only arrN=%ld", (long)arrN]);
 }
 
 void LBInstallXBSHandoffHooks(void) {
@@ -829,7 +633,7 @@ void LBInstallXBSHandoffHooks(void) {
             if (m && !sOrig_BLC_queryFinish) {
                 sOrig_BLC_queryFinish = (void (*)(id, SEL, id, id, id))method_getImplementation(m);
                 method_setImplementation(m, (IMP)LBXBS_BLC_queryFinish);
-                LBXBSHandoffMark([NSString stringWithFormat:@"hooked queryFinish reveal on %@",
+                LBXBSHandoffMark([NSString stringWithFormat:@"hooked queryFinish observe-only on %@",
                                   NSStringFromClass(ownerQF)]);
             }
         } else {

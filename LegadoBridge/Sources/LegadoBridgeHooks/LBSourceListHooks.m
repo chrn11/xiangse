@@ -55,6 +55,7 @@ void LBInvalidateSourceListMergeCache(void) {
     sCachedOrig = nil;
     sCachedLegadoNames = nil;
     sCachedMerged = nil;
+    LBSharedRouterBumpManagerGeneration();
 }
 
 NSDictionary *LBBSMRawDicModelList(void) {
@@ -81,6 +82,10 @@ NSDictionary *LBBSMRawDicModelForExactKey(NSString *exactKey) {
     id obj = list[exactKey];
     return [obj isKindOfClass:[NSDictionary class]] ? (NSDictionary *)obj : nil;
 }
+
+/// TC-08L W1：dicModelList getter 返回 presentation projection，不是 raw manager。
+/// XBS handoff/restore/exact key 必须走 LBBSMRawDicModel*；勿把本结果当真源。
+static NSString * const kLBPresentationViewMarkerKey = @"legadoBridgePresentation";
 
 static NSDictionary *LBBSM_dicModelList_IMP(id self, SEL _cmd) {
     NSDictionary *orig = LBOrig_BSM_dicModelList ? LBOrig_BSM_dicModelList(self, _cmd) : @{};
@@ -109,7 +114,13 @@ static NSDictionary *LBBSM_dicModelList_IMP(id self, SEL _cmd) {
         NSDictionary *model = LBLegadoNativeModel(key);
         if (!model) continue;
         // 冲突键用 projectionKey；显示名留在 model[@"title"]，不改可见徽章
-        merged[key] = model;
+        // TC-08L：打 presentation 类型标记，供消费者区分 projection vs raw
+        NSMutableDictionary *stamped =
+            [model isKindOfClass:[NSDictionary class]]
+                ? [model mutableCopy]
+                : [NSMutableDictionary dictionary];
+        stamped[kLBPresentationViewMarkerKey] = @"1";
+        merged[key] = [stamped copy];
     }
     sCachedOrig = orig;
     sCachedLegadoNames = [legadoOnly copy];
@@ -306,6 +317,86 @@ static NSString *LBLegadoVisibleTitle(NSString *listKeyOrText) {
     if (listKeyOrText.length == 0) return listKeyOrText;
     NSString *stripped = LBLegadoStripDisplaySuffix(listKeyOrText);
     return LBLegadoDisplayNameForListKey(stripped);
+}
+
+// TC-08I：共享路由 C 桥（定义于 LegadoBridgeCExports.m）
+extern void LBSharedRouterBumpManagerGeneration(void);
+extern void LBSharedRouterBumpRegistryGeneration(void);
+extern NSDictionary * _Nullable LBSharedRouterApplySelection(NSInteger sourceKind,
+                                                             NSString *canonicalID,
+                                                             NSString * _Nullable displayName,
+                                                             NSString * _Nullable ownerIdentity,
+                                                             BOOL isReselect);
+
+static NSInteger LBSourceKindXBS = 1;
+static NSInteger LBSourceKindLegado = 2;
+static NSInteger LBSourceKindUnknown = 0;
+
+/// 从列表内部键解析 (SourceKind, canonicalID)；禁止 displayName / 模糊匹配。
+static NSDictionary *LBResolveSelectionFromListKey(NSString *listKey) {
+    if (listKey.length == 0) {
+        return @{@"sourceKind": @(LBSourceKindUnknown), @"canonicalID": @""};
+    }
+    NSString *stripped = LBLegadoStripDisplaySuffix(listKey);
+    if (stripped.length == 0) stripped = listKey;
+
+    NSDictionary *rawModel = LBBSMRawDicModelForExactKey(stripped);
+    if ([rawModel isKindOfClass:[NSDictionary class]]) {
+        id marker = rawModel[@"legadoBridge"];
+        BOOL isLegadoShell = [marker isEqual:@"1"] || [marker isEqual:@1];
+        if (!isLegadoShell) {
+            return @{
+                @"sourceKind": @(LBSourceKindXBS),
+                @"canonicalID": stripped,
+                @"displayName": LBLegadoVisibleTitle(listKey) ?: stripped
+            };
+        }
+    }
+
+    NSDictionary *legadoModel = LBLegadoNativeModel(stripped);
+    if ([legadoModel isKindOfClass:[NSDictionary class]]) {
+        NSString *url = legadoModel[@"bookSourceUrl"] ?: legadoModel[@"sourceUrl"];
+        if ([url isKindOfClass:[NSString class]] && url.length > 0) {
+            return @{
+                @"sourceKind": @(LBSourceKindLegado),
+                @"canonicalID": url,
+                @"displayName": LBLegadoVisibleTitle(listKey) ?: stripped
+            };
+        }
+    }
+    if (LBLegadoIsSourceName(stripped)) {
+        id core = LBLegadoCoreIfReady();
+        if (core && [core respondsToSelector:@selector(allSourcesInfo)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            for (NSDictionary *dict in [core performSelector:@selector(allSourcesInfo)]) {
+                if (![dict isKindOfClass:[NSDictionary class]]) continue;
+                NSString *n = dict[@"bookSourceName"];
+                if ([n isKindOfClass:[NSString class]] && [n isEqualToString:stripped]) {
+                    NSString *url = dict[@"bookSourceUrl"];
+                    if ([url isKindOfClass:[NSString class]] && url.length > 0) {
+                        return @{
+                            @"sourceKind": @(LBSourceKindLegado),
+                            @"canonicalID": url,
+                            @"displayName": LBLegadoVisibleTitle(listKey) ?: stripped
+                        };
+                    }
+                }
+            }
+#pragma clang diagnostic pop
+        }
+    }
+
+    return @{@"sourceKind": @(LBSourceKindUnknown), @"canonicalID": @""};
+}
+
+static void LBApplySharedRouterSelectionForListKey(NSString *listKey, BOOL isReselect) {
+    NSDictionary *resolved = LBResolveSelectionFromListKey(listKey);
+    NSInteger kind = [resolved[@"sourceKind"] integerValue];
+    NSString *canonicalID = resolved[@"canonicalID"];
+    if (kind == LBSourceKindUnknown || canonicalID.length == 0) return;
+    NSString *display = resolved[@"displayName"];
+    LBSharedRouterApplySelection(kind, canonicalID, display, nil, isReselect);
 }
 
 static NSString * (*LBOrig_textByIndexPath)(id, SEL, NSIndexPath *) = NULL;
@@ -985,9 +1076,11 @@ static void LBSwitchVC_HandleOnOk(id self, SEL _cmd, id sender, BOOL hasSender) 
         } @catch (__unused NSException *e) {}
         if (isLegado) {
             // Legado 发现切源：关掉切换面板并让发现页跟随所选源
+            LBApplySharedRouterSelectionForListKey(name, NO);
             LBSwitchVC_DismissSwitchPanel(self);
             LBSwitchDiscoverToSourceName(name);
         } else if (hasSender && LBOrig_SwitchVC_onOkArg) {
+            LBApplySharedRouterSelectionForListKey(name, NO);
             LBOrig_SwitchVC_onOkArg(self, _cmd, sender);
             NSString *selected = objc_getAssociatedObject(self, &kLBSelectedDiscoverSourceNameKey);
             if ([selected isKindOfClass:[NSString class]] && selected.length > 0) {
@@ -997,6 +1090,7 @@ static void LBSwitchVC_HandleOnOk(id self, SEL _cmd, id sender, BOOL hasSender) 
                 });
             }
         } else if (LBOrig_SwitchVC_onOk) {
+            LBApplySharedRouterSelectionForListKey(name, NO);
             // 原生源：原生 onOk 自己切源（它内部知道选中的是谁）
             LBOrig_SwitchVC_onOk(self, hasSender ? @selector(onOkBtnEvent) : _cmd);
             NSString *selected = objc_getAssociatedObject(self, &kLBSelectedDiscoverSourceNameKey);
@@ -1681,6 +1775,9 @@ static void LBInvertAvailabilityForListVC(id listVC) {
         }
     }
     LBToggleLegadoSourcesByNames(legadoNames);
+    if (legadoNames.count > 0) {
+        LBSharedRouterBumpRegistryGeneration();
+    }
     if (!hasNative) {
         LBPostSourceListRefresh();
         NSString *msg = [NSString stringWithFormat:@"invert legadoOnly n=%lu", (unsigned long)legadoNames.count];

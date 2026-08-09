@@ -12716,3 +12716,60 @@ void LBOpenTTS(NSString *bookUrl, NSString *chapterUrl, NSString *chapterTitle) 
 void LBPresentAudioPlayer(NSString *bookUrl, NSString *chapterUrl, NSString *chapterTitle) {
     LBOpenTTS(bookUrl, chapterUrl, chapterTitle);
 }
+
+#pragma mark - TC-08I 共享路由 / Session 隔离（SourceSessionCoordinator）
+
+static id LBSharedRouter(void) {
+    // @objc(LBSharedSourceRouter) 运行时名为 LBSharedSourceRouter；兼容模块前缀。
+    Class cls = NSClassFromString(@"LBSharedSourceRouter");
+    if (!cls) cls = NSClassFromString(@"LegadoBridge.LBSharedSourceRouter");
+    if (!cls) return nil;
+    return ((id (*)(id, SEL))objc_msgSend)(cls, @selector(shared));
+}
+
+void LBSharedRouterBumpManagerGeneration(void) {
+    id router = LBSharedRouter();
+    if (router && [router respondsToSelector:@selector(bumpManagerGeneration)]) {
+        ((void (*)(id, SEL))objc_msgSend)(router, @selector(bumpManagerGeneration));
+    }
+}
+
+void LBSharedRouterBumpRegistryGeneration(void) {
+    id router = LBSharedRouter();
+    if (router && [router respondsToSelector:@selector(bumpRegistryGeneration)]) {
+        ((void (*)(id, SEL))objc_msgSend)(router, @selector(bumpRegistryGeneration));
+    }
+}
+
+NSDictionary *LBSharedRouterApplySelection(NSInteger sourceKind,
+                                         NSString *canonicalID,
+                                         NSString * _Nullable displayName,
+                                         NSString * _Nullable ownerIdentity,
+                                         BOOL isReselect) {
+    id router = LBSharedRouter();
+    if (!router || canonicalID.length == 0) return nil;
+    SEL sel = @selector(applySelectionWithSourceKind:canonicalID:displayName:ownerIdentity:isReselect:);
+    if (![router respondsToSelector:sel]) return nil;
+    return ((NSDictionary *(*)(id, SEL, NSInteger, NSString *, NSString *, NSString *, BOOL))objc_msgSend)(
+        router, sel, sourceKind, canonicalID, displayName, ownerIdentity, isReselect
+    );
+}
+
+NSDictionary *LBSharedRouterRequestPublishPermit(NSDictionary *token, BOOL isFirstPage) {
+    id router = LBSharedRouter();
+    if (!router || ![token isKindOfClass:[NSDictionary class]]) {
+        return @{@"ok": @NO, @"reason": @"routeFailClosed"};
+    }
+    SEL sel = @selector(requestPublishPermitWithToken:isFirstPage:);
+    if (![router respondsToSelector:sel]) return @{@"ok": @NO, @"reason": @"routeFailClosed"};
+    return ((NSDictionary *(*)(id, SEL, NSDictionary *, BOOL))objc_msgSend)(router, sel, token, isFirstPage) ?: @{};
+}
+
+NSDictionary * _Nullable LBSharedRouterCurrentToken(NSInteger sourceKind, NSString *canonicalID) {
+    id router = LBSharedRouter();
+    if (!router || canonicalID.length == 0) return nil;
+    SEL sel = @selector(tokenDictionaryForSourceKind:canonicalID:);
+    if (![router respondsToSelector:sel]) return nil;
+    return ((NSDictionary *(*)(id, SEL, NSInteger, NSString *))objc_msgSend)(router, sel, sourceKind, canonicalID);
+}
+

@@ -40,20 +40,8 @@ final class SourceSessionCoordinatorTests: XCTestCase {
 
     func testPaginationContiguous() {
         let c = SourceSessionCoordinator.shared
-        var t = c.apply(.switchDiscoverSource(exactSourceUrl: "https://p"))
-        t = SourceSessionToken(
-            exactSourceUrl: t.exactSourceUrl,
-            uiGeneration: t.uiGeneration,
-            definitionGeneration: t.definitionGeneration,
-            contentGeneration: t.contentGeneration,
-            snapshotID: t.snapshotID,
-            nodeID: t.nodeID,
-            page: 1
-        )
+        let t = c.apply(.switchDiscoverSource(exactSourceUrl: "https://p"))
         XCTAssertNotNil(try? c.requestPublishPermit(for: t, isFirstPage: true).get())
-        var p2 = t
-        p2.page = 2
-        // need loadMore to set page without bump; permit checks against lastAccepted
         _ = c.apply(.loadMore(exactSourceUrl: "https://p", page: 2))
         let cur = c.currentToken(exactSourceUrl: "https://p")!
         var req = cur
@@ -67,5 +55,45 @@ final class SourceSessionCoordinatorTests: XCTestCase {
             return XCTFail("expected pageNotContiguous")
         }
         XCTAssertEqual(reason, .pageNotContiguous)
+    }
+
+    func testDualLaneSessionKeyIsolation() {
+        let c = SourceSessionCoordinator.shared
+        let xbs = SelectionToken(sourceKind: .xbs, canonicalID: "番茄官网")
+        let leg = SelectionToken(sourceKind: .legado, canonicalID: "https://legado.example/a")
+        let tx = c.applySelection(xbs)
+        let tl = c.applySelection(leg)
+        XCTAssertEqual(tx.sourceKind, .xbs)
+        XCTAssertEqual(tl.sourceKind, .legado)
+        XCTAssertNotEqual(tx.sessionKey, tl.sessionKey)
+        XCTAssertEqual(tx.canonicalID, "番茄官网")
+        XCTAssertEqual(tl.canonicalID, "https://legado.example/a")
+    }
+
+    func testAtoAReselectBumpsSelectionOnly() {
+        let c = SourceSessionCoordinator.shared
+        let sel = SelectionToken(sourceKind: .xbs, canonicalID: "番茄官网")
+        let t1 = c.applySelection(sel)
+        let t2 = c.applySelection(sel, isReselect: true)
+        XCTAssertEqual(t2.uiGeneration, t1.uiGeneration)
+        XCTAssertEqual(t2.contentGeneration, t1.contentGeneration)
+        XCTAssertEqual(t2.selectionGeneration, t1.selectionGeneration + 1)
+        let stale = c.requestPublishPermit(for: t1, isFirstPage: true)
+        guard case .failure(let reason) = stale else {
+            return XCTFail("expected selection mismatch, got \(stale)")
+        }
+        XCTAssertEqual(reason, .selectionGenerationMismatch)
+    }
+
+    func testManagerGenerationInvalidatesXBSPermit() {
+        let c = SourceSessionCoordinator.shared
+        let sel = SelectionToken(sourceKind: .xbs, canonicalID: "番茄官网")
+        let t1 = c.applySelection(sel)
+        c.bumpManagerGeneration()
+        let stale = c.requestPublishPermit(for: t1, isFirstPage: true)
+        guard case .failure(let reason) = stale else {
+            return XCTFail("expected manager generation mismatch, got \(stale)")
+        }
+        XCTAssertEqual(reason, .managerOrRegistryGenerationMismatch)
     }
 }
