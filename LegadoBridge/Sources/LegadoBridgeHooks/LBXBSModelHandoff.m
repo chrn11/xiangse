@@ -693,18 +693,29 @@ static void LBXBSRevealBookTableIfNeeded(UIViewController *vc) {
                 tv.rowHeight = 88.0;
                 tv.estimatedRowHeight = 88.0;
             }
-            // Filtered DS 挡行时挂回 self
+            // Filtered DS：先清 filter 再 reload；仅当 rows 仍为 0 才短暂挂回 self。
+            // 无条件 rebindDS 会导致 didSelect 崩溃/点书无效（TC-12 C11）。
             id ds = tv.dataSource;
-            if (ds && ds != vc && [vc conformsToProtocol:@protocol(UITableViewDataSource)]) {
+            BOOL didRebind = NO;
+            NSInteger rowsProbe = 0;
+            @try {
+                [tv reloadData];
+                if ([tv numberOfSections] > 0) rowsProbe = [tv numberOfRowsInSection:0];
+            } @catch (__unused NSException *e) {}
+            if (rowsProbe <= 0 && ds && ds != vc &&
+                [vc conformsToProtocol:@protocol(UITableViewDataSource)]) {
                 NSString *dsN = NSStringFromClass([ds class]) ?: @"";
                 if ([dsN containsString:@"Filtered"]) {
                     tv.dataSource = (id<UITableViewDataSource>)vc;
                     if ([vc conformsToProtocol:@protocol(UITableViewDelegate)]) {
-                        tv.delegate = (id<UITableViewDelegate>)vc;
+                        // 保留原 delegate（点书逻辑常在上面）；只改 dataSource
                     }
-                    LBXBSHandoffMark([NSString stringWithFormat:@"reveal rebindDS from=%@", dsN]);
+                    didRebind = YES;
+                    LBXBSHandoffMark([NSString stringWithFormat:@"reveal rebindDS from=%@ (rows0)", dsN]);
                 }
             }
+            tv.userInteractionEnabled = YES;
+            tv.allowsSelection = YES;
             [tv reloadData];
             [tv layoutIfNeeded];
             tvN += 1;
@@ -713,15 +724,22 @@ static void LBXBSRevealBookTableIfNeeded(UIViewController *vc) {
                 if ([tv numberOfSections] > 0) rows = [tv numberOfRowsInSection:0];
             } @catch (__unused NSException *e) {}
             LBXBSHandoffMark([NSString stringWithFormat:
-                              @"reveal tv arrN=%ld rows=%ld fh=%.0f top=%.0f",
-                              (long)arrN, (long)rows, tv.frame.size.height, top]);
+                              @"reveal tv arrN=%ld rows=%ld fh=%.0f top=%.0f rebind=%d",
+                              (long)arrN, (long)rows, tv.frame.size.height, top, didRebind ? 1 : 0]);
         } @catch (__unused NSException *e) {}
     }
-    // 书表必须在标签墙之上可见；禁止把 tagCV bringToFront 盖住 rows。
+    // 书表必须在标签墙之上可点；禁止把 tagCV bringToFront 盖住 rows。
     for (UITableView *tv in tables) {
         @try {
             UIView *sup = tv.superview;
             if (sup) [sup bringSubviewToFront:tv];
+            tv.userInteractionEnabled = YES;
+        } @catch (__unused NSException *e) {}
+    }
+    if (tagCV) {
+        @try {
+            // 标签栏可点，但不盖住书表命中区
+            tagCV.userInteractionEnabled = YES;
         } @catch (__unused NSException *e) {}
     }
     LBXBSHandoffMark([NSString stringWithFormat:@"reveal done arrN=%ld tv=%ld tag=%d",
