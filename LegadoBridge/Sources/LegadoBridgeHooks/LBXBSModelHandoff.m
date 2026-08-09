@@ -674,6 +674,24 @@ static void LBXBSRevealBookTableIfNeeded(UIViewController *vc) {
         }
     } @catch (__unused NSException *e) {}
 
+    // TC-12 C11：对 Filtered DS 尝试常见 filter 清空（避免 rows=0 触发 rebindDS）
+    for (UITableView *tv in tables) {
+        @try {
+            id ds = tv.dataSource;
+            NSString *dsN = NSStringFromClass([ds class]) ?: @"";
+            if (!ds || ![dsN containsString:@"Filtered"]) continue;
+            SEL setFilter = NSSelectorFromString(@"setFilter:");
+            SEL filter = NSSelectorFromString(@"filter:");
+            if ([ds respondsToSelector:setFilter]) {
+                ((void (*)(id, SEL, id))objc_msgSend)(ds, setFilter, nil);
+                LBXBSHandoffMark([NSString stringWithFormat:@"reveal ds setFilter:nil %@", dsN]);
+            } else if ([ds respondsToSelector:filter]) {
+                ((void (*)(id, SEL, id))objc_msgSend)(ds, filter, nil);
+                LBXBSHandoffMark([NSString stringWithFormat:@"reveal ds filter:nil %@", dsN]);
+            }
+        } @catch (__unused NSException *e) {}
+    }
+
     NSInteger tvN = 0;
     for (UITableView *tv in tables) {
         @try {

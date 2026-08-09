@@ -384,6 +384,30 @@ static IMP sOrigPlazaDidSelect = NULL;
 static IMP sTruePlainDidSelect = NULL;
 static void LBHookedPlazaDidSelect(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip);
 
+/// TC-12 C11：无 didSelect 时不挂空壳 hook；从父类链拷贝原生 IMP 或跳过。
+static BOOL LBPlazaTryAddNativeDidSelect(Class cls, SEL sel) {
+    if (!cls) return NO;
+    Class walk = class_getSuperclass(cls);
+    while (walk) {
+        Method m = class_getInstanceMethod(walk, sel);
+        if (m) {
+            IMP imp = method_getImplementation(m);
+            const char *types = method_getTypeEncoding(m);
+            if (imp && types && class_addMethod(cls, sel, imp, types)) {
+                if (!sTruePlainDidSelect) sTruePlainDidSelect = imp;
+                NSLog(@"[LegadoBridge] TC-12 C11 copied plaza didSelect %@ -> %@",
+                      NSStringFromClass(walk), NSStringFromClass(cls));
+                return YES;
+            }
+            break;
+        }
+        walk = class_getSuperclass(walk);
+    }
+    NSLog(@"[LegadoBridge] TC-12 C11 skip plaza didSelect add — no super IMP for %@",
+          NSStringFromClass(cls));
+    return NO;
+}
+
 static CGFloat LBHookedHeightForRow(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip) {
     @try {
         id cur = [self valueForKey:@"arrBaseData"];
@@ -428,10 +452,10 @@ static void LBEnsurePlazaTableDataSourceMethods(Class cls) {
     } else if (method_getImplementation(hM) != (IMP)LBHookedHeightForRow) {
         LBInstallHookOnClassOnly(cls, hSel, (IMP)LBHookedHeightForRow, &sOrigHeightForRow);
     }
-    // B-06：BookListCon 常无 didSelect，点书无响应；无则 class_add，有则 hook
+    // B-06 / TC-12 C11：无 didSelect 时从父类拷贝原生 IMP，禁止空壳 hook
     Method didM = class_getInstanceMethod(cls, didSel);
     if (!didM) {
-        class_addMethod(cls, didSel, (IMP)LBHookedPlazaDidSelect, "v@:@@");
+        (void)LBPlazaTryAddNativeDidSelect(cls, didSel);
     } else if (method_getImplementation(didM) != (IMP)LBHookedPlazaDidSelect) {
         LBInstallHookOnClassOnly(cls, didSel, (IMP)LBHookedPlazaDidSelect, &sOrigPlazaDidSelect);
     }
@@ -1353,8 +1377,19 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
         || [cn containsString:@"BookStore"]
         || [cn containsString:@"Shudan"];
     // 发现/广场：Legado 字典走自造封面 cell（原生 cell 常黑底无字且不抛）
-    // XBS：仅当 arr 像书（非分类标签）时用可见 cell 兜底；标签墙交给原生
+    // TC-12 C11：XBS 原生发现一律走宿主 cell，禁止 Legado 封面 cell
     if (plazaHost) {
+        if (LBIsDiscoverNativeXBSMode()) {
+            if (sOrigCellForRow) {
+                return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCellForRow)(
+                    self, _cmd, tv, ip);
+            }
+            IMP fwd = LBForwardTableCellIMP();
+            if (fwd) {
+                return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))fwd)(
+                    self, _cmd, tv, ip);
+            }
+        }
         @try {
             id cur = [self valueForKey:@"arrBaseData"];
             // 章节误灌进 arrBaseData 时绝不能当书画封面
@@ -1393,7 +1428,9 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
             if ([cur isKindOfClass:[NSArray class]] &&
                 ip.row >= 0 && ip.row < (NSInteger)[(NSArray *)cur count]) {
                 id item = [(NSArray *)cur objectAtIndex:(NSUInteger)ip.row];
-                if ([item isKindOfClass:[NSDictionary class]]) {
+                if ([item isKindOfClass:[NSDictionary class]] &&
+                    !LBItemLooksLikeChapter(item) &&
+                    !LBIsDiscoverNativeXBSMode()) {
                     return LBMakeLegadoDiscoverBookCell(tv, (NSDictionary *)item);
                 }
             }
@@ -12058,11 +12095,11 @@ void LBInstallCatalogUIAppearFlush(void) {
         NSString *key = [NSString stringWithFormat:@"searchSel:%@", NSStringFromClass(owner)];
         if ([sSearchSelHooked containsObject:key]) continue;
         Method m = class_getInstanceMethod(owner, selSel);
-        // B-06：BookListCon 无 didSelect 时原先直接跳过 → 点书无响应；改为挂到 cls 自身
+        // B-06 / TC-12 C11：无 didSelect 时从父类拷贝原生 IMP，禁止空壳 hook
         if (!m) {
-            if (!class_addMethod(cls, selSel, (IMP)LBHookedPlazaDidSelect, "v@:@@")) continue;
-            [sSearchSelHooked addObject:key];
-            NSLog(@"[LegadoBridge] added plaza didSelect @%@", cn);
+            if (LBPlazaTryAddNativeDidSelect(cls, selSel)) {
+                [sSearchSelHooked addObject:key];
+            }
             continue;
         }
         void (*prev)(id, SEL, UITableView *, NSIndexPath *) =
