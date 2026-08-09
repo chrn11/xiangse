@@ -576,6 +576,151 @@ static void LBXBS_BWH_viewDidAppear(id self, SEL _cmd, BOOL animated) {
     LBXBSHandoffEnsureFromExactManagerKey(host, key);
 }
 
+/// TC-08F2：原生已出书但标签墙占满屏时，仅压标签栏高度并软刷书表（不盲发 query）。
+static void LBXBSRevealBookTableIfNeeded(UIViewController *vc) {
+    if (![vc isKindOfClass:[UIViewController class]] || !vc.isViewLoaded) return;
+    NSInteger arrN = 0;
+    @try {
+        id a = [vc valueForKey:@"arrBaseData"];
+        if ([a isKindOfClass:[NSArray class]]) arrN = (NSInteger)[(NSArray *)a count];
+    } @catch (__unused NSException *e) {}
+    if (arrN <= 0) return;
+
+    NSMutableArray<UITableView *> *tables = [NSMutableArray array];
+    NSMutableArray<UICollectionView *> *cols = [NSMutableArray array];
+    NSMutableArray<UIView *> *q = [NSMutableArray arrayWithObject:vc.view];
+    while (q.count > 0) {
+        UIView *v = q.firstObject;
+        [q removeObjectAtIndex:0];
+        for (UIView *sub in v.subviews) [q addObject:sub];
+        if ([v isKindOfClass:[UITableView class]]) [tables addObject:(UITableView *)v];
+        else if ([v isKindOfClass:[UICollectionView class]]) [cols addObject:(UICollectionView *)v];
+    }
+    const CGFloat kTagBarH = 280.0;
+    UICollectionView *tagCV = nil;
+    for (UICollectionView *cv in cols) {
+        NSInteger items = 0;
+        @try {
+            if ([cv numberOfSections] > 0) items = [cv numberOfItemsInSection:0];
+        } @catch (__unused NSException *e) {}
+        if (items >= 8) {
+            tagCV = cv;
+            @try {
+                cv.hidden = NO;
+                cv.alpha = 1.0;
+                CGRect fr = cv.frame;
+                fr.origin.y = 0;
+                fr.size.height = kTagBarH;
+                if (fr.size.width < 1.0) fr.size.width = vc.view.bounds.size.width;
+                cv.frame = fr;
+                for (NSLayoutConstraint *cn in cv.constraints) {
+                    if (cn.firstAttribute == NSLayoutAttributeHeight ||
+                        cn.secondAttribute == NSLayoutAttributeHeight) {
+                        cn.constant = kTagBarH;
+                    }
+                }
+                UIView *sup = cv.superview;
+                if (sup) {
+                    for (NSLayoutConstraint *cn in sup.constraints) {
+                        if ((cn.firstItem == cv || cn.secondItem == cv) &&
+                            (cn.firstAttribute == NSLayoutAttributeHeight ||
+                             cn.secondAttribute == NSLayoutAttributeHeight)) {
+                            cn.constant = kTagBarH;
+                        }
+                    }
+                    [sup setNeedsLayout];
+                    [sup layoutIfNeeded];
+                }
+            } @catch (__unused NSException *e) {}
+            break;
+        }
+    }
+
+    // 有书但 filter DS 导致 rows=0：临时清空 filter 露出 arrBaseData（不改请求语义）
+    @try {
+        id filt = [vc valueForKey:@"arrFilterModel"];
+        NSInteger fN = [filt isKindOfClass:[NSArray class]] ? (NSInteger)[(NSArray *)filt count] : 0;
+        if (fN > 0) {
+            SEL setAF = NSSelectorFromString(@"setArrFilterModel:");
+            if ([vc respondsToSelector:setAF]) {
+                ((void (*)(id, SEL, id))objc_msgSend)(vc, setAF, @[]);
+            }
+            @try { [vc setValue:@[] forKey:@"arrFilterModel"]; } @catch (__unused NSException *e) {}
+            LBXBSHandoffMark([NSString stringWithFormat:@"reveal clearFilterDisp was=%ld arrN=%ld",
+                              (long)fN, (long)arrN]);
+        }
+    } @catch (__unused NSException *e) {}
+
+    NSInteger tvN = 0;
+    for (UITableView *tv in tables) {
+        @try {
+            tv.hidden = NO;
+            tv.alpha = 1.0;
+            CGFloat top = tagCV ? CGRectGetMaxY(tagCV.frame) : 0;
+            if (top < 1.0 && tagCV) top = kTagBarH;
+            UIView *sup = tv.superview ?: vc.view;
+            CGFloat fullH = sup.bounds.size.height;
+            if (fullH < 1.0) fullH = vc.view.bounds.size.height;
+            CGRect tfr = tv.frame;
+            tfr.origin.y = top;
+            tfr.size.width = sup.bounds.size.width > 1 ? sup.bounds.size.width : tfr.size.width;
+            tfr.size.height = MAX(160.0, fullH - top);
+            tv.frame = tfr;
+            if (tv.rowHeight <= 1.0 && tv.estimatedRowHeight <= 1.0) {
+                tv.rowHeight = 88.0;
+                tv.estimatedRowHeight = 88.0;
+            }
+            // Filtered DS 挡行时挂回 self
+            id ds = tv.dataSource;
+            if (ds && ds != vc && [vc conformsToProtocol:@protocol(UITableViewDataSource)]) {
+                NSString *dsN = NSStringFromClass([ds class]) ?: @"";
+                if ([dsN containsString:@"Filtered"]) {
+                    tv.dataSource = (id<UITableViewDataSource>)vc;
+                    if ([vc conformsToProtocol:@protocol(UITableViewDelegate)]) {
+                        tv.delegate = (id<UITableViewDelegate>)vc;
+                    }
+                    LBXBSHandoffMark([NSString stringWithFormat:@"reveal rebindDS from=%@", dsN]);
+                }
+            }
+            [tv reloadData];
+            [tv layoutIfNeeded];
+            tvN += 1;
+            NSInteger rows = 0;
+            @try {
+                if ([tv numberOfSections] > 0) rows = [tv numberOfRowsInSection:0];
+            } @catch (__unused NSException *e) {}
+            LBXBSHandoffMark([NSString stringWithFormat:
+                              @"reveal tv arrN=%ld rows=%ld fh=%.0f top=%.0f",
+                              (long)arrN, (long)rows, tv.frame.size.height, top]);
+        } @catch (__unused NSException *e) {}
+    }
+    if (tagCV) {
+        @try { [tagCV.superview bringSubviewToFront:tagCV]; } @catch (__unused NSException *e) {}
+    }
+    LBXBSHandoffMark([NSString stringWithFormat:@"reveal done arrN=%ld tv=%ld tag=%d",
+                      (long)arrN, (long)tvN, tagCV ? 1 : 0]);
+}
+
+static void (*sOrig_BLC_queryFinish)(id, SEL, id, id, id) = NULL;
+static void LBXBS_BLC_queryFinish(id self, SEL _cmd, id finishArg, id config, id userInfo) {
+    if (sOrig_BLC_queryFinish) {
+        sOrig_BLC_queryFinish(self, _cmd, finishArg, config, userInfo);
+    }
+    if (![self isKindOfClass:[UIViewController class]]) return;
+    __weak UIViewController *weakVC = (UIViewController *)self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIViewController *vc = weakVC;
+        if (!vc) return;
+        LBXBSRevealBookTableIfNeeded(vc);
+        // 再延迟一帧，等原生 filter UI 布局完成后再压一次
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            UIViewController *vc2 = weakVC;
+            if (vc2) LBXBSRevealBookTableIfNeeded(vc2);
+        });
+    });
+}
+
 void LBInstallXBSHandoffHooks(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -611,6 +756,21 @@ void LBInstallXBSHandoffHooks(void) {
             }
         } else {
             LBXBSHandoffMark(@"install miss viewDidAppear owner");
+        }
+
+        Class blc = NSClassFromString(@"BookListCon");
+        SEL selQF = NSSelectorFromString(@"lpNetWorkDelegateQueryFinish:config:userInfo:");
+        Class ownerQF = blc ? LBClassOwningInstanceMethod(blc, selQF) : Nil;
+        if (ownerQF) {
+            Method m = class_getInstanceMethod(ownerQF, selQF);
+            if (m && !sOrig_BLC_queryFinish) {
+                sOrig_BLC_queryFinish = (void (*)(id, SEL, id, id, id))method_getImplementation(m);
+                method_setImplementation(m, (IMP)LBXBS_BLC_queryFinish);
+                LBXBSHandoffMark([NSString stringWithFormat:@"hooked queryFinish reveal on %@",
+                                  NSStringFromClass(ownerQF)]);
+            }
+        } else {
+            LBXBSHandoffMark(@"install miss queryFinish owner");
         }
     });
 }
