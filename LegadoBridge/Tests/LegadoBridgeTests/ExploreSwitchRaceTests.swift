@@ -23,7 +23,8 @@ final class ExploreSwitchRaceTests: XCTestCase {
         guard case .failure(let reason) = staleA1 else {
             return XCTFail("old A token must fail after A re-switch")
         }
-        XCTAssertEqual(reason, .uiGenerationMismatch)
+        // TC-08I：切源同时抬 selectionGeneration；校验顺序先命中 selection
+        XCTAssertEqual(reason, .selectionGenerationMismatch)
     }
 
     func testPage2BeforePage1Rejected() {

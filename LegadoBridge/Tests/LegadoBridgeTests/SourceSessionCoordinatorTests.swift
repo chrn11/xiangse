@@ -46,10 +46,13 @@ final class SourceSessionCoordinatorTests: XCTestCase {
         let cur = c.currentToken(exactSourceUrl: "https://p")!
         var req = cur
         req.page = 2
+        // 0 = 由 coordinator 分配下一 requestSequence（勿复用首页已授予序号）
+        req.requestSequence = 0
         let ok = c.requestPublishPermit(for: req, isFirstPage: false)
         XCTAssertNoThrow(try ok.get())
         var p4 = req
         p4.page = 4
+        p4.requestSequence = 0
         let bad = c.requestPublishPermit(for: p4, isFirstPage: false)
         guard case .failure(let reason) = bad else {
             return XCTFail("expected pageNotContiguous")
