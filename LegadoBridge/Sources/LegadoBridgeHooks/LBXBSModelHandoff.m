@@ -596,44 +596,67 @@ static void LBXBSRevealBookTableIfNeeded(UIViewController *vc) {
         if ([v isKindOfClass:[UITableView class]]) [tables addObject:(UITableView *)v];
         else if ([v isKindOfClass:[UICollectionView class]]) [cols addObject:(UICollectionView *)v];
     }
-    const CGFloat kTagBarH = 280.0;
+    // 番茄等源标签墙极高；压到约两行，并裁切，避免盖住书表。
+    const CGFloat kTagBarH = 112.0;
     UICollectionView *tagCV = nil;
     for (UICollectionView *cv in cols) {
         NSInteger items = 0;
         @try {
             if ([cv numberOfSections] > 0) items = [cv numberOfItemsInSection:0];
         } @catch (__unused NSException *e) {}
-        if (items >= 8) {
-            tagCV = cv;
-            @try {
-                cv.hidden = NO;
-                cv.alpha = 1.0;
-                CGRect fr = cv.frame;
-                fr.origin.y = 0;
-                fr.size.height = kTagBarH;
-                if (fr.size.width < 1.0) fr.size.width = vc.view.bounds.size.width;
-                cv.frame = fr;
-                for (NSLayoutConstraint *cn in cv.constraints) {
-                    if (cn.firstAttribute == NSLayoutAttributeHeight ||
-                        cn.secondAttribute == NSLayoutAttributeHeight) {
-                        cn.constant = kTagBarH;
-                    }
-                }
-                UIView *sup = cv.superview;
-                if (sup) {
-                    for (NSLayoutConstraint *cn in sup.constraints) {
-                        if ((cn.firstItem == cv || cn.secondItem == cv) &&
-                            (cn.firstAttribute == NSLayoutAttributeHeight ||
-                             cn.secondAttribute == NSLayoutAttributeHeight)) {
-                            cn.constant = kTagBarH;
-                        }
-                    }
-                    [sup setNeedsLayout];
-                    [sup layoutIfNeeded];
-                }
-            } @catch (__unused NSException *e) {}
-            break;
+        // 取最高的标签墙；书表 CV 通常 item 少或不在此路径
+        CGFloat h = cv.frame.size.height;
+        if (items >= 8 && h >= 160.0) {
+            if (!tagCV || h > tagCV.frame.size.height) tagCV = cv;
         }
+    }
+    if (tagCV) {
+        UICollectionView *cv = tagCV;
+        @try {
+            NSInteger itemsN = 0;
+            @try {
+                if ([cv numberOfSections] > 0) itemsN = [cv numberOfItemsInSection:0];
+            } @catch (__unused NSException *e) {}
+            CGFloat hBefore = cv.frame.size.height;
+            cv.hidden = NO;
+            cv.alpha = 1.0;
+            cv.clipsToBounds = YES;
+            cv.scrollEnabled = YES;
+            CGRect fr = cv.frame;
+            // 保持原 y（频道条下方），只压高度
+            fr.size.height = kTagBarH;
+            if (fr.size.width < 1.0) fr.size.width = vc.view.bounds.size.width;
+            cv.frame = fr;
+            for (NSLayoutConstraint *cn in cv.constraints) {
+                if (cn.firstAttribute == NSLayoutAttributeHeight ||
+                    cn.secondAttribute == NSLayoutAttributeHeight) {
+                    cn.constant = kTagBarH;
+                    cn.active = YES;
+                }
+            }
+            UIView *sup = cv.superview;
+            if (sup) {
+                for (NSLayoutConstraint *cn in sup.constraints) {
+                    if ((cn.firstItem == cv || cn.secondItem == cv) &&
+                        (cn.firstAttribute == NSLayoutAttributeHeight ||
+                         cn.secondAttribute == NSLayoutAttributeHeight)) {
+                        cn.constant = kTagBarH;
+                        cn.active = YES;
+                    }
+                }
+                [sup setNeedsLayout];
+                [sup layoutIfNeeded];
+            }
+            // layout 后又被撑高时强制回写
+            if (cv.frame.size.height > kTagBarH + 1.0) {
+                CGRect fr2 = cv.frame;
+                fr2.size.height = kTagBarH;
+                cv.frame = fr2;
+            }
+            LBXBSHandoffMark([NSString stringWithFormat:
+                              @"reveal compactCV items=%ld h=%.0f->%.0f",
+                              (long)itemsN, hBefore, cv.frame.size.height]);
+        } @catch (__unused NSException *e) {}
     }
 
     // 有书但 filter DS 导致 rows=0：临时清空 filter 露出 arrBaseData（不改请求语义）
@@ -694,8 +717,12 @@ static void LBXBSRevealBookTableIfNeeded(UIViewController *vc) {
                               (long)arrN, (long)rows, tv.frame.size.height, top]);
         } @catch (__unused NSException *e) {}
     }
-    if (tagCV) {
-        @try { [tagCV.superview bringSubviewToFront:tagCV]; } @catch (__unused NSException *e) {}
+    // 书表必须在标签墙之上可见；禁止把 tagCV bringToFront 盖住 rows。
+    for (UITableView *tv in tables) {
+        @try {
+            UIView *sup = tv.superview;
+            if (sup) [sup bringSubviewToFront:tv];
+        } @catch (__unused NSException *e) {}
     }
     LBXBSHandoffMark([NSString stringWithFormat:@"reveal done arrN=%ld tv=%ld tag=%d",
                       (long)arrN, (long)tvN, tagCV ? 1 : 0]);
