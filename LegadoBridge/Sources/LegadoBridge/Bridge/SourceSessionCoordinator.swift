@@ -774,7 +774,7 @@ public final class LBSharedSourceRouter: NSObject {
         return Self.tokenDictionary(token)
     }
 
-    static func tokenDictionary(_ token: SourceSessionToken) -> NSDictionary {
+    static func tokenDictionary(_ token: SourceSessionToken) -> [String: Any] {
         [
             "sourceKind": kindRaw(token.sourceKind),
             "canonicalID": token.canonicalID,
@@ -791,7 +791,7 @@ public final class LBSharedSourceRouter: NSObject {
             "ownerControllerIdentity": token.ownerControllerIdentity ?? "",
             "definitionFingerprint": token.definitionFingerprint ?? "",
             "runtimeEpoch": token.runtimeEpoch
-        ] as NSDictionary
+        ]
     }
 
     private static func token(from dict: NSDictionary) -> SourceSessionToken? {
