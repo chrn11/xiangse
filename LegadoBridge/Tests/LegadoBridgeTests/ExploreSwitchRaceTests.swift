@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import XCTest
 @testable import LegadoBridge
 
@@ -12,8 +12,10 @@ final class ExploreSwitchRaceTests: XCTestCase {
     func testABBAContentIsolation() {
         let c = SourceSessionCoordinator.shared
         let a1 = c.apply(.switchDiscoverSource(exactSourceUrl: "https://a"))
-        _ = c.bindTestLegadoPublishIdentity(exactSourceUrl: "https://a")
-        let a1Token = c.currentToken(exactSourceUrl: "https://a")!
+        guard let a1Bound = c.bindTestLegadoPublishIdentity(exactSourceUrl: "https://a") else {
+            return XCTFail("bind A failed")
+        }
+        let a1Token = a1Bound
         let b1 = c.apply(.switchDiscoverSource(exactSourceUrl: "https://b"))
         _ = c.bindTestLegadoPublishIdentity(exactSourceUrl: "https://b")
         // Active-route ownership moves to B; A must fail before its session is revisited.
@@ -25,7 +27,7 @@ final class ExploreSwitchRaceTests: XCTestCase {
         XCTAssertNotEqual(a1.exactSourceUrl, b1.exactSourceUrl)
         let a2 = c.apply(.switchDiscoverSource(exactSourceUrl: "https://a"))
         _ = c.bindTestLegadoPublishIdentity(exactSourceUrl: "https://a")
-        XCTAssertEqual(a2.uiGeneration, a1.uiGeneration + 1)
+        XCTAssertEqual(a2.uiGeneration, a1Bound.uiGeneration + 1)
         let staleA1 = c.requestPublishPermit(for: a1Token, isFirstPage: true)
         guard case .failure(let reason) = staleA1 else {
             return XCTFail("old A token must fail after A re-switch")
@@ -36,8 +38,11 @@ final class ExploreSwitchRaceTests: XCTestCase {
 
     func testPage2BeforePage1Rejected() {
         let c = SourceSessionCoordinator.shared
-        let t = c.apply(.switchDiscoverSource(exactSourceUrl: "https://p"))
-        var p2 = t
+        _ = c.apply(.switchDiscoverSource(exactSourceUrl: "https://p"))
+        guard let bound = c.bindTestLegadoPublishIdentity(exactSourceUrl: "https://p") else {
+            return XCTFail("bind failed")
+        }
+        var p2 = bound
         p2.page = 2
         let r = c.requestPublishPermit(for: p2, isFirstPage: false)
         guard case .failure(let reason) = r else {
