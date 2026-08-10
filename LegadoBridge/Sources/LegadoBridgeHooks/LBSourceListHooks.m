@@ -396,7 +396,14 @@ static void LBApplySharedRouterSelectionForListKey(NSString *listKey, BOOL isRes
     NSString *canonicalID = resolved[@"canonicalID"];
     if (kind == LBSourceKindUnknown || canonicalID.length == 0) return;
     NSString *display = resolved[@"displayName"];
-    LBSharedRouterApplySelection(kind, canonicalID, display, nil, isReselect);
+    NSString *owner = nil;
+    UIViewController *host = LBFindDiscoverHostVCs().firstObject;
+    UIViewController *list = host ? LBActiveDiscoverListVC(host) : nil;
+    NSString *className = list ? NSStringFromClass([list class]) : @"";
+    if ([className containsString:@"BookListCon"]) {
+        owner = [NSString stringWithFormat:@"%@:%p", className, list];
+    }
+    LBSharedRouterApplySelection(kind, canonicalID, display, owner, isReselect);
 }
 
 static NSString * (*LBOrig_textByIndexPath)(id, SEL, NSIndexPath *) = NULL;

@@ -12,18 +12,25 @@ final class ExploreSwitchRaceTests: XCTestCase {
     func testABBAContentIsolation() {
         let c = SourceSessionCoordinator.shared
         let a1 = c.apply(.switchDiscoverSource(exactSourceUrl: "https://a"))
+        _ = c.bindTestLegadoPublishIdentity(exactSourceUrl: "https://a")
+        let a1Token = c.currentToken(exactSourceUrl: "https://a")!
         let b1 = c.apply(.switchDiscoverSource(exactSourceUrl: "https://b"))
-        // A 迟到回包：仍可对 A session 申请 permit（A 会话未改）
-        XCTAssertNoThrow(try c.requestPublishPermit(for: a1, isFirstPage: true).get())
-        // 但 B 当前 token 与 A 不同源
+        _ = c.bindTestLegadoPublishIdentity(exactSourceUrl: "https://b")
+        // Active-route ownership moves to B; A must fail before its session is revisited.
+        let staleDuringB = c.requestPublishPermit(for: a1Token, isFirstPage: true)
+        guard case .failure(let duringBReason) = staleDuringB else {
+            return XCTFail("old A token must fail while B is active")
+        }
+        XCTAssertEqual(duringBReason, .routeFailClosed)
         XCTAssertNotEqual(a1.exactSourceUrl, b1.exactSourceUrl)
         let a2 = c.apply(.switchDiscoverSource(exactSourceUrl: "https://a"))
+        _ = c.bindTestLegadoPublishIdentity(exactSourceUrl: "https://a")
         XCTAssertEqual(a2.uiGeneration, a1.uiGeneration + 1)
-        let staleA1 = c.requestPublishPermit(for: a1, isFirstPage: true)
+        let staleA1 = c.requestPublishPermit(for: a1Token, isFirstPage: true)
         guard case .failure(let reason) = staleA1 else {
             return XCTFail("old A token must fail after A re-switch")
         }
-        // TC-08I：切源同时抬 selectionGeneration；校验顺序先命中 selection
+        // A→B→A leaves the original A token stale by selection generation.
         XCTAssertEqual(reason, .selectionGenerationMismatch)
     }
 

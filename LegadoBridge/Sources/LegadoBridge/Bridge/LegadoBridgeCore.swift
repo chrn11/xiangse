@@ -835,6 +835,47 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         return json
     }
 
+    /// Resolve the exact catalog identity for a selected node.  A missing
+    /// snapshot/node is intentional fail-closed input for the shared router;
+    /// callers must not synthesize an identity from a display title.
+    @objc(exploreContextJSONForSourceUrl:nodeUrl:)
+    public func exploreContextJSON(forSourceUrl sourceUrl: String?, nodeUrl: String?) -> String {
+        guard let resolved = resolveExploreSource(sourceUrl),
+              let raw = resolved.exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return "{}" }
+        let exact = resolved.bookSourceUrl
+        let snapshot: ExploreCatalogSnapshot
+        if RuleWebBook.isTopLevelExploreJS(raw) {
+            guard let cached = exploreKindsCacheQueue.sync(execute: { exploreKindsCache[exact] }),
+                  cached.fingerprint == raw,
+                  let data = cached.json.data(using: .utf8),
+                  let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                  !rows.isEmpty else { return "{}" }
+            snapshot = Self.snapshotFromLegacyKinds(rows, exactSourceUrl: exact, exploreRaw: raw)
+        } else {
+            snapshot = RuleWebBook.parseExploreCatalog(
+                raw, exactSourceUrl: exact, sourceNameSnapshot: resolved.bookSourceName,
+                source: resolved, evaluateJS: false
+            )
+        }
+        let wanted = nodeUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let node = snapshot.channels.flatMap(\.nodes).first { n in
+            guard !wanted.isEmpty else { return false }
+            return n.rawTarget == wanted ||
+                RuleWebBook.absoluteExploreURL(baseUrl: exact, path: n.rawTarget) == wanted
+        }
+        let obj: [String: Any] = [
+            "definitionFingerprint": snapshot.definitionFingerprint,
+            "snapshotID": snapshot.snapshotID,
+            "nodeID": node?.nodeID ?? "",
+            "runtimeEpoch": snapshot.runtimeContextEpoch,
+        ]
+        guard JSONSerialization.isValidJSONObject(obj),
+              let data = try? JSONSerialization.data(withJSONObject: obj),
+              let json = String(data: data, encoding: .utf8) else { return "{}" }
+        return json
+    }
+
     /// TC-07 / §24.6：sanitized snapshot metadata JSON（无 raw target / Cookie / requestInfo）。
     @objc(exploreSnapshotMetadataJSONForSourceUrl:)
     public func exploreSnapshotMetadataJSON(forSourceUrl sourceUrl: String?) -> String {
@@ -864,7 +905,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                let data = cached.json.data(using: .utf8),
                let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
                !arr.isEmpty {
-                // 旧薄缓存仅有 title/url：升成 sanitized（url 丢弃，仅保留 display title 占位 node）
+                // Legacy cache rows are upgraded while retaining exact targets internally.
                 let snap = Self.snapshotFromLegacyKinds(arr, exactSourceUrl: exact, exploreRaw: raw)
                 return Self.encodeSanitizedExploreMetadata(
                     sourceIdentityHash: sourceHash,
@@ -908,7 +949,8 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         exactSourceUrl: String,
         exploreRaw: String
     ) -> ExploreCatalogSnapshot {
-        // 仅 display：丢弃 url；生成稳定占位 ID（不回写 raw）
+        // Keep the cached exact target for identity binding; sanitized JSON
+        // still strips rawTarget before crossing the UI boundary.
         var diagnostics = ExploreCatalogDiagnostics()
         diagnostics.codes.append("legacyKindsSanitized")
         let fingerprint = ExploreCatalogID.definitionFingerprint(
@@ -924,6 +966,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         var nodes: [ExploreNode] = []
         for (idx, item) in kinds.enumerated() {
             let title = (item["title"] as? String) ?? ""
+            let target = (item["url"] as? String) ?? ""
             let nodeID = ExploreCatalogID.nodeID(
                 sourceUrl: exactSourceUrl,
                 definitionFingerprint: fingerprint,
@@ -931,7 +974,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 indexPath: [0, idx],
                 kind: .url,
                 rawTitle: title,
-                rawTarget: ""
+                rawTarget: target
             )
             nodes.append(
                 ExploreNode(
@@ -939,7 +982,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                     kind: .url,
                     rawTitle: title,
                     displayTitle: title,
-                    rawTarget: "",
+                    rawTarget: target,
                     originalOrder: idx,
                     selectable: !title.isEmpty
                 )
@@ -1190,32 +1233,29 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         let sourceUrlCopy = sourceUrl
         // 并发 explore：世代号归 SourceSessionCoordinator 所有；保留 sExploreGeneration 作兼容镜像
         let srcKey = (sourceUrlCopy ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let sessionToken: SourceSessionToken
-        if srcKey.isEmpty {
-            sExploreGeneration &+= 1
-            sessionToken = SourceSessionToken(
-                exactSourceUrl: "",
-                uiGeneration: 0,
-                definitionGeneration: 0,
-                contentGeneration: sExploreGeneration,
-                page: max(page, 1)
-            )
-        } else if max(page, 1) <= 1 {
-            sessionToken = SourceSessionCoordinator.shared.apply(
-                .manualRefreshFirstPage(exactSourceUrl: srcKey)
-            )
-            sExploreGeneration = sessionToken.contentGeneration
-            sExploreGenerationSourceUrl = srcKey
-        } else {
-            sessionToken = SourceSessionCoordinator.shared.apply(
-                .loadMore(exactSourceUrl: srcKey, page: max(page, 1))
-            )
-            sExploreGeneration = sessionToken.contentGeneration
-            sExploreGenerationSourceUrl = srcKey
+        guard let sessionToken = SourceSessionCoordinator.shared.prepareLegadoExplorePageIfSelected(
+            exactSourceUrl: srcKey,
+            page: max(page, 1)
+        ) else {
+            writeSearchMarker("explore reject missing exact legado selection src=\(srcKey.isEmpty ? "-" : srcKey)")
+            return
         }
-        let generation = sessionToken.contentGeneration
-        writeSearchMarker("explore start gen=\(generation) src=\(sourceUrl ?? "-") kind=\(exploreUrl ?? "-")")
-        _ = sessionToken // retain for future PublishPermit wiring in same Task
+        guard let owner = sessionToken.ownerControllerIdentity, !owner.isEmpty,
+              let fingerprint = sessionToken.definitionFingerprint, !fingerprint.isEmpty,
+              let snapshotID = sessionToken.snapshotID, !snapshotID.isEmpty,
+              let nodeID = sessionToken.nodeID, !nodeID.isEmpty else {
+            writeSearchMarker("explore reject missing bound context src=\(srcKey)")
+            return
+        }
+        sExploreGeneration = sessionToken.contentGeneration
+        sExploreGenerationSourceUrl = srcKey
+        let capturedSessionToken = sessionToken
+        let capturedExploreSourceUrl = srcKey
+        func exploreCaptureStillActive() -> Bool {
+            SourceSessionCoordinator.shared.isStillActiveLegadoPublishContext(capturedSessionToken)
+                && capturedExploreSourceUrl == sExploreGenerationSourceUrl
+        }
+        writeSearchMarker("explore start gen=\(capturedSessionToken.contentGeneration) src=\(sourceUrl ?? "-") kind=\(exploreUrl ?? "-")")
         // 已有明确 kind：清掉「分类加载中」占位，避免超时后仍盖住失败/列表
         if let exploreUrlCopy, !exploreUrlCopy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             DispatchQueue.main.async {
@@ -1232,7 +1272,6 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 // 指定源 explore：先把发现宿主切到该源（清 XBS 态），
                 // 否则 LBIsDiscoverNativeXBSMode 会丢弃 explore 结果（发现页不出书）
                 await MainActor.run {
-                    LBSetDiscoverNativeXBSMode(false)
                     // 已在该源发现宿主时禁止再 switch（会连环 nativeSwitch→explore→冲掉灌书）
                     let wantName = one.bookSourceName ?? one.bookSourceUrl
                     if !LBDiscoverHostAlreadyShowingSource(wantName) {
@@ -1254,32 +1293,17 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 }
             }
             guard !targets.isEmpty else {
-                postNotification(
-                    XiangseAdapter.notifySearchResponse,
-                    userInfo: [
-                        "error": "无可用发现源",
-                        "fromExplore": true,
-                        "fromLegadoBridge": true,
-                        XiangseAdapter.legadoMarkerKey: XiangseAdapter.legadoMarkerValue
-                    ]
-                )
+                writeSearchMarker("explore reject no enabled target src=\(srcKey)")
                 await MainActor.run {
-                    guard generation == sExploreGeneration else { return }
-                    LBSetDiscoverNativeXBSMode(false)
+                    guard exploreCaptureStillActive() else { return }
                     LBShowDiscoverExploreEmptyHint("暂无可发现书源")
                 }
                 return
             }
-            // 换分类/换源：先清空再灌，避免旧书残留
-            await MainActor.run {
-                guard generation == sExploreGeneration else { return }
-                LBSetDiscoverNativeXBSMode(false)
-                LBClearDiscoverExploreBooks()
-            }
-            guard generation == sExploreGeneration else { return }
+            guard exploreCaptureStillActive() else { return }
             var total = 0
             for source in targets {
-                guard generation == sExploreGeneration else { return }
+                guard exploreCaptureStillActive() else { return }
                 do {
                     // kinds 未就绪时勿用 nil kind 进 exploreBook（会再跑顶层 JS 并报「未产出分类」）
                     var kindForFetch = exploreUrlCopy
@@ -1303,7 +1327,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                                 warmupExploreKinds(forSourceUrl: source.bookSourceUrl)
                             }
                             await MainActor.run {
-                                guard generation == sExploreGeneration else { return }
+                                guard exploreCaptureStillActive() else { return }
                                 LBDismissDiscoverLoadingHUD()
                                 if coolFail {
                                     LBShowDiscoverExploreEmptyHint("分类加载失败，请稍后重试或切换书源")
@@ -1323,7 +1347,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                             page: max(page, 1)
                         )
                     }
-                    guard generation == sExploreGeneration else { return }
+                    guard exploreCaptureStillActive() else { return }
                     var ephemeralByBookUrl: [String: EphemeralBookDTO] = [:]
                     for r in results {
                         let book = BridgeBook(
@@ -1347,23 +1371,14 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                         XiangseAdapter.searchBookDict(r, ephemeral: ephemeralByBookUrl[r.bookUrl])
                     }
                     if !books.isEmpty {
-                        for r in results {
-                            let book = XiangseAdapter.searchBookDict(r, ephemeral: ephemeralByBookUrl[r.bookUrl])
-                            var payload = XiangseAdapter.searchResultNotifyPayload(
-                                book: book,
-                                keyword: "explore",
-                                sourceUrl: source.bookSourceUrl,
-                                sourceName: r.sourceName
-                            )
-                            payload["fromExplore"] = true
-                            postNotification(XiangseAdapter.notifySearchResponse, userInfo: payload)
-                        }
                         await MainActor.run {
-                            guard generation == sExploreGeneration else { return }
-                            // 指定源 explore：宿主切源异步完成前可能仍是 XBS 态，
-                            // 强制清掉，否则 LBApplySearchResultsToUI 会丢 explore 结果（发现页不出书）
-                            LBSetDiscoverNativeXBSMode(false)
-                            LBApplySearchResultsToUI(books, "explore")
+                            guard exploreCaptureStillActive() else { return }
+                            LBApplySearchResultsToUIWithCapturedToken(
+                                books,
+                                "explore",
+                                LBSharedSourceRouter.tokenDictionary(capturedSessionToken),
+                                capturedSessionToken.page == 1
+                            )
                         }
                     }
                     if results.isEmpty {
@@ -1374,8 +1389,14 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                             errorMessage: nil
                         )
                         await MainActor.run {
-                            guard generation == sExploreGeneration else { return }
-                            LBSetDiscoverNativeXBSMode(false)
+                            guard exploreCaptureStillActive() else { return }
+                            LBApplySearchResultsToUIWithCapturedToken(
+                                [],
+                                "explore",
+                                LBSharedSourceRouter.tokenDictionary(capturedSessionToken),
+                                capturedSessionToken.page == 1
+                            )
+                            guard exploreCaptureStillActive() else { return }
                             LBDismissDiscoverLoadingHUD()
                             LBShowDiscoverExploreEmptyHint(emptyHint)
                         }
@@ -1392,8 +1413,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                         errorMessage: error.localizedDescription
                     )
                     await MainActor.run {
-                        guard generation == sExploreGeneration else { return }
-                        LBSetDiscoverNativeXBSMode(false)
+                        guard exploreCaptureStillActive() else { return }
                         LBDismissDiscoverLoadingHUD()
                         LBShowDiscoverExploreEmptyHint(hint)
                     }
@@ -1402,12 +1422,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
             // 空结果也收尾：摘「章节加载中」；勿再用笼统文案盖掉上面按源判定的提示
             if total == 0 {
                 await MainActor.run {
-                    guard generation == sExploreGeneration else { return }
-                    LBSetDiscoverNativeXBSMode(false)
+                    guard exploreCaptureStillActive() else { return }
                     LBDismissDiscoverLoadingHUD()
                 }
             }
-            writeSearchMarker("explore ok total=\(total) sources=\(targets.count) gen=\(generation)")
+            writeSearchMarker("explore ok total=\(total) sources=\(targets.count) gen=\(capturedSessionToken.contentGeneration)")
         }
     }
 

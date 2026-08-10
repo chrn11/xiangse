@@ -83,6 +83,8 @@ static void LBAttachDiscoverKindButtonActions(UIViewController *host, id titleVi
 static void LBUnlinkDiscoverTitleContent(UIViewController *host);
 static NSString *LBCurrentExploreSourceUrl(id core);
 static void LBTriggerExploreKind(NSString *sourceUrl, NSString *kindUrl);
+static BOOL LBBindLegadoSelection(id core, NSString *url, NSString *name,
+                                  UIViewController *host, NSString *nodeUrl);
 static void LBDiscoverFireExploreForIndex(NSInteger index, NSString *titleHint);
 static NSArray *LBDonorTitlesFromHost(UIViewController *host, NSDictionary *prepared);
 static void LBForceLegadoTitlesOnChrome(UIViewController *host, NSArray *titles);
@@ -664,12 +666,53 @@ static void LBTriggerExploreKind(NSString *sourceUrl, NSString *kindUrl) {
     if (!core || ![core respondsToSelector:@selector(handleExploreRequestWithSourceUrl:exploreUrl:page:)]) {
         return;
     }
+    UIViewController *host = LBPrimaryDiscoverHost();
+    if (!LBBindLegadoSelection(core, sourceUrl, nil, host, kindUrl)) {
+        LBAppendNativeMarker(@"nativeExplore reject missing exact context");
+        LBShowDiscoverExploreEmptyHint(@"分类上下文尚未就绪，请稍后重试");
+        return;
+    }
     ((void (*)(id, SEL, NSString *, NSString *, NSInteger))objc_msgSend)(
         core,
         @selector(handleExploreRequestWithSourceUrl:exploreUrl:page:),
         sourceUrl,
         kindUrl.length ? kindUrl : nil,
         1);
+}
+
+static NSString *LBDiscoverOwnerIdentity(UIViewController *host) {
+    UIViewController *list = host ? LBActiveDiscoverListVC(host) : nil;
+    NSString *cls = list ? NSStringFromClass([list class]) : @"";
+    if (![cls containsString:@"BookListCon"]) return nil;
+    return [NSString stringWithFormat:@"%@:%p", cls, list];
+}
+
+static BOOL LBBindLegadoSelection(id core, NSString *url, NSString *name,
+                                  UIViewController *host, NSString *nodeUrl) {
+    NSString *owner = LBDiscoverOwnerIdentity(host);
+    if (url.length == 0 || owner.length == 0 || nodeUrl.length == 0) return NO;
+    NSDictionary *selected = LBSharedRouterApplySelection(2, url, name, owner, NO);
+    if (![selected isKindOfClass:[NSDictionary class]]) return NO;
+    SEL contextSel = @selector(exploreContextJSONForSourceUrl:nodeUrl:);
+    if (!core || ![core respondsToSelector:contextSel]) return NO;
+    NSString *contextJSON = ((NSString *(*)(id, SEL, NSString *, NSString *))objc_msgSend)(
+        core, contextSel, url, nodeUrl);
+    NSData *data = [contextJSON dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *context = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
+    if (![context isKindOfClass:[NSDictionary class]]) return NO;
+    NSString *fp = [context[@"definitionFingerprint"] isKindOfClass:[NSString class]] ? context[@"definitionFingerprint"] : nil;
+    NSString *sid = [context[@"snapshotID"] isKindOfClass:[NSString class]] ? context[@"snapshotID"] : nil;
+    NSString *nid = [context[@"nodeID"] isKindOfClass:[NSString class]] ? context[@"nodeID"] : nil;
+    NSNumber *epoch = [context[@"runtimeEpoch"] isKindOfClass:[NSNumber class]] ? context[@"runtimeEpoch"] : nil;
+    if (fp.length == 0 || sid.length == 0 || nid.length == 0 || !epoch) return NO;
+    Class routerClass = NSClassFromString(@"LBSharedSourceRouter");
+    if (!routerClass) routerClass = NSClassFromString(@"LegadoBridge.LBSharedSourceRouter");
+    id router = routerClass ? ((id (*)(id, SEL))objc_msgSend)(routerClass, @selector(shared)) : nil;
+    SEL bindSel = @selector(bindActiveLegadoContextWithExactSourceUrl:ownerIdentity:definitionFingerprint:snapshotID:nodeID:runtimeEpoch:);
+    if (!router || ![router respondsToSelector:bindSel]) return NO;
+    NSDictionary *bound = ((NSDictionary *(*)(id, SEL, NSString *, NSString *, NSString *, NSString *, NSString *, unsigned long long))objc_msgSend)(
+        router, bindSel, url, owner, fp, sid, nid, epoch.unsignedLongLongValue);
+    return [bound[@"ok"] boolValue];
 }
 
 static void LBPresentExploreSourcePicker(UIViewController *host) {
@@ -3549,6 +3592,7 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
                           sourceName, cleanName, isLegado ? 1 : 0, legadoUrl ?: @"-"]);
 
     if (!isLegado) {
+        LBSharedRouterApplySelection(1, cleanName, cleanName, LBDiscoverOwnerIdentity(host), NO);
         LBSetDiscoverNativeXBSMode(YES);
         sCachedKinds = nil;
         sNativeChromeBuilt = NO; // 丢掉 Legado 建的壳，让原生 openConfig 重建 bookWorld
@@ -3569,7 +3613,6 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
         return;
     }
 
-    LBSetDiscoverNativeXBSMode(NO);
     sNativeChromeBuilt = NO; // 允许 Feed 重建被原生掏空的 chrome
     id core = LBKindCore();
     if (core && legadoUrl.length > 0) {
@@ -3630,7 +3673,6 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
                           deferExploreUntilKinds ? 1 : 0]);
     if (legadoUrl.length == 0) return;
     if (deferExploreUntilKinds) return;
-
     NSString *srcCopy = [legadoUrl copy];
     NSString *kindCopy = [kindUrl copy];
     __weak UIViewController *weakHost = host;

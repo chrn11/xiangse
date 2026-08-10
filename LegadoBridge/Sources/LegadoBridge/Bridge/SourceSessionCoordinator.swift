@@ -100,6 +100,7 @@ public struct SourceSessionToken: Equatable, Sendable {
     public var sessionKey: String {
         SelectionToken.sessionKey(sourceKind: sourceKind, canonicalID: canonicalID)
     }
+
 }
 
 public enum PublishRejectReason: String, Error, Equatable, Sendable {
@@ -157,6 +158,7 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
     private var sessions: [String: SessionState] = [:]
     private var managerGeneration: UInt64 = 0
     private var registryGeneration: UInt64 = 0
+    private var activeSessionKey: String?
 
     public init() {}
 
@@ -217,14 +219,20 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
         queue.sync {
             switch event {
             case .selectDiscoverSource(let sel):
-                return applySelect(sel, isReselect: false)
+                let token = applySelect(sel, isReselect: false)
+                activeSessionKey = token.sessionKey
+                return token
             case .reselectSameDiscoverSource(let sel):
-                return applySelect(sel, isReselect: true)
+                let token = applySelect(sel, isReselect: true)
+                activeSessionKey = token.sessionKey
+                return token
 
             case .switchDiscoverSource(let url),
                  .hostControllerRebuilt(let url),
                  .crossModeSwitch(let url):
-                return applyLegacySwitch(url: url, bumpUI: true)
+                let token = applyLegacySwitch(url: url, bumpUI: true)
+                activeSessionKey = token.sessionKey
+                return token
 
             case .ruleDefinitionChanged(let url),
                  .runtimeContextChanged(let url):
@@ -271,7 +279,11 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
     }
 
     public func applySelection(_ selection: SelectionToken, isReselect: Bool = false) -> SourceSessionToken {
-        queue.sync { applySelect(selection, isReselect: isReselect) }
+        queue.sync {
+            let token = applySelect(selection, isReselect: isReselect)
+            activeSessionKey = token.sessionKey
+            return token
+        }
     }
 
     public func currentToken(sourceKind: SourceKind, canonicalID: String) -> SourceSessionToken? {
@@ -284,6 +296,70 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
 
     public func currentToken(exactSourceUrl: String) -> SourceSessionToken? {
         currentToken(sourceKind: .legado, canonicalID: exactSourceUrl)
+    }
+
+    /// Prepare a Legado explore page only from an existing exact-url selection.
+    /// This deliberately never creates a session for an unselected source.
+    public func prepareLegadoExplorePageIfSelected(
+        exactSourceUrl: String,
+        page: Int
+    ) -> SourceSessionToken? {
+        guard !exactSourceUrl.isEmpty, page > 0 else { return nil }
+        return queue.sync {
+            let key = SelectionToken.sessionKey(sourceKind: .legado, canonicalID: exactSourceUrl)
+            guard activeSessionKey == key, var s = sessions[key], s.sourceKind == .legado,
+                  s.exactSourceUrl == exactSourceUrl else { return nil }
+            if page == 1 {
+                s.contentGeneration &+= 1
+                s.page = 1
+                s.lastAcceptedPage = 0
+                s.requestSequence = 0
+            } else {
+                s.page = page
+            }
+            sessions[key] = s
+            var token = token(from: s)
+            if page > 1 { token.requestSequence = 0 }
+            return token
+        }
+    }
+
+    /// Bind the live native list/snapshot identity to an existing Legado
+    /// selection.  This never creates a session: a picker must have selected
+    /// the exact URL first, otherwise completion is rejected fail-closed.
+    public func bindActiveLegadoContext(
+        exactSourceUrl: String,
+        ownerControllerIdentity: String,
+        definitionFingerprint: String,
+        snapshotID: String?,
+        nodeID: String?,
+        runtimeEpoch: UInt64
+    ) -> SourceSessionToken? {
+        guard !exactSourceUrl.isEmpty, !ownerControllerIdentity.isEmpty,
+              !definitionFingerprint.isEmpty else { return nil }
+        return queue.sync {
+            let key = SelectionToken.sessionKey(sourceKind: .legado, canonicalID: exactSourceUrl)
+            guard activeSessionKey == key, var s = sessions[key],
+                  s.sourceKind == .legado, s.exactSourceUrl == exactSourceUrl else { return nil }
+            let ownerChanged = s.ownerControllerIdentity != ownerControllerIdentity
+            let definitionChanged = s.definitionFingerprint != definitionFingerprint
+            let catalogChanged = s.snapshotID != snapshotID || s.nodeID != nodeID || s.runtimeEpoch != runtimeEpoch
+            if ownerChanged { s.uiGeneration &+= 1 }
+            if definitionChanged { s.definitionGeneration &+= 1 }
+            if ownerChanged || definitionChanged || catalogChanged {
+                s.contentGeneration &+= 1
+                s.page = 1
+                s.lastAcceptedPage = 0
+                s.requestSequence = 0
+            }
+            s.ownerControllerIdentity = ownerControllerIdentity
+            s.definitionFingerprint = definitionFingerprint
+            s.snapshotID = snapshotID
+            s.nodeID = nodeID
+            s.runtimeEpoch = runtimeEpoch
+            sessions[key] = s
+            return token(from: s)
+        }
     }
 
     /// cache hit 发布：不递增任何 generation。
@@ -301,37 +377,27 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
     ) -> Result<PublishPermit, PublishRejectReason> {
         queue.sync {
             let key = request.sessionKey
+            guard activeSessionKey == key else {
+                return .failure(.routeFailClosed)
+            }
             guard let s = sessions[key] else {
                 return .failure(.sessionMissing)
             }
-            if request.sourceKind != s.sourceKind { return .failure(.sourceKindMismatch) }
-            if request.canonicalID != s.canonicalID { return .failure(.canonicalIDMismatch) }
-            if request.exactSourceUrl != s.exactSourceUrl { return .failure(.sourceMismatch) }
-            if request.selectionGeneration != s.selectionGeneration {
-                return .failure(.selectionGenerationMismatch)
+            if let reason = validateLegadoPublishIdentity(request) {
+                return .failure(reason)
             }
-            if request.managerOrRegistryGeneration != s.managerOrRegistryGeneration {
-                return .failure(.managerOrRegistryGenerationMismatch)
+            if let reason = validate(request: request, against: s) {
+                return .failure(reason)
             }
-            if let want = request.snapshotID, want != s.snapshotID { return .failure(.snapshotMismatch) }
-            if request.uiGeneration != s.uiGeneration { return .failure(.uiGenerationMismatch) }
-            if request.definitionGeneration != s.definitionGeneration {
-                return .failure(.definitionGenerationMismatch)
-            }
-            if request.contentGeneration != s.contentGeneration {
-                return .failure(.contentGenerationMismatch)
-            }
-            if let want = request.nodeID, want != s.nodeID { return .failure(.nodeMismatch) }
-            if let want = request.ownerControllerIdentity, want != s.ownerControllerIdentity {
-                return .failure(.ownerMismatch)
-            }
-            if let want = request.definitionFingerprint, want != s.definitionFingerprint {
-                return .failure(.definitionFingerprintMismatch)
-            }
-            if request.runtimeEpoch != s.runtimeEpoch { return .failure(.runtimeEpochMismatch) }
 
             if isFirstPage {
                 if request.page != 1 { return .failure(.pageMismatch) }
+                // A first-page request starts a fresh sequence (selection or
+                // manual refresh resets it to zero).  A non-zero sequence is a
+                // previously granted token being replayed.
+                if request.requestSequence != 0 || s.requestSequence != 0 {
+                    return .failure(.requestSequenceMismatch)
+                }
                 var next = s
                 next.lastAcceptedPage = 1
                 next.page = 1
@@ -342,7 +408,7 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
                 return .success(PublishPermit(token: granted, replaceFirstPage: true, appendPage: false))
             }
 
-            if request.page != s.lastAcceptedPage + 1 {
+            if request.page <= 1 || request.page != s.lastAcceptedPage + 1 {
                 return .failure(.pageNotContiguous)
             }
             let expectedSeq = s.requestSequence + 1
@@ -360,16 +426,127 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
         }
     }
 
+    /// Validate a cache-first publication without consuming the network page
+    /// sequence.  A subsequent manual refresh still resets the sequence and
+    /// must obtain a normal first-page permit.
+    public func requestCacheHitPermit(
+        for request: SourceSessionToken
+    ) -> Result<PublishPermit, PublishRejectReason> {
+        queue.sync {
+            let key = request.sessionKey
+            guard activeSessionKey == key else {
+                return .failure(.routeFailClosed)
+            }
+            guard let s = sessions[key] else {
+                return .failure(.sessionMissing)
+            }
+            if let reason = validateLegadoPublishIdentity(request) {
+                return .failure(reason)
+            }
+            if let reason = validate(request: request, against: s) {
+                return .failure(reason)
+            }
+            guard request.requestSequence == s.requestSequence else {
+                return .failure(.requestSequenceMismatch)
+            }
+            guard request.page == 1 else {
+                return .failure(.pageMismatch)
+            }
+            return .success(PublishPermit(token: request, replaceFirstPage: true, appendPage: false))
+        }
+    }
+
+    /// 异步副作用核对：captured token 须仍为 active route 且与当前 session 全字段一致。
+    public func isStillActiveLegadoPublishContext(_ captured: SourceSessionToken) -> Bool {
+        queue.sync {
+            guard activeSessionKey == captured.sessionKey else { return false }
+            guard let s = sessions[captured.sessionKey], s.sourceKind == .legado else { return false }
+            if validateLegadoPublishIdentity(captured) != nil { return false }
+            if validate(request: captured, against: s) != nil { return false }
+            return captured.page == s.page && captured.requestSequence == s.requestSequence
+        }
+    }
+
+    /// 测试专用：为已选 Legado 源补齐 normal publish 身份字段。
+    public func bindTestLegadoPublishIdentity(exactSourceUrl: String) -> SourceSessionToken? {
+        bindActiveLegadoContext(
+            exactSourceUrl: exactSourceUrl,
+            ownerControllerIdentity: "BookListCon:tests",
+            definitionFingerprint: "test-fp",
+            snapshotID: "test-snap",
+            nodeID: "test-node",
+            runtimeEpoch: 0
+        )
+    }
+
     /// 测试复位。
     public func resetForTests() {
         queue.sync {
             sessions.removeAll()
             managerGeneration = 0
             registryGeneration = 0
+            activeSessionKey = nil
         }
     }
 
     // MARK: - private
+
+    /// Legado normal publish：coordinator 边界统一强制完整身份字段。
+    private func validateLegadoPublishIdentity(
+        _ request: SourceSessionToken
+    ) -> PublishRejectReason? {
+        guard request.sourceKind == .legado else { return nil }
+        if request.exactSourceUrl.isEmpty { return .sourceMismatch }
+        guard let owner = request.ownerControllerIdentity, !owner.isEmpty else {
+            return .ownerMismatch
+        }
+        guard let fingerprint = request.definitionFingerprint, !fingerprint.isEmpty else {
+            return .definitionFingerprintMismatch
+        }
+        guard let snapshotID = request.snapshotID, !snapshotID.isEmpty else {
+            return .snapshotMismatch
+        }
+        guard let nodeID = request.nodeID, !nodeID.isEmpty else {
+            return .nodeMismatch
+        }
+        return nil
+    }
+
+    private func validate(
+        request: SourceSessionToken,
+        against session: SessionState
+    ) -> PublishRejectReason? {
+        if request.sourceKind != session.sourceKind { return .sourceKindMismatch }
+        if request.canonicalID != session.canonicalID { return .canonicalIDMismatch }
+        if request.exactSourceUrl != session.exactSourceUrl { return .sourceMismatch }
+        if request.selectionGeneration != session.selectionGeneration {
+            return .selectionGenerationMismatch
+        }
+        if request.managerOrRegistryGeneration != session.managerOrRegistryGeneration {
+            return .managerOrRegistryGenerationMismatch
+        }
+        // Optional identity fields are optional only for sessions that do not
+        // select a snapshot/node/owner/fingerprint.  Once the session has a
+        // value, a callback that omits it is stale/ambiguous and must fail
+        // closed rather than publish into the current UI.
+        if request.snapshotID != session.snapshotID { return .snapshotMismatch }
+        if request.uiGeneration != session.uiGeneration { return .uiGenerationMismatch }
+        if request.definitionGeneration != session.definitionGeneration {
+            return .definitionGenerationMismatch
+        }
+        if request.contentGeneration != session.contentGeneration {
+            return .contentGenerationMismatch
+        }
+        if request.nodeID != session.nodeID { return .nodeMismatch }
+        if request.ownerControllerIdentity != session.ownerControllerIdentity {
+            return .ownerMismatch
+        }
+        if request.definitionFingerprint != session.definitionFingerprint {
+            return .definitionFingerprintMismatch
+        }
+        if request.runtimeEpoch != session.runtimeEpoch { return .runtimeEpochMismatch }
+        return nil
+    }
 
     private func legacySessionKey(_ exactSourceUrl: String) -> String {
         SelectionToken.sessionKey(sourceKind: .legado, canonicalID: exactSourceUrl)
@@ -529,6 +706,28 @@ public final class LBSharedSourceRouter: NSObject {
         return Self.tokenDictionary(token)
     }
 
+    @objc(bindActiveLegadoContextWithExactSourceUrl:ownerIdentity:definitionFingerprint:snapshotID:nodeID:runtimeEpoch:)
+    public func bindActiveLegadoContext(
+        exactSourceUrl: String,
+        ownerIdentity: String,
+        definitionFingerprint: String,
+        snapshotID: String?,
+        nodeID: String?,
+        runtimeEpoch: UInt64
+    ) -> NSDictionary {
+        guard let token = SourceSessionCoordinator.shared.bindActiveLegadoContext(
+            exactSourceUrl: exactSourceUrl,
+            ownerControllerIdentity: ownerIdentity,
+            definitionFingerprint: definitionFingerprint,
+            snapshotID: snapshotID,
+            nodeID: nodeID,
+            runtimeEpoch: runtimeEpoch
+        ) else {
+            return ["ok": false, "reason": PublishRejectReason.routeFailClosed.rawValue]
+        }
+        return ["ok": true, "token": Self.tokenDictionary(token)]
+    }
+
     @objc(requestPublishPermitWithToken:isFirstPage:)
     public func requestPublishPermit(token: NSDictionary, isFirstPage: Bool) -> NSDictionary {
         guard let req = Self.token(from: token) else {
@@ -547,6 +746,25 @@ public final class LBSharedSourceRouter: NSObject {
         }
     }
 
+    @objc(requestCacheHitPublishPermitWithToken:)
+    public func requestCacheHitPublishPermit(token: NSDictionary) -> NSDictionary {
+        guard let req = Self.token(from: token) else {
+            return ["ok": false, "reason": PublishRejectReason.routeFailClosed.rawValue]
+        }
+        switch SourceSessionCoordinator.shared.requestCacheHitPermit(for: req) {
+        case .success(let permit):
+            return [
+                "ok": true,
+                "token": Self.tokenDictionary(permit.token),
+                "replaceFirstPage": permit.replaceFirstPage,
+                "appendPage": permit.appendPage,
+                "cacheHit": true
+            ]
+        case .failure(let reason):
+            return ["ok": false, "reason": reason.rawValue, "cacheHit": true]
+        }
+    }
+
     @objc(tokenDictionaryForSourceKind:canonicalID:)
     public func currentTokenDictionary(sourceKind rawKind: Int, canonicalID: String) -> NSDictionary? {
         let kind = Self.kind(from: rawKind)
@@ -556,7 +774,7 @@ public final class LBSharedSourceRouter: NSObject {
         return Self.tokenDictionary(token)
     }
 
-    private static func tokenDictionary(_ token: SourceSessionToken) -> NSDictionary {
+    static func tokenDictionary(_ token: SourceSessionToken) -> NSDictionary {
         [
             "sourceKind": kindRaw(token.sourceKind),
             "canonicalID": token.canonicalID,
@@ -577,26 +795,36 @@ public final class LBSharedSourceRouter: NSObject {
     }
 
     private static func token(from dict: NSDictionary) -> SourceSessionToken? {
-        guard let canonicalID = dict["canonicalID"] as? String, !canonicalID.isEmpty else { return nil }
-        let rawKind = (dict["sourceKind"] as? NSNumber)?.intValue ?? sourceKindLegado
+        guard let canonicalID = dict["canonicalID"] as? String, !canonicalID.isEmpty,
+              let exact = dict["exactSourceUrl"] as? String, !exact.isEmpty,
+              let rawKind = (dict["sourceKind"] as? NSNumber)?.intValue else { return nil }
         let kind = Self.kind(from: rawKind)
-        let exact = (dict["exactSourceUrl"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? canonicalID
+        guard kind != .unknown,
+              let ui = dict["uiGeneration"] as? NSNumber,
+              let definition = dict["definitionGeneration"] as? NSNumber,
+              let content = dict["contentGeneration"] as? NSNumber,
+              let selection = dict["selectionGeneration"] as? NSNumber,
+              let registry = dict["managerOrRegistryGeneration"] as? NSNumber,
+              let page = dict["page"] as? NSNumber,
+              page.intValue > 0,
+              let sequence = dict["requestSequence"] as? NSNumber,
+              let epoch = dict["runtimeEpoch"] as? NSNumber else { return nil }
         return SourceSessionToken(
             sourceKind: kind,
             canonicalID: canonicalID,
             exactSourceUrl: exact,
-            uiGeneration: (dict["uiGeneration"] as? NSNumber)?.uint64Value ?? 0,
-            definitionGeneration: (dict["definitionGeneration"] as? NSNumber)?.uint64Value ?? 0,
-            contentGeneration: (dict["contentGeneration"] as? NSNumber)?.uint64Value ?? 0,
-            selectionGeneration: (dict["selectionGeneration"] as? NSNumber)?.uint64Value ?? 0,
-            managerOrRegistryGeneration: (dict["managerOrRegistryGeneration"] as? NSNumber)?.uint64Value ?? 0,
+            uiGeneration: ui.uint64Value,
+            definitionGeneration: definition.uint64Value,
+            contentGeneration: content.uint64Value,
+            selectionGeneration: selection.uint64Value,
+            managerOrRegistryGeneration: registry.uint64Value,
             snapshotID: (dict["snapshotID"] as? String).flatMap { $0.isEmpty ? nil : $0 },
             nodeID: (dict["nodeID"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-            page: (dict["page"] as? NSNumber)?.intValue ?? 1,
-            requestSequence: (dict["requestSequence"] as? NSNumber)?.uint64Value ?? 0,
+            page: page.intValue,
+            requestSequence: sequence.uint64Value,
             ownerControllerIdentity: (dict["ownerControllerIdentity"] as? String).flatMap { $0.isEmpty ? nil : $0 },
             definitionFingerprint: (dict["definitionFingerprint"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-            runtimeEpoch: (dict["runtimeEpoch"] as? NSNumber)?.uint64Value ?? 0
+            runtimeEpoch: epoch.uint64Value
         )
     }
 }

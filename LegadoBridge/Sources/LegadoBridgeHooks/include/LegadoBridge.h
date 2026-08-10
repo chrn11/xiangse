@@ -13,6 +13,17 @@ FOUNDATION_EXPORT void LBHandleSearchRequest(NSString *keyword, NSString *source
 FOUNDATION_EXPORT void LBTriggerMixedSearch(NSString *keyword, NSString *sourceUrl);
 /// 把引擎搜索结果灌入 BookSearchController.arrBaseData 并 reload（通知 alone 不会填列表）
 FOUNDATION_EXPORT void LBApplySearchResultsToUI(NSArray *books, NSString * _Nullable keyword);
+/// Network explore result with the immutable request token captured at start.
+FOUNDATION_EXPORT void LBApplySearchResultsToUIWithCapturedToken(
+    NSArray *books,
+    NSString * _Nullable keyword,
+    NSDictionary *capturedToken,
+    BOOL isFirstPage);
+/// Cache-first explore result; this path does not consume the network sequence.
+FOUNDATION_EXPORT void LBApplySearchResultsToUIWithCapturedCacheToken(
+    NSArray *books,
+    NSString * _Nullable keyword,
+    NSDictionary *capturedToken);
 /// 发现页换分类/换源前清空已灌书单（避免旧结果残留）
 FOUNDATION_EXPORT void LBClearDiscoverExploreBooks(void);
 /// explore 超时/失败后摘掉发现页「章节加载中」残留（防 UI 永久挂起）
@@ -91,6 +102,7 @@ FOUNDATION_EXPORT NSDictionary * _Nullable LBSharedRouterApplySelection(NSIntege
                                                                         NSString * _Nullable ownerIdentity,
                                                                         BOOL isReselect);
 FOUNDATION_EXPORT NSDictionary *LBSharedRouterRequestPublishPermit(NSDictionary *token, BOOL isFirstPage);
+FOUNDATION_EXPORT NSDictionary *LBSharedRouterRequestCacheHitPublishPermit(NSDictionary *token);
 FOUNDATION_EXPORT NSDictionary * _Nullable LBSharedRouterCurrentToken(NSInteger sourceKind, NSString *canonicalID);
 
 #endif /* LegadoBridge_h */

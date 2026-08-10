@@ -30,8 +30,10 @@ final class SourceSessionCoordinatorTests: XCTestCase {
         let c = SourceSessionCoordinator.shared
         // 同 URL：switch 后再 manualRefresh 抬升 contentGeneration，旧 token 应被拒
         let t1 = c.apply(.switchDiscoverSource(exactSourceUrl: "https://x"))
+        _ = c.bindTestLegadoPublishIdentity(exactSourceUrl: "https://x")
+        let staleToken = c.currentToken(exactSourceUrl: "https://x")!
         _ = c.apply(.manualRefreshFirstPage(exactSourceUrl: "https://x"))
-        let stale = c.requestPublishPermit(for: t1, isFirstPage: true)
+        let stale = c.requestPublishPermit(for: staleToken, isFirstPage: true)
         guard case .failure(let r2) = stale else {
             return XCTFail("expected content mismatch, got \(stale)")
         }
@@ -40,8 +42,10 @@ final class SourceSessionCoordinatorTests: XCTestCase {
 
     func testPaginationContiguous() {
         let c = SourceSessionCoordinator.shared
-        let t = c.apply(.switchDiscoverSource(exactSourceUrl: "https://p"))
-        XCTAssertNotNil(try? c.requestPublishPermit(for: t, isFirstPage: true).get())
+        _ = c.apply(.switchDiscoverSource(exactSourceUrl: "https://p"))
+        _ = c.bindTestLegadoPublishIdentity(exactSourceUrl: "https://p")
+        let page1 = c.currentToken(exactSourceUrl: "https://p")!
+        XCTAssertNotNil(try? c.requestPublishPermit(for: page1, isFirstPage: true).get())
         _ = c.apply(.loadMore(exactSourceUrl: "https://p", page: 2))
         let cur = c.currentToken(exactSourceUrl: "https://p")!
         var req = cur
@@ -71,6 +75,18 @@ final class SourceSessionCoordinatorTests: XCTestCase {
         XCTAssertNotEqual(tx.sessionKey, tl.sessionKey)
         XCTAssertEqual(tx.canonicalID, "番茄官网")
         XCTAssertEqual(tl.canonicalID, "https://legado.example/a")
+    }
+
+    func testCapturedPublishContextRejectedAfterRouteSwitch() {
+        let c = SourceSessionCoordinator.shared
+        let urlA = "https://capture-a"
+        let urlB = "https://capture-b"
+        _ = c.applySelection(SelectionToken(sourceKind: .legado, canonicalID: urlA))
+        _ = c.bindTestLegadoPublishIdentity(exactSourceUrl: urlA)
+        let captured = c.currentToken(exactSourceUrl: urlA)!
+        XCTAssertTrue(c.isStillActiveLegadoPublishContext(captured))
+        _ = c.applySelection(SelectionToken(sourceKind: .legado, canonicalID: urlB))
+        XCTAssertFalse(c.isStillActiveLegadoPublishContext(captured))
     }
 
     func testAtoAReselectBumpsSelectionOnly() {

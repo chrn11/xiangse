@@ -93,7 +93,6 @@ void LBTriggerMixedSearch(NSString *keyword, NSString *sourceUrl) {
         [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_trigger.txt"]
                  atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         if (!ok) {
-            // 原生未启动且 Hook 未接管时，兜底直调引擎（仍 post 通知）
             LBHandleSearchRequest(kw, sourceUrl.length > 0 ? sourceUrl : nil);
         }
         return;
@@ -101,19 +100,40 @@ void LBTriggerMixedSearch(NSString *keyword, NSString *sourceUrl) {
     LBHandleSearchRequest(kw, sourceUrl.length > 0 ? sourceUrl : nil);
 }
 
-/// 真机闭环根因：通知 dNotifyName_SearchBookSourceResponse 的 handler 不在 BookSearchController；
-/// 列表行数读的是 arrBaseData（LCTableViewControllerBase_Plain），且 dataSource 可能是
-/// 断裂的 _UIFilteredDataSource → 引擎有结果 / arrSearchItems 有条目但 UITableView 仍空。
-/// 深链搜索时常尚未 push 搜索页 → 需 pending，等 viewDidAppear 再灌入。
 static NSMutableArray *sPendingSearchBooks;
+static NSMutableArray *sPendingExploreBooks;
 static NSMutableArray *sLastAppliedSearchBooks;
 static NSString *sPendingSearchKeyword;
+static NSDictionary *sPendingExploreToken;
+static BOOL sPendingExploreFirstPage = YES;
+static BOOL sPendingExploreCacheHit = NO;
+static void LBDiscardExplorePendingBundle(void) {
+    [sPendingExploreBooks removeAllObjects];
+    sPendingExploreToken = nil;
+    sPendingExploreFirstPage = YES; sPendingExploreCacheHit = NO;
+}
 static BOOL sSearchUIAppearHooked;
 static IMP sOrigNumberOfRows;
 static IMP sOrigCellForRow;
+static NSMutableDictionary<NSString *, NSValue *> *sOrigNumberOfRowsByClass;
+static NSMutableDictionary<NSString *, NSValue *> *sOrigCellForRowByClass;
+static BOOL LBClassNameIsXBSPlazaHost(NSString *cn) {
+    return cn.length > 0 && ([cn containsString:@"BookList"] || [cn containsString:@"BookWorld"] ||
+                             [cn containsString:@"BookStore"] || [cn containsString:@"Shudan"]);
+}
+static IMP LBStoredOrigIMP(NSMutableDictionary<NSString *, NSValue *> *dict, Class cls) {
+    if (!cls || !dict) return NULL;
+    NSValue *v = dict[NSStringFromClass(cls)];
+    return v ? (IMP)v.pointerValue : NULL;
+}
+static void LBStoreOrigIMP(NSMutableDictionary<NSString *, NSValue *> **dictSlot, Class cls, IMP imp) {
+    if (!cls || !imp || !dictSlot) return;
+    if (!*dictSlot) *dictSlot = [NSMutableDictionary dictionary];
+    NSString *key = NSStringFromClass(cls);
+    if (!(*dictSlot)[key]) (*dictSlot)[key] = [NSValue valueWithPointer:imp];
+}
 static NSHashTable *sKnownSearchVCs; // weak
 static __strong UIViewController *sCurrentSearchVC; // 短时强引用，防 weak 过早清空
-
 static BOOL LBVCIsBookShelfContext(id selfObj);
 static IMP LBForwardTableRowsIMP(void);
 static IMP LBForwardTableCellIMP(void);
@@ -125,13 +145,12 @@ static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView
 static BOOL LBVCIsCatalogTableContext(id selfObj);
 static BOOL LBItemLooksLikeChapter(id item);
 static BOOL LBArrayLooksLikeChapters(NSArray *arr);
-
 static void LBSetSearchKeywordOnVC(UIViewController *vc, NSString *keyword);
+static BOOL LBKeywordIsExploreMode(NSString *keyword);
 static NSArray<UIWindow *> *LBAllAppWindows(void);
 static UINavigationController *LBFindBestNavigationController(UIViewController *from);
 static BOOL LBEnsureBookSearchVCPresented(NSString *keyword);
 NSString *LBDecodeCoverURL(NSString *url, NSString *sourceUrl);
-
 /// 是否为搜索结果页控制器（避免误命中 BookShelfController）
 static BOOL LBVCLooksLikeBookSearch(UIViewController *vc) {
     if (!vc) return NO;
@@ -429,6 +448,9 @@ static CGFloat LBHookedHeightForRow(id self, SEL _cmd, UITableView *tv, NSIndexP
 
 static void LBEnsurePlazaTableDataSourceMethods(Class cls) {
     if (!cls) return;
+    if (LBIsDiscoverNativeXBSMode() && LBClassNameIsXBSPlazaHost(NSStringFromClass(cls))) {
+        return;
+    }
     SEL rowsSel = @selector(tableView:numberOfRowsInSection:);
     SEL cellSel = @selector(tableView:cellForRowAtIndexPath:);
     SEL hSel = @selector(tableView:heightForRowAtIndexPath:);
@@ -469,14 +491,18 @@ void LBEnsurePlazaListTableHooks(Class cls) {
 
 static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NSString *keyword) {
     if (![book isKindOfClass:[NSDictionary class]] || book.count == 0) return;
-    if (LBIsDiscoverTabActive()) {
-        NSString *cn = NSStringFromClass([vc class]);
-        if ([cn containsString:@"BookWorld"] || [cn containsString:@"BookStore"] ||
-            [cn containsString:@"Shudan"]) {
-            LBRemoveDiscoverOverlays(vc);
-            UIViewController *child = LBActiveDiscoverListVC(vc);
-            if (child) vc = child;
-        }
+    BOOL exploreMode = LBKeywordIsExploreMode(keyword);
+    if (!exploreMode && !LBVCLooksLikeBookSearch(vc)) {
+        return;
+    }
+    if (LBIsDiscoverNativeXBSMode() && LBClassNameIsXBSPlazaHost(NSStringFromClass([vc class]))) {
+        return;
+    }
+    if (exploreMode) {
+        if (![NSStringFromClass([vc class]) containsString:@"BookListCon"]) return;
+        NSString *owner = [NSString stringWithFormat:@"%@:%p", NSStringFromClass([vc class]), vc];
+        id tokenOwner = sPendingExploreToken[@"ownerControllerIdentity"];
+        if (![owner isEqual:tokenOwner]) return;
     }
     // 对齐原生 BookListCon 字段：desc/introduce/cover，避免原生 cell 只出灰封面位
     NSMutableDictionary *norm = [book mutableCopy];
@@ -797,47 +823,40 @@ static void LBReapplyLastSearchBooks(void) {
             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
         return;
     }
-    NSMutableArray *vcs = [NSMutableArray array];
-    [vcs addObjectsFromArray:LBFindBookSearchVCs() ?: @[]];
-    if (LBIsDiscoverTabActive()) {
-        for (id h in (LBFindDiscoverHostVCs() ?: @[])) {
-            if (![vcs containsObject:h]) [vcs addObject:h];
-        }
-    }
+    NSArray *vcs = LBFindBookSearchVCs() ?: @[];
     if (vcs.count == 0) return;
     NSString *kw = sPendingSearchKeyword;
     for (UIViewController *vc in vcs) {
+        if (!LBVCLooksLikeBookSearch(vc)) continue;
         for (id b in sLastAppliedSearchBooks) {
             if (![b isKindOfClass:[NSDictionary class]]) continue;
             LBMergeBookIntoSearchVC(vc, b, kw);
         }
     }
 }
-
+static BOOL LBKeywordIsExploreMode(NSString *keyword) {
+    return [keyword isEqualToString:@"explore"]
+        || [keyword hasPrefix:@"explore:"]
+        || [keyword hasPrefix:@"explore|"];
+}
 static void LBFlushPendingSearchUI(void) {
     if (sPendingSearchBooks.count == 0) return;
     NSArray *books = [sPendingSearchBooks copy];
     NSString *kw = [sPendingSearchKeyword copy];
-    NSArray *vcs = LBFindBookSearchVCs();
-    if (vcs.count == 0) return;
-    for (UIViewController *vc in vcs) {
-        for (id b in books) {
-            if (![b isKindOfClass:[NSDictionary class]]) continue;
-            LBMergeBookIntoSearchVC(vc, b, kw);
-        }
+    BOOL exploreMode = LBKeywordIsExploreMode(kw);
+    if (exploreMode) {
+        if (![sPendingExploreToken isKindOfClass:[NSDictionary class]]) { LBDiscardExplorePendingBundle(); return; }
+        LBApplySearchResultsToUI(books, kw);
+        return;
     }
-    [sPendingSearchBooks removeAllObjects];
-    NSString *marker = [NSString stringWithFormat:@"uiInject flush ok vcs=%lu books=%lu key=%@",
-                        (unsigned long)vcs.count, (unsigned long)books.count, kw ?: @""];
-    [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
-             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    // Ordinary search: route through apply (permit/target lock); never direct merge.
+    if (LBIsDiscoverNativeXBSMode()) return;
+    LBApplySearchResultsToUI(books, kw);
 }
-
 static void LBSetSearchKeywordOnVC(UIViewController *vc, NSString *keyword) {
     if (keyword.length == 0) return;
     @try { [vc setValue:keyword forKey:@"searchTextOutSide"]; } @catch (__unused NSException *e) {}
     @try { [vc setValue:keyword forKey:@"searchText"]; } @catch (__unused NSException *e) {}
-    // searchText 的 setter 常不落地；直接写 ivar
     Class cls = [vc class];
     while (cls && cls != [NSObject class]) {
         unsigned int count = 0;
@@ -1331,7 +1350,10 @@ static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInte
     } @catch (__unused NSException *e) {}
     NSInteger orig = 0;
     @try {
-        if (sOrigNumberOfRows) {
+        IMP classOrig = LBStoredOrigIMP(sOrigNumberOfRowsByClass, [self class]);
+        if (classOrig) {
+            orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))classOrig)(self, _cmd, tv, section);
+        } else if (sOrigNumberOfRows) {
             orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))sOrigNumberOfRows)(self, _cmd, tv, section);
         } else {
             IMP fwd = LBForwardTableRowsIMP();
@@ -1380,6 +1402,11 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
     // TC-12 C11：XBS 原生发现一律走宿主 cell，禁止 Legado 封面 cell
     if (plazaHost) {
         if (LBIsDiscoverNativeXBSMode()) {
+            IMP classCell = LBStoredOrigIMP(sOrigCellForRowByClass, [self class]);
+            if (classCell) {
+                return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))classCell)(
+                    self, _cmd, tv, ip);
+            }
             if (sOrigCellForRow) {
                 return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCellForRow)(
                     self, _cmd, tv, ip);
@@ -1474,32 +1501,13 @@ void LBInstallSearchUIAppearFlush(void) {
         });
         method_setImplementation(m, hook);
     }
-    // 兜底：有 arrBaseData+legadoBridge 时强制 numberOfRows / 填 cell
-    // 搜索页 + 原生发现广场壳（World 默认不画搜索字典，走安全 cell）
-    for (NSString *cn in @[@"BookSearchVCBase1", @"BookListCon", @"BookListController",
-                           @"BookWorldHomeCon", @"BookStoreBaseCon", @"ShudanHomeCon"]) {
-        Class cls = NSClassFromString(cn);
-        if (!cls) continue;
-        // World/Store 是模板壳，类上往往没有 UITableViewDataSource 方法；
-        // LBInstallHookOnClassOnly 遇无 Method 会直接 return，必须先 class_addMethod。
-        SEL rowsSel = @selector(tableView:numberOfRowsInSection:);
-        SEL cellSel = @selector(tableView:cellForRowAtIndexPath:);
-        if (!class_getInstanceMethod(cls, rowsSel)) {
-            class_addMethod(cls, rowsSel, (IMP)LBHookedNumberOfRows, "q@:@q");
-        } else {
-            LBInstallHookOnClassOnly(cls, rowsSel, (IMP)LBHookedNumberOfRows, &sOrigNumberOfRows);
-        }
-        if (!class_getInstanceMethod(cls, cellSel)) {
-            class_addMethod(cls, cellSel, (IMP)LBHookedCellForRow, "@@:@@");
-        } else {
-            LBInstallHookOnClassOnly(cls, cellSel, (IMP)LBHookedCellForRow, &sOrigCellForRow);
-        }
-    }
 }
 
-/// 发现态：只灌原生 BookList/BookWorld，禁止抢 push BookSearch。
+/// 发现态 explore：只灌原生 BookList/BookWorld，禁止抢 push BookSearch。
+/// 普通搜索 keyword 不得改发现宿主（P1-D）。
 static BOOL LBEnsureBookSearchVCPresented(NSString *keyword) {
-    if (LBIsDiscoverTabActive() && !LBIsBookSearchUserIntent()) {
+    BOOL exploreMode = LBKeywordIsExploreMode(keyword);
+    if (exploreMode && LBIsDiscoverTabActive() && !LBIsBookSearchUserIntent()) {
         BOOL hostOk = LBEnsureNativeDiscoverHostPresented();
         NSArray *hosts = LBFindDiscoverHostVCs();
         for (UIViewController *vc in hosts) {
@@ -1514,11 +1522,9 @@ static BOOL LBEnsureBookSearchVCPresented(NSString *keyword) {
         if (hostOk) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
-                if (sPendingSearchBooks.count > 0) {
-                    LBApplySearchResultsToUI([sPendingSearchBooks copy],
+                if (sPendingExploreBooks.count > 0 && [sPendingExploreToken isKindOfClass:[NSDictionary class]]) {
+                    LBApplySearchResultsToUI([sPendingExploreBooks copy],
                                             keyword.length ? keyword : @"explore");
-                } else if (sLastAppliedSearchBooks.count > 0) {
-                    LBReapplyLastSearchBooks();
                 }
             });
         }
@@ -1575,7 +1581,6 @@ static BOOL LBEnsureBookSearchVCPresented(NSString *keyword) {
         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     return YES;
 }
-
 void LBClearDiscoverExplorePendingOnly(void) {
     if (![NSThread isMainThread]) {
         dispatch_async(dispatch_get_main_queue(), ^{ LBClearDiscoverExplorePendingOnly(); });
@@ -1583,8 +1588,8 @@ void LBClearDiscoverExplorePendingOnly(void) {
     }
     @try {
         if (sPendingSearchBooks) [sPendingSearchBooks removeAllObjects];
+        sPendingExploreToken = nil;
         if (sLastAppliedSearchBooks) [sLastAppliedSearchBooks removeAllObjects];
-        // 只剔除带 Legado 标记的灌书，保留原生 XBS bookWorld 行
         NSArray *hosts = LBFindDiscoverHostVCs() ?: @[];
         for (UIViewController *vc in hosts) {
             NSMutableArray *targets = [NSMutableArray arrayWithObject:vc];
@@ -1620,12 +1625,8 @@ void LBClearDiscoverExplorePendingOnly(void) {
                 }
             }
         }
-        [@"uiInject clear explore pending + strip legado rows"
-            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     } @catch (__unused NSException *e) {}
 }
-
 void LBClearDiscoverExploreBooks(void) {
     if (![NSThread isMainThread]) {
         dispatch_async(dispatch_get_main_queue(), ^{ LBClearDiscoverExploreBooks(); });
@@ -1633,64 +1634,24 @@ void LBClearDiscoverExploreBooks(void) {
     }
     @try {
         LBClearDiscoverExploreEmptyHint();
-        // 用户正在看纯 XBS 发现：禁止掏空原生 bookWorld 列表
         if (LBIsDiscoverNativeXBSMode()) {
             LBClearDiscoverExplorePendingOnly();
             return;
         }
-        if (sPendingSearchBooks) [sPendingSearchBooks removeAllObjects];
-        if (sLastAppliedSearchBooks) [sLastAppliedSearchBooks removeAllObjects];
-        // 多次 explore 并发时只清一次 UI，避免 inject 后被第二次 clear 打成空屏
-        static CFAbsoluteTime sLastClearUIAt = 0;
-        CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-        if (now - sLastClearUIAt < 0.55) {
-            [@"uiInject clear discover books (debounce skip UI)"
-                writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
-                atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-            return;
+        UIViewController *host = LBFindDiscoverHostVCs().firstObject;
+        UIViewController *target = host ? LBActiveDiscoverListVC(host) : nil;
+        if (!target) return;
+        for (NSString *key in @[@"arrBaseData", @"itemList", @"arrSearchItems"]) {
+            @try { [target setValue:[NSMutableArray array] forKey:key]; } @catch (__unused NSException *e) {}
         }
-        sLastClearUIAt = now;
-        NSArray *hosts = LBFindDiscoverHostVCs() ?: @[];
-        for (UIViewController *vc in hosts) {
-            LBRemoveDiscoverOverlays(vc);
-            NSMutableArray *targets = [NSMutableArray arrayWithObject:vc];
-            UIViewController *list = nil;
-            @try { list = LBActiveDiscoverListVC(vc); } @catch (__unused NSException *e) {}
-            if (list && list != vc) [targets addObject:list];
-            for (UIViewController *child in vc.childViewControllers) {
-                if (![targets containsObject:child]) [targets addObject:child];
-            }
-            for (UIViewController *t in targets) {
-                // 探针：清空原生书列表前记录其数据量（定位「原生源书列表被清」vs「没加载」）
-                NSInteger beforeN = -1;
-                @try {
-                    id a = [t valueForKey:@"arrBaseData"];
-                    if ([a isKindOfClass:[NSArray class]]) beforeN = (NSInteger)[(NSArray *)a count];
-                } @catch (__unused NSException *e) {}
-                NSString *probe = [NSString stringWithFormat:
-                                   @"clearProbe class=%@ arrBefore=%ld xbs=%d",
-                                   NSStringFromClass([t class]), (long)beforeN,
-                                   LBIsDiscoverNativeXBSMode() ? 1 : 0];
-                [probe writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_clear_probe.txt"]
-                       atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-                @try { [t setValue:[NSMutableArray array] forKey:@"arrBaseData"]; } @catch (__unused NSException *e) {}
-                @try { [t setValue:[NSMutableArray array] forKey:@"itemList"]; } @catch (__unused NSException *e) {}
-                @try { [t setValue:[NSMutableArray array] forKey:@"arrSearchItems"]; } @catch (__unused NSException *e) {}
-                @try { [t setValue:[NSMutableDictionary dictionary] forKey:@"dicSearchItems"]; } @catch (__unused NSException *e) {}
-                @try { [t setValue:[NSMutableDictionary dictionary] forKey:@"dicAllBookList"]; } @catch (__unused NSException *e) {}
-                UITableView *tv = nil;
-                @try { tv = [t valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
-                if ([tv isKindOfClass:[UITableView class]]) {
-                    @try { [tv reloadData]; } @catch (__unused NSException *e) {}
-                }
-            }
+        for (NSString *key in @[@"dicSearchItems", @"dicAllBookList"]) {
+            @try { [target setValue:[NSMutableDictionary dictionary] forKey:key]; } @catch (__unused NSException *e) {}
         }
-        [@"uiInject clear discover books"
-            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        UITableView *tv = nil;
+        @try { tv = [target valueForKey:@"tableView"]; } @catch (__unused NSException *e) {}
+        if ([tv isKindOfClass:[UITableView class]]) @try { [tv reloadData]; } @catch (__unused NSException *e) {}
     } @catch (__unused NSException *e) {}
 }
-
 /// explore 超时/失败后摘掉发现页「章节加载中」残留（防 UI 永久挂起）
 void LBDismissDiscoverLoadingHUD(void) {
     if (![NSThread isMainThread]) {
@@ -1884,7 +1845,6 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
                forControlEvents:UIControlEventTouchUpInside];
             [box addSubview:loginBtn];
         }
-
         [NSLayoutConstraint activateConstraints:@[
             [lab.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:24],
             [lab.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-24],
@@ -1896,7 +1856,6 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
                 [loginBtn.centerXAnchor constraintEqualToAnchor:box.centerXAnchor],
             ]];
         }
-
         [host.view addSubview:box];
         [host.view bringSubviewToFront:box];
         if ([title isKindOfClass:[UIView class]]) {
@@ -1908,9 +1867,61 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     } @catch (__unused NSException *e) {}
 }
-
+static void LBApplySearchResultsToUIWithCapturedTokenInternal(NSArray *books,
+                                                              NSString *keyword,
+                                                              NSDictionary *capturedToken,
+                                                              BOOL isFirstPage,
+                                                              BOOL isCacheHit) {
+    if (![NSThread isMainThread]) {
+        NSArray *booksCopy = [books copy];
+        NSString *kwCopy = [keyword copy];
+        NSDictionary *tokenCopy = [capturedToken copy];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBApplySearchResultsToUIWithCapturedTokenInternal(booksCopy, kwCopy, tokenCopy,
+                                                              isFirstPage, isCacheHit);
+        });
+        return;
+    }
+    if (![capturedToken isKindOfClass:[NSDictionary class]]) {
+        LBDiscardExplorePendingBundle();
+        return;
+    }
+    id sourceKind = capturedToken[@"sourceKind"], canonical = capturedToken[@"canonicalID"], exact = capturedToken[@"exactSourceUrl"], owner = capturedToken[@"ownerControllerIdentity"], fingerprint = capturedToken[@"definitionFingerprint"], snapshot = capturedToken[@"snapshotID"], node = capturedToken[@"nodeID"];
+    if (![sourceKind isKindOfClass:[NSNumber class]] || [sourceKind integerValue] != 2 ||
+        ![canonical isKindOfClass:[NSString class]] || ![exact isKindOfClass:[NSString class]] || ![(NSString *)canonical length] || ![(NSString *)exact length] || ![canonical isEqual:exact] ||
+        ![owner isKindOfClass:[NSString class]] || ![(NSString *)owner length] || ![fingerprint isKindOfClass:[NSString class]] || ![(NSString *)fingerprint length] ||
+        ![snapshot isKindOfClass:[NSString class]] || ![(NSString *)snapshot length] || ![node isKindOfClass:[NSString class]] || ![(NSString *)node length]) {
+        LBDiscardExplorePendingBundle();
+        return;
+    }
+    if (![sPendingExploreToken isEqual:capturedToken] || ![sPendingSearchKeyword hasPrefix:@"explore"]) {
+        [sPendingExploreBooks removeAllObjects];
+    }
+    if (!sPendingExploreBooks) sPendingExploreBooks = [NSMutableArray array];
+    sPendingExploreToken = [capturedToken copy];
+    sPendingExploreFirstPage = isFirstPage;
+    sPendingExploreCacheHit = isCacheHit;
+    LBApplySearchResultsToUI(books, keyword);
+}
+void LBApplySearchResultsToUIWithCapturedToken(NSArray *books, NSString *keyword,
+                                               NSDictionary *capturedToken, BOOL isFirstPage) {
+    LBApplySearchResultsToUIWithCapturedTokenInternal(books, keyword, capturedToken, isFirstPage, NO);
+}
+void LBApplySearchResultsToUIWithCapturedCacheToken(NSArray *books, NSString *keyword,
+                                                    NSDictionary *capturedToken) {
+    LBApplySearchResultsToUIWithCapturedTokenInternal(books, keyword, capturedToken, YES, YES);
+}
+static BOOL LBPermitMatchesExploreCapture(NSDictionary *permit, NSDictionary *captured, BOOL firstPage, BOOL cacheHit) {
+    NSDictionary *returned = permit[@"token"];
+    if (![returned isKindOfClass:[NSDictionary class]]) return NO;
+    for (NSString *key in @[@"sourceKind", @"canonicalID", @"exactSourceUrl", @"selectionGeneration", @"managerOrRegistryGeneration", @"uiGeneration", @"definitionGeneration", @"contentGeneration", @"snapshotID", @"nodeID", @"page", @"ownerControllerIdentity", @"definitionFingerprint", @"runtimeEpoch"])
+        if (![returned[key] isEqual:captured[key]]) return NO;
+    BOOL replace = [permit[@"replaceFirstPage"] boolValue];
+    if (replace != (firstPage || cacheHit) || [permit[@"appendPage"] boolValue] == replace) return NO;
+    return !cacheHit || [returned[@"requestSequence"] isEqual:captured[@"requestSequence"]];
+}
 void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
-    if (![books isKindOfClass:[NSArray class]] || books.count == 0) return;
+    if (![books isKindOfClass:[NSArray class]]) return;
     if (![NSThread isMainThread]) {
         NSArray *booksCopy = [books copy];
         NSString *kwCopy = [keyword copy];
@@ -1920,100 +1931,120 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
         return;
     }
     @try {
-    // 有书则清掉空态盖层
-    LBClearDiscoverExploreEmptyHint();
-    LBInstallSearchUIAppearFlush();
-    if (!sPendingSearchBooks) sPendingSearchBooks = [NSMutableArray array];
-    // 合并进 pending（同 key 去重）
+    BOOL exploreMode = LBKeywordIsExploreMode(keyword);
+    if (!exploreMode && books.count == 0) return;
+    if (!exploreMode && LBIsDiscoverNativeXBSMode()) return;
+    if (exploreMode && ![sPendingExploreToken isKindOfClass:[NSDictionary class]]) return;
+    if (!exploreMode && sPendingExploreToken) {
+        LBDiscardExplorePendingBundle();
+    }
+    NSMutableArray *pendingBuf = exploreMode
+        ? (sPendingExploreBooks ?: (sPendingExploreBooks = [NSMutableArray array]))
+        : (sPendingSearchBooks ?: (sPendingSearchBooks = [NSMutableArray array]));
     for (id b in books) {
         if (![b isKindOfClass:[NSDictionary class]]) continue;
         NSString *k = LBBookListDedupKey(b);
         BOOL exists = NO;
-        for (id cur in sPendingSearchBooks) {
+        for (id cur in pendingBuf) {
             if (k.length > 0 && [cur isKindOfClass:[NSDictionary class]] &&
                 [LBBookListDedupKey(cur) isEqualToString:k]) {
                 exists = YES;
                 break;
             }
         }
-        if (!exists) [sPendingSearchBooks addObject:b];
+        if (!exists) [pendingBuf addObject:b];
     }
     if (keyword.length > 0) sPendingSearchKeyword = [keyword copy];
-
-    // explore 结果必须进发现宿主，不能因 sticky 被清/搜索意图抢路由而灌进 BookSearch
-    BOOL exploreMode = [keyword isEqualToString:@"explore"]
-        || [keyword hasPrefix:@"explore:"]
-        || [keyword hasPrefix:@"explore|"];
-    // 用户已切到纯 XBS：丢掉迟到的 Legado explore，避免覆盖原生书单
     if (exploreMode && LBIsDiscoverNativeXBSMode()) {
-        [@"uiInject skip explore (native XBS mode)"
-            writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
-            atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        LBDiscardExplorePendingBundle();
         return;
     }
-    if (exploreMode && !LBIsDiscoverTabActive()) {
-        LBSetDiscoverTabActive(YES);
-    }
-    BOOL discoverActive = LBIsDiscoverTabActive() || exploreMode;
-
-    NSArray *vcs = LBFindBookSearchVCs();
-    NSArray *discoverHosts = discoverActive ? LBFindDiscoverHostVCs() : @[];
-    // 每次 Apply 都 dump，便于对照「空列表」实际持有者
-    LBDumpVisibleVCTree();
-    if (vcs.count == 0 && discoverHosts.count == 0) {
-        BOOL ensured = NO;
-        if (exploreMode || discoverActive) {
-            ensured = LBEnsureNativeDiscoverHostPresented();
-            discoverHosts = LBFindDiscoverHostVCs();
-        } else {
-            ensured = LBEnsureBookSearchVCPresented(keyword);
-            vcs = LBFindBookSearchVCs();
+    NSMutableArray *targets = [NSMutableArray array];
+    if (exploreMode) {
+        if (!LBIsDiscoverTabActive()) {
+            LBSetDiscoverTabActive(YES);
         }
-        if (LBIsDiscoverTabActive() || exploreMode) {
-            discoverHosts = LBFindDiscoverHostVCs();
-            discoverActive = YES;
+        NSArray *discoverHosts = LBFindDiscoverHostVCs() ?: @[];
+        if (discoverHosts.count == 0) {
+            LBEnsureNativeDiscoverHostPresented();
+            discoverHosts = LBFindDiscoverHostVCs() ?: @[];
         }
-        if (vcs.count == 0 && discoverHosts.count == 0) {
+        UIViewController *active = discoverHosts.count ? LBActiveDiscoverListVC(discoverHosts.firstObject) : nil;
+        if (active) [targets addObject:active];
+        if (targets.count == 0) {
             NSString *marker = [NSString stringWithFormat:
-                                @"uiInject pending n=%lu key=%@ (no BookSearchVC/discoverHost yet ensure=%d discover=%d explore=%d)",
-                                (unsigned long)sPendingSearchBooks.count, keyword ?: @"",
-                                ensured ? 1 : 0, discoverActive ? 1 : 0, exploreMode ? 1 : 0];
+                                @"uiInject explore pending n=%lu key=%@ (no BookListCon yet)",
+                                (unsigned long)pendingBuf.count, keyword ?: @""];
             [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
                      atomically:YES encoding:NSUTF8StringEncoding error:NULL];
             return;
         }
-    }
-    NSMutableArray *targets = [NSMutableArray array];
-    if (discoverHosts.count > 0) {
-        [targets addObjectsFromArray:discoverHosts];
-    }
-    // 发现态 / explore 禁止灌 BookSearch（那是搜索页，不是发现）
-    if (targets.count == 0 && vcs.count > 0 && !discoverActive) {
-        [targets addObjectsFromArray:vcs];
-    } else if (discoverHosts.count > 0 && vcs.count > 0 && !discoverActive && !exploreMode) {
-        [targets addObjectsFromArray:vcs];
-    }
-    if (targets.count == 0 && discoverActive) {
-        NSString *marker = [NSString stringWithFormat:
-                            @"uiInject wait native plaza n=%lu key=%@ (no World yet explore=%d)",
-                            (unsigned long)sPendingSearchBooks.count, keyword ?: @"",
-                            exploreMode ? 1 : 0];
-        [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
-                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-        return;
+        UIViewController *target = targets.firstObject;
+        NSString *className = NSStringFromClass([target class]);
+        NSString *owner = [NSString stringWithFormat:@"%@:%p", className, target];
+        if (![className containsString:@"BookListCon"] ||
+            ![owner isEqual:sPendingExploreToken[@"ownerControllerIdentity"]]) {
+            LBDiscardExplorePendingBundle();
+            return;
+        }
+        NSDictionary *permit = sPendingExploreCacheHit
+            ? LBSharedRouterRequestCacheHitPublishPermit(sPendingExploreToken)
+            : LBSharedRouterRequestPublishPermit(sPendingExploreToken, sPendingExploreFirstPage);
+        if (![permit[@"ok"] boolValue] || !LBPermitMatchesExploreCapture(
+                permit, sPendingExploreToken, sPendingExploreFirstPage, sPendingExploreCacheHit)) {
+            LBDiscardExplorePendingBundle();
+            return;
+        }
+        LBEnsurePlazaListTableHooks([target class]);
+        LBInstallSearchUIAppearFlush();
+        if (sPendingExploreFirstPage || sPendingExploreCacheHit) {
+            LBSetDiscoverNativeXBSMode(NO);
+            LBClearDiscoverExploreBooks();
+        }
+        LBClearDiscoverExploreEmptyHint();
+        if (books.count == 0) {
+            [pendingBuf removeAllObjects];
+            if (sPendingExploreFirstPage || sPendingExploreCacheHit) {
+                LBClearDiscoverExploreBooks();
+            }
+            sPendingExploreToken = nil;
+            return;
+        }
+    } else {
+        NSArray *vcs = LBFindBookSearchVCs() ?: @[];
+        if (vcs.count == 0) {
+            BOOL ensured = LBEnsureBookSearchVCPresented(keyword);
+            vcs = LBFindBookSearchVCs() ?: @[];
+            if (vcs.count == 0) {
+                NSString *marker = [NSString stringWithFormat:
+                                    @"uiInject ordinary pending n=%lu key=%@ ensure=%d (BookSearchVC only)",
+                                    (unsigned long)pendingBuf.count, keyword ?: @"",
+                                    ensured ? 1 : 0];
+                [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
+                         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                return;
+            }
+        }
+        for (UIViewController *vc in vcs) {
+            if (LBVCLooksLikeBookSearch(vc)) [targets addObject:vc];
+        }
+        if (targets.count == 0) return;
+        LBInstallSearchUIAppearFlush();
     }
     NSUInteger applied = 0;
-    if (!sLastAppliedSearchBooks) sLastAppliedSearchBooks = [NSMutableArray array];
-    [sLastAppliedSearchBooks removeAllObjects];
+    if (!exploreMode) {
+        if (!sLastAppliedSearchBooks) sLastAppliedSearchBooks = [NSMutableArray array];
+        [sLastAppliedSearchBooks removeAllObjects];
+    }
     NSMutableArray *vcNames = [NSMutableArray array];
     for (UIViewController *vc in targets) {
         [vcNames addObject:[NSString stringWithFormat:@"%@%@",
                             NSStringFromClass([vc class]),
                             LBVCIsVisibleInWindow(vc) ? @"*" : @""]];
-        for (id b in sPendingSearchBooks) {
+        for (id b in pendingBuf) {
             if (![b isKindOfClass:[NSDictionary class]]) continue;
             LBMergeBookIntoSearchVC(vc, b, keyword ?: sPendingSearchKeyword);
-            if (![sLastAppliedSearchBooks containsObject:b]) {
+            if (!exploreMode && ![sLastAppliedSearchBooks containsObject:b]) {
                 [sLastAppliedSearchBooks addObject:b];
             }
             applied++;
@@ -2022,41 +2053,34 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
             sCurrentSearchVC = vc;
         }
     }
-    [sPendingSearchBooks removeAllObjects];
-    if (discoverActive) {
-        LBEnsureNativeDiscoverHostPresented();
-        for (UIViewController *h in (LBFindDiscoverHostVCs() ?: @[])) {
-            // 多页原生模式：只刷新当前可见 BookListCon，禁止钉死第一页/同步到空兄弟页
-            LBReloadDiscoverNativeList(h);
-        }
+    [pendingBuf removeAllObjects];
+    if (exploreMode) {
+        sPendingExploreToken = nil;
     }
-    NSString *marker = [NSString stringWithFormat:@"uiInject ok vcs=%lu applied=%lu key=%@ targets=%@ discover=%d explore=%d",
+    NSString *marker = [NSString stringWithFormat:@"uiInject ok vcs=%lu applied=%lu key=%@ targets=%@ explore=%d",
                         (unsigned long)targets.count, (unsigned long)applied, keyword ?: @"",
-                        [vcNames componentsJoinedByString:@","], discoverActive ? 1 : 0, exploreMode ? 1 : 0];
+                        [vcNames componentsJoinedByString:@","], exploreMode ? 1 : 0];
     [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
              atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-    // 发现态：标题壳已建好时不再每次 inject 都 RefreshKindBar（会 ForceTitles → 闪屏）
-    // 延迟再灌仅保留搜索页 Reapply，发现页靠 ReloadDiscoverNativeList 软刷表
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        LBReapplyLastSearchBooks();
-    });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        LBReapplyLastSearchBooks();
-    });
+    if (!exploreMode) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            LBReapplyLastSearchBooks();
+        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            LBReapplyLastSearchBooks();
+        });
+    }
     } @catch (NSException *e) {
+        sPendingExploreToken = nil;
         NSLog(@"[LegadoBridge] LBApplySearchResultsToUI fail-open: %@", e);
     }
 }
-
 #pragma mark - Catalog UI inject
-
 static NSArray *sPendingCatalogChapters = nil;
 static NSString *sPendingCatalogBookUrl = nil;
 static NSString *sPendingCatalogSourceName = nil;
 static NSString *sPendingCatalogSourceUrl = nil;
-/// 用户已倒序/过滤：禁止引擎 reapply 用原始顺序盖回
 static BOOL sCatalogUserOrderLocked = NO;
-
 void LBSetCatalogUserOrderLocked(BOOL locked) {
     sCatalogUserOrderLocked = locked;
 }
@@ -2064,17 +2088,14 @@ void LBSetCatalogUserOrderLocked(BOOL locked) {
 BOOL LBCatalogUserOrderLocked(void) {
     return sCatalogUserOrderLocked;
 }
-
 void LBSyncPendingCatalogChapters(NSArray *chapters) {
     if (![chapters isKindOfClass:[NSArray class]]) return;
     sPendingCatalogChapters = [chapters copy];
     sCatalogUserOrderLocked = YES;
 }
-
 NSArray *LBCopyPendingCatalogChapters(void) {
     return [sPendingCatalogChapters copy];
 }
-
 void LBClearNativeReadingBridgeState(void) {
     if (![NSThread isMainThread]) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -2093,8 +2114,6 @@ void LBClearNativeReadingBridgeState(void) {
         writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_native_marker.txt"]
          atomically:YES encoding:NSUTF8StringEncoding error:NULL];
 }
-
-/// 从 bookUrl 取 scheme://host[:port]，替代写死的 mock 端口兜底
 static NSString *LBOriginSourceUrlFromBookUrl(NSString *bookUrl) {
     if (bookUrl.length == 0) return nil;
     NSURL *u = [NSURL URLWithString:bookUrl];
@@ -2104,8 +2123,6 @@ static NSString *LBOriginSourceUrlFromBookUrl(NSString *bookUrl) {
     }
     return [NSString stringWithFormat:@"%@://%@", u.scheme, u.host];
 }
-
-/// pending > bookUrl 源站 > 持久绑定
 static NSString *LBResolvePendingSourceUrl(NSString *bookUrl) {
     if (sPendingCatalogSourceUrl.length > 0) return sPendingCatalogSourceUrl;
     NSString *origin = LBOriginSourceUrlFromBookUrl(bookUrl);
@@ -2114,20 +2131,15 @@ static NSString *LBResolvePendingSourceUrl(NSString *bookUrl) {
     if (mapped.length > 0) return mapped;
     return nil;
 }
-/// legado://nativeRead 等待目录返回后再点章
 static NSInteger sDeferredNativeOpenIdx = -1;
-/// 本章已成功 nativePaged+push，禁止 goStart 二次 push（nativeRead 多路回调曾 SIGABRT）
 static BOOL sNativeOpenChapterDone = NO;
 static BOOL sNativeOpenGoInFlight = NO;
-/// nativeRead 单次点章占坑 bookUrl|idx（目录/tryOpen 多路回调只放行一次）
 static NSString *sNativeOpenOnceKey = nil;
 static NSObject *sNativeOpenOnceLock = nil;
 static NSString *sDeferredNativeOpenBookUrl = nil;
-/// nativeRead 目录回调已触发过开章（防 LBApplyCatalogToUI 二次 catalogUI）
 static BOOL sNativeReadChapterOpenStarted = NO;
 static NSDictionary *sPendingResetContent = nil;
 static NSMutableDictionary *sPendingNativeFullBook = nil;
-/// 0=off 1=nativeFull(原版UI) 2=safeShell(UITextView兜底，不算过关)
 static int sLegadoReaderMode = 0;
 /// 假设 E：mode=1 下 viewDidAppear 已走 UIKit super 一次（onReset 门控）
 static BOOL sDidAppearUIKit = NO;
@@ -2181,6 +2193,11 @@ static void LBInstallHookOnClassOnly(Class targetCls, SEL sel, IMP hookImp, IMP 
     Class owner = LBClassOwningInstanceMethod(targetCls, sel) ?: targetCls;
     if (inoutOrig && !*inoutOrig && current != hookImp) {
         *inoutOrig = current;
+    }
+    if (sel == @selector(tableView:numberOfRowsInSection:)) {
+        LBStoreOrigIMP(&sOrigNumberOfRowsByClass, targetCls, current);
+    } else if (sel == @selector(tableView:cellForRowAtIndexPath:)) {
+        LBStoreOrigIMP(&sOrigCellForRowByClass, targetCls, current);
     }
     if (LBIsSharedTableBaseClass(owner)) {
         // 记录真原生，并把已被污染的基类 IMP 还原
@@ -12712,11 +12729,9 @@ void LBOpenTTS(NSString *bookUrl, NSString *chapterUrl, NSString *chapterTitle) 
         bookUrl ?: @"", chapterUrl ?: @"", chapterTitle, nil, nil
     );
 }
-
 void LBPresentAudioPlayer(NSString *bookUrl, NSString *chapterUrl, NSString *chapterTitle) {
     LBOpenTTS(bookUrl, chapterUrl, chapterTitle);
 }
-
 #pragma mark - TC-08I 共享路由 / Session 隔离（SourceSessionCoordinator）
 
 static id LBSharedRouter(void) {
@@ -12754,17 +12769,20 @@ NSDictionary *LBSharedRouterApplySelection(NSInteger sourceKind,
         router, sel, sourceKind, canonicalID, displayName, ownerIdentity, isReselect
     );
 }
-
 NSDictionary *LBSharedRouterRequestPublishPermit(NSDictionary *token, BOOL isFirstPage) {
     id router = LBSharedRouter();
-    if (!router || ![token isKindOfClass:[NSDictionary class]]) {
-        return @{@"ok": @NO, @"reason": @"routeFailClosed"};
-    }
     SEL sel = @selector(requestPublishPermitWithToken:isFirstPage:);
-    if (![router respondsToSelector:sel]) return @{@"ok": @NO, @"reason": @"routeFailClosed"};
+    if (!router || ![token isKindOfClass:[NSDictionary class]] || ![router respondsToSelector:sel])
+        return @{@"ok": @NO, @"reason": @"routeFailClosed"};
     return ((NSDictionary *(*)(id, SEL, NSDictionary *, BOOL))objc_msgSend)(router, sel, token, isFirstPage) ?: @{};
 }
-
+NSDictionary *LBSharedRouterRequestCacheHitPublishPermit(NSDictionary *token) {
+    id router = LBSharedRouter();
+    SEL sel = @selector(requestCacheHitPublishPermitWithToken:);
+    if (!router || ![token isKindOfClass:[NSDictionary class]] || ![router respondsToSelector:sel])
+        return @{@"ok": @NO, @"reason": @"routeFailClosed", @"cacheHit": @YES};
+    return ((NSDictionary *(*)(id, SEL, NSDictionary *))objc_msgSend)(router, sel, token) ?: @{};
+}
 NSDictionary * _Nullable LBSharedRouterCurrentToken(NSInteger sourceKind, NSString *canonicalID) {
     id router = LBSharedRouter();
     if (!router || canonicalID.length == 0) return nil;
@@ -12772,4 +12790,3 @@ NSDictionary * _Nullable LBSharedRouterCurrentToken(NSInteger sourceKind, NSStri
     if (![router respondsToSelector:sel]) return nil;
     return ((NSDictionary *(*)(id, SEL, NSInteger, NSString *))objc_msgSend)(router, sel, sourceKind, canonicalID);
 }
-
