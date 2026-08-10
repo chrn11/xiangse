@@ -126,11 +126,10 @@ static IMP LBStoredOrigIMP(NSMutableDictionary<NSString *, NSValue *> *dict, Cla
     NSValue *v = dict[NSStringFromClass(cls)];
     return v ? (IMP)v.pointerValue : NULL;
 }
-static void LBStoreOrigIMP(NSMutableDictionary<NSString *, NSValue *> **dictSlot, Class cls, IMP imp) {
-    if (!cls || !imp || !dictSlot) return;
-    if (!*dictSlot) *dictSlot = [NSMutableDictionary dictionary];
+static void LBStoreOrigIMP(NSMutableDictionary<NSString *, NSValue *> *dict, Class cls, IMP imp) {
+    if (!cls || !imp || !dict) return;
     NSString *key = NSStringFromClass(cls);
-    if (!(*dictSlot)[key]) (*dictSlot)[key] = [NSValue valueWithPointer:imp];
+    if (!dict[key]) dict[key] = [NSValue valueWithPointer:imp];
 }
 static NSHashTable *sKnownSearchVCs; // weak
 static __strong UIViewController *sCurrentSearchVC; // 短时强引用，防 weak 过早清空
@@ -2195,9 +2194,11 @@ static void LBInstallHookOnClassOnly(Class targetCls, SEL sel, IMP hookImp, IMP 
         *inoutOrig = current;
     }
     if (sel == @selector(tableView:numberOfRowsInSection:)) {
-        LBStoreOrigIMP(&sOrigNumberOfRowsByClass, targetCls, current);
+        if (!sOrigNumberOfRowsByClass) sOrigNumberOfRowsByClass = [NSMutableDictionary dictionary];
+        LBStoreOrigIMP(sOrigNumberOfRowsByClass, targetCls, current);
     } else if (sel == @selector(tableView:cellForRowAtIndexPath:)) {
-        LBStoreOrigIMP(&sOrigCellForRowByClass, targetCls, current);
+        if (!sOrigCellForRowByClass) sOrigCellForRowByClass = [NSMutableDictionary dictionary];
+        LBStoreOrigIMP(sOrigCellForRowByClass, targetCls, current);
     }
     if (LBIsSharedTableBaseClass(owner)) {
         // 记录真原生，并把已被污染的基类 IMP 还原
