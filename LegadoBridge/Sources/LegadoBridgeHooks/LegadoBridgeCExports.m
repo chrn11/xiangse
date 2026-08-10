@@ -113,10 +113,9 @@ static void LBDiscardExplorePendingBundle(void) {
     sPendingExploreFirstPage = YES; sPendingExploreCacheHit = NO;
 }
 static BOOL sSearchUIAppearHooked;
-static IMP sOrigNumberOfRows;
-static IMP sOrigCellForRow;
 static NSMutableDictionary<NSString *, NSValue *> *sOrigNumberOfRowsByClass;
 static NSMutableDictionary<NSString *, NSValue *> *sOrigCellForRowByClass;
+static NSMutableDictionary<NSString *, NSValue *> *sOrigHeightForRowByClass;
 static BOOL LBClassNameIsXBSPlazaHost(NSString *cn) {
     return cn.length > 0 && ([cn containsString:@"BookList"] || [cn containsString:@"BookWorld"] ||
                              [cn containsString:@"BookStore"] || [cn containsString:@"Shudan"]);
@@ -397,7 +396,6 @@ static NSString *LBBookListDedupKey(NSDictionary *book) {
 static BOOL LBArrayHasLegadoBooks(id cur);
 static BOOL LBArrayLooksLikeNativeBooks(id cur);
 static BOOL LBDictLooksLikeNativeBook(NSDictionary *d);
-static IMP sOrigHeightForRow = NULL;
 static IMP sOrigPlazaDidSelect = NULL;
 static IMP sTruePlainDidSelect = NULL;
 static void LBHookedPlazaDidSelect(id self, SEL _cmd, UITableView *tv, NSIndexPath *ip);
@@ -439,8 +437,9 @@ static CGFloat LBHookedHeightForRow(id self, SEL _cmd, UITableView *tv, NSIndexP
         }
         if (forceBookH) return 108.0;
     } @catch (__unused NSException *e) {}
-    if (sOrigHeightForRow) {
-        return ((CGFloat (*)(id, SEL, UITableView *, NSIndexPath *))sOrigHeightForRow)(self, _cmd, tv, ip);
+    IMP classHeight = LBStoredOrigIMP(sOrigHeightForRowByClass, [self class]);
+    if (classHeight) {
+        return ((CGFloat (*)(id, SEL, UITableView *, NSIndexPath *))classHeight)(self, _cmd, tv, ip);
     }
     return 88.0;
 }
@@ -458,20 +457,20 @@ static void LBEnsurePlazaTableDataSourceMethods(Class cls) {
     if (!rowsM) {
         class_addMethod(cls, rowsSel, (IMP)LBHookedNumberOfRows, "q@:@q");
     } else if (method_getImplementation(rowsM) != (IMP)LBHookedNumberOfRows) {
-        LBInstallHookOnClassOnly(cls, rowsSel, (IMP)LBHookedNumberOfRows, &sOrigNumberOfRows);
+        LBInstallHookOnClassOnly(cls, rowsSel, (IMP)LBHookedNumberOfRows, NULL);
     }
     Method cellM = class_getInstanceMethod(cls, cellSel);
     if (!cellM) {
         class_addMethod(cls, cellSel, (IMP)LBHookedCellForRow, "@@:@@");
     } else if (method_getImplementation(cellM) != (IMP)LBHookedCellForRow) {
-        LBInstallHookOnClassOnly(cls, cellSel, (IMP)LBHookedCellForRow, &sOrigCellForRow);
+        LBInstallHookOnClassOnly(cls, cellSel, (IMP)LBHookedCellForRow, NULL);
     }
     // 强制挂 height：原生常对 NSDictionary 回 0 → 全黑无行
     Method hM = class_getInstanceMethod(cls, hSel);
     if (!hM) {
         class_addMethod(cls, hSel, (IMP)LBHookedHeightForRow, "d@:@@");
     } else if (method_getImplementation(hM) != (IMP)LBHookedHeightForRow) {
-        LBInstallHookOnClassOnly(cls, hSel, (IMP)LBHookedHeightForRow, &sOrigHeightForRow);
+        LBInstallHookOnClassOnly(cls, hSel, (IMP)LBHookedHeightForRow, NULL);
     }
     // B-06 / TC-12 C11：无 didSelect 时从父类拷贝原生 IMP，禁止空壳 hook
     Method didM = class_getInstanceMethod(cls, didSel);
@@ -1352,8 +1351,6 @@ static NSInteger LBHookedNumberOfRows(id self, SEL _cmd, UITableView *tv, NSInte
         IMP classOrig = LBStoredOrigIMP(sOrigNumberOfRowsByClass, [self class]);
         if (classOrig) {
             orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))classOrig)(self, _cmd, tv, section);
-        } else if (sOrigNumberOfRows) {
-            orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))sOrigNumberOfRows)(self, _cmd, tv, section);
         } else {
             IMP fwd = LBForwardTableRowsIMP();
             if (fwd) {
@@ -1406,10 +1403,6 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
                 return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))classCell)(
                     self, _cmd, tv, ip);
             }
-            if (sOrigCellForRow) {
-                return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCellForRow)(
-                    self, _cmd, tv, ip);
-            }
             IMP fwd = LBForwardTableCellIMP();
             if (fwd) {
                 return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))fwd)(
@@ -1441,8 +1434,10 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
         } @catch (__unused NSException *e) {}
     }
     @try {
-        if (sOrigCellForRow) {
-            return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))sOrigCellForRow)(self, _cmd, tv, ip);
+        IMP classCell = LBStoredOrigIMP(sOrigCellForRowByClass, [self class]);
+        if (classCell) {
+            return ((UITableViewCell * (*)(id, SEL, UITableView *, NSIndexPath *))classCell)(
+                self, _cmd, tv, ip);
         }
         IMP fwd = LBForwardTableCellIMP();
         if (fwd) {
@@ -2199,6 +2194,9 @@ static void LBInstallHookOnClassOnly(Class targetCls, SEL sel, IMP hookImp, IMP 
     } else if (sel == @selector(tableView:cellForRowAtIndexPath:)) {
         if (!sOrigCellForRowByClass) sOrigCellForRowByClass = [NSMutableDictionary dictionary];
         LBStoreOrigIMP(sOrigCellForRowByClass, targetCls, current);
+    } else if (sel == @selector(tableView:heightForRowAtIndexPath:)) {
+        if (!sOrigHeightForRowByClass) sOrigHeightForRowByClass = [NSMutableDictionary dictionary];
+        LBStoreOrigIMP(sOrigHeightForRowByClass, targetCls, current);
     }
     if (LBIsSharedTableBaseClass(owner)) {
         // 记录真原生，并把已被污染的基类 IMP 还原
@@ -2269,14 +2267,12 @@ static void LBInstallHookOnClassOnly(Class targetCls, SEL sel, IMP hookImp, IMP 
 static IMP LBForwardTableRowsIMP(void) {
     if (sTruePlainNumberOfRows) return sTruePlainNumberOfRows;
     if (sOrigCatalogNumberOfRows) return sOrigCatalogNumberOfRows;
-    if (sOrigNumberOfRows) return sOrigNumberOfRows;
     return NULL;
 }
 
 static IMP LBForwardTableCellIMP(void) {
     if (sTruePlainCellForRow) return sTruePlainCellForRow;
     if (sOrigCatalogCellForRow) return sOrigCatalogCellForRow;
-    if (sOrigCellForRow) return sOrigCellForRow;
     return NULL;
 }
 static NSTimeInterval sLastLegadoChapterOpenTs = 0;

@@ -62,6 +62,24 @@ def main() -> int:
     if "sPendingExploreBooks" not in text or "sPendingSearchBooks" not in text:
         return _fail("explore/ordinary pending buffers not separated")
 
+    # P0-B: forbid cross-class global sOrig* IMP slots (per-class ByClass only).
+    for sym in ("sOrigNumberOfRows", "sOrigCellForRow", "sOrigHeightForRow"):
+        if re.search(rf"\b{sym}\b(?!\s*ByClass)", text):
+            return _fail(f"global {sym} still present — use {sym}ByClass per-class map only")
+    for required in (
+        "sOrigNumberOfRowsByClass",
+        "sOrigCellForRowByClass",
+        "sOrigHeightForRowByClass",
+    ):
+        if required not in text:
+            return _fail(f"missing per-class orig map {required}")
+    if "LBStoredOrigIMP(sOrigNumberOfRowsByClass" not in text:
+        return _fail("LBHookedNumberOfRows must resolve orig via sOrigNumberOfRowsByClass")
+    if "LBStoredOrigIMP(sOrigCellForRowByClass" not in text:
+        return _fail("LBHookedCellForRow must resolve orig via sOrigCellForRowByClass")
+    if "LBStoredOrigIMP(sOrigHeightForRowByClass" not in text:
+        return _fail("LBHookedHeightForRow must resolve orig via sOrigHeightForRowByClass")
+
     print("PASS dual-lane gate")
     return 0
 

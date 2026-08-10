@@ -25,6 +25,25 @@ class DualLaneGateTests(unittest.TestCase):
         mod = _load_gate()
         self.assertEqual(mod.main(), 0)
 
+    def test_rejects_global_sorig_symbols(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = text.replace(
+            "sOrigNumberOfRowsByClass",
+            "sOrigNumberOfRows;\nstatic NSMutableDictionary *sOrigNumberOfRowsByClass",
+            1,
+        )
+        tmp = mod.CEXPORTS.with_suffix(".m.gate_test_tmp")
+        try:
+            tmp.write_text(polluted, encoding="utf-8")
+            orig = mod.CEXPORTS
+            mod.CEXPORTS = tmp
+            self.assertNotEqual(mod.main(), 0)
+        finally:
+            mod.CEXPORTS = orig
+            if tmp.exists():
+                tmp.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()
