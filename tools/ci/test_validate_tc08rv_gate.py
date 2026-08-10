@@ -316,6 +316,23 @@ class TC08RVGateTests(unittest.TestCase):
             errors = validate_tc08rv_report(report, artifact_root=Path(tmp))
         self.assertTrue(any("caseResults set mismatch" in e for e in errors))
 
+    def test_three_channels_arrn_only_is_rejected(self) -> None:
+        """arrN/arrBaseData alone must not satisfy three_channels book proof."""
+        with tempfile.TemporaryDirectory() as tmp:
+            report = _passing_report(Path(tmp))
+            report["caseResults"]["XBS.three_channels"]["evidence"] = {
+                channel: {
+                    "activeDiscovery": True,
+                    "arrN": 100,
+                    "arrBaseData": 100,
+                    "publishedIdentityArrN": 100,
+                }
+                for channel in ("male", "female", "publication")
+            }
+            errors = validate_tc08rv_report(report, artifact_root=Path(tmp))
+        self.assertTrue(any("real visible book evidence missing" in e for e in errors))
+        self.assertTrue(any("request/source evidence missing" in e for e in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

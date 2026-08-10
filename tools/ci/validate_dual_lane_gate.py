@@ -10,10 +10,107 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 CEXPORTS = ROOT / "LegadoBridge" / "Sources" / "LegadoBridgeHooks" / "LegadoBridgeCExports.m"
 
+# 全局 sOrig* 别名（非 ByClass 后缀扩展名，如 sOrigNumberOfRowsGlobal）。
+_SORIG_ALIAS = re.compile(
+    r"\bsOrig(?:NumberOfRows|CellForRow|HeightForRow)(?!ByClass)\w+",
+)
+
+# hook 路径必须先 ByClass 再 Forward；禁止在 hook 内直接调共享槽。
+_ROWS_BYCLASS_BEFORE_FORWARD = re.compile(
+    r"LBStoredOrigIMP\s*\(\s*sOrigNumberOfRowsByClass\s*,.*?"
+    r"LBForwardTableRowsIMP\s*\(\s*\)",
+    re.S,
+)
+_CELL_BYCLASS_BEFORE_FORWARD = re.compile(
+    r"LBStoredOrigIMP\s*\(\s*sOrigCellForRowByClass\s*,.*?"
+    r"LBForwardTableCellIMP\s*\(\s*\)",
+    re.S,
+)
+_DIRECT_CROSS_CLASS_IN_HOOK = re.compile(
+    r"\b(?:sTruePlain(?:NumberOfRows|CellForRow)|sOrigCatalog(?:NumberOfRows|CellForRow))\b",
+)
+
 
 def _fail(msg: str) -> int:
     print(f"FAIL: {msg}", file=sys.stderr)
     return 1
+
+
+def _extract_static_function(text: str, name: str) -> str | None:
+    """提取 static C 函数体（不含外层花括号）。"""
+    pattern = rf"static\s+[\w\s*]+{re.escape(name)}\s*\([^)]*\)\s*\{{"
+    match = re.search(pattern, text)
+    if not match:
+        return None
+    start = match.end()
+    depth = 1
+    index = start
+    while index < len(text) and depth > 0:
+        char = text[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+        if depth == 0:
+            return text[start:index]
+        index += 1
+    return None
+
+
+def _check_install_writes_byclass(text: str) -> str | None:
+    install_fn = _extract_static_function(text, "LBInstallHookOnClassOnly")
+    if not install_fn:
+        return "LBInstallHookOnClassOnly not found"
+    for sym in (
+        "LBStoreOrigIMP(sOrigNumberOfRowsByClass",
+        "LBStoreOrigIMP(sOrigCellForRowByClass",
+        "LBStoreOrigIMP(sOrigHeightForRowByClass",
+    ):
+        if sym not in install_fn:
+            return f"LBInstallHookOnClassOnly missing ByClass store: {sym}"
+    return None
+
+
+def _check_hook_byclass_before_forward(text: str) -> list[str]:
+    errors: list[str] = []
+    rows_fn = _extract_static_function(text, "LBHookedNumberOfRows")
+    if not rows_fn:
+        errors.append("LBHookedNumberOfRows not found")
+    else:
+        if "LBStoredOrigIMP(sOrigNumberOfRowsByClass" not in rows_fn:
+            errors.append(
+                "LBHookedNumberOfRows must resolve orig via sOrigNumberOfRowsByClass before Forward"
+            )
+        elif not _ROWS_BYCLASS_BEFORE_FORWARD.search(rows_fn):
+            errors.append(
+                "LBHookedNumberOfRows missing ByClass→Forward miss path "
+                "(LBStoredOrigIMP(sOrigNumberOfRowsByClass … LBForwardTableRowsIMP())"
+            )
+        if _DIRECT_CROSS_CLASS_IN_HOOK.search(rows_fn):
+            errors.append(
+                "LBHookedNumberOfRows must not call sTruePlain*/sOrigCatalog* directly — "
+                "use ByClass or LBForwardTableRowsIMP()"
+            )
+
+    cell_fn = _extract_static_function(text, "LBHookedCellForRow")
+    if not cell_fn:
+        errors.append("LBHookedCellForRow not found")
+    else:
+        if "LBStoredOrigIMP(sOrigCellForRowByClass" not in cell_fn:
+            errors.append(
+                "LBHookedCellForRow must resolve orig via sOrigCellForRowByClass before Forward"
+            )
+        elif not _CELL_BYCLASS_BEFORE_FORWARD.search(cell_fn):
+            errors.append(
+                "LBHookedCellForRow missing ByClass→Forward miss path "
+                "(LBStoredOrigIMP(sOrigCellForRowByClass … LBForwardTableCellIMP())"
+            )
+        if _DIRECT_CROSS_CLASS_IN_HOOK.search(cell_fn):
+            errors.append(
+                "LBHookedCellForRow must not call sTruePlain*/sOrigCatalog* directly — "
+                "use ByClass or LBForwardTableCellIMP()"
+            )
+    return errors
 
 
 def main() -> int:
@@ -66,6 +163,11 @@ def main() -> int:
     for sym in ("sOrigNumberOfRows", "sOrigCellForRow", "sOrigHeightForRow"):
         if re.search(rf"\b{sym}\b(?!\s*ByClass)", text):
             return _fail(f"global {sym} still present — use {sym}ByClass per-class map only")
+    alias = _SORIG_ALIAS.search(text)
+    if alias:
+        return _fail(
+            f"global sOrig* alias still present ({alias.group(0)}) — use *ByClass per-class map only"
+        )
     for required in (
         "sOrigNumberOfRowsByClass",
         "sOrigCellForRowByClass",
@@ -79,6 +181,13 @@ def main() -> int:
         return _fail("LBHookedCellForRow must resolve orig via sOrigCellForRowByClass")
     if "LBStoredOrigIMP(sOrigHeightForRowByClass" not in text:
         return _fail("LBHookedHeightForRow must resolve orig via sOrigHeightForRowByClass")
+
+    install_err = _check_install_writes_byclass(text)
+    if install_err:
+        return _fail(install_err)
+
+    for hook_err in _check_hook_byclass_before_forward(text):
+        return _fail(hook_err)
 
     print("PASS dual-lane gate")
     return 0
