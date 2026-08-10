@@ -703,7 +703,7 @@ public final class LBSharedSourceRouter: NSObject {
             ownerControllerIdentity: ownerIdentity
         )
         let token = SourceSessionCoordinator.shared.applySelection(sel, isReselect: isReselect)
-        return Self.tokenDictionary(token)
+        return Self.tokenDictionary(token) as NSDictionary
     }
 
     @objc(bindActiveLegadoContextWithExactSourceUrl:ownerIdentity:definitionFingerprint:snapshotID:nodeID:runtimeEpoch:)
@@ -771,7 +771,7 @@ public final class LBSharedSourceRouter: NSObject {
         guard let token = SourceSessionCoordinator.shared.currentToken(sourceKind: kind, canonicalID: canonicalID) else {
             return nil
         }
-        return Self.tokenDictionary(token)
+        return Self.tokenDictionary(token) as NSDictionary
     }
 
     static func tokenDictionary(_ token: SourceSessionToken) -> [String: Any] {
