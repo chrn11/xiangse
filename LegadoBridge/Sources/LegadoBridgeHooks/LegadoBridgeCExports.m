@@ -1845,6 +1845,19 @@ void LBShowDiscoverExploreEmptyHint(NSString *message) {
 }
 static BOOL LBPermitMatchesExploreCapture(NSDictionary *permit, NSDictionary *captured, BOOL firstPage, BOOL cacheHit); static BOOL LBPermitMatchesExploreRequest(NSDictionary *permit, NSDictionary *captured, BOOL firstPage, BOOL cacheHit);
 static BOOL LBPermitModeIsNetwork(NSDictionary *permit, NSDictionary *token);
+static BOOL LBCacheEnvelopeIsTyped(NSDictionary *token);
+static BOOL LBPermitMatchesExploreCacheRequest(NSDictionary *permit, NSDictionary *captured);
+static BOOL LBPermitMatchesExploreCacheCapture(NSDictionary *permit, NSDictionary *captured);
+static BOOL LBCacheEnvelopeIsTyped(NSDictionary *token) {
+    if (![token isKindOfClass:[NSDictionary class]]) return NO;
+    NSString *mode = token[@"mode"];
+    NSString *nonce = token[@"permitNonce"];
+    NSString *hash = token[@"envelopeKeyHash"];
+    if (![mode isKindOfClass:[NSString class]] || ![nonce isKindOfClass:[NSString class]] || ![hash isKindOfClass:[NSString class]]) return NO;
+    if (!mode.length || !nonce.length || !hash.length) return NO;
+    if (![mode isEqualToString:@"cacheFallback"] && ![mode isEqualToString:@"coldLastGood"]) return NO;
+    return YES;
+}
 static void LBApplySearchResultsToUIWithCapturedTokenInternal(NSArray *books, NSString *keyword, NSDictionary *capturedToken, BOOL isFirstPage, BOOL isCacheHit) {
     if (isCacheHit) return;
     if (![books isKindOfClass:[NSArray class]]) {
@@ -1863,6 +1876,7 @@ static void LBApplySearchResultsToUIWithCapturedTokenInternal(NSArray *books, NS
         return;
     }
     if (![capturedToken isKindOfClass:[NSDictionary class]]) return;
+    if (LBCacheEnvelopeIsTyped(capturedToken)) return;
     if (!LBKeywordIsExploreMode(keyword)) return;
     id sourceKind = capturedToken[@"sourceKind"], canonical = capturedToken[@"canonicalID"], exact = capturedToken[@"exactSourceUrl"], owner = capturedToken[@"ownerControllerIdentity"], fingerprint = capturedToken[@"definitionFingerprint"], snapshot = capturedToken[@"snapshotID"], node = capturedToken[@"nodeID"];
     if (![sourceKind isKindOfClass:[NSNumber class]] || [sourceKind integerValue] != 2 || ![canonical isKindOfClass:[NSString class]] || ![exact isKindOfClass:[NSString class]] || ![(NSString *)canonical length] || ![(NSString *)exact length] || ![canonical isEqual:exact] || ![owner isKindOfClass:[NSString class]] || ![(NSString *)owner length] || ![fingerprint isKindOfClass:[NSString class]] || ![(NSString *)fingerprint length] || ![snapshot isKindOfClass:[NSString class]] || ![(NSString *)snapshot length] || ![node isKindOfClass:[NSString class]] || ![(NSString *)node length]) return;
@@ -1882,11 +1896,42 @@ void LBApplySearchResultsToUIWithCapturedToken(NSArray *books, NSString *keyword
     LBApplySearchResultsToUIWithCapturedTokenInternal(books, keyword, capturedToken, isFirstPage, NO);
 }
 void LBApplySearchResultsToUIWithCapturedCacheToken(NSArray *books, NSString *keyword, NSDictionary *capturedToken) {
-    /* cacheTypedNonceUnavailable: fail closed until a typed cache token exists. */
-    (void)books; (void)keyword; (void)capturedToken; return;
+    if (!LBCacheEnvelopeIsTyped(capturedToken)) {
+        /* cacheTypedNonceUnavailable: untyped cache cannot enter this lane. */
+        return;
+    }
+    if (![books isKindOfClass:[NSArray class]] || books.count == 0) {
+        NSDictionary *tokenCopy = [capturedToken isKindOfClass:[NSDictionary class]] ? [capturedToken copy] : nil;
+        if ([NSThread isMainThread]) LBDiscardExplorePendingBundleMatchingToken(tokenCopy);
+        else dispatch_async(dispatch_get_main_queue(), ^{ LBDiscardExplorePendingBundleMatchingToken(tokenCopy); });
+        return;
+    }
+    if (![NSThread isMainThread]) {
+        NSArray *booksCopy = [books copy];
+        NSString *kwCopy = [keyword copy];
+        NSDictionary *tokenCopy = [capturedToken copy];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LBApplySearchResultsToUIWithCapturedCacheToken(booksCopy, kwCopy, tokenCopy);
+        });
+        return;
+    }
+    if (!LBKeywordIsExploreMode(keyword)) return;
+    id sourceKind = capturedToken[@"sourceKind"], canonical = capturedToken[@"canonicalID"], exact = capturedToken[@"exactSourceUrl"], owner = capturedToken[@"ownerControllerIdentity"], fingerprint = capturedToken[@"definitionFingerprint"], snapshot = capturedToken[@"snapshotID"], node = capturedToken[@"nodeID"];
+    if (![sourceKind isKindOfClass:[NSNumber class]] || [sourceKind integerValue] != 2 || ![canonical isKindOfClass:[NSString class]] || ![exact isKindOfClass:[NSString class]] || ![(NSString *)canonical length] || ![(NSString *)exact length] || ![canonical isEqual:exact] || ![owner isKindOfClass:[NSString class]] || ![(NSString *)owner length] || ![fingerprint isKindOfClass:[NSString class]] || ![(NSString *)fingerprint length] || ![snapshot isKindOfClass:[NSString class]] || ![(NSString *)snapshot length] || ![node isKindOfClass:[NSString class]] || ![(NSString *)node length]) return;
+    NSDictionary *permit = LBSharedRouterRequestCacheHitPublishPermit(capturedToken);
+    if (![permit[@"ok"] boolValue] || !LBPermitMatchesExploreCacheRequest(permit, capturedToken)) return;
+    NSDictionary *grantedToken = [permit[@"token"] isKindOfClass:[NSDictionary class]] ? permit[@"token"] : capturedToken;
+    if (![sPendingExploreToken isEqual:capturedToken] || ![sPendingExploreKeyword isEqual:keyword]) [sPendingExploreBooks removeAllObjects];
+    if (!sPendingExploreBooks) sPendingExploreBooks = [NSMutableArray array];
+    sPendingExploreKeyword = [keyword copy];
+    sPendingExploreToken = [grantedToken copy];
+    sPrevalidatedExplorePermit = [permit copy];
+    sPendingExploreFirstPage = YES;
+    sPendingExploreCacheHit = YES;
+    LBApplySearchResultsToUI(books, keyword);
 }
 static BOOL LBPermitMatchesExploreCapture(NSDictionary *permit, NSDictionary *captured, BOOL firstPage, BOOL cacheHit) {
-    if (cacheHit) return NO;
+    if (cacheHit) return LBPermitMatchesExploreCacheCapture(permit, captured);
     if (![permit isKindOfClass:[NSDictionary class]] || [permit[@"cacheHit"] boolValue] || !LBPermitModeIsNetwork(permit, captured)) return NO;
     NSDictionary *returned = permit[@"token"];
     if (![returned isKindOfClass:[NSDictionary class]]) return NO;
@@ -1915,10 +1960,41 @@ static BOOL LBPermitMatchesExploreRequest(NSDictionary *permit, NSDictionary *ca
     if (requestSequence.unsignedLongLongValue > 0 && grantedSequence.unsignedLongLongValue != requestSequence.unsignedLongLongValue + 1) return NO;
     BOOL replace = [permit[@"replaceFirstPage"] boolValue]; return replace == firstPage && [permit[@"appendPage"] boolValue] != replace;
 }
+static BOOL LBPermitMatchesExploreCacheRequest(NSDictionary *permit, NSDictionary *captured) {
+    if (!LBCacheEnvelopeIsTyped(captured)) return NO;
+    if (![permit isKindOfClass:[NSDictionary class]] || ![permit[@"ok"] boolValue] || ![permit[@"cacheHit"] boolValue]) return NO;
+    NSString *permitMode = permit[@"mode"];
+    if (![permitMode isKindOfClass:[NSString class]] || ![permitMode isEqualToString:captured[@"mode"]]) return NO;
+    if (![permitMode isEqualToString:@"cacheFallback"] && ![permitMode isEqualToString:@"coldLastGood"]) return NO;
+    NSDictionary *returned = permit[@"token"];
+    if (![returned isKindOfClass:[NSDictionary class]]) return NO;
+    for (NSString *key in @[@"sourceKind", @"canonicalID", @"exactSourceUrl", @"selectionGeneration", @"managerOrRegistryGeneration", @"uiGeneration", @"definitionGeneration", @"contentGeneration", @"snapshotID", @"nodeID", @"page", @"requestSequence", @"ownerControllerIdentity", @"definitionFingerprint", @"runtimeEpoch"]) if (![returned[key] isEqual:captured[key]]) return NO;
+    NSNumber *requestSequence = captured[@"requestSequence"], *grantedSequence = returned[@"requestSequence"];
+    if (![requestSequence isKindOfClass:[NSNumber class]] || ![grantedSequence isKindOfClass:[NSNumber class]]) return NO;
+    if ([captured[@"page"] integerValue] != 1) return NO;
+    if (grantedSequence.unsignedLongLongValue != requestSequence.unsignedLongLongValue) return NO;
+    return [permit[@"replaceFirstPage"] boolValue] && ![permit[@"appendPage"] boolValue];
+}
+static BOOL LBPermitMatchesExploreCacheCapture(NSDictionary *permit, NSDictionary *captured) {
+    if (![permit isKindOfClass:[NSDictionary class]] || ![permit[@"cacheHit"] boolValue]) return NO;
+    NSString *permitMode = permit[@"mode"];
+    if (![permitMode isKindOfClass:[NSString class]] || (![permitMode isEqualToString:@"cacheFallback"] && ![permitMode isEqualToString:@"coldLastGood"])) return NO;
+    NSDictionary *returned = permit[@"token"];
+    if (![returned isKindOfClass:[NSDictionary class]]) return NO;
+    for (NSString *key in @[@"sourceKind", @"canonicalID", @"exactSourceUrl", @"selectionGeneration", @"managerOrRegistryGeneration", @"uiGeneration", @"definitionGeneration", @"contentGeneration", @"snapshotID", @"nodeID", @"page", @"requestSequence", @"ownerControllerIdentity", @"definitionFingerprint", @"runtimeEpoch"]) if (![returned[key] isEqual:captured[key]]) return NO;
+    NSNumber *sequence = returned[@"requestSequence"];
+    if (![sequence isKindOfClass:[NSNumber class]]) return NO;
+    return [permit[@"replaceFirstPage"] boolValue] && ![permit[@"appendPage"] boolValue];
+}
 static NSDictionary *LBResolveExplorePermit(NSDictionary *token, BOOL firstPage, BOOL cacheHit) {
     NSDictionary *permit = [sPrevalidatedExplorePermit copy];
     sPrevalidatedExplorePermit = nil;
-    if (!permit || cacheHit || !LBPermitMatchesExploreCapture(permit, token, firstPage, NO)) return nil;
+    if (!permit) return nil;
+    if (cacheHit) {
+        if (!LBPermitMatchesExploreCacheCapture(permit, token)) return nil;
+        return permit;
+    }
+    if (!LBPermitMatchesExploreCapture(permit, token, firstPage, NO)) return nil;
     return permit;
 }
 void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
@@ -12787,9 +12863,16 @@ NSDictionary *LBSharedRouterRequestPublishPermit(NSDictionary *token, BOOL isFir
     return ((NSDictionary *(*)(id, SEL, NSDictionary *, BOOL))objc_msgSend)(router, sel, token, isFirstPage) ?: @{};
 }
 NSDictionary *LBSharedRouterRequestCacheHitPublishPermit(NSDictionary *token) {
-    /* cacheTypedNonceUnavailable: untyped cache cannot enter network lane. */
-    (void)token;
-    return @{@"ok": @NO, @"reason": @"cacheTypedNonceUnavailable", @"cacheHit": @YES};
+    if (!LBCacheEnvelopeIsTyped(token)) {
+        /* cacheTypedNonceUnavailable: untyped cache cannot enter network lane. */
+        return @{@"ok": @NO, @"reason": @"cacheTypedNonceUnavailable", @"cacheHit": @YES};
+    }
+    id router = LBSharedRouter();
+    SEL sel = @selector(requestCacheHitPublishPermitWithToken:);
+    if (!router || ![router respondsToSelector:sel])
+        return @{@"ok": @NO, @"reason": @"cacheTypedNonceUnavailable", @"cacheHit": @YES};
+    NSDictionary *permit = ((NSDictionary *(*)(id, SEL, NSDictionary *))objc_msgSend)(router, sel, token);
+    return permit ?: @{@"ok": @NO, @"reason": @"cacheTypedNonceUnavailable", @"cacheHit": @YES};
 }
 NSDictionary * _Nullable LBSharedRouterCurrentToken(NSInteger sourceKind, NSString *canonicalID) {
     id router = LBSharedRouter();

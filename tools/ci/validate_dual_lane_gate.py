@@ -350,14 +350,81 @@ def main() -> int:
     if consume_pos < 0 or match_pos < 0 or consume_pos > match_pos:
         return _fail("LBResolveExplorePermit must consume permit before validation")
 
-    # Cache publication is intentionally disabled until a typed nonce/mode is
-    # emitted by the coordinator; the ABI stub must not call into the router.
+    # Typed cache publication: untyped envelopes stay fail-closed; typed
+    # envelopes forward to requestCacheHitPublishPermit.  The network
+    # Internal must never take this lane or accept a cache-shaped token.
+    if "LBCacheEnvelopeIsTyped" not in capture_fn:
+        return _fail("network explore apply must reject typed cache envelopes")
     cache_apply = _extract_function(text, "LBApplySearchResultsToUIWithCapturedCacheToken")
-    if not cache_apply or "cacheTypedNonce" not in cache_apply or "LBApplySearchResultsToUIWithCapturedTokenInternal" in cache_apply:
-        return _fail("untyped cache entrypoint must fail closed")
+    if not cache_apply:
+        return _fail("LBApplySearchResultsToUIWithCapturedCacheToken missing")
+    if "LBApplySearchResultsToUIWithCapturedTokenInternal" in cache_apply:
+        return _fail("cache apply must not reuse the network Internal")
+    if "LBSharedRouterRequestPublishPermit" in cache_apply:
+        return _fail("cache apply must not request a network permit")
+    if "LBSharedRouterRequestCacheHitPublishPermit" not in cache_apply:
+        return _fail("typed cache apply must request a cache-hit permit")
+    if "cacheTypedNonce" not in cache_apply:
+        return _fail("untyped cache apply must still fail closed")
+    if "LBCacheEnvelopeIsTyped" not in cache_apply:
+        return _fail("cache apply must require a typed envelope")
+    if "isFirstPage" in cache_apply:
+        return _fail("cache apply must not take a caller-selected first-page/mode flag")
+    cache_permit_pos = _first_index(cache_apply, "LBSharedRouterRequestCacheHitPublishPermit")
+    cache_pending_pos = _first_index(
+        cache_apply,
+        "sPendingExploreBooks removeAllObjects",
+        "sPendingExploreBooks =",
+        "sPendingExploreKeyword =",
+        "sPendingExploreToken =",
+    )
+    if cache_permit_pos < 0 or cache_pending_pos < 0 or cache_permit_pos > cache_pending_pos:
+        return _fail("cache apply must obtain permit before pending mutation")
+
     cache_router = _extract_function(text, "LBSharedRouterRequestCacheHitPublishPermit")
-    if not cache_router or "cacheTypedNonceUnavailable" not in cache_router or "objc_msgSend" in cache_router:
-        return _fail("cache permit router must fail closed without typed nonce")
+    if not cache_router:
+        return _fail("LBSharedRouterRequestCacheHitPublishPermit missing")
+    if "cacheTypedNonceUnavailable" not in cache_router:
+        return _fail("untyped cache router must still fail closed")
+    if "LBCacheEnvelopeIsTyped" not in cache_router:
+        return _fail("cache router must reject untyped envelopes before dispatch")
+    typed_guard_pos = cache_router.find("LBCacheEnvelopeIsTyped")
+    send_pos = cache_router.find("objc_msgSend")
+    if send_pos < 0 or typed_guard_pos < 0 or typed_guard_pos > send_pos:
+        return _fail("typed cache router must forward only after the typed-envelope guard")
+    if "requestCacheHitPublishPermitWithToken:" not in cache_router:
+        return _fail("cache router must call the typed ObjC selector")
+    if "requestPublishPermitWithToken" in cache_router:
+        return _fail("cache router must not enter the network permit selector")
+
+    typed_fn = _extract_static_function(text, "LBCacheEnvelopeIsTyped")
+    if not typed_fn:
+        return _fail("LBCacheEnvelopeIsTyped missing")
+    for needle in ("permitNonce", "envelopeKeyHash", "cacheFallback", "coldLastGood"):
+        if needle not in typed_fn:
+            return _fail(f"typed envelope check missing {needle}")
+    if "networkFirst" in typed_fn:
+        return _fail("typed envelope must not accept networkFirst")
+
+    cache_req = _extract_static_function(text, "LBPermitMatchesExploreCacheRequest")
+    cache_cap = _extract_static_function(text, "LBPermitMatchesExploreCacheCapture")
+    for fn_name, fn in (
+        ("LBPermitMatchesExploreCacheRequest", cache_req),
+        ("LBPermitMatchesExploreCacheCapture", cache_cap),
+    ):
+        if not fn:
+            return _fail(f"{fn_name} missing")
+        for needle in (
+            "cacheHit", "mode", "cacheFallback", "coldLastGood", "requestSequence",
+            "sourceKind", "canonicalID", "exactSourceUrl", "snapshotID", "nodeID",
+            "ownerControllerIdentity", "definitionFingerprint", "runtimeEpoch", "page",
+        ):
+            if needle not in fn:
+                return _fail(f"{fn_name} missing strict {needle} check")
+        if "isEqual:captured[key]" not in fn:
+            return _fail(f"{fn_name} must compare every token identity field exactly")
+    if "LBPermitMatchesExploreCacheCapture" not in resolve_fn:
+        return _fail("LBResolveExplorePermit must validate typed cache captures")
 
     # Network publication must validate mode, identity, and requestSequence;
     # cacheHit is not a substitute for a typed transport mode.

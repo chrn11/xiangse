@@ -169,6 +169,91 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         return exploreCatalogStore.readColdLastGood(key: key, now: now)
     }
 
+    /// Scene decides mode.  Callers outside Core cannot pick `.cacheFallback`
+    /// vs `.coldLastGood`.
+    enum ExploreCatalogCacheScene {
+        case coldStart
+        case networkFallback
+
+        var mode: ExplorePublishMode {
+            switch self {
+            case .coldStart: return .coldLastGood
+            case .networkFallback: return .cacheFallback
+            }
+        }
+    }
+
+    func issueExploreCatalogCachePublishPermit(
+        for session: SourceSessionToken,
+        scene: ExploreCatalogCacheScene
+    ) -> CachePermitToken? {
+        guard session.page == 1,
+              let key = exploreCatalogLookupKey(for: session) else {
+            return nil
+        }
+        let envelopeKeyHash = ExploreCatalogStore.stableFilename(for: key)
+        switch SourceSessionCoordinator.shared.issueCachePermit(
+            for: session,
+            mode: scene.mode,
+            envelopeKeyHash: envelopeKeyHash
+        ) {
+        case .success(let token):
+            return token
+        case .failure:
+            return nil
+        }
+    }
+
+    func decodeExploreCatalogBooks(
+        _ envelope: ExploreCatalogStore.CacheEnvelope
+    ) -> [[String: Any]]? {
+        guard let obj = try? JSONSerialization.jsonObject(with: envelope.payload),
+              let books = obj as? [[String: Any]],
+              !books.isEmpty else {
+            return nil
+        }
+        return books
+    }
+
+    func prepareExploreCatalogCacheHit(
+        session: SourceSessionToken,
+        scene: ExploreCatalogCacheScene
+    ) -> (permit: CachePermitToken, books: [[String: Any]])? {
+        guard session.page == 1,
+              let envelope = readExploreCatalogColdLastGood(for: session),
+              let books = decodeExploreCatalogBooks(envelope),
+              let permit = issueExploreCatalogCachePublishPermit(
+                for: session,
+                scene: scene
+              ) else {
+            return nil
+        }
+        return (permit, books)
+    }
+
+    /// Store → fresh typed permit → exact owner/session → cache UI lane.
+    @discardableResult
+    func publishExploreCatalogCacheHit(
+        session: SourceSessionToken,
+        scene: ExploreCatalogCacheScene
+    ) -> Bool {
+        guard let prepared = prepareExploreCatalogCacheHit(
+            session: session,
+            scene: scene
+        ) else {
+            return false
+        }
+        LBApplySearchResultsToUIWithCapturedCacheToken(
+            prepared.books,
+            "explore",
+            LBSharedSourceRouter.cachePermitDictionary(prepared.permit)
+        )
+        writeSearchMarker(
+            "explore catalog cache hit mode=\(prepared.permit.mode.rawValue) n=\(prepared.books.count)"
+        )
+        return true
+    }
+
     private override init() {
         super.init()
         // 禁止在 init 内 restore / sync：
@@ -1611,9 +1696,16 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         sExploreGenerationSourceUrl = srcKey
         let capturedSessionToken = sessionToken
         let capturedExploreSourceUrl = srcKey
-        // Capture a typed persist permit before the network first page is
-        // admitted.  After UI publish the coordinator clears the live slot;
-        // writeLastGood still accepts this captured value by identity.
+        // Cold last-good UI first (consumes a one-shot cold permit).  Persist
+        // authorization is issued afterwards so writeLastGood still has a live
+        // cacheFallback nonce after the cache lane is done.
+        var didPublishExploreCache = false
+        if capturedSessionToken.page == 1 {
+            didPublishExploreCache = publishExploreCatalogCacheHit(
+                session: capturedSessionToken,
+                scene: .coldStart
+            )
+        }
         let capturedPersistPermit: CachePermitToken? = {
             guard capturedSessionToken.page == 1 else { return nil }
             return issueExploreCatalogPersistPermit(for: capturedSessionToken)
@@ -1630,6 +1722,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
             }
         }
         Task {
+            var publishedCache = didPublishExploreCache
             let targets: [MemoryBridgeBookSource]
             if let sourceUrl = sourceUrlCopy,
                let one = SourceRegistry.shared.source(forUrl: sourceUrl.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -1697,7 +1790,9 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                             await MainActor.run {
                                 guard exploreCaptureStillActive() else { return }
                                 LBDismissDiscoverLoadingHUD()
-                                if coolFail {
+                                if publishedCache {
+                                    LBClearDiscoverExploreEmptyHint()
+                                } else if coolFail {
                                     LBShowDiscoverExploreEmptyHint("分类加载失败，请稍后重试或切换书源")
                                 } else {
                                     LBShowDiscoverExploreEmptyHint("分类加载中，请稍后…")
@@ -1764,17 +1859,30 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                             exploreUrl: exploreUrlCopy,
                             errorMessage: nil
                         )
-                        await MainActor.run {
-                            guard exploreCaptureStillActive() else { return }
+                        publishedCache = await MainActor.run { () -> Bool in
+                            guard exploreCaptureStillActive() else { return publishedCache }
+                            var shown = publishedCache
+                            if capturedSessionToken.page == 1, !shown {
+                                shown = self.publishExploreCatalogCacheHit(
+                                    session: capturedSessionToken,
+                                    scene: .networkFallback
+                                )
+                            }
+                            if shown {
+                                LBDismissDiscoverLoadingHUD()
+                                LBClearDiscoverExploreEmptyHint()
+                                return shown
+                            }
                             LBApplySearchResultsToUIWithCapturedToken(
                                 [],
                                 "explore",
                                 LBSharedSourceRouter.tokenDictionary(capturedSessionToken),
                                 capturedSessionToken.page == 1
                             )
-                            guard exploreCaptureStillActive() else { return }
+                            guard exploreCaptureStillActive() else { return shown }
                             LBDismissDiscoverLoadingHUD()
                             LBShowDiscoverExploreEmptyHint(emptyHint)
+                            return shown
                         }
                     }
                 } catch {
@@ -1788,10 +1896,22 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                         exploreUrl: exploreUrlCopy,
                         errorMessage: error.localizedDescription
                     )
-                    await MainActor.run {
-                        guard exploreCaptureStillActive() else { return }
+                    publishedCache = await MainActor.run { () -> Bool in
+                        guard exploreCaptureStillActive() else { return publishedCache }
+                        var shown = publishedCache
+                        if capturedSessionToken.page == 1, !shown {
+                            shown = self.publishExploreCatalogCacheHit(
+                                session: capturedSessionToken,
+                                scene: .networkFallback
+                            )
+                        }
                         LBDismissDiscoverLoadingHUD()
+                        if shown {
+                            LBClearDiscoverExploreEmptyHint()
+                            return shown
+                        }
                         LBShowDiscoverExploreEmptyHint(hint)
+                        return shown
                     }
                 }
             }

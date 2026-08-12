@@ -182,19 +182,30 @@ class DualLaneGateTests(unittest.TestCase):
         text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
         polluted = _mutate_static_body(
             mod, text, "LBApplySearchResultsToUIWithCapturedCacheToken",
-            "(void)books; (void)keyword; (void)capturedToken; return;",
-            "LBApplySearchResultsToUIWithCapturedTokenInternal(books, keyword, capturedToken, YES, YES);",
+            "if (!LBCacheEnvelopeIsTyped(capturedToken)) {",
+            "LBApplySearchResultsToUIWithCapturedTokenInternal(books, keyword, capturedToken, YES, YES);\n    if (!LBCacheEnvelopeIsTyped(capturedToken)) {",
         )
         with _gate_on_text(mod, polluted) as code:
             self.assertNotEqual(code, 0)
 
-    def test_rejects_cache_router_dispatch(self):
+    def test_rejects_cache_router_untyped_dispatch(self):
         mod = _load_gate()
         text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
         polluted = _mutate_static_body(
             mod, text, "LBSharedRouterRequestCacheHitPublishPermit",
-            "(void)token;",
-            "(void)token; objc_msgSend;",
+            "if (!LBCacheEnvelopeIsTyped(token)) {",
+            "if (NO) {",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_cache_apply_network_permit(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBApplySearchResultsToUIWithCapturedCacheToken",
+            "NSDictionary *permit = LBSharedRouterRequestCacheHitPublishPermit(capturedToken);",
+            "NSDictionary *permit = LBSharedRouterRequestPublishPermit(capturedToken, YES);",
         )
         with _gate_on_text(mod, polluted) as code:
             self.assertNotEqual(code, 0)

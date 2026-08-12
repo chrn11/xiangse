@@ -1374,16 +1374,32 @@ public final class LBSharedSourceRouter: NSObject {
 
     @objc(requestCacheHitPublishPermitWithToken:)
     public func requestCacheHitPublishPermit(token: NSDictionary) -> NSDictionary {
-        // The legacy ObjC entry point only carries an untyped session
-        // dictionary.  Until a typed CachePermitToken C/ObjC envelope is
-        // explicitly wired, fail closed rather than upgrading that dictionary
-        // into cache authorization.
-        _ = token
-        return [
-            "ok": false,
-            "reason": PublishRejectReason.cachePermitRequired.rawValue,
-            "cacheHit": true
-        ]
+        // Untyped session dictionaries cannot be upgraded.  Mode is taken
+        // only from the typed envelope; the C caller cannot pick it.
+        guard let request = Self.cachePermit(from: token) else {
+            return [
+                "ok": false,
+                "reason": PublishRejectReason.cachePermitRequired.rawValue,
+                "cacheHit": true
+            ]
+        }
+        switch SourceSessionCoordinator.shared.requestCacheHitPermit(for: request) {
+        case .success(let permit):
+            return [
+                "ok": true,
+                "token": Self.tokenDictionary(permit.token),
+                "replaceFirstPage": permit.replaceFirstPage,
+                "appendPage": permit.appendPage,
+                "cacheHit": true,
+                "mode": request.mode.rawValue
+            ]
+        case .failure(let reason):
+            return [
+                "ok": false,
+                "reason": reason.rawValue,
+                "cacheHit": true
+            ]
+        }
     }
 
     @objc(tokenDictionaryForSourceKind:canonicalID:)
@@ -1415,37 +1431,97 @@ public final class LBSharedSourceRouter: NSObject {
         ]
     }
 
+    static func sessionToken(from cache: CachePermitToken) -> SourceSessionToken {
+        SourceSessionToken(
+            sourceKind: cache.sourceKind,
+            canonicalID: cache.canonicalID,
+            exactSourceUrl: cache.exactSourceUrl,
+            uiGeneration: cache.uiGeneration,
+            definitionGeneration: cache.definitionGeneration,
+            contentGeneration: cache.contentGeneration,
+            selectionGeneration: cache.selectionGeneration,
+            managerOrRegistryGeneration: cache.managerOrRegistryGeneration,
+            snapshotID: cache.snapshotID,
+            nodeID: cache.nodeID,
+            page: cache.page,
+            requestSequence: cache.requestSequence,
+            ownerControllerIdentity: cache.ownerControllerIdentity,
+            definitionFingerprint: cache.definitionFingerprint,
+            runtimeEpoch: cache.runtimeEpoch
+        )
+    }
+
+    static func cachePermitDictionary(_ token: CachePermitToken) -> [String: Any] {
+        var dict = tokenDictionary(sessionToken(from: token))
+        dict["mode"] = token.mode.rawValue
+        dict["permitNonce"] = token.permitNonce
+        dict["envelopeKeyHash"] = token.envelopeKeyHash
+        return dict
+    }
+
+    static func cachePermit(from dict: NSDictionary) -> CachePermitToken? {
+        guard let modeRaw = dict["mode"] as? String,
+              let mode = ExplorePublishMode(rawValue: modeRaw),
+              mode == .cacheFallback || mode == .coldLastGood,
+              let nonce = dict["permitNonce"] as? String,
+              !nonce.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let envelopeKeyHash = dict["envelopeKeyHash"] as? String,
+              !envelopeKeyHash.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let session = token(from: dict) else {
+            return nil
+        }
+        return CachePermitToken(
+            mode: mode,
+            permitNonce: nonce,
+            envelopeKeyHash: envelopeKeyHash,
+            session: session
+        )
+    }
+
     private static func token(from dict: NSDictionary) -> SourceSessionToken? {
         guard let canonicalID = dict["canonicalID"] as? String, !canonicalID.isEmpty,
               let exact = dict["exactSourceUrl"] as? String, !exact.isEmpty,
-              let rawKind = (dict["sourceKind"] as? NSNumber)?.intValue else { return nil }
+              let rawKind = intValue(dict["sourceKind"]) else { return nil }
         let kind = Self.kind(from: rawKind)
         guard kind != .unknown,
-              let ui = dict["uiGeneration"] as? NSNumber,
-              let definition = dict["definitionGeneration"] as? NSNumber,
-              let content = dict["contentGeneration"] as? NSNumber,
-              let selection = dict["selectionGeneration"] as? NSNumber,
-              let registry = dict["managerOrRegistryGeneration"] as? NSNumber,
-              let page = dict["page"] as? NSNumber,
-              page.intValue > 0,
-              let sequence = dict["requestSequence"] as? NSNumber,
-              let epoch = dict["runtimeEpoch"] as? NSNumber else { return nil }
+              let ui = uint64Value(dict["uiGeneration"]),
+              let definition = uint64Value(dict["definitionGeneration"]),
+              let content = uint64Value(dict["contentGeneration"]),
+              let selection = uint64Value(dict["selectionGeneration"]),
+              let registry = uint64Value(dict["managerOrRegistryGeneration"]),
+              let page = intValue(dict["page"]),
+              page > 0,
+              let sequence = uint64Value(dict["requestSequence"]),
+              let epoch = uint64Value(dict["runtimeEpoch"]) else { return nil }
         return SourceSessionToken(
             sourceKind: kind,
             canonicalID: canonicalID,
             exactSourceUrl: exact,
-            uiGeneration: ui.uint64Value,
-            definitionGeneration: definition.uint64Value,
-            contentGeneration: content.uint64Value,
-            selectionGeneration: selection.uint64Value,
-            managerOrRegistryGeneration: registry.uint64Value,
+            uiGeneration: ui,
+            definitionGeneration: definition,
+            contentGeneration: content,
+            selectionGeneration: selection,
+            managerOrRegistryGeneration: registry,
             snapshotID: (dict["snapshotID"] as? String).flatMap { $0.isEmpty ? nil : $0 },
             nodeID: (dict["nodeID"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-            page: page.intValue,
-            requestSequence: sequence.uint64Value,
+            page: page,
+            requestSequence: sequence,
             ownerControllerIdentity: (dict["ownerControllerIdentity"] as? String).flatMap { $0.isEmpty ? nil : $0 },
             definitionFingerprint: (dict["definitionFingerprint"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-            runtimeEpoch: epoch.uint64Value
+            runtimeEpoch: epoch
         )
+    }
+
+    private static func intValue(_ raw: Any?) -> Int? {
+        if let number = raw as? NSNumber { return number.intValue }
+        if let value = raw as? Int { return value }
+        return nil
+    }
+
+    private static func uint64Value(_ raw: Any?) -> UInt64? {
+        if let number = raw as? NSNumber { return number.uint64Value }
+        if let value = raw as? UInt64 { return value }
+        if let value = raw as? Int, value >= 0 { return UInt64(value) }
+        return nil
     }
 }

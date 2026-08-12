@@ -23,6 +23,7 @@ REQUIRED_TEST_FILES: dict[str, list[str]] = {
     "cache": [
         "LegadoBridge/Tests/LegadoBridgeTests/ExploreCatalogStoreTests.swift",
         "LegadoBridge/Tests/LegadoBridgeTests/ExploreCatalogCorePersistTests.swift",
+        "LegadoBridge/Tests/LegadoBridgeTests/ExploreCatalogCoreCachePublishTests.swift",
         "LegadoBridge/Tests/LegadoBridgeTests/SourceSessionCoordinatorTests.swift",
         "LegadoBridge/Tests/LegadoBridgeTests/ExploreSwitchRaceTests.swift",
         "LegadoBridge/Tests/LegadoBridgeTests/NativeExploreSnapshotBridgeTests.swift",
