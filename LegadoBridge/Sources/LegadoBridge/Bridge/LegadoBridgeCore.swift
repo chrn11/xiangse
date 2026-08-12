@@ -1699,13 +1699,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         // Cold last-good UI first (consumes a one-shot cold permit).  Persist
         // authorization is issued afterwards so writeLastGood still has a live
         // cacheFallback nonce after the cache lane is done.
-        var didPublishExploreCache = false
-        if capturedSessionToken.page == 1 {
-            didPublishExploreCache = publishExploreCatalogCacheHit(
+        let didPublishExploreCache = capturedSessionToken.page == 1
+            && publishExploreCatalogCacheHit(
                 session: capturedSessionToken,
                 scene: .coldStart
             )
-        }
         let capturedPersistPermit: CachePermitToken? = {
             guard capturedSessionToken.page == 1 else { return nil }
             return issueExploreCatalogPersistPermit(for: capturedSessionToken)
@@ -1787,10 +1785,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                             if !coolFail {
                                 warmupExploreKinds(forSourceUrl: source.bookSourceUrl)
                             }
+                            let cacheAlreadyShown = publishedCache
                             await MainActor.run {
                                 guard exploreCaptureStillActive() else { return }
                                 LBDismissDiscoverLoadingHUD()
-                                if publishedCache {
+                                if cacheAlreadyShown {
                                     LBClearDiscoverExploreEmptyHint()
                                 } else if coolFail {
                                     LBShowDiscoverExploreEmptyHint("分类加载失败，请稍后重试或切换书源")
@@ -1859,9 +1858,10 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                             exploreUrl: exploreUrlCopy,
                             errorMessage: nil
                         )
+                        let cacheAlreadyShown = publishedCache
                         publishedCache = await MainActor.run { () -> Bool in
-                            guard exploreCaptureStillActive() else { return publishedCache }
-                            var shown = publishedCache
+                            guard exploreCaptureStillActive() else { return cacheAlreadyShown }
+                            var shown = cacheAlreadyShown
                             if capturedSessionToken.page == 1, !shown {
                                 shown = self.publishExploreCatalogCacheHit(
                                     session: capturedSessionToken,
@@ -1896,9 +1896,10 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                         exploreUrl: exploreUrlCopy,
                         errorMessage: error.localizedDescription
                     )
+                    let cacheAlreadyShown = publishedCache
                     publishedCache = await MainActor.run { () -> Bool in
-                        guard exploreCaptureStillActive() else { return publishedCache }
-                        var shown = publishedCache
+                        guard exploreCaptureStillActive() else { return cacheAlreadyShown }
+                        var shown = cacheAlreadyShown
                         if capturedSessionToken.page == 1, !shown {
                             shown = self.publishExploreCatalogCacheHit(
                                 session: capturedSessionToken,
