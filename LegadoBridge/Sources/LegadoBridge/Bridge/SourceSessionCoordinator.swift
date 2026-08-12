@@ -159,6 +159,12 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
     private var managerGeneration: UInt64 = 0
     private var registryGeneration: UInt64 = 0
     private var activeSessionKey: String?
+    /// URLs observed in the real Legado registry.  Coordinator unit tests
+    /// intentionally use synthetic URLs, so an unknown URL remains usable in
+    /// isolation; once a URL is known to the registry, disabled/removed state
+    /// is fail-closed for selection, callbacks, and permits.
+    private var knownManagedLegadoSourceURLs: Set<String> = []
+    private var unavailableLegadoSourceURLs: Set<String> = []
 
     public init() {}
 
@@ -215,27 +221,57 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
         }
     }
 
+    /// Freeze one Legado identity after a destructive registry mutation.
+    ///
+    /// Generation bumps alone are insufficient: they leave the old route
+    /// active and let `currentToken` mint a fresh-looking token for a source
+    /// that was just disabled or removed.  This operation marks the exact URL
+    /// unavailable, clears it as the active route, and retains the tombstone
+    /// until a fresh exact `applySelection` explicitly reactivates it.
+    public func invalidateLegadoSource(exactSourceUrl: String) {
+        let trimmed = exactSourceUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        queue.sync {
+            let key = legacySessionKey(trimmed)
+            knownManagedLegadoSourceURLs.insert(trimmed)
+            unavailableLegadoSourceURLs.insert(trimmed)
+            if activeSessionKey == key {
+                activeSessionKey = nil
+            }
+            // Keep a frozen state only long enough for stale callbacks to be
+            // rejected by the unavailable set; no caller can obtain it via
+            // currentToken while the tombstone is present.
+            sessions.removeValue(forKey: key)
+        }
+    }
+
     public func apply(_ event: SourceSessionEvent) -> SourceSessionToken {
         queue.sync {
             switch event {
             case .selectDiscoverSource(let sel):
                 let token = applySelect(sel, isReselect: false)
-                activeSessionKey = token.sessionKey
+                activeSessionKey = token.sourceKind == .unknown ? nil : token.sessionKey
                 return token
             case .reselectSameDiscoverSource(let sel):
                 let token = applySelect(sel, isReselect: true)
-                activeSessionKey = token.sessionKey
+                activeSessionKey = token.sourceKind == .unknown ? nil : token.sessionKey
                 return token
 
             case .switchDiscoverSource(let url),
                  .hostControllerRebuilt(let url),
                  .crossModeSwitch(let url):
+                guard legadoSourceCanCreateSession(url) else {
+                    return invalidToken(for: url)
+                }
                 let token = applyLegacySwitch(url: url, bumpUI: true)
                 activeSessionKey = token.sessionKey
                 return token
 
             case .ruleDefinitionChanged(let url),
                  .runtimeContextChanged(let url):
+                guard legadoSourceCanCreateSession(url) else {
+                    return invalidToken(for: url)
+                }
                 let key = legacySessionKey(url)
                 var s = sessions[key] ?? legacySessionState(url: url)
                 s.definitionGeneration &+= 1
@@ -247,6 +283,9 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
                 return token(from: s)
 
             case .selectChannelOrNode(let url, let snapshotID, let nodeID):
+                guard legadoSourceCanCreateSession(url) else {
+                    return invalidToken(for: url)
+                }
                 let key = legacySessionKey(url)
                 var s = sessions[key] ?? legacySessionState(url: url)
                 s.contentGeneration &+= 1
@@ -259,6 +298,9 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
                 return token(from: s)
 
             case .manualRefreshFirstPage(let url):
+                guard legadoSourceCanCreateSession(url) else {
+                    return invalidToken(for: url)
+                }
                 let key = legacySessionKey(url)
                 var s = sessions[key] ?? legacySessionState(url: url)
                 s.contentGeneration &+= 1
@@ -269,6 +311,9 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
                 return token(from: s)
 
             case .loadMore(let url, let page):
+                guard legadoSourceCanCreateSession(url) else {
+                    return invalidToken(for: url)
+                }
                 let key = legacySessionKey(url)
                 var s = sessions[key] ?? legacySessionState(url: url)
                 s.page = page
@@ -281,7 +326,7 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
     public func applySelection(_ selection: SelectionToken, isReselect: Bool = false) -> SourceSessionToken {
         queue.sync {
             let token = applySelect(selection, isReselect: isReselect)
-            activeSessionKey = token.sessionKey
+            activeSessionKey = token.sourceKind == .unknown ? nil : token.sessionKey
             return token
         }
     }
@@ -289,6 +334,9 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
     public func currentToken(sourceKind: SourceKind, canonicalID: String) -> SourceSessionToken? {
         let key = SelectionToken.sessionKey(sourceKind: sourceKind, canonicalID: canonicalID)
         return queue.sync {
+            if sourceKind == .legado, !legadoSourceIsAvailable(canonicalID) {
+                return nil
+            }
             guard let s = sessions[key] else { return nil }
             return token(from: s)
         }
@@ -306,6 +354,7 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
     ) -> SourceSessionToken? {
         guard !exactSourceUrl.isEmpty, page > 0 else { return nil }
         return queue.sync {
+            guard legadoSourceIsAvailable(exactSourceUrl) else { return nil }
             let key = SelectionToken.sessionKey(sourceKind: .legado, canonicalID: exactSourceUrl)
             guard activeSessionKey == key, var s = sessions[key], s.sourceKind == .legado,
                   s.exactSourceUrl == exactSourceUrl else { return nil }
@@ -338,6 +387,7 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
         guard !exactSourceUrl.isEmpty, !ownerControllerIdentity.isEmpty,
               !definitionFingerprint.isEmpty else { return nil }
         return queue.sync {
+            guard legadoSourceIsAvailable(exactSourceUrl) else { return nil }
             let key = SelectionToken.sessionKey(sourceKind: .legado, canonicalID: exactSourceUrl)
             guard activeSessionKey == key, var s = sessions[key],
                   s.sourceKind == .legado, s.exactSourceUrl == exactSourceUrl else { return nil }
@@ -377,6 +427,9 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
     ) -> Result<PublishPermit, PublishRejectReason> {
         queue.sync {
             let key = request.sessionKey
+            if request.sourceKind == .legado, !legadoSourceIsAvailable(request.exactSourceUrl) {
+                return .failure(.routeFailClosed)
+            }
             guard activeSessionKey == key else {
                 return .failure(.routeFailClosed)
             }
@@ -434,6 +487,9 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
     ) -> Result<PublishPermit, PublishRejectReason> {
         queue.sync {
             let key = request.sessionKey
+            if request.sourceKind == .legado, !legadoSourceIsAvailable(request.exactSourceUrl) {
+                return .failure(.routeFailClosed)
+            }
             guard activeSessionKey == key else {
                 return .failure(.routeFailClosed)
             }
@@ -459,6 +515,7 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
     /// 异步副作用核对：captured token 须仍为 active route 且与当前 session 全字段一致。
     public func isStillActiveLegadoPublishContext(_ captured: SourceSessionToken) -> Bool {
         queue.sync {
+            guard legadoSourceIsAvailable(captured.exactSourceUrl) else { return false }
             guard activeSessionKey == captured.sessionKey else { return false }
             guard let s = sessions[captured.sessionKey], s.sourceKind == .legado else { return false }
             if validateLegadoPublishIdentity(captured) != nil { return false }
@@ -486,10 +543,80 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
             managerGeneration = 0
             registryGeneration = 0
             activeSessionKey = nil
+            knownManagedLegadoSourceURLs.removeAll()
+            unavailableLegadoSourceURLs.removeAll()
         }
     }
 
     // MARK: - private
+
+    private func invalidToken(for exactSourceUrl: String) -> SourceSessionToken {
+        SourceSessionToken(
+            sourceKind: .unknown,
+            canonicalID: exactSourceUrl,
+            exactSourceUrl: "",
+            uiGeneration: 0,
+            definitionGeneration: 0,
+            contentGeneration: 0
+        )
+    }
+
+    /// Selection is the only operation allowed to reactivate a URL that was
+    /// previously disabled/removed.  Refresh, callback, and permit paths
+    /// remain fail-closed until a fresh exact selection is made.
+    private func legadoSourceCanCreateSession(
+        _ exactSourceUrl: String,
+        allowReactivation: Bool = false
+    ) -> Bool {
+        guard !exactSourceUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        if SourceRegistry.shared.isLegadoSourceRetired(url: exactSourceUrl) {
+            unavailableLegadoSourceURLs.insert(exactSourceUrl)
+            return false
+        }
+        let managed = SourceRegistry.shared.isLegadoManaged(url: exactSourceUrl)
+        if managed {
+            knownManagedLegadoSourceURLs.insert(exactSourceUrl)
+            guard SourceRegistry.shared.isEnabled(url: exactSourceUrl) else {
+                unavailableLegadoSourceURLs.insert(exactSourceUrl)
+                return false
+            }
+            if unavailableLegadoSourceURLs.contains(exactSourceUrl) {
+                guard allowReactivation else { return false }
+                unavailableLegadoSourceURLs.remove(exactSourceUrl)
+                let key = legacySessionKey(exactSourceUrl)
+                sessions.removeValue(forKey: key)
+                if activeSessionKey == key { activeSessionKey = nil }
+            }
+            return true
+        }
+        // Synthetic URLs used by the pure coordinator tests are not registry
+        // identities.  A URL once observed in the registry, however, remains
+        // retired after deletion and cannot silently become a new route.
+        return !knownManagedLegadoSourceURLs.contains(exactSourceUrl)
+            && !unavailableLegadoSourceURLs.contains(exactSourceUrl)
+    }
+
+    private func legadoSourceIsAvailable(_ exactSourceUrl: String) -> Bool {
+        guard !exactSourceUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        if SourceRegistry.shared.isLegadoSourceRetired(url: exactSourceUrl) {
+            unavailableLegadoSourceURLs.insert(exactSourceUrl)
+            return false
+        }
+        let managed = SourceRegistry.shared.isLegadoManaged(url: exactSourceUrl)
+        if managed {
+            knownManagedLegadoSourceURLs.insert(exactSourceUrl)
+            if !SourceRegistry.shared.isEnabled(url: exactSourceUrl) {
+                unavailableLegadoSourceURLs.insert(exactSourceUrl)
+                return false
+            }
+        }
+        if unavailableLegadoSourceURLs.contains(exactSourceUrl) { return false }
+        return managed || !knownManagedLegadoSourceURLs.contains(exactSourceUrl)
+    }
 
     /// Legado normal publish：coordinator 边界统一强制完整身份字段。
     private func validateLegadoPublishIdentity(
@@ -577,14 +704,11 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
 
     private func applySelect(_ sel: SelectionToken, isReselect: Bool) -> SourceSessionToken {
         guard sel.sourceKind != .unknown, !sel.canonicalID.isEmpty else {
-            return SourceSessionToken(
-                sourceKind: .unknown,
-                canonicalID: sel.canonicalID,
-                exactSourceUrl: "",
-                uiGeneration: 0,
-                definitionGeneration: 0,
-                contentGeneration: 0
-            )
+            return invalidToken(for: sel.canonicalID)
+        }
+        if sel.sourceKind == .legado,
+           !legadoSourceCanCreateSession(sel.canonicalID, allowReactivation: true) {
+            return invalidToken(for: sel.canonicalID)
         }
         let key = sel.sessionKey
         let laneGen = sel.sourceKind == .xbs ? managerGeneration : registryGeneration

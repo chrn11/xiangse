@@ -36,6 +36,16 @@ def _gate_on_text(mod, text: str):
             tmp.unlink()
 
 
+def _mutate_static_body(mod, text: str, name: str, old: str, new: str) -> str:
+    body = mod._extract_static_function(text, name)
+    if body is None:
+        body = mod._extract_function(text, name)
+    if body is None or old not in body:
+        raise AssertionError(f"fixture marker missing in {name}: {old!r}")
+    mutated = body.replace(old, new, 1)
+    return text.replace(body, mutated, 1)
+
+
 class DualLaneGateTests(unittest.TestCase):
     def test_current_tree_passes(self):
         mod = _load_gate()
@@ -77,16 +87,9 @@ class DualLaneGateTests(unittest.TestCase):
     def test_rejects_hook_rows_without_byclass(self):
         mod = _load_gate()
         text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
-        polluted = re.sub(
-            r"IMP classOrig = LBStoredOrigIMP\(sOrigNumberOfRowsByClass, \[self class\]\);\s*"
-            r"if \(classOrig\) \{\s*"
-            r"orig = \(\(NSInteger \(\*\)\(id, SEL, UITableView \*, NSInteger\)\)classOrig\)"
-            r"\(self, _cmd, tv, section\);\s*"
-            r"\} else \{\s*"
-            r"IMP fwd = LBForwardTableRowsIMP\(\);",
-            "IMP fwd = LBForwardTableRowsIMP();",
-            text,
-            count=1,
+        polluted = text.replace(
+            "LBStoredOrigIMP(sOrigNumberOfRowsByClass, [self class])",
+            "((IMP)0)",
         )
         with _gate_on_text(mod, polluted) as code:
             self.assertNotEqual(code, 0)
@@ -95,8 +98,8 @@ class DualLaneGateTests(unittest.TestCase):
         mod = _load_gate()
         text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
         polluted = text.replace(
-            "IMP fwd = LBForwardTableRowsIMP();",
-            "if (sTruePlainNumberOfRows) { orig = ((NSInteger (*)(id, SEL, UITableView *, NSInteger))sTruePlainNumberOfRows)(self, _cmd, tv, section); } IMP fwd = LBForwardTableRowsIMP();",
+            "IMP native = LBStoredOrigIMP(dict, cls);",
+            "IMP native = sTruePlainNumberOfRows;",
             1,
         )
         with _gate_on_text(mod, polluted) as code:
@@ -105,10 +108,282 @@ class DualLaneGateTests(unittest.TestCase):
     def test_rejects_hook_cell_without_byclass(self):
         mod = _load_gate()
         text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
-        polluted = re.sub(
-            r"LBStoredOrigIMP\(\s*sOrigCellForRowByClass[^)]*\)",
-            "((IMP)0)",
-            text,
+        polluted = text.replace(
+            "LBNativePlazaIMP(sOrigCellForRowByClass",
+            "LBNativePlazaIMP(((IMP)0)",
+            1,
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_rows_zero_rebind_outside_native_xbs_guard(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = text.replace(
+            "if (!nativeXBS) {\n            @try",
+            "if (YES) {\n            @try",
+            1,
+        )
+        self.assertNotEqual(text, polluted, "fixture must remove the enclosing XBS guard")
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_catalog_ui_xbs_did_select_startup_hook(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        marker = 'for (NSString *cn in @[@"BookSearchController", @"BookSearchVCBase1", @"BookSearchVCBase2"])'
+        polluted = text.replace(
+            marker,
+            'for (NSString *cn in @[@"BookSearchController", @"BookSearchVCBase1", @"BookSearchVCBase2", @"BookListCon"])',
+            1,
+        )
+        self.assertNotEqual(text, polluted, "fixture must add an XBS CatalogUI target")
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_generic_search_vc_heuristic(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = text.replace(
+            "return LBIsExactBookSearchClass([vc class]);",
+            "if ([NSStringFromClass([vc class]) containsString:@\"SearchController\"]) return YES;\n    return LBIsExactBookSearchClass([vc class]);",
+            1,
+        )
+        self.assertNotEqual(text, polluted, "fixture must restore generic search heuristic")
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_explore_pending_write_before_permit(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = text.replace(
+            "NSDictionary *permit = LBSharedRouterRequestPublishPermit(capturedToken, isFirstPage);",
+            "sPendingExploreToken = [capturedToken copy];\n    NSDictionary *permit = isCacheHit ? LBSharedRouterRequestCacheHitPublishPermit(capturedToken) : LBSharedRouterRequestPublishPermit(capturedToken, isFirstPage);",
+            1,
+        )
+        self.assertNotEqual(text, polluted, "fixture must move a pending write before permit")
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_explore_rejection_discard_side_effect(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = text.replace(
+            "NSDictionary *permit = LBSharedRouterRequestPublishPermit(capturedToken, isFirstPage);",
+            "LBDiscardExplorePendingBundle();\n    NSDictionary *permit = isCacheHit ? LBSharedRouterRequestCacheHitPublishPermit(capturedToken) : LBSharedRouterRequestPublishPermit(capturedToken, isFirstPage);",
+            1,
+        )
+        self.assertNotEqual(text, polluted, "fixture must add rejection side effect")
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_cache_callback_reactivation(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBApplySearchResultsToUIWithCapturedCacheToken",
+            "(void)books; (void)keyword; (void)capturedToken; return;",
+            "LBApplySearchResultsToUIWithCapturedTokenInternal(books, keyword, capturedToken, YES, YES);",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_cache_router_dispatch(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBSharedRouterRequestCacheHitPublishPermit",
+            "(void)token;",
+            "(void)token; objc_msgSend;",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_resolve_permit_reissue(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBResolveExplorePermit",
+            "NSDictionary *permit = [sPrevalidatedExplorePermit copy];",
+            "NSDictionary *reissued = LBSharedRouterRequestPublishPermit(token, firstPage);\n    NSDictionary *permit = [sPrevalidatedExplorePermit copy];",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_reusable_prevalidated_permit(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBResolveExplorePermit",
+            "sPrevalidatedExplorePermit = nil;",
+            "/* permit slot intentionally left reusable */",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_mode_agnostic_request_match(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBPermitMatchesExploreRequest",
+            "LBPermitModeIsNetwork(permit, captured)",
+            "YES",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_request_sequence_omission(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = text
+        for _ in range(6):
+            polluted = _mutate_static_body(
+                mod, polluted, "LBPermitMatchesExploreRequest",
+                "requestSequence",
+                "sequenceGap",
+            )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_non_exact_token_identity_comparison(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBPermitMatchesExploreCapture",
+            "isEqual:captured[key]",
+            "isEqual:@YES",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_shared_keyword_flush(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBFlushPendingSearchUI",
+            "sPendingExploreKeyword",
+            "sPendingSearchKeyword",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_flush_without_invalid_bundle_discard(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBFlushPendingSearchUI",
+            "LBDiscardExplorePendingBundle();",
+            "/* invalid explore bundle ignored */",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_clear_pending_only_without_bundle_clear(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBClearDiscoverExplorePendingOnly",
+            "LBDiscardExplorePendingBundle();",
+            "/* stale explore permit survives */",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_clear_books_without_bundle_clear(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBClearDiscoverExploreBooks",
+            "LBDiscardExplorePendingBundle();",
+            "/* stale explore permit survives */",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_exception_path_without_discard(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBApplySearchResultsToUI",
+            "if (exploreMode) LBDiscardExplorePendingBundle();",
+            "if (exploreMode) return;",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_native_helper_cross_class_fallback(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBNativePlazaIMP",
+            "return (native && native != hook) ? native : NULL;",
+            "return LBForwardTableRowsIMP();",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_native_did_select_global_fallback(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBHookedPlazaDidSelect",
+            "return;",
+            "else if (sTruePlainDidSelect) return;\n        return;",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_capture_cache_permit_call(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBApplySearchResultsToUIWithCapturedTokenInternal",
+            "NSDictionary *permit = LBSharedRouterRequestPublishPermit(capturedToken, isFirstPage);",
+            "LBSharedRouterRequestCacheHitPublishPermit(capturedToken);\n    NSDictionary *permit = LBSharedRouterRequestPublishPermit(capturedToken, isFirstPage);",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_malformed_books_guard_after_permit(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBApplySearchResultsToUIWithCapturedTokenInternal",
+            "if (![books isKindOfClass:[NSArray class]]) {",
+            "LBSharedRouterRequestPublishPermit(capturedToken, isFirstPage);\n    if (![books isKindOfClass:[NSArray class]]) {",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_malformed_books_pending_write(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBApplySearchResultsToUIWithCapturedTokenInternal",
+            "if (![books isKindOfClass:[NSArray class]]) {",
+            "if (![books isKindOfClass:[NSArray class]]) {\n        sPrevalidatedExplorePermit = @{};",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_malformed_cleanup_of_newer_bundle(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBDiscardExplorePendingBundleMatchingToken",
+            "if ([token isKindOfClass:[NSDictionary class]] && [sPendingExploreToken isEqual:token]) LBDiscardExplorePendingBundle();",
+            "if (sPendingExploreToken) LBDiscardExplorePendingBundle();",
+        )
+        with _gate_on_text(mod, polluted) as code:
+            self.assertNotEqual(code, 0)
+
+    def test_rejects_empty_books_array_as_malformed(self):
+        mod = _load_gate()
+        text = mod.CEXPORTS.read_text(encoding="utf-8", errors="replace")
+        polluted = _mutate_static_body(
+            mod, text, "LBApplySearchResultsToUIWithCapturedTokenInternal",
+            "NSDictionary *permit = LBSharedRouterRequestPublishPermit(capturedToken, isFirstPage);",
+            "if (books.count == 0) return;\n    NSDictionary *permit = LBSharedRouterRequestPublishPermit(capturedToken, isFirstPage);",
         )
         with _gate_on_text(mod, polluted) as code:
             self.assertNotEqual(code, 0)

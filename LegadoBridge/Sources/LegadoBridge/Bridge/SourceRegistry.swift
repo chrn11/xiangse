@@ -7,6 +7,9 @@ struct SubscriptionUpdateResult {
     let updated: Int
     let markedMissing: Int
     let unchanged: Int
+    /// True when the registry state changed, including subscription metadata
+    /// or a remote-missing flag that was cleared.
+    let mutated: Bool
 }
 
 /// Legado 书源注册表 — 与香色闺阁 XBS 源并行存储
@@ -28,9 +31,23 @@ final class SourceRegistry {
     private var subscriptionUrlBySource: [String: String] = [:]
     /// 远端订阅中已消失，本地仅标记，不自动删除
     private var remoteMissingByUrl: [String: Bool] = [:]
+    /// In-process tombstones let the coordinator reject a late callback or
+    /// stale picker selection after removeSource, even though the row no
+    /// longer exists in `sourcesByUrl`.
+    private var retiredSourceURLs: Set<String> = []
     private var activeSourceUrl: String?
     private let lock = NSLock()
-    private var didRestoreFromDisk = false
+    private enum RestoreState {
+        case idle
+        case restoring
+        case restored
+    }
+    /// Restore is reached from more than one launch hook.  A condition keeps
+    /// concurrent callers from importing the same file twice, while a failed
+    /// attempt returns to `.idle` so a later hook can retry after the file
+    /// arrives or is repaired.
+    private let restoreCondition = NSCondition()
+    private var restoreState: RestoreState = .idle
 
     /// 与 ObjC `LBImportHooks` 的 JSON Hook 重入键一致：解析阶段置位，避免
     /// `JSONObjectWithData` Hook 再走 `Core.import` 写共享 Documents。
@@ -69,39 +86,54 @@ final class SourceRegistry {
     /// 启动时从磁盘恢复；成功或确认文件不可用后闩锁；文件尚不存在时允许稍后重试。
     @discardableResult
     func restoreFromDiskIfNeeded() -> Int {
-        lock.lock()
-        if didRestoreFromDisk {
+        var waitedForAnotherAttempt = false
+        restoreCondition.lock()
+        while restoreState == .restoring {
+            waitedForAnotherAttempt = true
+            restoreCondition.wait()
+        }
+        if restoreState == .restored {
+            lock.lock()
             let n = sourcesByUrl.count
             lock.unlock()
+            restoreCondition.unlock()
             return n
         }
-        lock.unlock()
+        // A waiter observes the result of the in-flight attempt.  It must not
+        // immediately start a second import after a failed attempt; the next
+        // explicit launch hook is the retry boundary.
+        if waitedForAnotherAttempt {
+            restoreCondition.unlock()
+            return 0
+        }
+        restoreState = .restoring
+        restoreCondition.unlock()
 
+        let result = performRestoreFromDisk()
+        restoreCondition.lock()
+        restoreState = result.state
+        restoreCondition.broadcast()
+        restoreCondition.unlock()
+        return result.count
+    }
+
+    private func performRestoreFromDisk() -> (count: Int, state: RestoreState) {
         let url = persistFileURL
         guard let data = try? Data(contentsOf: url), !data.isEmpty else {
             writeDebugMarker("restore=0 missing")
-            // 不置 didRestore：测试/晚到落盘仍可再次恢复
-            return 0
+            // 不闩锁：测试/晚到落盘仍可再次恢复。
+            return (0, .idle)
         }
-        // 空数组 `[]`：视为尚无源，不闩锁、不抛「非 Legado 格式」
+        // 空数组 `[]`：视为尚无源，不闩锁、不抛「非 Legado 格式」。
         if let arr = try? withJSONHookSuppressed({
             try JSONSerialization.jsonObject(with: data)
         }) as? [Any], arr.isEmpty {
             writeDebugMarker("restore=0 empty")
-            return 0
+            return (0, .idle)
         }
-
-        lock.lock()
-        if didRestoreFromDisk {
-            let n = sourcesByUrl.count
-            lock.unlock()
-            return n
-        }
-        didRestoreFromDisk = true
-        lock.unlock()
 
         do {
-            // 磁盘恢复：直接信任落盘的 enabled / 订阅元数据 / 远端缺失标记
+            // 磁盘恢复：直接信任落盘的 enabled / 订阅元数据 / 远端缺失标记。
             let count = try importJSONData(
                 data,
                 persist: false,
@@ -110,10 +142,12 @@ final class SourceRegistry {
                 clearRemoteMissing: false
             )
             writeDebugMarker("restore=\(count) ok")
-            return count
+            return (count, count > 0 ? .restored : .idle)
         } catch {
+            // 解析/解码失败必须回到 idle；下一次 launch hook 可以在文件
+            // 被补齐后重试，而不会永久复用一次失败的状态。
             writeDebugMarker("restore=0 err=\(error.localizedDescription)")
-            return 0
+            return (0, .idle)
         }
     }
 
@@ -121,6 +155,7 @@ final class SourceRegistry {
     func register(part: BookSourcePart) -> MemoryBridgeBookSource {
         let source = MemoryBridgeBookSource(part: part)
         lock.lock()
+        retiredSourceURLs.remove(source.bookSourceUrl)
         sourcesByUrl[source.bookSourceUrl] = source
         if activeSourceUrl == nil { activeSourceUrl = source.bookSourceUrl }
         lock.unlock()
@@ -174,7 +209,9 @@ final class SourceRegistry {
         let trimmed = subscriptionUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw LegadoBridgeError.engineError("订阅 URL 为空") }
 
-        let object = try JSONSerialization.jsonObject(with: data)
+        let object = try withJSONHookSuppressed {
+            try JSONSerialization.jsonObject(with: data)
+        }
         var remoteItems: [[String: Any]] = []
         if let dict = object as? [String: Any], Self.isLegadoSource(dict) {
             remoteItems = [dict]
@@ -185,23 +222,31 @@ final class SourceRegistry {
             throw LegadoBridgeError.notLegadoFormat
         }
 
-        let remoteUrls = Set(remoteItems.compactMap { $0["bookSourceUrl"] as? String }.filter { !$0.isEmpty })
+        let remoteUrls = Set(
+            remoteItems.compactMap { $0["bookSourceUrl"] as? String }
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        )
         var added = 0
         var updated = 0
         var unchanged = 0
+        var mutated = false
 
         for item in remoteItems {
-            guard let url = item["bookSourceUrl"] as? String, !url.isEmpty else { continue }
+            guard let url = item["bookSourceUrl"] as? String,
+                  !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             lock.lock()
             let existed = sourcesByUrl[url] != nil
             let oldJson = rawJsonByUrl[url]
+            let oldSub = subscriptionUrlBySource[url]
+            let oldMissing = remoteMissingByUrl[url] ?? false
             lock.unlock()
 
             _ = register(
                 json: item,
                 preserveLocalEnabled: true,
                 subscriptionUrl: trimmed,
-                clearRemoteMissing: true
+                clearRemoteMissing: true,
+                makeActive: false
             )
 
             lock.lock()
@@ -209,10 +254,14 @@ final class SourceRegistry {
             lock.unlock()
             if !existed {
                 added += 1
-            } else if Self.areCoreFieldsEqual(oldJson, newJson) {
+                mutated = true
+            } else if Self.areCoreFieldsEqual(oldJson, newJson),
+                      oldSub == trimmed,
+                      !oldMissing {
                 unchanged += 1
             } else {
                 updated += 1
+                mutated = true
             }
         }
 
@@ -224,6 +273,7 @@ final class SourceRegistry {
                 remoteMissingByUrl[url] = true
                 rawJsonByUrl[url]?[Self.metaRemoteMissingKey] = true
                 markedMissing += 1
+                mutated = true
             }
         }
         lock.unlock()
@@ -233,51 +283,51 @@ final class SourceRegistry {
             added: added,
             updated: updated,
             markedMissing: markedMissing,
-            unchanged: unchanged
+            unchanged: unchanged,
+            mutated: mutated
         )
     }
 
     /// 用完整 JSON 覆盖单个源（结构化/JSON 编辑器保存）；保留订阅元数据与本地缺失标记策略由调用方决定。
     @discardableResult
     func updateSourceJSON(_ data: Data, forUrl expectedUrl: String?) throws -> String {
-        let object = try JSONSerialization.jsonObject(with: data)
+        let object = try withJSONHookSuppressed {
+            try JSONSerialization.jsonObject(with: data)
+        }
         guard let dict = object as? [String: Any], Self.isLegadoSource(dict) else {
             throw LegadoBridgeError.notLegadoFormat
         }
         guard let newUrl = dict["bookSourceUrl"] as? String, !newUrl.isEmpty else {
             throw LegadoBridgeError.notLegadoFormat
         }
-        if let expectedUrl, !expectedUrl.isEmpty, expectedUrl != newUrl {
-            // 允许改 URL：删旧键再写入
-            lock.lock()
-            let oldEnabled = enabledByUrl[expectedUrl]
-            let oldSub = subscriptionUrlBySource[expectedUrl]
-            let oldMissing = remoteMissingByUrl[expectedUrl]
-            sourcesByUrl.removeValue(forKey: expectedUrl)
-            rawJsonByUrl.removeValue(forKey: expectedUrl)
-            enabledByUrl.removeValue(forKey: expectedUrl)
-            subscriptionUrlBySource.removeValue(forKey: expectedUrl)
-            remoteMissingByUrl.removeValue(forKey: expectedUrl)
-            if activeSourceUrl == expectedUrl { activeSourceUrl = newUrl }
-            lock.unlock()
-
-            var mutable = dict
-            if let oldEnabled { mutable["enabled"] = oldEnabled }
-            if let oldSub { mutable[Self.metaSubscriptionKey] = oldSub }
-            if let oldMissing { mutable[Self.metaRemoteMissingKey] = oldMissing }
-            _ = register(json: mutable, preserveLocalEnabled: false, subscriptionUrl: oldSub, clearRemoteMissing: oldMissing != true)
-        } else {
-            lock.lock()
-            let oldSub = subscriptionUrlBySource[newUrl]
-            let oldMissing = remoteMissingByUrl[newUrl]
-            lock.unlock()
-            _ = register(
-                json: dict,
-                preserveLocalEnabled: true,
-                subscriptionUrl: oldSub,
-                clearRemoteMissing: oldMissing != true
-            )
+        // This API edits an existing row, so it must carry the exact identity
+        // that was shown by the editor.  Accepting nil/empty here would turn a
+        // typo into an implicit import or allow a destination URL to overwrite
+        // another row.  A true rename also needs an atomic cross-store
+        // migration (bindings/cache/subscription metadata), which is not
+        // implemented; reject it before touching either side.
+        guard let expectedUrl,
+              !expectedUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LegadoBridgeError.sourceNotFound
         }
+        lock.lock()
+        let expectedExists = sourcesByUrl[expectedUrl] != nil
+        lock.unlock()
+        guard expectedExists else { throw LegadoBridgeError.sourceNotFound }
+        guard expectedUrl == newUrl else {
+            throw LegadoBridgeError.engineError("bookSourceUrl 暂不支持修改")
+        }
+
+        lock.lock()
+        let oldSub = subscriptionUrlBySource[newUrl]
+        let oldMissing = remoteMissingByUrl[newUrl]
+        lock.unlock()
+        _ = register(
+            json: dict,
+            preserveLocalEnabled: true,
+            subscriptionUrl: oldSub,
+            clearRemoteMissing: oldMissing != true
+        )
         persistToDisk()
         return newUrl
     }
@@ -286,7 +336,8 @@ final class SourceRegistry {
         json: [String: Any],
         preserveLocalEnabled: Bool,
         subscriptionUrl: String?,
-        clearRemoteMissing: Bool
+        clearRemoteMissing: Bool,
+        makeActive: Bool = true
     ) -> MemoryBridgeBookSource {
         // yckceo 等仓常见 lastUpdateTime/respondTime 写成字符串；try! 解码失败会直接崩进程
         let sanitized = Self.sanitizeSourceJSON(json)
@@ -324,6 +375,7 @@ final class SourceRegistry {
         }
         lock.lock()
         let url = source.bookSourceUrl
+        retiredSourceURLs.remove(url)
         let previousEnabled = enabledByUrl[url]
         let previousSub = subscriptionUrlBySource[url]
         let previousMissing = remoteMissingByUrl[url]
@@ -360,7 +412,9 @@ final class SourceRegistry {
 
         mutableJson[Self.metaUpdatedAtKey] = ISO8601DateFormatter().string(from: Date())
         rawJsonByUrl[url] = mutableJson
-        activeSourceUrl = url
+        if makeActive {
+            activeSourceUrl = url
+        }
         lock.unlock()
         return source
     }
@@ -421,10 +475,21 @@ final class SourceRegistry {
         try? msg.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
+    /// Resolve a source for a runtime operation.
+    ///
+    /// Any non-nil URL is an explicit identity and must be non-empty, exact,
+    /// and enabled.  Only nil is allowed to use the active/first-enabled
+    /// convenience path used by source-list UI callers.
     func source(forUrl url: String?) -> MemoryBridgeBookSource? {
         lock.lock()
         defer { lock.unlock() }
-        if let url, let s = sourcesByUrl[url] { return s }
+        if let url {
+            guard !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            guard let source = sourcesByUrl[url], enabledByUrl[url] ?? true else {
+                return nil
+            }
+            return source
+        }
         if let active = activeSourceUrl,
            let s = sourcesByUrl[active],
            enabledByUrl[active] ?? true {
@@ -433,16 +498,27 @@ final class SourceRegistry {
         return sourcesByUrl.values.first { enabledByUrl[$0.bookSourceUrl] ?? true }
     }
 
-    /// 严格按 URL 查找，禁止回退到 active/第一个源（目录/正文绑定解析用，防串源）
+    /// 严格按 URL 查找，禁止回退到 active/第一个源（目录/正文绑定解析用，防串源）。
+    /// 运行时显式源必须同时处于 enabled 状态。
     func exactSource(forUrl url: String?) -> MemoryBridgeBookSource? {
-        guard let url, !url.isEmpty else { return nil }
+        guard let url,
+              !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         lock.lock()
         defer { lock.unlock() }
-        return sourcesByUrl[url]
+        guard let source = sourcesByUrl[url], enabledByUrl[url] ?? true else {
+            return nil
+        }
+        return source
     }
 
     func setActiveSourceUrl(_ url: String) {
         lock.lock()
+        guard !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              sourcesByUrl[url] != nil,
+              enabledByUrl[url] ?? true else {
+            lock.unlock()
+            return
+        }
         activeSourceUrl = url
         lock.unlock()
     }
@@ -459,37 +535,58 @@ final class SourceRegistry {
         return sourcesByUrl[url] != nil
     }
 
+    func isLegadoSourceRetired(url: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return retiredSourceURLs.contains(url)
+    }
+
     // MARK: - 增删改（管理 VC 调用）
 
-    func removeSource(url: String) {
+    @discardableResult
+    func removeSource(url: String) -> Bool {
         lock.lock()
+        guard sourcesByUrl[url] != nil else {
+            lock.unlock()
+            return false
+        }
         sourcesByUrl.removeValue(forKey: url)
         rawJsonByUrl.removeValue(forKey: url)
         enabledByUrl.removeValue(forKey: url)
         subscriptionUrlBySource.removeValue(forKey: url)
         remoteMissingByUrl.removeValue(forKey: url)
+        retiredSourceURLs.insert(url)
         if activeSourceUrl == url {
             activeSourceUrl = sourcesByUrl.keys.first
         }
         lock.unlock()
         persistToDisk()
+        return true
     }
 
-    func setEnabled(url: String, enabled: Bool) {
+    @discardableResult
+    func setEnabled(url: String, enabled: Bool) -> Bool {
         lock.lock()
         guard sourcesByUrl[url] != nil else {
             lock.unlock()
-            return
+            return false
+        }
+        let changed = (enabledByUrl[url] ?? true) != enabled
+        guard changed else {
+            lock.unlock()
+            return false
         }
         enabledByUrl[url] = enabled
         rawJsonByUrl[url]?["enabled"] = enabled
         lock.unlock()
         persistToDisk()
+        return true
     }
 
     func isEnabled(url: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
+        guard sourcesByUrl[url] != nil else { return false }
         return enabledByUrl[url] ?? true
     }
 
@@ -638,7 +735,8 @@ final class SourceRegistry {
     }
 
     static func isLegadoSource(_ dict: [String: Any]) -> Bool {
-        guard let url = dict["bookSourceUrl"] as? String, !url.isEmpty else { return false }
+        guard let url = dict["bookSourceUrl"] as? String,
+              !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let hasSearch = (dict["searchUrl"] as? String)?.isEmpty == false
         let hasRuleSearch = dict["ruleSearch"] != nil
         return hasSearch || hasRuleSearch
@@ -653,16 +751,48 @@ final class SourceRegistry {
         return false
     }
 
+    /// Extract exact source identities from an import payload so callers can
+    /// invalidate only the affected in-memory explore caches.
+    static func sourceURLs(in data: Data) -> Set<String> {
+        guard let object = try? SourceRegistry.shared.withJSONHookSuppressed({
+            try JSONSerialization.jsonObject(with: data)
+        }) else { return [] }
+        let dicts: [[String: Any]]
+        if let dict = object as? [String: Any] {
+            dicts = [dict]
+        } else if let array = object as? [[String: Any]] {
+            dicts = array
+        } else {
+            return []
+        }
+        return Set(dicts.compactMap { dict in
+            guard Self.isLegadoSource(dict),
+                  let url = dict["bookSourceUrl"] as? String,
+                  !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return url
+        })
+    }
+
     /// 测试专用：清空内存表；可选删除持久化文件，以便验证磁盘恢复。
     func resetForTesting(clearPersistFile: Bool = true) {
+        // Do not clear the in-memory tables while a launch hook is importing
+        // the restore file.  This is test-only but also makes a simulated
+        // process reset deterministic under concurrent callbacks.
+        restoreCondition.lock()
+        while restoreState == .restoring {
+            restoreCondition.wait()
+        }
+        restoreState = .idle
+        restoreCondition.broadcast()
+        restoreCondition.unlock()
         lock.lock()
         sourcesByUrl.removeAll()
         rawJsonByUrl.removeAll()
         enabledByUrl.removeAll()
         subscriptionUrlBySource.removeAll()
         remoteMissingByUrl.removeAll()
+        retiredSourceURLs.removeAll()
         activeSourceUrl = nil
-        didRestoreFromDisk = false
         lock.unlock()
         if clearPersistFile {
             try? FileManager.default.removeItem(at: persistFileURL)

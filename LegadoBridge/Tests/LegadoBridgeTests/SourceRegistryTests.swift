@@ -69,6 +69,8 @@ final class SourceRegistryTests: XCTestCase {
         registry.setEnabled(url: url, enabled: false)
         XCTAssertFalse(registry.isEnabled(url: url))
         XCTAssertEqual(registry.allSources().count, 1)
+        XCTAssertNil(registry.source(forUrl: url))
+        XCTAssertNil(registry.exactSource(forUrl: url))
 
         // 清内存但保留落盘文件，模拟进程重启
         registry.resetForTesting(clearPersistFile: false)
@@ -79,6 +81,60 @@ final class SourceRegistryTests: XCTestCase {
         XCTAssertEqual(registry.allSources().count, 1)
         XCTAssertFalse(registry.isEnabled(url: url))
         XCTAssertEqual(registry.allSources().first?.bookSourceName, "可禁用")
+    }
+
+    func testRestoreRetriesAfterMalformedFileIsRepaired() throws {
+        let file = registry.persistFileURLOverride!
+        try Data("{not-json".utf8).write(to: file, options: .atomic)
+        XCTAssertEqual(registry.restoreFromDiskIfNeeded(), 0)
+
+        let valid = try Self.jsonData(Self.sampleSource(url: "https://example.com/retry", name: "重试源"))
+        try valid.write(to: file, options: .atomic)
+        XCTAssertEqual(registry.restoreFromDiskIfNeeded(), 1)
+        XCTAssertEqual(registry.allSources().first?.bookSourceUrl, "https://example.com/retry")
+    }
+
+    func testSubscriptionUnchangedDoesNotChangeActiveSource() throws {
+        let aURL = "https://example.com/sub-a"
+        let bURL = "https://example.com/sub-b"
+        let subscription = "https://subscription.example/list"
+        let a = try Self.jsonData(Self.sampleSource(url: aURL, name: "订阅 A"))
+        let b = try Self.jsonData(Self.sampleSource(url: bURL, name: "手动 B"))
+
+        let first = try registry.applySubscriptionUpdate(data: a, subscriptionUrl: subscription)
+        XCTAssertEqual(first.added, 1)
+        XCTAssertEqual(try registry.importJSONData(b), 1)
+        XCTAssertEqual(registry.source(forUrl: nil)?.bookSourceUrl, bURL)
+
+        let unchanged = try registry.applySubscriptionUpdate(data: a, subscriptionUrl: subscription)
+        XCTAssertEqual(unchanged.unchanged, 1)
+        XCTAssertFalse(unchanged.mutated)
+        XCTAssertEqual(
+            registry.source(forUrl: nil)?.bookSourceUrl,
+            bURL,
+            "an unchanged subscription refresh must not make its first item active"
+        )
+    }
+
+    func testURLRenameIsRejectedBeforeDestinationCollisionMutation() throws {
+        let oldURL = "https://example.com/rename-old"
+        let destinationURL = "https://example.com/rename-destination"
+        let old = try Self.jsonData(Self.sampleSource(url: oldURL, name: "旧源"))
+        let destination = try Self.jsonData(Self.sampleSource(url: destinationURL, name: "目标源"))
+        XCTAssertEqual(try registry.importJSONData(old), 1)
+        XCTAssertEqual(try registry.importJSONData(destination), 1)
+
+        var rename = Self.sampleSource(url: destinationURL, name: "不应覆盖")
+        rename["searchUrl"] = "https://example.com/changed?q={{key}}"
+        let renameData = try Self.jsonData(rename)
+        XCTAssertThrowsError(try registry.updateSourceJSON(renameData, forUrl: oldURL))
+
+        XCTAssertEqual(registry.allSources().count, 2)
+        XCTAssertEqual(registry.allSources().first(where: { $0.bookSourceUrl == oldURL })?.bookSourceName, "旧源")
+        XCTAssertEqual(
+            registry.allSources().first(where: { $0.bookSourceUrl == destinationURL })?.bookSourceName,
+            "目标源"
+        )
     }
 
     func testRejectNonLegadoJSON() {

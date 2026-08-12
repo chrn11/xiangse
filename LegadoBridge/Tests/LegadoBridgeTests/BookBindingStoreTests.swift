@@ -142,7 +142,11 @@ final class BookBindingStoreTests: XCTestCase {
 
         XCTAssertNil(registry.exactSource(forUrl: "https://source.example/missing"))
         XCTAssertEqual(registry.exactSource(forUrl: "https://source.example/a")?.bookSourceName, "A")
-        XCTAssertNotNil(registry.source(forUrl: "https://source.example/missing"))
+        // An explicit missing/empty URL is fail-closed; only nil may use the
+        // active/first-enabled convenience path.
+        XCTAssertNil(registry.source(forUrl: "https://source.example/missing"))
+        XCTAssertNil(registry.source(forUrl: ""))
+        XCTAssertEqual(registry.source(forUrl: nil)?.bookSourceUrl, "https://source.example/b")
     }
 
     func testAdapterSearchDictCarriesBridgeTokenWithoutUpsert() throws {

@@ -39,6 +39,10 @@ private final class SearchOutcomeBox: @unchecked Sendable {
 
     /// 会话缓存按 BookIdentity 索引；禁止 bookUrl-only 猜源。
     private var bookCache: [BookIdentity: BridgeBook] = [:]
+    /// `restorePersistedSources` may be reached by more than one launch hook;
+    /// the same restored registry must invalidate the coordinator only once.
+    private var didBumpRestoreRegistryGeneration = false
+    private let restoreGenerationLock = NSLock()
     private let queue = DispatchQueue(label: "com.xiangse.legado-bridge", qos: .userInitiated)
     /// 搜索 marker 文件写锁（超时线程与搜索线程并发追加）
     private let searchMarkerLock = NSLock()
@@ -54,7 +58,15 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     private var exploreKindsWarming: Set<String> = []
     /// 预热失败（空分类）节流：sourceUrl → 失败时间；30s 内不重复预热
     private var exploreKindsWarmFailedAt: [String: TimeInterval] = [:]
+    /// Per-source cancellation epochs invalidate an in-flight JS warmup even
+    /// when its worker started before the registry mutation was observed.
+    private var exploreKindsCancellationEpoch: [String: UInt64] = [:]
     private let exploreKindsCacheQueue = DispatchQueue(label: "com.xiangse.legado-bridge.explore-kinds")
+    /// UserDefaults is thread-safe for individual operations, but a getter
+    /// that clears a stale selection can otherwise race a picker setter and
+    /// erase a newly selected source.  Serialize the read/validate/clear
+    /// transaction as one critical section.
+    private let selectedExploreSourceLock = NSLock()
     /// 分类预热完成（userInfo: sourceUrl）
     @objc public static let exploreKindsDidUpdateNotification = Notification.Name("LegadoExploreKindsDidUpdate")
     /// ObjC / KVO 用通知名字符串
@@ -88,6 +100,26 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     public func restorePersistedSources() -> Int {
         Self.wireBrowserAwaitIfNeeded()
         let count = SourceRegistry.shared.restoreFromDiskIfNeeded()
+        let shouldBumpRestoreGeneration: Bool = {
+            restoreGenerationLock.lock()
+            defer { restoreGenerationLock.unlock() }
+            if count > 0, !didBumpRestoreRegistryGeneration {
+                didBumpRestoreRegistryGeneration = true
+                return true
+            }
+            if count == 0 {
+                // A missing/invalid file is retryable; do not consume the
+                // generation bump until a later hook actually restores data.
+                didBumpRestoreRegistryGeneration = false
+            }
+            return false
+        }()
+        if shouldBumpRestoreGeneration {
+            // Restoring the registry invalidates captured Legado permits and
+            // any in-memory explore definition derived from an older source.
+            // Keep this as one batch bump for the whole restore.
+            noteRegistryMutation(invalidateAllExploreKinds: true)
+        }
         // 书籍绑定与书源分文件；启动时一并恢复，避免重启串源
         _ = BookBindingStore.shared.restoreFromDiskIfNeeded()
         _ = ReplaceRuleStore.shared.restoreFromDiskIfNeeded()
@@ -198,6 +230,12 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         requested: String?,
         bookUrl: String
     ) -> MemoryBridgeBookSource? {
+        if let requested,
+           requested.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // Explicit empty is malformed identity; only nil may use the
+            // binding/book-url convenience resolution below.
+            return nil
+        }
         let store = BookBindingStore.shared
         switch store.resolveBinding(
             token: token,
@@ -287,7 +325,11 @@ private final class SearchOutcomeBox: @unchecked Sendable {
 
     @discardableResult
     public func importLegadoJSONDataThrowing(_ data: Data) throws -> Int {
+        let importedSourceUrls = SourceRegistry.sourceURLs(in: data)
         let count = try SourceRegistry.shared.importJSONData(data)
+        if count > 0 {
+            noteRegistryMutation(sourceUrls: importedSourceUrls)
+        }
         let enabled = SourceRegistry.shared.allSources().filter {
             SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl)
         }
@@ -352,7 +394,22 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         let names = SourceRegistry.shared.allSources()
             .filter { $0.bookSourceUrl == url }
             .map(\.bookSourceName)
-        SourceRegistry.shared.removeSource(url: url)
+        let removed = SourceRegistry.shared.removeSource(url: url)
+        // Clear a persisted exact selection even when the remove request is
+        // already idempotent (the source may have disappeared in another
+        // registry owner).
+        if selectedExploreSourceUrl == url {
+            selectedExploreSourceUrl = nil
+        }
+        if removed {
+            noteRegistryMutation(sourceUrls: Set([url]), invalidateLegadoURLs: Set([url]))
+        } else {
+            // Another registry owner may already have removed the row.  Still
+            // freeze this exact route without manufacturing a second
+            // generation bump.
+            SourceSessionCoordinator.shared.invalidateLegadoSource(exactSourceUrl: url)
+            invalidateExploreKindsCache(forSourceUrl: url)
+        }
         // TC-06：生产删源不写 manager；只失效投影
         NativeSourceInjector.removeFromNativeManager(names: names, allowLegacyMigration: false)
         // 删源策略：只标记 sourceAvailable；不删 binding。会话缓存可清该源条目。
@@ -363,11 +420,21 @@ private final class SearchOutcomeBox: @unchecked Sendable {
 
     @objc(setSourceEnabled:enabled:)
     public func setSourceEnabled(_ url: String, enabled: Bool) {
-        let wasEnabled = SourceRegistry.shared.isEnabled(url: url)
-        SourceRegistry.shared.setEnabled(url: url, enabled: enabled)
+        let changed = SourceRegistry.shared.setEnabled(url: url, enabled: enabled)
+        if !enabled, selectedExploreSourceUrl == url {
+            // Selection cleanup is independent of the generation bump: a
+            // repeated disable must not retain a stale exact URL in defaults.
+            selectedExploreSourceUrl = nil
+        }
+        if changed {
+            noteRegistryMutation(
+                sourceUrls: Set([url]),
+                invalidateLegadoURLs: enabled ? [] : Set([url])
+            )
+        }
         // 停用只改 sourceAvailable；不删 binding
         _ = BookBindingStore.shared.markSourceAvailabilitySync(exactSourceUrl: url, available: enabled)
-        if wasEnabled != enabled {
+        if changed {
             if enabled {
                 resyncNativeList()
             } else {
@@ -395,6 +462,17 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     public func updateSourceJSON(_ data: Data, forUrl expectedUrl: String?, error: NSErrorPointer) -> Bool {
         do {
             let newUrl = try SourceRegistry.shared.updateSourceJSON(data, forUrl: expectedUrl)
+            var invalidated = Set<String>()
+            if let expectedUrl, !expectedUrl.isEmpty {
+                invalidated.insert(expectedUrl)
+                if expectedUrl != newUrl, selectedExploreSourceUrl == expectedUrl {
+                    // The old exact identity no longer exists after a URL
+                    // edit; never leave a stale selected source behind.
+                    selectedExploreSourceUrl = nil
+                }
+            }
+            invalidated.insert(newUrl)
+            noteRegistryMutation(sourceUrls: invalidated)
             resyncNativeList()
             postNotification(
                 XiangseAdapter.notifyUpdateSourceList,
@@ -429,6 +507,7 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 searchUrl: searchUrl,
                 group: group
             )
+            noteRegistryMutation(sourceUrls: Set([url]))
             resyncNativeList()
             return true
         } catch let err as NSError {
@@ -450,6 +529,12 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 data: data,
                 subscriptionUrl: subscriptionURL
             )
+            if result.mutated {
+                // A subscription may mark a source missing that is not
+                // present in the incoming payload, so invalidate all
+                // in-memory explore definitions for this successful batch.
+                noteRegistryMutation(invalidateAllExploreKinds: true)
+            }
             resyncNativeList()
             return [
                 "added": result.added,
@@ -485,6 +570,28 @@ private final class SearchOutcomeBox: @unchecked Sendable {
             SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl)
         }
         NativeSourceInjector.syncToNativeManager(sources: enabled)
+    }
+
+    /// Record a successful Legado registry mutation without touching the XBS
+    /// manager.  Registry generations invalidate captured Legado permits;
+    /// explore definition caches are cleared for only the changed identities
+    /// unless the operation can affect the whole subscription set.
+    private func noteRegistryMutation(
+        sourceUrls: Set<String> = [],
+        invalidateLegadoURLs: Set<String> = [],
+        invalidateAllExploreKinds: Bool = false
+    ) {
+        for url in invalidateLegadoURLs where !url.isEmpty {
+            SourceSessionCoordinator.shared.invalidateLegadoSource(exactSourceUrl: url)
+        }
+        SourceSessionCoordinator.shared.bumpRegistryGeneration()
+        if invalidateAllExploreKinds {
+            invalidateExploreKindsCache(forSourceUrl: nil)
+        } else {
+            for url in sourceUrls where !url.isEmpty {
+                invalidateExploreKindsCache(forSourceUrl: url)
+            }
+        }
     }
 
     // MARK: - 换源
@@ -791,12 +898,35 @@ private final class SearchOutcomeBox: @unchecked Sendable {
 
     // MARK: - 发现
 
-    /// 当前发现源（点「切换」后写入）；空则用第一个可发现源
+    /// 当前发现源（点「切换」后写入）；未选择时由 nil 请求按 exact
+    /// selection/首个可发现源顺序解析，显式空字符串不参与 fallback。
     @objc public var selectedExploreSourceUrl: String? {
-        get { UserDefaults.standard.string(forKey: "legado_selected_explore_source") }
+        get {
+            selectedExploreSourceLock.lock()
+            defer { selectedExploreSourceLock.unlock() }
+            guard let selected = UserDefaults.standard.string(forKey: "legado_selected_explore_source"),
+                  !selected.isEmpty else {
+                return nil
+            }
+            // Persisted selection is an exact identity.  A removed or
+            // disabled source must not silently turn into the current/first
+            // source when callers resolve the selection later.
+            guard SourceRegistry.shared.exactSource(forUrl: selected) != nil else {
+                UserDefaults.standard.removeObject(forKey: "legado_selected_explore_source")
+                return nil
+            }
+            return selected
+        }
         set {
-            if let newValue, !newValue.isEmpty {
-                UserDefaults.standard.set(newValue, forKey: "legado_selected_explore_source")
+            selectedExploreSourceLock.lock()
+            defer { selectedExploreSourceLock.unlock() }
+            let candidate = newValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            // A persisted selection is an exact, enabled registry identity;
+            // never persist an empty, removed, or disabled URL which would
+            // later look like an implicit fallback.
+            if !candidate.isEmpty,
+               SourceRegistry.shared.exactSource(forUrl: candidate) != nil {
+                UserDefaults.standard.set(candidate, forKey: "legado_selected_explore_source")
             } else {
                 UserDefaults.standard.removeObject(forKey: "legado_selected_explore_source")
             }
@@ -1064,12 +1194,22 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     public func warmupExploreKinds(forSourceUrl sourceUrl: String?) {
         guard let resolved = resolveExploreSource(sourceUrl),
               let raw = resolved.exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !raw.isEmpty else {
+              !raw.isEmpty,
+              SourceRegistry.shared.exactSource(forUrl: resolved.bookSourceUrl) != nil,
+              SourceRegistry.shared.isEnabled(url: resolved.bookSourceUrl) else {
             return
         }
         let cacheKey = resolved.bookSourceUrl
         let fingerprint = raw
+        let capturedRegistryGeneration = SourceSessionCoordinator.shared.currentRegistryGeneration()
+        var capturedCancellationEpoch: UInt64 = 0
         let shouldStart: Bool = exploreKindsCacheQueue.sync {
+            // Always materialize an epoch entry before the worker starts so a
+            // concurrent mutation can invalidate this exact in-flight task.
+            if exploreKindsCancellationEpoch[cacheKey] == nil {
+                exploreKindsCancellationEpoch[cacheKey] = 0
+            }
+            capturedCancellationEpoch = exploreKindsCancellationEpoch[cacheKey] ?? 0
             if let cached = exploreKindsCache[cacheKey], cached.fingerprint == fingerprint {
                 return false
             }
@@ -1096,13 +1236,34 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 jsTimeoutSeconds: 12
             )
             let json = self.encodeExploreKindsJSON(kinds, baseUrl: resolved.bookSourceUrl)
+            // A worker may finish after source disable/remove, re-import,
+            // definition edit, or another refresh.  Commit validation is
+            // serialized with cache invalidation so stale results cannot write
+            // last-good data or notify the UI for the old source definition.
+            guard self.commitExploreKindsWarmup(
+                exactSourceUrl: cacheKey,
+                fingerprint: fingerprint,
+                registryGeneration: capturedRegistryGeneration,
+                cancellationEpoch: capturedCancellationEpoch,
+                json: json,
+                failed: kinds.isEmpty
+            ) else {
+                self.writeSearchMarker("exploreKinds warm stale drop src=\(cacheKey)")
+                return
+            }
             // 空分类（JS 失败/超时）不写缓存：记失败时间节流；仍通知 UI 清掉「分类加载中」并给失败文案
             guard !kinds.isEmpty else {
-                self.exploreKindsCacheQueue.sync {
-                    self.exploreKindsWarmFailedAt[cacheKey] = Date().timeIntervalSince1970
-                }
                 self.writeSearchMarker("exploreKinds warm fail src=\(cacheKey)")
                 DispatchQueue.main.async {
+                    guard self.isExploreKindsWarmupStillCurrent(
+                        exactSourceUrl: cacheKey,
+                        fingerprint: fingerprint,
+                        registryGeneration: capturedRegistryGeneration,
+                        cancellationEpoch: capturedCancellationEpoch
+                    ) else {
+                        self.writeSearchMarker("exploreKinds warm notify stale drop src=\(cacheKey)")
+                        return
+                    }
                     NotificationCenter.default.post(
                         name: Self.exploreKindsDidUpdateNotification,
                         object: self,
@@ -1112,17 +1273,94 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 }
                 return
             }
-            self.exploreKindsCacheQueue.sync {
-                _ = self.exploreKindsWarmFailedAt.removeValue(forKey: cacheKey)
-            }
-            self.storeExploreKindsCache(key: cacheKey, fingerprint: fingerprint, json: json)
             DispatchQueue.main.async {
+                guard self.isExploreKindsWarmupStillCurrent(
+                    exactSourceUrl: cacheKey,
+                    fingerprint: fingerprint,
+                    registryGeneration: capturedRegistryGeneration,
+                    cancellationEpoch: capturedCancellationEpoch
+                ) else {
+                    self.writeSearchMarker("exploreKinds warm notify stale drop src=\(cacheKey)")
+                    return
+                }
                 NotificationCenter.default.post(
                     name: Self.exploreKindsDidUpdateNotification,
                     object: self,
                     userInfo: ["sourceUrl": cacheKey]
                 )
             }
+        }
+    }
+
+    /// Current per-source cancellation epoch.  Internal visibility keeps the
+    /// mutation-during-warmup contract deterministic in XCTest without
+    /// exposing a production API or requiring a real JS/WebView worker.
+    func exploreKindsCancellationEpochForSourceUrl(_ sourceUrl: String) -> UInt64 {
+        let exact = sourceUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        return exploreKindsCacheQueue.sync {
+            exploreKindsCancellationEpoch[exact] ?? 0
+        }
+    }
+
+    /// Delivery-side guard for a completed asynchronous warmup.  A result may
+    /// have passed the worker commit gate and still be queued on the main
+    /// thread while the exact source is disabled/removed, re-imported, or its
+    /// explore definition changes.  Re-check every captured identity before
+    /// posting a notification or touching the discover empty hint; the
+    /// observer currently routes by host and can otherwise refresh the wrong
+    /// source when it ignores `sourceUrl` in the notification payload.
+    func isExploreKindsWarmupStillCurrent(
+        exactSourceUrl: String,
+        fingerprint: String,
+        registryGeneration: UInt64,
+        cancellationEpoch: UInt64
+    ) -> Bool {
+        let exact = exactSourceUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expectedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !exact.isEmpty, !expectedFingerprint.isEmpty,
+              let source = SourceRegistry.shared.exactSource(forUrl: exact),
+              SourceRegistry.shared.isEnabled(url: exact),
+              source.exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines) == expectedFingerprint,
+              SourceSessionCoordinator.shared.currentRegistryGeneration() == registryGeneration else {
+            return false
+        }
+        return exploreKindsCacheQueue.sync {
+            exploreKindsCancellationEpoch[exact] == cancellationEpoch
+        }
+    }
+
+    /// Commit a warmup result only while the exact source definition and
+    /// registry route captured at launch are still current.  The validation
+    /// and write share `exploreKindsCacheQueue` with invalidation, so a
+    /// mutation either wins before this closure (and fails validation) or
+    /// wins immediately after it (and removes the just-written cache).
+    @discardableResult
+    func commitExploreKindsWarmup(
+        exactSourceUrl: String,
+        fingerprint: String,
+        registryGeneration: UInt64,
+        cancellationEpoch: UInt64,
+        json: String,
+        failed: Bool,
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) -> Bool {
+        let exact = exactSourceUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !exact.isEmpty else { return false }
+        guard let source = SourceRegistry.shared.exactSource(forUrl: exact),
+              SourceRegistry.shared.isEnabled(url: exact),
+              source.exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines) == fingerprint,
+              SourceSessionCoordinator.shared.currentRegistryGeneration() == registryGeneration else {
+            return false
+        }
+        return exploreKindsCacheQueue.sync {
+            guard exploreKindsCancellationEpoch[exact] == cancellationEpoch else { return false }
+            if failed {
+                exploreKindsWarmFailedAt[exact] = now
+            } else {
+                _ = exploreKindsWarmFailedAt.removeValue(forKey: exact)
+                exploreKindsCache[exact] = (fingerprint: fingerprint, json: json)
+            }
+            return true
         }
     }
 
@@ -1142,11 +1380,21 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     @objc(invalidateExploreKindsCacheForSourceUrl:)
     public func invalidateExploreKindsCache(forSourceUrl sourceUrl: String?) {
         exploreKindsCacheQueue.sync {
-            if let sourceUrl, !sourceUrl.isEmpty {
-                exploreKindsCache.removeValue(forKey: sourceUrl)
-                exploreKindsWarming.remove(sourceUrl)
-                exploreKindsWarmFailedAt.removeValue(forKey: sourceUrl)
+            if let sourceUrl {
+                let exact = sourceUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !exact.isEmpty else { return }
+                exploreKindsCancellationEpoch[exact, default: 0] &+= 1
+                exploreKindsCache.removeValue(forKey: exact)
+                exploreKindsWarming.remove(exact)
+                exploreKindsWarmFailedAt.removeValue(forKey: exact)
             } else {
+                var keys = Set(exploreKindsCancellationEpoch.keys)
+                keys.formUnion(exploreKindsCache.keys)
+                keys.formUnion(exploreKindsWarming)
+                keys.formUnion(exploreKindsWarmFailedAt.keys)
+                for key in keys {
+                    exploreKindsCancellationEpoch[key, default: 0] &+= 1
+                }
                 exploreKindsCache.removeAll()
                 exploreKindsWarming.removeAll()
                 exploreKindsWarmFailedAt.removeAll()
@@ -1155,11 +1403,17 @@ private final class SearchOutcomeBox: @unchecked Sendable {
     }
 
     private func resolveExploreSource(_ sourceUrl: String?) -> MemoryBridgeBookSource? {
-        if let sourceUrl, !sourceUrl.isEmpty {
+        if let sourceUrl {
+            guard !sourceUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                // An explicit empty argument is not the same as nil.  It is a
+                // malformed identity and must not fall through to selected or
+                // first-source convenience resolution.
+                return nil
+            }
             return SourceRegistry.shared.source(forUrl: sourceUrl)
         }
         if let sel = selectedExploreSourceUrl, !sel.isEmpty {
-            return SourceRegistry.shared.source(forUrl: sel)
+            return SourceRegistry.shared.exactSource(forUrl: sel)
         }
         return SourceRegistry.shared.exploreCapableSources().first
     }
@@ -1232,7 +1486,24 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         let exploreUrlCopy = exploreUrl
         let sourceUrlCopy = sourceUrl
         // 并发 explore：世代号归 SourceSessionCoordinator 所有；保留 sExploreGeneration 作兼容镜像
-        let srcKey = (sourceUrlCopy ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let srcKey: String
+        if let requested = sourceUrlCopy {
+            let trimmed = requested.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                writeSearchMarker("explore reject explicit empty source")
+                return
+            }
+            srcKey = trimmed
+        } else {
+            // nil is the only convenience form: use the persisted exact
+            // selection, never an arbitrary active/first source for a
+            // publish-capable request.
+            guard let selected = selectedExploreSourceUrl, !selected.isEmpty else {
+                writeSearchMarker("explore reject nil source without selected exact source")
+                return
+            }
+            srcKey = selected
+        }
         guard let sessionToken = SourceSessionCoordinator.shared.prepareLegadoExplorePageIfSelected(
             exactSourceUrl: srcKey,
             page: max(page, 1)
@@ -1264,33 +1535,34 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         }
         Task {
             let targets: [MemoryBridgeBookSource]
-            if let sourceUrl = sourceUrlCopy, !sourceUrl.isEmpty,
-               let one = SourceRegistry.shared.source(forUrl: sourceUrl),
-               SourceRegistry.shared.isEnabled(url: one.bookSourceUrl) {
-                targets = [one]
-                selectedExploreSourceUrl = one.bookSourceUrl
-                // 指定源 explore：先把发现宿主切到该源（清 XBS 态），
-                // 否则 LBIsDiscoverNativeXBSMode 会丢弃 explore 结果（发现页不出书）
-                await MainActor.run {
-                    // 已在该源发现宿主时禁止再 switch（会连环 nativeSwitch→explore→冲掉灌书）
-                    let wantName = one.bookSourceName ?? one.bookSourceUrl
-                    if !LBDiscoverHostAlreadyShowingSource(wantName) {
-                        LBSwitchDiscoverToSourceName(wantName)
+            if let sourceUrl = sourceUrlCopy,
+               let one = SourceRegistry.shared.source(forUrl: sourceUrl.trimmingCharacters(in: .whitespacesAndNewlines)),
+               one.supportsExplore {
+                    targets = [one]
+                    selectedExploreSourceUrl = one.bookSourceUrl
+                    // 指定源 explore：先把发现宿主切到该源（清 XBS 态），
+                    // 否则 LBIsDiscoverNativeXBSMode 会丢弃 explore 结果（发现页不出书）
+                    await MainActor.run {
+                        // 已在该源发现宿主时禁止再 switch（会连环 nativeSwitch→explore→冲掉灌书）
+                        let wantName = one.bookSourceName ?? one.bookSourceUrl
+                        if !LBDiscoverHostAlreadyShowingSource(wantName) {
+                            LBSwitchDiscoverToSourceName(wantName)
+                        }
                     }
-                }
+            } else if let sourceUrl = sourceUrlCopy {
+                // An explicit URL is fail-closed: missing/disabled sources do
+                // not fall through to the selected or first source.
+                targets = []
+                writeSearchMarker("explore reject explicit source unavailable src=\(sourceUrl)")
             } else if let sel = selectedExploreSourceUrl, !sel.isEmpty,
                       let one = SourceRegistry.shared.source(forUrl: sel),
-                      SourceRegistry.shared.isEnabled(url: one.bookSourceUrl),
                       one.supportsExplore {
                 targets = [one]
             } else {
-                // 发现页按「当前源」拉书，不再一次扫全部源摊平
-                if let first = SourceRegistry.shared.exploreCapableSources().first {
-                    targets = [first]
-                    selectedExploreSourceUrl = first.bookSourceUrl
-                } else {
-                    targets = []
-                }
+                // No selected exact source means the preflight above should
+                // already have rejected.  Keep the task fail-closed if the
+                // registry changes between preflight and execution.
+                targets = []
             }
             guard !targets.isEmpty else {
                 writeSearchMarker("explore reject no enabled target src=\(srcKey)")
@@ -1493,12 +1765,21 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             let targets: [MemoryBridgeBookSource]
-            if let sourceUrl, !sourceUrl.isEmpty,
-               let one = SourceRegistry.shared.source(forUrl: sourceUrl),
-               SourceRegistry.shared.isEnabled(url: one.bookSourceUrl) {
-                targets = [one]
+            if let sourceUrl {
+                // Explicit search identity is strict; never search the
+                // active/all sources after a missing or disabled URL.
+                if sourceUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    self.appendSearchMarker("err explicit empty source key=\(keyword)")
+                    targets = []
+                } else if let one = SourceRegistry.shared.source(forUrl: sourceUrl) {
+                    targets = [one]
+                } else {
+                    self.appendSearchMarker("err explicit source unavailable src=\(sourceUrl) key=\(keyword)")
+                    targets = []
+                }
             } else {
-                // nil / 空：全部启用源并行搜，避免只吃第一个
+                // nil：全部启用源并行搜，避免只吃第一个；显式空字符串
+                // 在上面的 identity 分支中已经 fail-closed。
                 targets = SourceRegistry.shared.allSources().filter {
                     SourceRegistry.shared.isEnabled(url: $0.bookSourceUrl)
                 }
