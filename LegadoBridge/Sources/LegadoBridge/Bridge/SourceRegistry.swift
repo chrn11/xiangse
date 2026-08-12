@@ -754,9 +754,14 @@ final class SourceRegistry {
     /// Extract exact source identities from an import payload so callers can
     /// invalidate only the affected in-memory explore caches.
     static func sourceURLs(in data: Data) -> Set<String> {
-        guard let object = try? SourceRegistry.shared.withJSONHookSuppressed({
-            try JSONSerialization.jsonObject(with: data)
-        }) else { return [] }
+        let object: Any
+        do {
+            object = try SourceRegistry.shared.withJSONHookSuppressed {
+                try JSONSerialization.jsonObject(with: data)
+            }
+        } catch {
+            return []
+        }
         let dicts: [[String: Any]]
         if let dict = object as? [String: Any] {
             dicts = [dict]
