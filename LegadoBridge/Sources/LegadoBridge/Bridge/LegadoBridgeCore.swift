@@ -80,6 +80,95 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         return ExploreCatalogStore(persistenceRoot: root)
     }()
 
+
+    // MARK: - Explore catalog typed last-good (Swift Core phase A)
+
+    /// Stable disk identity for one Legado explore first page.  No process
+    /// permit is embedded here; publication still requires a fresh coordinator
+    /// issuance after cold read.
+    func exploreCatalogLookupKey(
+        for session: SourceSessionToken
+    ) -> ExploreCatalogStore.CacheLookupKey? {
+        guard session.sourceKind == .legado,
+              let nodeID = session.nodeID, !nodeID.isEmpty else {
+            return nil
+        }
+        return ExploreCatalogStore.CacheLookupKey(
+            canonicalID: session.canonicalID,
+            exactURL: session.exactSourceUrl,
+            nodeID: nodeID,
+            page: max(session.page, 1)
+        )
+    }
+
+    /// Issue a one-shot persist authorization **before** the network first page
+    /// is admitted.  After `requestPublishPermit` succeeds the coordinator
+    /// clears the live slot, so the captured token is what `writeLastGood`
+    /// must retain.  Mode is fixed to `.cacheFallback` — callers cannot pick.
+    func issueExploreCatalogPersistPermit(
+        for session: SourceSessionToken
+    ) -> CachePermitToken? {
+        guard session.page == 1,
+              let key = exploreCatalogLookupKey(for: session) else {
+            return nil
+        }
+        let envelopeKeyHash = ExploreCatalogStore.stableFilename(for: key)
+        switch SourceSessionCoordinator.shared.issueCachePermit(
+            for: session,
+            mode: .cacheFallback,
+            envelopeKeyHash: envelopeKeyHash
+        ) {
+        case .success(let token):
+            return token
+        case .failure:
+            return nil
+        }
+    }
+
+    /// Persist a network-admitted first page under the pre-issued typed permit.
+    /// Empty books are refused by the store; failures are marker-only and must
+    /// not undo the already-published network UI.
+    @discardableResult
+    func persistExploreCatalogLastGood(
+        session: SourceSessionToken,
+        books: [[String: Any]],
+        permit: CachePermitToken
+    ) -> Bool {
+        guard session.page == 1,
+              !books.isEmpty,
+              let key = exploreCatalogLookupKey(for: session),
+              JSONSerialization.isValidJSONObject(books),
+              let payload = try? JSONSerialization.data(withJSONObject: books) else {
+            return false
+        }
+        do {
+            _ = try exploreCatalogStore.writeLastGood(
+                key: key,
+                token: permit,
+                payload: payload
+            )
+            writeSearchMarker(
+                "explore catalog persist ok node=\(key.nodeID) n=\(books.count)"
+            )
+            return true
+        } catch {
+            writeSearchMarker(
+                "explore catalog persist fail \(error.localizedDescription)"
+            )
+            return false
+        }
+    }
+
+    /// Cold read only.  The persisted permit is never reusable for publication;
+    /// callers must ask the coordinator for a fresh `.coldLastGood` issuance.
+    func readExploreCatalogColdLastGood(
+        for session: SourceSessionToken,
+        now: Date = Date()
+    ) -> ExploreCatalogStore.CacheEnvelope? {
+        guard let key = exploreCatalogLookupKey(for: session) else { return nil }
+        return exploreCatalogStore.readColdLastGood(key: key, now: now)
+    }
+
     private override init() {
         super.init()
         // 禁止在 init 内 restore / sync：
@@ -1522,6 +1611,13 @@ private final class SearchOutcomeBox: @unchecked Sendable {
         sExploreGenerationSourceUrl = srcKey
         let capturedSessionToken = sessionToken
         let capturedExploreSourceUrl = srcKey
+        // Capture a typed persist permit before the network first page is
+        // admitted.  After UI publish the coordinator clears the live slot;
+        // writeLastGood still accepts this captured value by identity.
+        let capturedPersistPermit: CachePermitToken? = {
+            guard capturedSessionToken.page == 1 else { return nil }
+            return issueExploreCatalogPersistPermit(for: capturedSessionToken)
+        }()
         func exploreCaptureStillActive() -> Bool {
             SourceSessionCoordinator.shared.isStillActiveLegadoPublishContext(capturedSessionToken)
                 && capturedExploreSourceUrl == sExploreGenerationSourceUrl
@@ -1651,6 +1747,14 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                                 LBSharedSourceRouter.tokenDictionary(capturedSessionToken),
                                 capturedSessionToken.page == 1
                             )
+                            if let persistPermit = capturedPersistPermit,
+                               capturedSessionToken.page == 1 {
+                                _ = self.persistExploreCatalogLastGood(
+                                    session: capturedSessionToken,
+                                    books: books,
+                                    permit: persistPermit
+                                )
+                            }
                         }
                     }
                     if results.isEmpty {
