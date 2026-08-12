@@ -103,6 +103,200 @@ public struct SourceSessionToken: Equatable, Sendable {
 
 }
 
+/// The transport lane used by an explore publication.  Cache publication is
+/// deliberately represented by a distinct token type below; a
+/// `SourceSessionToken` can only authorize the network lane.
+public enum ExplorePublishMode: String, Equatable, Sendable, Codable {
+    case networkFirst
+    case cacheFallback
+    case coldLastGood
+}
+
+/// Coordinator-issued authorization for a single Legado cache envelope.
+///
+/// This is intentionally not convertible from (or interchangeable with) a
+/// `SourceSessionToken` at the call boundary.  A cache token carries the
+/// complete native/session identity as well as a one-shot nonce.  The
+/// coordinator records the exact issued value and consumes the nonce when the
+/// cache publication is admitted, so mutating/replaying a captured value is
+/// fail-closed.
+public struct CachePermitToken: Equatable, Sendable, Codable {
+    public var mode: ExplorePublishMode
+    public var permitNonce: String
+    public var envelopeKeyHash: String
+    /// Legado is the ABI source-kind value 2.  The Swift enum keeps the
+    /// existing dual-lane vocabulary while the raw value is exposed below for
+    /// ObjC/tests that need to inspect the locked numeric contract.
+    public var sourceKind: SourceKind
+    public var canonicalID: String
+    public var exactSourceUrl: String
+    public var nodeID: String?
+    public var snapshotID: String?
+    public var definitionFingerprint: String?
+    public var page: Int
+    public var requestSequence: UInt64
+    public var runtimeEpoch: UInt64
+    public var managerOrRegistryGeneration: UInt64
+    public var selectionGeneration: UInt64
+    public var uiGeneration: UInt64
+    public var definitionGeneration: UInt64
+    public var contentGeneration: UInt64
+    public var ownerControllerIdentity: String?
+
+    public init(
+        mode: ExplorePublishMode,
+        permitNonce: String,
+        envelopeKeyHash: String,
+        sourceKind: SourceKind = .legado,
+        canonicalID: String,
+        exactSourceUrl: String,
+        nodeID: String?,
+        snapshotID: String?,
+        definitionFingerprint: String?,
+        page: Int = 1,
+        requestSequence: UInt64 = 0,
+        runtimeEpoch: UInt64,
+        managerOrRegistryGeneration: UInt64,
+        selectionGeneration: UInt64,
+        uiGeneration: UInt64,
+        definitionGeneration: UInt64,
+        contentGeneration: UInt64,
+        ownerControllerIdentity: String?
+    ) {
+        self.mode = mode
+        self.permitNonce = permitNonce
+        self.envelopeKeyHash = envelopeKeyHash
+        self.sourceKind = sourceKind
+        self.canonicalID = canonicalID
+        self.exactSourceUrl = exactSourceUrl
+        self.nodeID = nodeID
+        self.snapshotID = snapshotID
+        self.definitionFingerprint = definitionFingerprint
+        self.page = page
+        self.requestSequence = requestSequence
+        self.runtimeEpoch = runtimeEpoch
+        self.managerOrRegistryGeneration = managerOrRegistryGeneration
+        self.selectionGeneration = selectionGeneration
+        self.uiGeneration = uiGeneration
+        self.definitionGeneration = definitionGeneration
+        self.contentGeneration = contentGeneration
+        self.ownerControllerIdentity = ownerControllerIdentity
+    }
+
+    /// Convenience initializer for callers that use the Objective-C spelling
+    /// `exactURL` in their envelope model.
+    public init(
+        mode: ExplorePublishMode,
+        permitNonce: String,
+        envelopeKeyHash: String,
+        sourceKind: SourceKind = .legado,
+        canonicalID: String,
+        exactURL: String,
+        nodeID: String?,
+        snapshotID: String?,
+        definitionFingerprint: String?,
+        page: Int = 1,
+        requestSequence: UInt64 = 0,
+        runtimeEpoch: UInt64,
+        registryGeneration: UInt64,
+        selectionGeneration: UInt64,
+        uiGeneration: UInt64,
+        definitionGeneration: UInt64,
+        contentGeneration: UInt64,
+        ownerControllerIdentity: String?
+    ) {
+        self.init(
+            mode: mode,
+            permitNonce: permitNonce,
+            envelopeKeyHash: envelopeKeyHash,
+            sourceKind: sourceKind,
+            canonicalID: canonicalID,
+            exactSourceUrl: exactURL,
+            nodeID: nodeID,
+            snapshotID: snapshotID,
+            definitionFingerprint: definitionFingerprint,
+            page: page,
+            requestSequence: requestSequence,
+            runtimeEpoch: runtimeEpoch,
+            managerOrRegistryGeneration: registryGeneration,
+            selectionGeneration: selectionGeneration,
+            uiGeneration: uiGeneration,
+            definitionGeneration: definitionGeneration,
+            contentGeneration: contentGeneration,
+            ownerControllerIdentity: ownerControllerIdentity
+        )
+    }
+
+    /// Build a typed envelope identity from a validated session snapshot.
+    public init(
+        mode: ExplorePublishMode,
+        permitNonce: String,
+        envelopeKeyHash: String,
+        session: SourceSessionToken
+    ) {
+        self.init(
+            mode: mode,
+            permitNonce: permitNonce,
+            envelopeKeyHash: envelopeKeyHash,
+            sourceKind: session.sourceKind,
+            canonicalID: session.canonicalID,
+            exactSourceUrl: session.exactSourceUrl,
+            nodeID: session.nodeID,
+            snapshotID: session.snapshotID,
+            definitionFingerprint: session.definitionFingerprint,
+            page: session.page,
+            requestSequence: session.requestSequence,
+            runtimeEpoch: session.runtimeEpoch,
+            managerOrRegistryGeneration: session.managerOrRegistryGeneration,
+            selectionGeneration: session.selectionGeneration,
+            uiGeneration: session.uiGeneration,
+            definitionGeneration: session.definitionGeneration,
+            contentGeneration: session.contentGeneration,
+            ownerControllerIdentity: session.ownerControllerIdentity
+        )
+    }
+
+    /// ABI numeric source-kind required by the typed cache envelope contract.
+    public var sourceKindCode: Int {
+        switch sourceKind {
+        case .legado: return 2
+        case .xbs: return 1
+        case .unknown: return 0
+        }
+    }
+
+    public var sourceKindRaw: Int { sourceKindCode }
+
+    /// Alias used by cache envelope models that call this field `exactURL`.
+    public var exactURL: String {
+        get { exactSourceUrl }
+        set { exactSourceUrl = newValue }
+    }
+
+    public var runtime: UInt64 {
+        get { runtimeEpoch }
+        set { runtimeEpoch = newValue }
+    }
+
+    /// Alias used by typed cache tests/bridges for the Legado registry lane.
+    public var registryGeneration: UInt64 {
+        get { managerOrRegistryGeneration }
+        set { managerOrRegistryGeneration = newValue }
+    }
+
+    public var registry: UInt64 {
+        get { managerOrRegistryGeneration }
+        set { managerOrRegistryGeneration = newValue }
+    }
+
+    /// Stable source/session identity; display names are intentionally absent.
+    public var sessionKey: String {
+        SelectionToken.sessionKey(sourceKind: sourceKind, canonicalID: canonicalID)
+    }
+
+    public var sessionIdentity: String { sessionKey }
+}
+
 public enum PublishRejectReason: String, Error, Equatable, Sendable {
     case sourceMismatch
     case sourceKindMismatch
@@ -122,6 +316,13 @@ public enum PublishRejectReason: String, Error, Equatable, Sendable {
     case runtimeEpochMismatch
     case sessionMissing
     case routeFailClosed
+    case cachePermitRequired
+    case cachePermitMissing
+    case cachePermitReplay
+    case cacheModeMismatch
+    case cacheEnvelopeKeyMissing
+    case cacheEnvelopeKeyMismatch
+    case cacheNetworkAlreadyAccepted
 }
 
 public struct PublishPermit: Equatable, Sendable {
@@ -165,6 +366,12 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
     /// is fail-closed for selection, callbacks, and permits.
     private var knownManagedLegadoSourceURLs: Set<String> = []
     private var unavailableLegadoSourceURLs: Set<String> = []
+    /// At most one typed cache envelope may be live at a time.  Cache
+    /// publication is only issuable for the active Legado session, so a
+    /// single slot is enough and makes stale issuance state strictly bounded:
+    /// issuing a new permit atomically revokes the previous nonce, including
+    /// when the mode changes between fallback and cold-last-good.
+    private var latestCachePermit: CachePermitToken?
 
     public init() {}
 
@@ -214,6 +421,11 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
     public func bumpRegistryGeneration() {
         queue.sync {
             registryGeneration &+= 1
+            // Any outstanding Legado cache envelope was issued against the
+            // previous registry generation and must not survive the drift.
+            if latestCachePermit?.sourceKind == .legado {
+                latestCachePermit = nil
+            }
             for (key, var s) in sessions where s.sourceKind == .legado {
                 s.managerOrRegistryGeneration = registryGeneration
                 sessions[key] = s
@@ -238,6 +450,10 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
             if activeSessionKey == key {
                 activeSessionKey = nil
             }
+            if latestCachePermit?.sourceKind == .legado,
+               latestCachePermit?.exactSourceUrl == trimmed {
+                latestCachePermit = nil
+            }
             // Keep a frozen state only long enough for stale callbacks to be
             // rejected by the unavailable set; no caller can obtain it via
             // currentToken while the tombstone is present.
@@ -249,10 +465,12 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
         queue.sync {
             switch event {
             case .selectDiscoverSource(let sel):
+                latestCachePermit = nil
                 let token = applySelect(sel, isReselect: false)
                 activeSessionKey = token.sourceKind == .unknown ? nil : token.sessionKey
                 return token
             case .reselectSameDiscoverSource(let sel):
+                latestCachePermit = nil
                 let token = applySelect(sel, isReselect: true)
                 activeSessionKey = token.sourceKind == .unknown ? nil : token.sessionKey
                 return token
@@ -263,6 +481,7 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
                 guard legadoSourceCanCreateSession(url) else {
                     return invalidToken(for: url)
                 }
+                latestCachePermit = nil
                 let token = applyLegacySwitch(url: url, bumpUI: true)
                 activeSessionKey = token.sessionKey
                 return token
@@ -272,6 +491,7 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
                 guard legadoSourceCanCreateSession(url) else {
                     return invalidToken(for: url)
                 }
+                latestCachePermit = nil
                 let key = legacySessionKey(url)
                 var s = sessions[key] ?? legacySessionState(url: url)
                 s.definitionGeneration &+= 1
@@ -286,6 +506,7 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
                 guard legadoSourceCanCreateSession(url) else {
                     return invalidToken(for: url)
                 }
+                latestCachePermit = nil
                 let key = legacySessionKey(url)
                 var s = sessions[key] ?? legacySessionState(url: url)
                 s.contentGeneration &+= 1
@@ -301,6 +522,7 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
                 guard legadoSourceCanCreateSession(url) else {
                     return invalidToken(for: url)
                 }
+                latestCachePermit = nil
                 let key = legacySessionKey(url)
                 var s = sessions[key] ?? legacySessionState(url: url)
                 s.contentGeneration &+= 1
@@ -314,6 +536,7 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
                 guard legadoSourceCanCreateSession(url) else {
                     return invalidToken(for: url)
                 }
+                latestCachePermit = nil
                 let key = legacySessionKey(url)
                 var s = sessions[key] ?? legacySessionState(url: url)
                 s.page = page
@@ -325,6 +548,7 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
 
     public func applySelection(_ selection: SelectionToken, isReselect: Bool = false) -> SourceSessionToken {
         queue.sync {
+            latestCachePermit = nil
             let token = applySelect(selection, isReselect: isReselect)
             activeSessionKey = token.sourceKind == .unknown ? nil : token.sessionKey
             return token
@@ -358,6 +582,7 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
             let key = SelectionToken.sessionKey(sourceKind: .legado, canonicalID: exactSourceUrl)
             guard activeSessionKey == key, var s = sessions[key], s.sourceKind == .legado,
                   s.exactSourceUrl == exactSourceUrl else { return nil }
+            latestCachePermit = nil
             if page == 1 {
                 s.contentGeneration &+= 1
                 s.page = 1
@@ -397,6 +622,7 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
             if ownerChanged { s.uiGeneration &+= 1 }
             if definitionChanged { s.definitionGeneration &+= 1 }
             if ownerChanged || definitionChanged || catalogChanged {
+                latestCachePermit = nil
                 s.contentGeneration &+= 1
                 s.page = 1
                 s.lastAcceptedPage = 0
@@ -412,13 +638,17 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
         }
     }
 
-    /// cache hit 发布：不递增任何 generation。
+    /// Legacy cache-token helper retained only for source compatibility.  A
+    /// normal session token is not a cache authorization and must never be
+    /// handed to a cache publication caller.
+    @available(*, deprecated, message: "Use issueCachePermit(for:mode:envelopeKeyHash:) to obtain a typed cache token")
     public func tokenForCacheHit(sourceKind: SourceKind, canonicalID: String) -> SourceSessionToken? {
-        currentToken(sourceKind: sourceKind, canonicalID: canonicalID)
+        nil
     }
 
+    @available(*, deprecated, message: "Use issueCachePermit(for:mode:envelopeKeyHash:) to obtain a typed cache token")
     public func tokenForCacheHit(exactSourceUrl: String) -> SourceSessionToken? {
-        tokenForCacheHit(sourceKind: .legado, canonicalID: exactSourceUrl)
+        nil
     }
 
     public func requestPublishPermit(
@@ -456,6 +686,15 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
                 next.page = 1
                 next.requestSequence &+= 1
                 sessions[key] = next
+                // Admitting a network first page revokes any outstanding cache
+                // envelope.  The permit was issued against the pre-network
+                // session state, so leaving the slot populated would let a
+                // late cache callback reach the full identity comparison and
+                // fail with an identity-drift reason instead of the intended
+                // "this nonce no longer exists".  Revocation only happens on
+                // success: a rejected publish must not destroy a permit that
+                // is still legitimately consumable.
+                latestCachePermit = nil
                 var granted = request
                 granted.requestSequence = next.requestSequence
                 return .success(PublishPermit(token: granted, replaceFirstPage: true, appendPage: false))
@@ -479,37 +718,196 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
         }
     }
 
-    /// Validate a cache-first publication without consuming the network page
-    /// sequence.  A subsequent manual refresh still resets the sequence and
-    /// must obtain a normal first-page permit.
-    public func requestCacheHitPermit(
-        for request: SourceSessionToken
-    ) -> Result<PublishPermit, PublishRejectReason> {
+    /// Issue a one-shot typed cache authorization from the active exact
+    /// Legado session.  This is the only creation path for `CachePermitToken`.
+    public func issueCachePermit(
+        for request: SourceSessionToken,
+        mode: ExplorePublishMode,
+        envelopeKeyHash: String
+    ) -> Result<CachePermitToken, PublishRejectReason> {
         queue.sync {
-            let key = request.sessionKey
-            if request.sourceKind == .legado, !legadoSourceIsAvailable(request.exactSourceUrl) {
+            guard request.sourceKind == .legado else {
+                return .failure(.sourceKindMismatch)
+            }
+            guard mode == .cacheFallback || mode == .coldLastGood else {
+                // `networkFirst` is the ordinary publication lane.  It is
+                // intentionally not representable as a cache permit.
+                return .failure(.cacheModeMismatch)
+            }
+            guard !envelopeKeyHash.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .failure(.cacheEnvelopeKeyMissing)
+            }
+            guard request.page == 1 else {
+                return .failure(.pageMismatch)
+            }
+            guard legadoSourceIsAvailable(request.exactSourceUrl) else {
                 return .failure(.routeFailClosed)
             }
+            let key = request.sessionKey
             guard activeSessionKey == key else {
                 return .failure(.routeFailClosed)
             }
-            guard let s = sessions[key] else {
+            guard let session = sessions[key], session.sourceKind == .legado,
+                  session.exactSourceUrl == request.exactSourceUrl else {
                 return .failure(.sessionMissing)
             }
             if let reason = validateLegadoPublishIdentity(request) {
                 return .failure(reason)
             }
-            if let reason = validate(request: request, against: s) {
+            if let reason = validate(request: request, against: session) {
                 return .failure(reason)
             }
-            guard request.requestSequence == s.requestSequence else {
+            // A cache fallback is only eligible before a network first page
+            // has been accepted.  This prevents a late cache callback from
+            // replacing fresh network data in the same session.
+            guard request.requestSequence == session.requestSequence else {
                 return .failure(.requestSequenceMismatch)
+            }
+            guard session.page == 1 else {
+                return .failure(.pageMismatch)
+            }
+            guard session.lastAcceptedPage == 0, session.requestSequence == 0 else {
+                return .failure(.cacheNetworkAlreadyAccepted)
+            }
+            let nonce = UUID().uuidString
+            let typed = CachePermitToken(
+                mode: mode,
+                permitNonce: nonce,
+                envelopeKeyHash: envelopeKeyHash,
+                session: request
+            )
+            // Replacing this single slot revokes any earlier nonce
+            // atomically.  It also makes cacheFallback/coldLastGood mutually
+            // exclusive for a session and prevents two permits from both
+            // being consumed.
+            latestCachePermit = typed
+            return .success(typed)
+        }
+    }
+
+    /// Naming alias for callers that model issuance as a token factory.
+    public func issueCachePermitToken(
+        for request: SourceSessionToken,
+        mode: ExplorePublishMode,
+        envelopeKeyHash: String
+    ) -> Result<CachePermitToken, PublishRejectReason> {
+        issueCachePermit(for: request, mode: mode, envelopeKeyHash: envelopeKeyHash)
+    }
+
+    /// Validate and consume a typed cache authorization.  Consumption is
+    /// atomic with the one-shot nonce check on the coordinator's serial queue.
+    public func requestCacheHitPermit(
+        for request: CachePermitToken
+    ) -> Result<PublishPermit, PublishRejectReason> {
+        requestCacheHitPermit(for: request, expectedMode: nil)
+    }
+
+    /// Explicit mode overload used by callers that keep transport mode outside
+    /// the envelope.  The token's embedded mode and this expected value must
+    /// agree exactly.
+    public func requestCacheHitPermit(
+        for request: CachePermitToken,
+        mode: ExplorePublishMode
+    ) -> Result<PublishPermit, PublishRejectReason> {
+        requestCacheHitPermit(for: request, expectedMode: mode)
+    }
+
+    public func requestCacheHitPermit(
+        for request: CachePermitToken,
+        expectedMode: ExplorePublishMode?
+    ) -> Result<PublishPermit, PublishRejectReason> {
+        queue.sync {
+            guard request.sourceKind == .legado else {
+                return .failure(.sourceKindMismatch)
+            }
+            if let expectedMode, request.mode != expectedMode {
+                return .failure(.cacheModeMismatch)
+            }
+            guard let issued = latestCachePermit,
+                  issued.permitNonce == request.permitNonce else {
+                // Unknown, revoked, and replayed nonces are deliberately
+                // indistinguishable.  No unbounded consumed-nonce tombstone
+                // is retained merely to report replay history.
+                return .failure(.cachePermitMissing)
+            }
+            // Check the mode before full equality so a caller gets a stable
+            // mode-specific failure for a tampered transport envelope.
+            guard issued.mode == request.mode else {
+                return .failure(.cacheModeMismatch)
+            }
+            guard issued.envelopeKeyHash == request.envelopeKeyHash else {
+                return .failure(.cacheEnvelopeKeyMismatch)
+            }
+            guard issued == request else {
+                if let reason = cacheTokenDifferenceReason(request, from: issued) {
+                    return .failure(reason)
+                }
+                // Every remaining field is a typed source/session identity;
+                // route through the normal field validators below where
+                // possible, otherwise fail closed without consuming the nonce.
+                let key = request.sessionKey
+                guard let session = sessions[key] else {
+                    return .failure(.sessionMissing)
+                }
+                if let reason = validateCacheIdentity(request, against: session) {
+                    return .failure(reason)
+                }
+                return .failure(.routeFailClosed)
+            }
+            guard !request.envelopeKeyHash.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .failure(.cacheEnvelopeKeyMissing)
             }
             guard request.page == 1 else {
                 return .failure(.pageMismatch)
             }
-            return .success(PublishPermit(token: request, replaceFirstPage: true, appendPage: false))
+            guard legadoSourceIsAvailable(request.exactSourceUrl) else {
+                return .failure(.routeFailClosed)
+            }
+            guard activeSessionKey == request.sessionKey else {
+                return .failure(.routeFailClosed)
+            }
+            guard let session = sessions[request.sessionKey], session.sourceKind == .legado,
+                  session.exactSourceUrl == request.exactSourceUrl else {
+                return .failure(.sessionMissing)
+            }
+            if let reason = validateCacheIdentity(request, against: session) {
+                return .failure(reason)
+            }
+            // A network first page already admitted in this session wins over
+            // any cache fallback issued before it.
+            guard session.lastAcceptedPage == 0, session.requestSequence == 0 else {
+                return .failure(.cacheNetworkAlreadyAccepted)
+            }
+
+            latestCachePermit = nil
+            let networkToken = SourceSessionToken(
+                sourceKind: .legado,
+                canonicalID: request.canonicalID,
+                exactSourceUrl: request.exactSourceUrl,
+                uiGeneration: request.uiGeneration,
+                definitionGeneration: request.definitionGeneration,
+                contentGeneration: request.contentGeneration,
+                selectionGeneration: request.selectionGeneration,
+                managerOrRegistryGeneration: request.managerOrRegistryGeneration,
+                snapshotID: request.snapshotID,
+                nodeID: request.nodeID,
+                page: request.page,
+                requestSequence: request.requestSequence,
+                ownerControllerIdentity: request.ownerControllerIdentity,
+                definitionFingerprint: request.definitionFingerprint,
+                runtimeEpoch: request.runtimeEpoch
+            )
+            return .success(PublishPermit(token: networkToken, replaceFirstPage: true, appendPage: false))
         }
+    }
+
+    /// Compatibility overload: ordinary session tokens are deliberately
+    /// rejected rather than upgraded into typed cache authorization.
+    @available(*, deprecated, message: "A SourceSessionToken cannot authorize cache publication")
+    public func requestCacheHitPermit(
+        for request: SourceSessionToken
+    ) -> Result<PublishPermit, PublishRejectReason> {
+        .failure(.routeFailClosed)
     }
 
     /// 异步副作用核对：captured token 须仍为 active route 且与当前 session 全字段一致。
@@ -545,7 +943,15 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
             activeSessionKey = nil
             knownManagedLegadoSourceURLs.removeAll()
             unavailableLegadoSourceURLs.removeAll()
+            latestCachePermit = nil
         }
+    }
+
+    /// Internal test-only diagnostic.  The permit state is intentionally a
+    /// single slot, so this value is always 0 or 1 and cannot grow with
+    /// replay attempts or issuance churn.
+    internal func cachePermitStateCountForTests() -> Int {
+        queue.sync { latestCachePermit == nil ? 0 : 1 }
     }
 
     // MARK: - private
@@ -591,6 +997,14 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
             }
             return true
         }
+        if unavailableLegadoSourceURLs.contains(exactSourceUrl) {
+            guard allowReactivation else { return false }
+            unavailableLegadoSourceURLs.remove(exactSourceUrl)
+            knownManagedLegadoSourceURLs.remove(exactSourceUrl)
+            let key = legacySessionKey(exactSourceUrl)
+            sessions.removeValue(forKey: key)
+            if activeSessionKey == key { activeSessionKey = nil }
+        }
         // Synthetic URLs used by the pure coordinator tests are not registry
         // identities.  A URL once observed in the registry, however, remains
         // retired after deletion and cannot silently become a new route.
@@ -635,6 +1049,94 @@ public final class SourceSessionCoordinator: @unchecked Sendable {
         }
         guard let nodeID = request.nodeID, !nodeID.isEmpty else {
             return .nodeMismatch
+        }
+        return nil
+    }
+
+    private func validateCacheIdentity(
+        _ request: CachePermitToken,
+        against session: SessionState
+    ) -> PublishRejectReason? {
+        guard request.sourceKind == .legado else { return .sourceKindMismatch }
+        if request.canonicalID != session.canonicalID { return .canonicalIDMismatch }
+        if request.exactSourceUrl != session.exactSourceUrl { return .sourceMismatch }
+        guard let owner = request.ownerControllerIdentity, !owner.isEmpty else {
+            return .ownerMismatch
+        }
+        guard let fingerprint = request.definitionFingerprint, !fingerprint.isEmpty else {
+            return .definitionFingerprintMismatch
+        }
+        guard let snapshot = request.snapshotID, !snapshot.isEmpty else {
+            return .snapshotMismatch
+        }
+        guard let node = request.nodeID, !node.isEmpty else {
+            return .nodeMismatch
+        }
+        if request.selectionGeneration != session.selectionGeneration {
+            return .selectionGenerationMismatch
+        }
+        if request.managerOrRegistryGeneration != session.managerOrRegistryGeneration {
+            return .managerOrRegistryGenerationMismatch
+        }
+        if request.uiGeneration != session.uiGeneration {
+            return .uiGenerationMismatch
+        }
+        if request.definitionGeneration != session.definitionGeneration {
+            return .definitionGenerationMismatch
+        }
+        if request.contentGeneration != session.contentGeneration {
+            return .contentGenerationMismatch
+        }
+        if node != session.nodeID { return .nodeMismatch }
+        if snapshot != session.snapshotID { return .snapshotMismatch }
+        if owner != session.ownerControllerIdentity { return .ownerMismatch }
+        if fingerprint != session.definitionFingerprint {
+            return .definitionFingerprintMismatch
+        }
+        if request.runtimeEpoch != session.runtimeEpoch {
+            return .runtimeEpochMismatch
+        }
+        if request.page != session.page { return .pageMismatch }
+        if request.requestSequence != session.requestSequence {
+            return .requestSequenceMismatch
+        }
+        return nil
+    }
+
+    private func cacheTokenDifferenceReason(
+        _ request: CachePermitToken,
+        from issued: CachePermitToken
+    ) -> PublishRejectReason? {
+        if request.sourceKind != issued.sourceKind { return .sourceKindMismatch }
+        if request.canonicalID != issued.canonicalID { return .canonicalIDMismatch }
+        if request.exactSourceUrl != issued.exactSourceUrl { return .sourceMismatch }
+        if request.nodeID != issued.nodeID { return .nodeMismatch }
+        if request.snapshotID != issued.snapshotID { return .snapshotMismatch }
+        if request.definitionFingerprint != issued.definitionFingerprint {
+            return .definitionFingerprintMismatch
+        }
+        if request.page != issued.page { return .pageMismatch }
+        if request.requestSequence != issued.requestSequence {
+            return .requestSequenceMismatch
+        }
+        if request.runtimeEpoch != issued.runtimeEpoch { return .runtimeEpochMismatch }
+        if request.managerOrRegistryGeneration != issued.managerOrRegistryGeneration {
+            return .managerOrRegistryGenerationMismatch
+        }
+        if request.selectionGeneration != issued.selectionGeneration {
+            return .selectionGenerationMismatch
+        }
+        if request.uiGeneration != issued.uiGeneration {
+            return .uiGenerationMismatch
+        }
+        if request.definitionGeneration != issued.definitionGeneration {
+            return .definitionGenerationMismatch
+        }
+        if request.contentGeneration != issued.contentGeneration {
+            return .contentGenerationMismatch
+        }
+        if request.ownerControllerIdentity != issued.ownerControllerIdentity {
+            return .ownerMismatch
         }
         return nil
     }
@@ -872,21 +1374,16 @@ public final class LBSharedSourceRouter: NSObject {
 
     @objc(requestCacheHitPublishPermitWithToken:)
     public func requestCacheHitPublishPermit(token: NSDictionary) -> NSDictionary {
-        guard let req = Self.token(from: token) else {
-            return ["ok": false, "reason": PublishRejectReason.routeFailClosed.rawValue]
-        }
-        switch SourceSessionCoordinator.shared.requestCacheHitPermit(for: req) {
-        case .success(let permit):
-            return [
-                "ok": true,
-                "token": Self.tokenDictionary(permit.token),
-                "replaceFirstPage": permit.replaceFirstPage,
-                "appendPage": permit.appendPage,
-                "cacheHit": true
-            ]
-        case .failure(let reason):
-            return ["ok": false, "reason": reason.rawValue, "cacheHit": true]
-        }
+        // The legacy ObjC entry point only carries an untyped session
+        // dictionary.  Until a typed CachePermitToken C/ObjC envelope is
+        // explicitly wired, fail closed rather than upgrading that dictionary
+        // into cache authorization.
+        _ = token
+        return [
+            "ok": false,
+            "reason": PublishRejectReason.cachePermitRequired.rawValue,
+            "cacheHit": true
+        ]
     }
 
     @objc(tokenDictionaryForSourceKind:canonicalID:)
