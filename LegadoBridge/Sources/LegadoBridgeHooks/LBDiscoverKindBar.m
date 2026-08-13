@@ -3621,6 +3621,16 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
     sLastRevealSig = nil;
     sLastRevealArrN = -1;
     NSString *cleanName = LBNormalizeSourceDisplayName(sourceName) ?: sourceName;
+    NSString *legadoUrl = LBFindLegadoExploreUrlByName(cleanName);
+    BOOL isLegado = (legadoUrl.length > 0);
+    // explore Task 里会再调 LBSwitchDiscoverToSourceName。若此处再清表，会把第一次灌书冲掉。
+    if (isLegado && !LBIsDiscoverNativeXBSMode() &&
+        sLastHandledSwitchName.length > 0 &&
+        [sLastHandledSwitchName isEqualToString:cleanName]) {
+        LBAppendNativeMarker([NSString stringWithFormat:
+                              @"nativeSwitch skip same Legado name=%@", cleanName]);
+        return;
+    }
     sDiscoverUseSourceName = [cleanName copy];
     sLastHandledSwitchName = [cleanName copy];
 
@@ -3630,10 +3640,7 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
     @try { [host setValue:cleanName forKey:@"lastSourceName"]; } @catch (__unused NSException *e) {}
     @try { [host setValue:cleanName forKey:@"sourceName"]; } @catch (__unused NSException *e) {}
 
-    NSString *legadoUrl = LBFindLegadoExploreUrlByName(cleanName);
     // 只按「可发现 Legado 名」判定；禁止看残留 dicModel 的 fromLegadoBridge（切 XBS 后仍可能带）
-    BOOL isLegado = (legadoUrl.length > 0);
-
     LBAppendNativeMarker([NSString stringWithFormat:
                           @"nativeSwitch name=%@ clean=%@ legado=%d url=%@",
                           sourceName, cleanName, isLegado ? 1 : 0, legadoUrl ?: @"-"]);
@@ -4092,13 +4099,23 @@ BOOL LBDiscoverSyncModeForCurrentSource(void) {
 /// T4：管理页等入口按源名切发现（走 openConfig / HandleDiscoverSourceSwitched）
 BOOL LBDiscoverHostAlreadyShowingSource(NSString *sourceName) {
     if (sourceName.length == 0) return NO;
+    NSString *want = LBNormalizeSourceDisplayName(sourceName);
+    if (want.length == 0) return NO;
+    // 不能等 sNativeChromeBuilt：Handle 会先把它清掉再灌壳，explore Task
+    // 若在此刻再 Switch，会二次 Handle 把第一次灌书冲成空表。
+    if (sLastHandledSwitchName.length > 0 &&
+        [sLastHandledSwitchName isEqualToString:want]) return YES;
+    if (sDiscoverUseSourceName.length > 0 &&
+        [sDiscoverUseSourceName isEqualToString:want]) return YES;
     UIViewController *host = LBPrimaryDiscoverHost();
     if (!host) return NO;
-    if (!sNativeChromeBuilt) return NO;
     NSString *cur = LBNormalizeSourceDisplayName(LBReadHostSourceName(host) ?: @"");
-    NSString *want = LBNormalizeSourceDisplayName(sourceName);
-    if (cur.length == 0 || want.length == 0) return NO;
-    return [cur isEqualToString:want];
+    if (cur.length > 0 && [cur isEqualToString:want]) return YES;
+    NSString *title = nil;
+    @try { title = host.navigationItem.title; } @catch (__unused NSException *e) {}
+    title = LBNormalizeSourceDisplayName(title);
+    if (title.length > 0 && [title isEqualToString:want]) return YES;
+    return NO;
 }
 
 void LBSwitchDiscoverToSourceName(NSString *sourceName) {
