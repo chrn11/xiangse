@@ -643,6 +643,46 @@ UIViewController *LBActiveDiscoverListVC(UIViewController *host) {
     return host;
 }
 
+static NSUInteger LBDiscoverArrCount(UIViewController *vc) {
+    if (!vc) return 0;
+    @try {
+        id a = [vc valueForKey:@"arrBaseData"];
+        if ([a isKindOfClass:[NSArray class]]) return [(NSArray *)a count];
+    } @catch (__unused NSException *e) {}
+    return 0;
+}
+
+/// 灌书可能写在 host.child 的 BookListCon 上，而 pageContentScrollView 当前页仍是空壳。
+/// reveal / overlay 必须绑有书的那页，否则叠表 arr=0、原生分类墙露出来。
+static UIViewController *LBDiscoverListVCForFeed(UIViewController *host) {
+    UIViewController *active = LBActiveDiscoverListVC(host);
+    if (LBDiscoverArrCount(active) > 0) return active;
+    NSMutableArray<UIViewController *> *cands = [NSMutableArray array];
+    @try {
+        id scroll = [host valueForKey:@"pageContentScrollView"];
+        id cv = [scroll valueForKey:@"childViewControllers"];
+        if (![cv isKindOfClass:[NSArray class]] || [(NSArray *)cv count] == 0) {
+            cv = [scroll valueForKey:@"childVCs"];
+        }
+        if ([cv isKindOfClass:[NSArray class]]) {
+            for (id c in (NSArray *)cv) {
+                if ([c isKindOfClass:[UIViewController class]]) [cands addObject:c];
+            }
+        }
+    } @catch (__unused NSException *e) {}
+    for (UIViewController *c in host.childViewControllers) {
+        if (![cands containsObject:c]) [cands addObject:c];
+    }
+    UIViewController *best = nil;
+    NSUInteger bestN = 0;
+    for (UIViewController *c in cands) {
+        if (![NSStringFromClass([c class]) containsString:@"BookListCon"]) continue;
+        NSUInteger n = LBDiscoverArrCount(c);
+        if (n > bestN) { bestN = n; best = c; }
+    }
+    return best ?: active;
+}
+
 static NSString *LBCurrentExploreSourceUrl(id core) {
     NSString *src = nil;
     @try {
@@ -1820,12 +1860,8 @@ static void LBRevealDiscoverTitleAndListEx(UIViewController *host, BOOL force) {
     UIView *title = [tv isKindOfClass:[UIView class]] ? (UIView *)tv : nil;
 
     UIViewController *list = nil;
-    @try { list = LBActiveDiscoverListVC(host); } @catch (__unused NSException *e) {}
-    NSUInteger arrN = 0;
-    @try {
-        id a = [list valueForKey:@"arrBaseData"];
-        if ([a isKindOfClass:[NSArray class]]) arrN = [(NSArray *)a count];
-    } @catch (__unused NSException *e) {}
+    @try { list = LBDiscoverListVCForFeed(host); } @catch (__unused NSException *e) {}
+    NSUInteger arrN = LBDiscoverArrCount(list);
 
     CGFloat titleBottom = title ? CGRectGetMaxY(title.frame) : 0;
     // 分类栏收起：内容从栏顶位置开始（maxY 已塌缩，直接用栏顶 y）
@@ -1907,7 +1943,8 @@ static void LBRevealDiscoverTitleAndListEx(UIViewController *host, BOOL force) {
         list.view.alpha = 1;
     }
 
-    if (list && arrN > 0) {
+    // Legado 车道：即使 arr=0 也要叠表盖住 XBS 分类墙，否则灌书写在被挡住的原生表里（vis=0）。
+    if (list) {
         LBEnsurePlazaListTableHooks([list class]);
         UITableView *overlay = nil;
         for (UIView *sub in host.view.subviews) {
@@ -2863,9 +2900,12 @@ static UITableView *LBFindBestDiscoverTable(UIViewController *host, UIViewContro
     if (!host) return nil;
 
     NSMutableArray *owners = [NSMutableArray array];
+    UIViewController *feed = nil;
+    @try { feed = LBDiscoverListVCForFeed(host); } @catch (__unused NSException *e) {}
+    if (feed) [owners addObject:feed];
     UIViewController *active = nil;
     @try { active = LBActiveDiscoverListVC(host); } @catch (__unused NSException *e) {}
-    if (active) [owners addObject:active];
+    if (active && active != feed) [owners addObject:active];
 
     id scroll = nil;
     @try { scroll = [host valueForKey:@"pageContentScrollView"]; } @catch (__unused NSException *e) {}
@@ -3244,7 +3284,7 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
     }
     // 叠表已在：只 reload，禁止再走全量 Reveal（注入回调高频 → 闪屏）
     if (overlay) {
-        UIViewController *listVC = LBActiveDiscoverListVC(host) ?: host;
+        UIViewController *listVC = LBDiscoverListVCForFeed(host) ?: host;
         overlay.dataSource = (id<UITableViewDataSource>)listVC;
         overlay.delegate = (id<UITableViewDelegate>)listVC;
         overlay.scrollEnabled = YES;
@@ -3260,7 +3300,7 @@ void LBReloadDiscoverNativeList(UIViewController *host) {
     @try {
         BOOL isLBLT = (tv.tag == 0x4C424C54);
         if (isLBLT && (!tv.dataSource || tv.dataSource == (id)[NSNull null])) {
-            UIViewController *listVC = LBActiveDiscoverListVC(host) ?: host;
+            UIViewController *listVC = LBDiscoverListVCForFeed(host) ?: host;
             LBEnsurePlazaListTableHooks([listVC class]);
             tv.dataSource = (id<UITableViewDataSource>)listVC;
             tv.delegate = (id<UITableViewDelegate>)listVC;
