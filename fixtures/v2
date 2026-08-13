@@ -1,0 +1,7 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>本地静态测试源v2 首页</title></head>
+<body>
+<h1>本地静态测试源v2</h1>
+<p>该页仅用于让 v2 源的 bookSourceUrl (http://LAN:8765/v2) 返回 200，
+用来排除「源站首页不可达导致发现页不加载」这一假设。</p>
+</body></html>

@@ -3547,15 +3547,22 @@ static NSString *LBFindLegadoExploreUrlByName(NSString *name) {
         if (n.length == 0 || ![u isKindOfClass:[NSString class]]) continue;
         if ([n isEqualToString:want]) return u;
     }
-    // 2) 双向包含，但要求较短方长度 >= 4，避免「书」这种误伤
-    for (id row in rows) {
-        if (![row isKindOfClass:[NSDictionary class]]) continue;
-        NSString *n = LBNormalizeSourceDisplayName(row[@"name"]);
-        NSString *u = row[@"url"];
-        if (n.length == 0 || ![u isKindOfClass:[NSString class]]) continue;
-        NSUInteger minLen = MIN(n.length, want.length);
-        if (minLen < 4) continue;
-        if ([n containsString:want] || [want containsString:n]) return u;
+    // 2) 双向包含：仅当恰好一个候选命中时采用。
+    // 「本地静态测试源」是「本地静态测试源v2」的真子串，取第一个命中会绑错 URL。
+    {
+        NSMutableArray<NSString *> *hits = [NSMutableArray array];
+        for (id row in rows) {
+            if (![row isKindOfClass:[NSDictionary class]]) continue;
+            NSString *n = LBNormalizeSourceDisplayName(row[@"name"]);
+            NSString *u = row[@"url"];
+            if (n.length == 0 || ![u isKindOfClass:[NSString class]]) continue;
+            NSUInteger minLen = MIN(n.length, want.length);
+            if (minLen < 4) continue;
+            if ([n containsString:want] || [want containsString:n]) {
+                [hits addObject:u];
+            }
+        }
+        if (hits.count == 1) return hits.firstObject;
     }
     return nil;
 }
@@ -3613,6 +3620,10 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
         return;
     }
 
+    // 从 XBS 发现页切过来时 sDiscoverNativeXBSMode 仍为 YES。
+    // FeedHeader / 延迟 explore / ApplySearchResults 都会在该标志下直接 return，
+    // 结果只改标题、不发请求、列表仍是上一个 XBS 源。必须在灌壳之前清掉。
+    LBSetDiscoverNativeXBSMode(NO);
     sNativeChromeBuilt = NO; // 允许 Feed 重建被原生掏空的 chrome
     id core = LBKindCore();
     if (core && legadoUrl.length > 0) {
