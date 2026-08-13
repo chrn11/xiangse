@@ -1759,7 +1759,10 @@ private final class SearchOutcomeBox: @unchecked Sendable {
                 }
                 return
             }
-            guard exploreCaptureStillActive() else { return }
+            guard exploreCaptureStillActive() else {
+                writeSearchMarker("explore drop stale capture before fetch src=\(srcKey)")
+                return
+            }
             var total = 0
             for source in targets {
                 guard exploreCaptureStillActive() else { return }

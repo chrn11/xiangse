@@ -33,6 +33,8 @@ static void (*sOrig_setDicModel)(id, SEL, id) = NULL;
 static NSString *(*sOrig_getUseSourceName)(id, SEL) = NULL;
 static NSString *sDiscoverUseSourceName = nil;
 static NSString *sLastHandledSwitchName = nil;
+static NSString *sLastExploreBindKey = nil;
+static CFAbsoluteTime sLastExploreBindAt = 0;
 static NSInteger sSwitchPollGeneration = 0;
 static BOOL sFeedingDiscoverHeader = NO;
 static BOOL sApplyingKinds = NO; // ForceTitles/ApplyKinds 期间禁 explore，防连环 clear
@@ -707,10 +709,21 @@ static void LBTriggerExploreKind(NSString *sourceUrl, NSString *kindUrl) {
         return;
     }
     UIViewController *host = LBPrimaryDiscoverHost();
-    if (!LBBindLegadoSelection(core, sourceUrl, nil, host, kindUrl)) {
+    NSString *bindKey = [NSString stringWithFormat:@"%@|%@", sourceUrl ?: @"", kindUrl ?: @""];
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    BOOL sameBind = (sLastExploreBindKey.length > 0 &&
+                     [sLastExploreBindKey isEqualToString:bindKey] &&
+                     (now - sLastExploreBindAt) < 2.5);
+    if (sameBind) {
+        // 再 bind 会 bump contentGeneration，把已经 start 的 explore Task 作废且无后继。
+        LBAppendNativeMarker(@"nativeExplore skip rebind same kind");
+    } else if (!LBBindLegadoSelection(core, sourceUrl, nil, host, kindUrl)) {
         LBAppendNativeMarker(@"nativeExplore reject missing exact context");
         LBShowDiscoverExploreEmptyHint(@"分类上下文尚未就绪，请稍后重试");
         return;
+    } else {
+        sLastExploreBindKey = [bindKey copy];
+        sLastExploreBindAt = now;
     }
     ((void (*)(id, SEL, NSString *, NSString *, NSInteger))objc_msgSend)(
         core,
