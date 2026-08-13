@@ -3,6 +3,8 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 
+extern BOOL LBIsDiscoverNativeXBSMode(void);
+
 NSString *LBXBSModelValidateResultString(LBXBSModelValidateResult r) {
     switch (r) {
         case LBXBSModelValidateValid: return @"valid";
@@ -575,10 +577,16 @@ static void LBXBSRevealBookTableIfNeeded(UIViewController *vc) {
 
 static void (*sOrig_BLC_queryFinish)(id, SEL, id, id, id) = NULL;
 static void LBXBS_BLC_queryFinish(id self, SEL _cmd, id finishArg, id config, id userInfo) {
+    // 已切到 Legado 车道时，XBS 在途请求的 queryFinish 仍会把 arrBaseData 写回番茄书。
+    // XBS 车道（native 模式）仍走原实现；此处只隔离车道，不改 XBS 上屏路径。
+    if (!LBIsDiscoverNativeXBSMode()) {
+        LBXBSHandoffMark(@"queryFinish skip: legado mode");
+        return;
+    }
     if (sOrig_BLC_queryFinish) {
         sOrig_BLC_queryFinish(self, _cmd, finishArg, config, userInfo);
     }
-    // TC-08X：仅观测 arrN；禁止 delayed Reveal / UI 接管。
+    // TC-08X：XBS 车道仅观测 arrN；禁止 delayed Reveal / UI 接管。
     if (![self isKindOfClass:[UIViewController class]]) return;
     NSInteger arrN = -1;
     @try {
