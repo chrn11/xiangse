@@ -3624,6 +3624,9 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
     // FeedHeader / 延迟 explore / ApplySearchResults 都会在该标志下直接 return，
     // 结果只改标题、不发请求、列表仍是上一个 XBS 源。必须在灌壳之前清掉。
     LBSetDiscoverNativeXBSMode(NO);
+    // 上一源（XBS）的 arrBaseData 仍在 BookListCon 里。不先清掉的话
+    // reveal 会按 arr=100 叠一层 feedOverlay，把随后灌入的 Legado 书盖住。
+    LBClearDiscoverExploreBooks();
     sNativeChromeBuilt = NO; // 允许 Feed 重建被原生掏空的 chrome
     id core = LBKindCore();
     if (core && legadoUrl.length > 0) {
