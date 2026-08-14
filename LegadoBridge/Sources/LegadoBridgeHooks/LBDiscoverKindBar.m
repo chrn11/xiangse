@@ -3670,12 +3670,17 @@ static void LBHandleDiscoverSourceSwitched(UIViewController *host, NSString *sou
         if (core) {
             @try { [core setValue:nil forKey:@"selectedExploreSourceUrl"]; } @catch (__unused NSException *e) {}
         }
-        // 再跑原生重建（openConfig 常 noSel → setDicModel+resetContent）
+        @try { LBRemoveDiscoverOverlays(host); } @catch (__unused NSException *e) {}
+        @try { LBRevealDiscoverTitleAndList(host); } @catch (__unused NSException *e) {}
+        // 在 XBS 模式下再调原生 openConfig，让 createCons 出 titles，handoff 才能接线子页。
         BOOL opened = NO;
-        @try { opened = LBRestoreNativeXBSChrome(host, cleanName); } @catch (__unused NSException *e) {}
+        @try { opened = LBInvokeOpenConfigByName(host, cleanName); } @catch (__unused NSException *e) {}
+        BOOL restored = NO;
+        @try { restored = LBRestoreNativeXBSChrome(host, cleanName); } @catch (__unused NSException *e) {}
+        @try { LBSoftReloadNativeDiscoverTables(host); } @catch (__unused NSException *e) {}
         LBAppendNativeMarker([NSString stringWithFormat:
-                              @"nativeSwitch XBS mode=1 name=%@ openCfg=%d",
-                              cleanName, opened ? 1 : 0]);
+                              @"nativeSwitch XBS mode=1 name=%@ openCfg=%d restore=%d",
+                              cleanName, opened ? 1 : 0, restored ? 1 : 0]);
         // 纯 XBS：resetContent 后交给原生拉书，禁止延迟 LBReload（会 noop/扰刷新）
         return;
     }
@@ -4189,10 +4194,9 @@ void LBSwitchDiscoverToSourceName(NSString *sourceName) {
     }
     LBAppendNativeMarker([NSString stringWithFormat:@"switchDiscover name=%@ host=%@",
                           sourceName, NSStringFromClass([host class])]);
-    // 优先走原生 openConfig（hook 内会再调 HandleDiscoverSourceSwitched）
-    if (LBInvokeOpenConfigByName(host, sourceName)) {
-        return;
-    }
+    // 禁止「openConfig 调到 selector 就 return」：番茄官网几乎总能进 openConfig，
+    // 从 Legado 切回来时 Handle 被跳过，标题/叠表停在上一源。
+    // 原生重建放到 Handle 的 XBS 分支里，且 sHandlingDiscoverSwitch=YES，hook 不会重入。
     LBHandleDiscoverSourceSwitched(host, sourceName);
 }
 
