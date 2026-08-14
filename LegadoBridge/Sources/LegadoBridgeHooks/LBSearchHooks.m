@@ -101,6 +101,16 @@ void LBInstallSearchHooks(void) {
                         nativeOk = NO;
                     }
 
+                    // 原生 XBS 搜索页：只走原生 startSearch。再踢全源 Legado 会出 8 条 mock，
+                    // 但 native XBS 模式会 skipMutate/reapply skip，表仍是空的。
+                    if (LBIsDiscoverNativeXBSMode()) {
+                        NSString *marker = [NSString stringWithFormat:@"startSearch xbs-only native=%d key=%@",
+                                            (int)nativeOk, keyword ?: @""];
+                        [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_hook.txt"]
+                                 atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+                        return nativeOk;
+                    }
+
                     @try {
                         id core = LBLegadoCoreIfReady();
                         NSArray *names = nil;
@@ -150,6 +160,16 @@ void LBInstallSearchHooks(void) {
             // （legado://search 只走 startSearch@try，上次复验漏掉本 UI 路径）
             IMP swHook = imp_implementationWithBlock(^BOOL(id self, NSString *word) {
                 NSString *kw = [word isKindOfClass:[NSString class]] ? word : @"";
+                // 原生 XBS 搜索必须走原 searchWord（建 dicSearchingBook 观察者）。
+                // 有 Legado 就改走 mixed、再被 native XBS skipMutate，会留下空列表。
+                if (LBIsDiscoverNativeXBSMode()) {
+                    @try {
+                        return ((BOOL (*)(id, SEL, NSString *))swOrig)(self, @selector(searchWord:), kw);
+                    } @catch (NSException *e) {
+                        NSLog(@"[LegadoBridge] searchWord native-XBS fail-open: %@", e);
+                        return NO;
+                    }
+                }
                 if (LBLegadoGetSourceNames().count > 0) {
                     @try {
                         // 有 Legado：跳过原生 searchWord（易崩），直接走共存 startSearch
