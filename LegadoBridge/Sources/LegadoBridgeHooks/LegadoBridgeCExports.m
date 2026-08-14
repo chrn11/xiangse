@@ -12215,13 +12215,9 @@ void LBInstallCatalogUIAppearFlush(void) {
                  [selfClassName containsString:@"BookWorld"] ||
                  [selfClassName containsString:@"BookStore"] ||
                  [selfClassName containsString:@"Shudan"]);
-            BOOL nativeSearch =
-                LBIsDiscoverNativeXBSMode() &&
-                [selfClassName containsString:@"BookSearch"];
-            if (nativeDiscover || nativeSearch) {
+            if (nativeDiscover || (LBIsDiscoverNativeXBSMode() && [selfClassName containsString:@"BookSearch"])) {
                 // XBS 原生点书必须回到宿主 didSelect；Bridge 旁路会把原生书
                 // 误送入 LBPushLegadoBookDetailFromSearch，阅读页样式随之改变。
-                // 搜索页同样：XBS 模式结果没有 legado bookUrl，旧逻辑会吞掉点击。
                 prev(selfObj, @selector(tableView:didSelectRowAtIndexPath:), tv, ip);
                 return;
             }
