@@ -2432,35 +2432,22 @@ static BOOL LBCatalogLooksLegadoPending(void) {
     return NO;
 }
 
-/// 只认 Bridge 标记，不认 https / cpTitle。XBS 番茄目录也有章节 URL，不能当 Legado。
+/// 只认 Bridge 标记。XBS 番茄目录也有章节 URL / cpTitle，不能当 Legado。
 static BOOL LBArrayHasLegadoBridgeMark(NSArray *arr) {
-    if (![arr isKindOfClass:[NSArray class]] || arr.count == 0) return NO;
+    if (![arr isKindOfClass:[NSArray class]]) return NO;
     for (id item in arr) {
         if (![item isKindOfClass:[NSDictionary class]]) continue;
-        NSDictionary *d = (NSDictionary *)item;
-        if (d[@"legadoBridge"] != nil || d[@"fromLegadoBridge"] != nil) return YES;
+        if (item[@"legadoBridge"] || item[@"fromLegadoBridge"]) return YES;
     }
     return NO;
 }
-
-static BOOL LBCatalogVCHasLegadoBridgeFlag(id vc) {
-    if (!vc) return NO;
+static BOOL LBCatalogShouldHijackChapterOpen(id vc, NSArray *use) {
     @try {
         id dic = [vc valueForKey:@"dicBook"];
-        if ([dic isKindOfClass:[NSDictionary class]]) {
-            id flag = dic[@"fromLegadoBridge"] ?: dic[@"legadoBridge"];
-            if (flag != nil) return YES;
-        }
+        if ([dic isKindOfClass:[NSDictionary class]] &&
+            (dic[@"legadoBridge"] || dic[@"fromLegadoBridge"])) return YES;
     } @catch (__unused NSException *e) {}
-    return NO;
-}
-
-/// 目录点章劫持 / 透明按钮只允许 Legado 车道。XBS CatalogCon 必须走原生 didSelect。
-static BOOL LBCatalogShouldHijackChapterOpen(id vc, NSArray *use) {
-    if (LBCatalogVCHasLegadoBridgeFlag(vc)) return YES;
-    if (LBArrayHasLegadoBridgeMark(use)) return YES;
-    if (LBArrayHasLegadoBridgeMark(sPendingCatalogChapters)) return YES;
-    return NO;
+    return LBArrayHasLegadoBridgeMark(use) || LBArrayHasLegadoBridgeMark(sPendingCatalogChapters);
 }
 
 /// CatalogCon.dicBook 是否像 Legado 网文书（下拉会走 XBS 空查）
