@@ -2432,6 +2432,37 @@ static BOOL LBCatalogLooksLegadoPending(void) {
     return NO;
 }
 
+/// 只认 Bridge 标记，不认 https / cpTitle。XBS 番茄目录也有章节 URL，不能当 Legado。
+static BOOL LBArrayHasLegadoBridgeMark(NSArray *arr) {
+    if (![arr isKindOfClass:[NSArray class]] || arr.count == 0) return NO;
+    for (id item in arr) {
+        if (![item isKindOfClass:[NSDictionary class]]) continue;
+        NSDictionary *d = (NSDictionary *)item;
+        if (d[@"legadoBridge"] != nil || d[@"fromLegadoBridge"] != nil) return YES;
+    }
+    return NO;
+}
+
+static BOOL LBCatalogVCHasLegadoBridgeFlag(id vc) {
+    if (!vc) return NO;
+    @try {
+        id dic = [vc valueForKey:@"dicBook"];
+        if ([dic isKindOfClass:[NSDictionary class]]) {
+            id flag = dic[@"fromLegadoBridge"] ?: dic[@"legadoBridge"];
+            if (flag != nil) return YES;
+        }
+    } @catch (__unused NSException *e) {}
+    return NO;
+}
+
+/// 目录点章劫持 / 透明按钮只允许 Legado 车道。XBS CatalogCon 必须走原生 didSelect。
+static BOOL LBCatalogShouldHijackChapterOpen(id vc, NSArray *use) {
+    if (LBCatalogVCHasLegadoBridgeFlag(vc)) return YES;
+    if (LBArrayHasLegadoBridgeMark(use)) return YES;
+    if (LBArrayHasLegadoBridgeMark(sPendingCatalogChapters)) return YES;
+    return NO;
+}
+
 /// CatalogCon.dicBook 是否像 Legado 网文书（下拉会走 XBS 空查）
 static BOOL LBCatalogVCLooksLegado(id vc) {
     if (!vc) return NO;
@@ -4981,7 +5012,7 @@ static UITableViewCell *LBHookedCatalogCellForRow(id self, SEL _cmd, UITableView
     else if (sPendingCatalogChapters.count > 0) use = sPendingCatalogChapters;
     else if (LBArrayLooksLikeChapters(cat)) use = cat;
     else if (LBArrayLooksLikeChapters(base)) use = base;
-    BOOL legadoFallback = (use.count > 0);
+    BOOL legadoFallback = (use.count > 0) && LBCatalogShouldHijackChapterOpen(self, use);
     if (!legadoFallback) {
         IMP fwd = LBForwardTableCellIMP();
         if (fwd) {
@@ -11796,7 +11827,8 @@ static void LBInstallCatalogTableHooksOnClass(Class cls) {
                     use = nil;
                 }
             }
-            if (use.count > 0 && ip && ip.row >= 0 && ip.row < (NSInteger)use.count) {
+            if (use.count > 0 && ip && ip.row >= 0 && ip.row < (NSInteger)use.count &&
+                LBCatalogShouldHijackChapterOpen(selfObj, use)) {
                 if (sPendingCatalogChapters.count == 0) {
                     sPendingCatalogChapters = [use copy];
                 }
