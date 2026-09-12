@@ -488,21 +488,38 @@ static NSString *LBDebugParseDumpPhase(NSURL *url) {
     return nil;
 }
 
+static BOOL LBIsLegadoDebugURLForCurrentBundle(NSURL *url, NSString *baseScheme) {
+    if (!url || ![baseScheme isKindOfClass:[NSString class]]) return NO;
+    NSString *scheme = url.scheme.lowercaseString ?: @"";
+    if ([scheme isEqualToString:baseScheme]) return YES;
+    NSString *bundleID = NSBundle.mainBundle.bundleIdentifier.lowercaseString ?: @"";
+    if (![bundleID hasSuffix:@".legado.test"]) return NO;
+    NSString *cloneScheme = [baseScheme.lowercaseString stringByAppendingString:@".legado.test"];
+    return [scheme isEqualToString:cloneScheme];
+}
+
 static BOOL LBDebugHandlesOpenURL(NSURL *url) {
     if (!url) return NO;
-    NSString *abs = url.absoluteString ?: @"";
-    NSString *host = url.host.lowercaseString ?: @"";
-    if ([abs hasPrefix:@"legado://debugDump"] || [abs hasPrefix:@"yuedu://debugDump"] ||
-        [host isEqualToString:@"debugdump"]) {
-        NSString *phase = LBDebugParseDumpPhase(url);
-        if (phase.length) LBForensicsSetPendingDumpPhase(phase);
-        [LBDebugPanel lb_debugDumpAction];
-        return YES;
-    }
-    if ([abs hasPrefix:@"legado://debugPanel"] || [abs hasPrefix:@"yuedu://debugPanel"] ||
-        [host isEqualToString:@"debugpanel"]) {
-        LBOnThreeFingerTap();
-        return YES;
+    if (LBIsLegadoDebugURLForCurrentBundle(url, @"legado") ||
+        LBIsLegadoDebugURLForCurrentBundle(url, @"yuedu")) {
+        NSString *host = url.host.lowercaseString ?: @"";
+        NSString *path = url.path.lowercaseString ?: @"";
+        BOOL isDump = [host isEqualToString:@"debugdump"] ||
+                      [path containsString:@"/debugdump"] ||
+                      [path containsString:@"debugdump"];
+        BOOL isPanel = [host isEqualToString:@"debugpanel"] ||
+                       [path containsString:@"/debugpanel"] ||
+                       [path containsString:@"debugpanel"];
+        if (isDump) {
+            NSString *phase = LBDebugParseDumpPhase(url);
+            if (phase.length) LBForensicsSetPendingDumpPhase(phase);
+            [LBDebugPanel lb_debugDumpAction];
+            return YES;
+        }
+        if (isPanel) {
+            LBOnThreeFingerTap();
+            return YES;
+        }
     }
     return NO;
 }
