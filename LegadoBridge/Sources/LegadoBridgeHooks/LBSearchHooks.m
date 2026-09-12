@@ -101,9 +101,9 @@ void LBInstallSearchHooks(void) {
                         nativeOk = NO;
                     }
 
-                    // 原生 XBS 搜索页：只走原生 startSearch。再踢全源 Legado 会出 8 条 mock，
-                    // 但 native XBS 模式会 skipMutate/reapply skip，表仍是空的。
-                    if (LBIsDiscoverNativeXBSMode()) {
+                    // 只有仍处于发现页、且没有主动搜索意图时，才保留 XBS-only。
+                    // 发现页的全局模式不能吞掉普通 BookSearch 的 Legado 共存车道。
+                    if (LBIsActiveNativeDiscoverLane()) {
                         NSString *marker = [NSString stringWithFormat:@"startSearch xbs-only native=%d key=%@",
                                             (int)nativeOk, keyword ?: @""];
                         [marker writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_hook.txt"]
@@ -160,9 +160,12 @@ void LBInstallSearchHooks(void) {
             // （legado://search 只走 startSearch@try，上次复验漏掉本 UI 路径）
             IMP swHook = imp_implementationWithBlock(^BOOL(id self, NSString *word) {
                 NSString *kw = [word isKindOfClass:[NSString class]] ? word : @"";
-                // 原生 XBS 搜索必须走原 searchWord（建 dicSearchingBook 观察者）。
-                // 有 Legado 就改走 mixed、再被 native XBS skipMutate，会留下空列表。
-                if (LBIsDiscoverNativeXBSMode()) {
+                // searchWord: 也可能绕过书架入口直接触发；将其视为普通
+                // BookSearch 用户意图，防止旧发现态污染本次路由。
+                LBSetBookSearchUserIntent(YES);
+                // 普通搜索只在当前确实是主动 BookSearch 时走 Legado；
+                // stale discover XBS 状态不再阻断搜索。
+                if (LBIsActiveNativeDiscoverLane()) {
                     @try {
                         return ((BOOL (*)(id, SEL, NSString *))swOrig)(self, @selector(searchWord:), kw);
                     } @catch (NSException *e) {
