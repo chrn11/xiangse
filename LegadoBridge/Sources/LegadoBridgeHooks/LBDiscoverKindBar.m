@@ -52,6 +52,14 @@ void LBSetDiscoverNativeXBSMode(BOOL on) {
     sDiscoverNativeXBSMode = on ? YES : NO;
 }
 
+/// 发现页原生 XBS lane：只有发现页仍活跃、没有主动搜索意图时才成立。
+/// 搜索意图独立于发现页模式，避免旧的全局 XBS 状态吞掉 Legado 搜索结果。
+BOOL LBIsActiveNativeDiscoverLane(void) {
+    return LBIsDiscoverTabActive() &&
+           !LBIsBookSearchUserIntent() &&
+           LBIsDiscoverNativeXBSMode();
+}
+
 /// 去掉切换列表里的「📄 」等装饰前缀，便于跟书源真名对齐
 static NSString *LBNormalizeSourceDisplayName(NSString *name) {
     if (name.length == 0) return name;
