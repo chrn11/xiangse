@@ -71,6 +71,7 @@ jobs:
           chmod +x tools/repack/repack_forensics.sh tools/repack/verify_forensics_ipa.sh
           BASE_IPA="ipa/香色闺阁2.56.1_未加密.ipa"
           test -f "$BASE_IPA"
+          mkdir -p dist
           BASE_SHA="$(shasum -a 256 "$BASE_IPA" | awk '{print $1}')"
           echo "base_ipa_sha256=$BASE_SHA" | tee dist/forensics-base.sha256
 
