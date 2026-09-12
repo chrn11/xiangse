@@ -805,7 +805,8 @@ static void LBMergeBookIntoSearchVC(UIViewController *vc, NSDictionary *book, NS
 }
 static void LBReapplyLastSearchBooks(void) {
     if (sLastAppliedSearchBooks.count == 0) return;
-    if (LBIsDiscoverNativeXBSMode()) {
+    BOOL shouldSkip = LBIsActiveNativeDiscoverLane();
+    if (shouldSkip) {
         [@"uiInject reapply skip (native XBS mode)"
             writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_search_ui_inject.txt"]
             atomically:YES encoding:NSUTF8StringEncoding error:NULL];
@@ -838,7 +839,7 @@ static void LBFlushPendingSearchUI(void) {
     }
     NSArray *ordinaryBooks = [sPendingSearchBooks copy];
     NSString *ordinaryKeyword = [sPendingSearchKeyword copy];
-    if (ordinaryBooks.count > 0 && ordinaryKeyword.length > 0 && !LBKeywordIsExploreMode(ordinaryKeyword) && !LBIsDiscoverNativeXBSMode()) LBApplySearchResultsToUI(ordinaryBooks, ordinaryKeyword);
+    if (ordinaryBooks.count > 0 && ordinaryKeyword.length > 0 && !LBKeywordIsExploreMode(ordinaryKeyword) && !LBIsActiveNativeDiscoverLane()) LBApplySearchResultsToUI(ordinaryBooks, ordinaryKeyword);
 }
 static void LBSetSearchKeywordOnVC(UIViewController *vc, NSString *keyword) {
     if (keyword.length == 0) return;
@@ -1438,7 +1439,7 @@ static UITableViewCell *LBHookedCellForRow(id self, SEL _cmd, UITableView *tv, N
                 id item = [(NSArray *)cur objectAtIndex:(NSUInteger)ip.row];
                 if ([item isKindOfClass:[NSDictionary class]] &&
                     !LBItemLooksLikeChapter(item) &&
-                    !LBIsDiscoverNativeXBSMode()) {
+                    !LBIsActiveNativeDiscoverLane()) {
                     return LBMakeLegadoDiscoverBookCell(tv, (NSDictionary *)item);
                 }
             }
@@ -2010,7 +2011,7 @@ void LBApplySearchResultsToUI(NSArray *books, NSString *keyword) {
     BOOL exploreMode = LBKeywordIsExploreMode(keyword);
     @try {
     if (!exploreMode && books.count == 0) return;
-    if (!exploreMode && LBIsDiscoverNativeXBSMode()) return;
+    if (!exploreMode && LBIsActiveNativeDiscoverLane()) return;
     NSDictionary *explorePermit = nil;
     if (exploreMode) {
         if (LBIsDiscoverNativeXBSMode() || ![sPendingExploreToken isKindOfClass:[NSDictionary class]]) {
@@ -12228,13 +12229,12 @@ void LBInstallCatalogUIAppearFlush(void) {
             (void (*)(id, SEL, UITableView *, NSIndexPath *))method_getImplementation(m);
         IMP hook = imp_implementationWithBlock(^void(id selfObj, UITableView *tv, NSIndexPath *ip) {
             NSString *selfClassName = NSStringFromClass([selfObj class]);
-            BOOL nativeDiscover =
-                LBIsDiscoverNativeXBSMode() && LBIsDiscoverTabActive() &&
+            BOOL nativeDiscover = LBIsDiscoverNativeXBSMode() && LBIsDiscoverTabActive() &&
                 ([selfClassName containsString:@"BookList"] ||
                  [selfClassName containsString:@"BookWorld"] ||
                  [selfClassName containsString:@"BookStore"] ||
                  [selfClassName containsString:@"Shudan"]);
-            if (nativeDiscover || (LBIsDiscoverNativeXBSMode() && [selfClassName containsString:@"BookSearch"])) {
+            if (nativeDiscover || (LBIsActiveNativeDiscoverLane() && [selfClassName containsString:@"BookSearch"])) {
                 // XBS 原生点书必须回到宿主 didSelect；Bridge 旁路会把原生书
                 // 误送入 LBPushLegadoBookDetailFromSearch，阅读页样式随之改变。
                 prev(selfObj, @selector(tableView:didSelectRowAtIndexPath:), tv, ip);
