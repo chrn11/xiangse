@@ -404,6 +404,18 @@ static NSString *LBQueryParameterFromURL(NSURL *url, NSString *key) {
     return nil;
 }
 
+/// 原版使用 legado/yuedu；TC-00B clone 会把 URL scheme 加上 .legado.test，
+/// 这里仅在 clone bundle 内放行后缀，避免深链落到同机真实 App。
+static BOOL LBIsLegadoURLSchemeForCurrentBundle(NSString *scheme) {
+    if (![scheme isKindOfClass:[NSString class]]) return NO;
+    NSString *normalized = scheme.lowercaseString;
+    if ([normalized isEqualToString:@"legado"] || [normalized isEqualToString:@"yuedu"]) return YES;
+    NSString *bundleID = NSBundle.mainBundle.bundleIdentifier.lowercaseString ?: @"";
+    if (![bundleID hasSuffix:@".legado.test"]) return NO;
+    return [normalized isEqualToString:@"legado.legado.test"] ||
+           [normalized isEqualToString:@"yuedu.legado.test"];
+}
+
 static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application, NSURL *url, NSDictionary *options) {
     // 调试标记 0：openURL hook 被调用（记录 URL）
     [url.absoluteString writeToFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/legado_openurl_hit.txt"] atomically:NO encoding:NSUTF8StringEncoding error:NULL];
@@ -412,7 +424,7 @@ static BOOL LBAppDelegate_openURL_options_IMP(id self, SEL _cmd, id application,
     // legado://search?keyword=<kw>[&sourceUrl=...] — 绕过软键盘触发混合搜索（验收深链）
     if (url) {
         NSString *scheme = url.scheme.lowercaseString;
-        if ([scheme isEqualToString:@"legado"] || [scheme isEqualToString:@"yuedu"]) {
+        if (LBIsLegadoURLSchemeForCurrentBundle(scheme)) {
             NSString *src = LBQueryParameterFromURL(url, @"src");
             NSString *keyword = LBQueryParameterFromURL(url, @"keyword");
             if (keyword.length == 0) keyword = LBQueryParameterFromURL(url, @"key");
