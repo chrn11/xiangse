@@ -89,6 +89,8 @@ void LBSetDiscoverTabActive(BOOL active);
 /// 用户从书架/顶栏主动打开搜索（C-01：避免发现 sticky 抢路由）
 void LBSetBookSearchUserIntent(BOOL active);
 BOOL LBIsBookSearchUserIntent(void);
+/// 用户主动搜索时，发现页的全局 XBS 状态不能抢占搜索车道。
+BOOL LBIsActiveNativeDiscoverLane(void);
 NSArray *LBFindDiscoverHostVCs(void);
 /// 推出/复用原生广场壳（BookWorld/Store）；禁止 push BookSearch 冒充发现
 BOOL LBEnsureNativeDiscoverHostPresented(void);
