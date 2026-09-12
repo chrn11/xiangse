@@ -212,6 +212,11 @@ def map_entitlement_value(val: str, source_main: str, clone_main: str, team_id: 
     prefix = f"{team_id}." if team_id else ""
     if team_id and val.startswith(prefix):
         rest = val[len(prefix) :]
+        # A TrollStore/profile wildcard access group must not survive into a
+        # clone: turn it into the clone's exact group so the clone cannot use
+        # the real app's broad wildcard namespace.
+        if rest == "*":
+            return prefix + clone_main
         return prefix + map_bundle_id(rest, source_main, clone_main)
     if val == source_main or val.startswith(source_main + "."):
         return map_bundle_id(val, source_main, clone_main)
@@ -521,7 +526,12 @@ def build_clone_entitlements(
                 ]
             else:
                 out[key] = val
-        elif key == "com.apple.developer.ubiquity-kvstore-identifier":
+        elif key in (
+            "com.apple.developer.ubiquity-kvstore-identifier",
+            "com.apple.private.security.container-required",
+        ) and isinstance(val, str):
+            # clone 的容器归属必须随 bundle ID 一起迁移；保留真实值会
+            # 让 clone 失去独立 data container，或在真实容器上启动。
             out[key] = map_entitlement_value(str(val), source_main, CLONE_BUNDLE_ID, team_id)
         elif key == "com.apple.developer.icloud-container-identifiers" and isinstance(val, list):
             out[key] = [
@@ -654,18 +664,25 @@ def transform_payload_to_clone(
     mapped_ids: list[str] = []
     scheme_report: dict[str, Any] = {"status": "none_present", "mapped": [], "sourceHadSchemes": False}
     all_new_schemes: list[str] = []
+    original_bundle_ids: dict[Path, str] = {}
 
     for pp in plists:
         pl = load_plist(pp)
         old_id = str(pl.get("CFBundleIdentifier") or "")
         kind = classify_bundle(pp)
+        # Map original bundle identity before rewriting Info.plist.  The
+        # external source-entitlements JSON is naturally keyed by the original
+        # identifier; looking up only ``bid`` after mutation silently loses
+        # real entitlements and falls back to a minimal placeholder.
+        original_bid = old_id
+        original_bundle_ids[pp] = original_bid
         if kind == "app" and pp.parent == main_app:
             new_id = CLONE_BUNDLE_ID
             pl["CFBundleIdentifier"] = new_id
             pl["CFBundleDisplayName"] = CLONE_DISPLAY_NAME
             # 可选 CFBundleName 不强制
         else:
-            new_id = map_bundle_id(old_id, source_main, CLONE_BUNDLE_ID)
+            new_id = map_bundle_id(original_bid, source_main, CLONE_BUNDLE_ID)
             pl["CFBundleIdentifier"] = new_id
 
         old_schemes = collect_url_schemes(pl)
@@ -699,8 +716,14 @@ def transform_payload_to_clone(
     for pp in plists:
         pl = load_plist(pp)
         bid = str(pl.get("CFBundleIdentifier") or "")
-        # 找源 entitlements：按映射前 id 的启发式 — 调用方应按路径提供
-        src_ent = source_entitlements.get(bid) or source_entitlements.get(str(pp))
+        original_bid = original_bundle_ids.get(pp, "")
+        # 找源 entitlements：优先原始 bundle ID；调用方的 JSON 不应被
+        # 已改写的 Info.plist 身份键破坏。路径键保留作兼容兜底。
+        src_ent = (
+            source_entitlements.get(original_bid)
+            or source_entitlements.get(bid)
+            or source_entitlements.get(str(pp))
+        )
         if src_ent is None:
             # 尝试 sibling entitlements.plist / archived-expanded-entitlements.xcent
             for name in ("entitlements.plist", "archived-expanded-entitlements.xcent"):
@@ -786,7 +809,10 @@ def repack_clone_structure(
     work.mkdir(parents=True)
     # 复制 IPA 到工作目录后再解包，不原地改源
     ipa_copy = work / "source-copy.ipa"
-    shutil.copy2(ipa_in, ipa_copy)
+    # Some mounted/iSH-backed filesystems reject timestamp restoration after
+    # a successful byte copy.  Metadata is irrelevant here: source hash is
+    # recorded separately and the input remains untouched.
+    shutil.copyfile(ipa_in, ipa_copy)
     unpack_dir = work / "unpacked"
     payload = unpack_ipa(ipa_copy, unpack_dir)
 
@@ -1150,9 +1176,22 @@ def write_allowlist(path: Path, team_id: str, bundle_ids: list[str]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-# ---------------------------------------------------------------------------
-# 自测
-# ---------------------------------------------------------------------------
+def test_private_container_required_is_mapped_for_clone() -> None:
+    src = {
+        "application-identifier": "TROLLTROLL.*",
+        "com.apple.private.security.container-required": "com.appbox.StandarReader",
+        "keychain-access-groups": ["TROLLTROLL.*", "com.apple.token"],
+    }
+    out = build_clone_entitlements(
+        src,
+        source_main=DEFAULT_SOURCE_MAIN,
+        clone_bundle_id=CLONE_BUNDLE_ID,
+        team_id="TROLLTROLL",
+    )
+    assert out["com.apple.private.security.container-required"] == CLONE_BUNDLE_ID
+    assert out["application-identifier"] == "TROLLTROLL." + CLONE_BUNDLE_ID
+    assert out["keychain-access-groups"] == ["TROLLTROLL." + CLONE_BUNDLE_ID, "com.apple.token"]
+    assert entitlements_isolated(out, source_main=DEFAULT_SOURCE_MAIN)
 
 class TestResult:
     def __init__(self) -> None:
@@ -1187,6 +1226,11 @@ def run_selftest(run_dir: Path, repo_root: Path) -> int:
     assert_safe_work_root(work, repo_root)
 
     tr = TestResult()
+    try:
+        test_private_container_required_is_mapped_for_clone()
+        tr.record("private_container_required_mapped", True, 0, "ok")
+    except Exception as e:
+        tr.record("private_container_required_mapped", False, 1, type(e).__name__ + ":" + str(e)[:80])
     team = "FIXTURETEAM"
     source_main = DEFAULT_SOURCE_MAIN
     ext_src = f"{source_main}.share"
