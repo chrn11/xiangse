@@ -122,9 +122,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           retention-days: 7
-      with:
-        retention-days: 7
-        with:
           name: Reader-Forensics-IPAs
           path: |
             dist/StandarReader-baseline-debug.ipa
