@@ -71,7 +71,7 @@ jobs:
             );
             await core.summary
               .addHeading('Artifact cleanup')
-              .add list([
+              .addList([
                 `Policy: delete artifacts older than ${maxAgeDays} days`,
                 `Keep: newest ${keepCount} for each artifact name`,
                 `Deleted: ${deleted}`,
