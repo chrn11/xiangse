@@ -120,6 +120,8 @@ jobs:
           ls -la dist/
 
       - uses: actions/upload-artifact@v4
+      with:
+        retention-days: 7
         with:
           name: Reader-Forensics-IPAs
           path: |
