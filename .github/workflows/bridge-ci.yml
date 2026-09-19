@@ -96,12 +96,9 @@ jobs:
             2>&1 | tee ../spm-package-full.log
 
       - uses: actions/upload-artifact@v4
-        with:
-          retention-days: 7
-      with:
-        retention-days: 7
         if: always()
         with:
+          retention-days: 7
           name: SPM-full-test-logs
           path: |
             LegadoBridge/LegadoBridge-Package.xcresult
@@ -208,9 +205,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           retention-days: 7
-      with:
-        retention-days: 7
-        with:
           name: LegadoBridge-IPA
           path: |
             dist/StandarReader-legado-bridge.ipa
@@ -221,15 +215,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           retention-days: 7
-      with:
-        retention-days: 7
-        with:
           name: LegadoBridge-build-logs
           path: |
             LegadoBridge/.build/**/*
             LegadoBridge/spm-build.log
           if-no-files-found: warn
-          retention-days: 7
 
   build-bridge-debug:
     needs: [privacy-scan]
@@ -331,9 +321,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           retention-days: 7
-      with:
-        retention-days: 7
-        with:
           name: LegadoBridge-IPA-Debug
           path: |
             dist/StandarReader-legado-bridge-debug.ipa
