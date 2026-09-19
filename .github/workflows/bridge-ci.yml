@@ -96,6 +96,8 @@ jobs:
             2>&1 | tee ../spm-package-full.log
 
       - uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
       with:
         retention-days: 7
         if: always()
@@ -204,6 +206,8 @@ jobs:
 
       # 仅 Artifact，不创建 GitHub Release
       - uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
       with:
         retention-days: 7
         with:
@@ -215,6 +219,8 @@ jobs:
           if-no-files-found: warn
 
       - uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
       with:
         retention-days: 7
         with:
@@ -323,6 +329,8 @@ jobs:
           test -f dist/StandarReader-legado-bridge-debug.ipa.sha256
 
       - uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
       with:
         retention-days: 7
         with:
