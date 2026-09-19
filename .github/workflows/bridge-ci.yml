@@ -96,6 +96,8 @@ jobs:
             2>&1 | tee ../spm-package-full.log
 
       - uses: actions/upload-artifact@v4
+      with:
+        retention-days: 7
         if: always()
         with:
           name: SPM-full-test-logs
@@ -202,6 +204,8 @@ jobs:
 
       # 仅 Artifact，不创建 GitHub Release
       - uses: actions/upload-artifact@v4
+      with:
+        retention-days: 7
         with:
           name: LegadoBridge-IPA
           path: |
@@ -211,6 +215,8 @@ jobs:
           if-no-files-found: warn
 
       - uses: actions/upload-artifact@v4
+      with:
+        retention-days: 7
         with:
           name: LegadoBridge-build-logs
           path: |
@@ -317,6 +323,8 @@ jobs:
           test -f dist/StandarReader-legado-bridge-debug.ipa.sha256
 
       - uses: actions/upload-artifact@v4
+      with:
+        retention-days: 7
         with:
           name: LegadoBridge-IPA-Debug
           path: |
